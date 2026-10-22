@@ -104,6 +104,9 @@ Delaunay mesher, curved elements and benchmark results.
 See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for solve times on a 32-core workstation: a patch antenna
 with 613k unknowns, swept over a 3:1 band with 101 points, in 203 s (1375 s on one core).
 
+See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next, step by step: a solver interface for several
+solvers, openEMS (FDTD), electrostatics and magnetostatics, circuit co-simulation and photonics.
+
 ## Examples
 
 | File | What it shows |
