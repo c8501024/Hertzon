@@ -16,22 +16,22 @@ Suggestions and discussion are welcome in the [issues](https://github.com/c85010
 |---|---|---|---|
 | [0](#step-0-foundation-one-model-several-solvers) | Foundation: one model, several solvers | Hertzon | L |
 | [1](#step-1-complete-the-rf-fem-workflow) | Complete the RF FEM workflow | EMerge | L |
-| [2](#step-2-network-level-and-port-circuits) | Network level and port circuits | scikit-rf | M |
-| [3](#step-3-openems-as-a-second-solver-ec-fdtd) | openEMS as a second solver (EC-FDTD) | openEMS, CSXCAD | L |
+| [2](#step-2-openems-as-a-second-solver-ec-fdtd) | openEMS as a second solver (EC-FDTD) | openEMS, CSXCAD | L |
+| [3](#step-3-network-level-and-port-circuits) | Network level and port circuits | scikit-rf | M |
 | [4](#step-4-electrostatics-magnetostatics-and-dc-conduction) | Electrostatics, magnetostatics and DC conduction | GetDP | L |
 | [5](#step-5-circuit-co-simulation) | Circuit co-simulation | ngspice, Qucs-S | L |
 | [6](#step-6-low-frequency-dynamics-and-thermal-coupling) | Low-frequency dynamics and thermal coupling | Elmer FEM | XL |
 | [7](#step-7-photonics) | Photonics | mode solver, gdstk, openEMS / MEEP | XL |
-| [8](#step-8-platform) | Platform (runs alongside from step 3 on) | Hertzon | L |
+| [8](#step-8-platform) | Platform (runs alongside from step 2 on) | Hertzon | L |
 
 Frequency coverage once all steps are done:
 
 | Range | Typical use | Step |
 |---|---|---|
 | DC to ~100 MHz | capacitance and inductance matrices, forces, coils, motors | 4, 6 |
-| DC to ~100 GHz | circuits, S-parameter networks, SPICE | 2, 5 |
+| DC to ~100 GHz | circuits, S-parameter networks, SPICE | 3, 5 |
 | ~100 MHz to ~300 GHz | RF FEM (today) | 1 |
-| ~10 MHz to ~THz | broadband time domain, TDR | 3 |
+| ~10 MHz to ~THz | broadband time domain, TDR | 2 |
 | ~30 THz to ~1 PHz (1550 nm = 193 THz) | integrated optics | 7 |
 
 The limits are not sharp: what matters is the size of the structure compared to the wavelength.
@@ -41,19 +41,19 @@ The limits are not sharp: what matters is the size of the structure compared to 
 ```mermaid
 flowchart LR
   S0["0 Foundation"] --> S1["1 RF FEM complete"]
-  S0 --> S2["2 Network level"]
-  S0 --> S3["3 openEMS"]
+  S0 --> S2["2 openEMS"]
+  S0 --> S3["3 Network level"]
   S0 --> S4["4 Statics"]
-  S1 -- "dispersive materials" --> S3
+  S1 -- "dispersive materials" --> S2
   S1 -- "terminal solution" --> S5["5 Co-simulation"]
-  S2 --> S5
+  S3 --> S5
   S4 -- "RLGC extraction" --> S5
   S4 --> S6["6 LF dynamics, thermal"]
   S5 -- "winding circuits" --> S6
   S1 -- "periodicity, materials" --> S7["7 Photonics"]
-  S3 -- "optical FDTD" --> S7
-  S2 -- "cascaded S-matrices" --> S7
-  S3 --> S8["8 Platform"]
+  S2 -- "optical FDTD" --> S7
+  S3 -- "cascaded S-matrices" --> S7
+  S2 --> S8["8 Platform"]
   S6 --> S8
 ```
 
@@ -90,44 +90,44 @@ touch the EMerge core should go upstream to EMerge, so that Hertzon does not dep
 - [ ] **1.2 Periodic boundaries (L).** Primary/secondary boundaries, Floquet ports, impedance
   multiplier for symmetry. *Used by arrays, metamaterials and step 7 (grating couplers).*
 - [ ] **1.3 Dispersive and anisotropic materials (M).** Debye, Djordjevic-Sarkar, Drude/Lorentz,
-  tensors. *Used by steps 3 and 7.*
+  tensors. *Used by steps 2 and 7.*
 - [ ] **1.4 Field post-processing (M–L).** Fields calculator, losses, quality factor Q, field export,
   antenna parameter table, near field. *Used by step 6 (thermal).*
 - [ ] **1.5 Modeler and usability (M).** Arcs and splines in polylines, interactive move/rotate,
   measure tools, clickable messages, report markers and axes, more modeler operations.
 
-## Step 2: Network level and port circuits
-
-Small and useful right away for every filter and antenna design: it works on the Touchstone files
-Hertzon already writes.
-
-- [ ] **2.1 Network editor (M).** Connect and cascade S-parameter blocks, RLC elements and
-  transmission lines; terminate ports with circuits after the solve, without solving again. Built on
-  scikit-rf. *Needs 0.2.*
-- [ ] **2.2 Push excitation (M).** Port voltages and currents from the circuit are applied to the
-  stored port solutions, so fields and far field of the loaded structure can be plotted. *Needs 2.1.*
-- [ ] **2.3 Exchange with external circuit tools (S–M).** Touchstone, netlist and parameters in and
-  out, plus MCP tools, so a circuit tool can call parametrized Hertzon designs. *Needs 2.1.*
-
-## Step 3: openEMS as a second solver (EC-FDTD)
+## Step 2: openEMS as a second solver (EC-FDTD)
 
 [openEMS](https://openems.de) solves Maxwell's equations with EC-FDTD on a rectilinear grid in the
 time domain. One run with a Gaussian pulse gives the whole band, plus time signals that FEM does not
 provide. The same model from the Hertzon modeler is solved by selecting another solver.
 
-- [ ] **3.1 Geometry export to CSXCAD (M).** Primitives directly, everything else from OpenCASCADE as
+- [ ] **2.1 Geometry export to CSXCAD (M).** Primitives directly, everything else from OpenCASCADE as
   polyhedra, conductors as sheets, materials from the library. *Needs 0.1.*
-- [ ] **3.2 Automatic rectilinear grid (M–L).** The counterpart of adaptive meshing: grid lines on
+- [ ] **2.2 Automatic rectilinear grid (M–L).** The counterpart of adaptive meshing: grid lines on
   edges, third rule at metal edges, at most λ/20 in dielectrics, cell growth ≤ 1.5; convergence check
-  by refining and comparing. *Needs 3.1.*
-- [ ] **3.3 Excitations (M).** Lumped port, microstrip port, waveguide port, plane wave; pulse width
-  from the sweep band, stop at −40 to −50 dB remaining energy; PML and Mur boundaries. *Needs 3.1.*
-- [ ] **3.4 Results (M).** S-parameters by FFT, a new report type for time signals and TDR, NF2FF
+  by refining and comparing. *Needs 2.1.*
+- [ ] **2.3 Excitations (M).** Lumped port, microstrip port, waveguide port, plane wave; pulse width
+  from the sweep band, stop at −40 to −50 dB remaining energy; PML and Mur boundaries. *Needs 2.1.*
+- [ ] **2.4 Results (M).** S-parameters by FFT, a new report type for time signals and TDR, NF2FF
   far field, field dumps in the format of 0.2. *Needs 0.2.*
-- [ ] **3.5 Packaging (S–M).** The installers fetch openEMS for Windows and Linux, the same way they
+- [ ] **2.5 Packaging (S–M).** The installers fetch openEMS for Windows and Linux, the same way they
   fetch EMerge today.
-- [ ] **3.6 Cross-validation (S).** FEM against FDTD on the microstrip, patch and hairpin filter
-  examples, as part of the suite in 0.5. *Needs 3.4.*
+- [ ] **2.6 Cross-validation (S).** FEM against FDTD on the microstrip, patch and hairpin filter
+  examples, as part of the suite in 0.5. *Needs 2.4.*
+
+## Step 3: Network level and port circuits
+
+Small and useful right away for every filter and antenna design: it works on the Touchstone files
+Hertzon already writes.
+
+- [ ] **3.1 Network editor (M).** Connect and cascade S-parameter blocks, RLC elements and
+  transmission lines; terminate ports with circuits after the solve, without solving again. Built on
+  scikit-rf. *Needs 0.2.*
+- [ ] **3.2 Push excitation (M).** Port voltages and currents from the circuit are applied to the
+  stored port solutions, so fields and far field of the loaded structure can be plotted. *Needs 3.1.*
+- [ ] **3.3 Exchange with external circuit tools (S–M).** Touchstone, netlist and parameters in and
+  out, plus MCP tools, so a circuit tool can call parametrized Hertzon designs. *Needs 3.1.*
 
 ## Step 4: Electrostatics, magnetostatics and DC conduction
 
@@ -148,9 +148,9 @@ Links 3D solutions with lumped components and system simulation.
 
 - [ ] **5.1 Time domain and SPICE (L).** Macromodel by vector fitting with passivity enforcement,
   export as a SPICE subcircuit, transients and eye diagrams with ngspice as a shared library.
-  *Needs 2.1, 1.1.*
+  *Needs 3.1, 1.1.*
 - [ ] **5.2 Schematic user interface (L).** Use Qucs-S as the schematic front end, or a schematic in
-  Hertzon's own style; harmonic balance through Qucsator. *Needs 2.1.*
+  Hertzon's own style; harmonic balance through Qucsator. *Needs 3.1.*
 - [ ] **5.3 Extraction into circuits (M).** RLGC parameters of lines and packages from 4.1 and 4.2 as
   circuit models. *Needs 4.1, 4.2.*
 
@@ -180,11 +180,11 @@ problems for wave ports and is the natural starting point.
 - [ ] **7.3 GDS import with layer stack (M).** gdstk for GDS, gdsfactory for PDK components.
   *Needs 0.3.*
 - [ ] **7.4 3D devices (L).** FEM for compact structures such as ring resonators, couplers and grating
-  couplers (with periodicity from 1.2); FDTD for larger ones through openEMS or MEEP. *Needs 1.2, 3.*
+  couplers (with periodicity from 1.2); FDTD for larger ones through openEMS or MEEP. *Needs 1.2, 2.*
 - [ ] **7.5 Eigenmode expansion (L).** For long, slowly varying structures such as tapers and MMI
   couplers. *Needs 7.2.*
 - [ ] **7.6 Photonic circuits (M).** Connect the S-matrices of devices with the network editor from
-  2.1. *Needs 2.1, 7.4.*
+  3.1. *Needs 3.1, 7.4.*
 
 ## Step 8: Platform
 
@@ -253,7 +253,7 @@ Open points:
 1. Design the solver interface and the result format (0.1, 0.2) and move EMerge to it as the first
    backend.
 2. openEMS spike: export the microstrip example to CSXCAD, solve it with openEMS and compare
-   S<sub>21</sub> with EMerge. This shows how large 3.1 and 3.2 really are.
+   S<sub>21</sub> with EMerge. This shows how large 2.1 and 2.2 really are.
 3. GetDP spike: compute the capacitance of a microstrip line electrostatically and compare it with the
    line theory from hfsynpy.
-4. Network editor 2.1 with scikit-rf, in parallel with 0.1, since it works on today's Touchstone files.
+4. Network editor 3.1 with scikit-rf, once openEMS is in.
