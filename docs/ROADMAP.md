@@ -6,9 +6,7 @@ interpolating sweeps, far field and RCS, optimization and an MCP server. This ro
 grows into an open simulation suite: time domain, low frequency, circuits and photonics, built from open
 solvers under one user interface.
 
-The steps are ordered by what builds on what. There are no dates: each step starts when the steps it
-depends on are done. Suggestions and discussion are welcome in the
-[issues](https://github.com/c8501024/Hertzon/issues).
+Suggestions and discussion are welcome in the [issues](https://github.com/c8501024/Hertzon/issues).
 
 **Size** of a work package: **S** small, **M** medium, **L** large, **XL** several large packages.
 
