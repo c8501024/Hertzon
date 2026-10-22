@@ -3571,7 +3571,8 @@ class MainWindow(QMainWindow):
             items.append(sm.menuAction())
         plots = [("Rectangular Plot", lambda: self.create_report("Rectangular")),
                  ("Smith Chart", lambda: self.create_report("Smith Chart")),
-                 ("Data Table", lambda: self.create_report("Data Table"))]
+                 ("Data Table", lambda: self.create_report("Data Table")),
+                 ("Time Domain (TDR)", lambda: self.create_report("Time Domain"))]
         if av["modal"]:
             sub("Create Modal Solution Data Report", plots)
         if av["terminal"]:
@@ -3636,9 +3637,12 @@ class MainWindow(QMainWindow):
         elif kind == "Near Field Line":
             traces = ["mag(NearETotal)"]
             sol = next((s for s in sols if s.endswith("LastAdaptive")), sol)
+        elif kind == "Time Domain":
+            traces = ["TDRZ(1)"] + (["Step(S(2,1))"] if n > 1 else [])
         else:
             traces = [f"dB(S({i},1))" for i in range(1, max(1, n) + 1)][:4]
         prefix = {"Rectangular": "XY Plot", "Smith Chart": "Smith Chart", "Data Table": "Data Table",
+                  "Time Domain": "Time Domain",
                   "Radiation Pattern": "Radiation Pattern", "3D Polar Plot": "3D Polar Plot",
                   "Near Field Line": "Near Field", "Monostatic RCS": "Monostatic RCS",
                   "Monostatic RCS Table": "Monostatic RCS Table", "Antenna Parameters": "Antenna Parameters Plot",
@@ -3648,7 +3652,7 @@ class MainWindow(QMainWindow):
         while f"{prefix} {i}" in names:
             i += 1
         r = Report(f"{prefix} {i}", kind, sol, traces)
-        if kind in ("Rectangular", "Smith Chart", "Data Table") and not sols and self.doc.project.path:
+        if kind in ("Rectangular", "Smith Chart", "Data Table", "Time Domain") and not sols and self.doc.project.path:
             # nominal design not solved: show the variations of a solved parametric setup (families)
             from .reports import family_solution_list
             for ps in self.des.parametrics:

@@ -161,7 +161,8 @@ class CoordSys:
 @dataclass
 class Report:
     name: str
-    kind: str                       # "Rectangular", "Smith", "Polar", "Radiation Pattern", "3D Polar", "Data Table"
+    kind: str                       # "Rectangular", "Smith", "Polar", "Radiation Pattern", "3D Polar", "Data Table",
+                                    # "Time Domain" (TDR, step and impulse responses from a sweep)
     solution: str                   # "Setup1 : Sweep" or "Setup1 : LastAdaptive"
     traces: list[str] = field(default_factory=lambda: ["dB(S(1,1))"])
     props: dict[str, str] = field(default_factory=dict)

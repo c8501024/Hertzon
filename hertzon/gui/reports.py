@@ -24,8 +24,13 @@ from ..solver.ffquant import ANTENNA_QUANTITIES, ANTENNA_POWER, ANTENNA_PASSES, 
 from ..solver.ffquant import RCS_PASSES, rcs_pass_series
 from ..solver.expressions import (network, split_trace, output_variables, _FUNCS, _ast_eval,  # noqa: F401
                                   eval_expr, eval_trace)
+from ..solver import tdr
 
 ANTENNA_KINDS = ("Antenna Parameters", "Antenna Parameters Table")
+TIME_KIND = "Time Domain"
+# category -> trace pattern of the time domain report (TDR from the frequency sweep)
+TD_CATEGORIES = {"TDR Impedance": "TDRZ({i})", "Step Response": "Step(S({i},{j}))",
+                 "Impulse Response": "Impulse(S({i},{j}))", "Impulse (Band Pass)": "ImpulseBandPass(S({i},{j}))"}
 
 ETA0 = 376.730313668
 FUNCS = ["dB", "mag", "ang_deg", "ang_rad", "re", "im", "dB10"]
@@ -191,7 +196,7 @@ def load_antenna(doc, solution: str, sphere: str) -> dict:
     return {"freq": f, "solved": f, "antenna": vals}
 
 
-FAMILY_KINDS = ("Rectangular", "Smith Chart", "Data Table")
+FAMILY_KINDS = ("Rectangular", "Smith Chart", "Data Table", TIME_KIND)
 
 
 def family_solution_list(doc, name: str) -> list[str]:
@@ -416,6 +421,27 @@ class ReportWindow(QWidget):
                 e.editingFinished.connect(self._save_nf)
                 form.addRow(label, e)
                 self.nf[key] = e
+        elif report.kind == TIME_KIND:
+            self.cat.addItems(list(TD_CATEGORIES))
+            self.func.addItems(["<none>"])
+            self.cat.currentTextChanged.connect(self._fill_qty)
+            self.td = {}
+            win = QComboBox()
+            win.addItems(list(tdr.WINDOWS))
+            win.setCurrentText(report.props.get("tdr_window", "Kaiser"))
+            win.currentTextChanged.connect(lambda *_: self._save_td())
+            self.td["tdr_window"] = win
+            form.addRow("Window:", win)
+            for key, label, tip in (
+                    ("tdr_beta", "Kaiser beta:", "Larger: less ringing, slower rise (default 6)"),
+                    ("tdr_rise_ps", "Rise time (ps):", "Gaussian window: 10-90 % rise time of the step; "
+                                                        "empty: from the highest frequency"),
+                    ("tdr_tmax_ns", "Max. time (ns):", "Empty: 2.5 times the longest delay of the sweep")):
+                e = QLineEdit(report.props.get(key, ""))
+                e.setToolTip(tip)
+                e.editingFinished.connect(self._save_td)
+                form.addRow(label, e)
+                self.td[key] = e
         else:
             self.cat.addItems(CATEGORIES)
             self.func.addItems(FUNCS + ["<none>"])
@@ -509,6 +535,12 @@ class ReportWindow(QWidget):
         except Exception:  # noqa: BLE001
             return max(1, len(self.doc.design.ports()))
 
+    def _save_td(self) -> None:
+        for k, w in self.td.items():
+            self.report.props[k] = w.currentText() if isinstance(w, QComboBox) else w.text().strip()
+        self.changed.emit()
+        self.refresh()
+
     def _save_nf(self) -> None:
         for k, e in self.nf.items():
             self.report.props[k] = e.text()
@@ -534,7 +566,13 @@ class ReportWindow(QWidget):
         self.qty.clear()
         n = self._ports()
         cat = self.cat.currentText()
-        if cat == "VSWR":
+        if self.report.kind == TIME_KIND:
+            pat = TD_CATEGORIES.get(cat, "TDRZ({i})")
+            if "{j}" in pat:
+                self.qty.addItems([pat.format(i=i, j=j) for i in range(1, n + 1) for j in range(1, n + 1)])
+            else:
+                self.qty.addItems([pat.format(i=i) for i in range(1, n + 1)])
+        elif cat == "VSWR":
             self.qty.addItems([f"VSWR({i})" for i in range(1, n + 1)])
         elif cat == "Gamma":
             self.qty.addItems([f"S({i},{i})" for i in range(1, n + 1)])
@@ -566,7 +604,8 @@ class ReportWindow(QWidget):
         if self.report.kind in ("Radiation Pattern", "3D Polar Plot", "Near Field Line") \
                 or self.report.kind.startswith("Monostatic RCS"):
             return f"{self.func.currentText()}({q})"
-        if self.cat.currentText() in ("VSWR", "Group Delay") or self.func.currentText() == "<none>":
+        if self.cat.currentText() in ("VSWR", "Group Delay") or self.func.currentText() == "<none>" \
+                or self.report.kind == TIME_KIND:
             return q
         return f"{self.func.currentText()}({q})"
 
@@ -774,7 +813,10 @@ class ReportWindow(QWidget):
             return
         try:
             _, _, data = self._data()
-            eval_expr(data, e, self._outvars())
+            if self.report.kind == TIME_KIND:
+                tdr.eval_time(data, e, tdr.Options.from_props(self.report.props))
+            else:
+                eval_expr(data, e, self._outvars())
         except Exception as ex:  # noqa: BLE001
             self.info.setText(f"<span style='color:#c0392b'>{ex}</span>")
             return
@@ -1030,6 +1072,8 @@ class ReportWindow(QWidget):
     def _columns(self):
         _, _, data = self._data()
         xs, xlabel, _ = x_axis(data)
+        if self.report.kind == TIME_KIND and self.report.traces:
+            xs, xlabel = self._trace_xy(self.report.traces[0], self._variations()[0][1])[0], "Time [ns]"
         return xs, xlabel, self._family_columns()
 
     def copy_data(self) -> None:
@@ -1068,6 +1112,10 @@ class ReportWindow(QWidget):
             return f, y
         expr, sol = split_trace(tr)
         data = self._sol_data(sol, root)
+        if self.report.kind == TIME_KIND:
+            t, y, info = tdr.eval_time(data, expr, tdr.Options.from_props(self.report.props))
+            self.__dict__.setdefault("_td_info", {})[tr] = info
+            return t * 1e9, y
         xs, _, _ = x_axis(data)
         v = eval_expr(data, expr, self._outvars())
         return xs, (np.real(v) if np.iscomplexobj(v) else v.astype(float))
@@ -1205,6 +1253,10 @@ class ReportWindow(QWidget):
         xs0, xlabel, scale = x_axis(data)
         passes = data.get("xaxis") == "Pass"
         unit = "" if passes else " GHz"
+        timedomain = self.report.kind == TIME_KIND
+        if timedomain:
+            xlabel, unit = "Time [ns]", " ns"
+            self._td_info = {}
         LS = {"Solid": "-", "Dashed": "--", "Dotted": ":", "Dash-Dot": "-."}
         SYM = {"None": None, "Circle": "o", "Square": "s", "Triangle": "^", "Cross": "x"}
         curves = []
@@ -1248,8 +1300,18 @@ class ReportWindow(QWidget):
         ax.set_title(f"{self.report.name}   ({self.sol.currentText()})", fontsize=10)
         self.canvas.draw_idle()
         solved = data.get("solved")
-        self.info.setText(f"{len(data['freq'])} points, {len(solved) if solved is not None else 0} solved. "
-                          "Double-click: marker. Right-click: markers, axes, traces, copy, templates.")
+        msg = (f"{len(data['freq'])} points, {len(solved) if solved is not None else 0} solved. "
+               "Double-click: marker. Right-click: markers, axes, traces, copy, templates.")
+        if timedomain:
+            f = data["freq"]
+            bad = [tr for tr, i in getattr(self, "_td_info", {}).items() if not i["lowpass_ok"]]
+            msg = (f"Low-pass transform of {len(f)} points, {f[0] / 1e9:.4g} to {f[-1] / 1e9:.4g} GHz "
+                   f"(resolution about {0.7 / f[-1] * 1e12:.0f} ps). " + msg)
+            if bad:
+                msg = ("<span style='color:#c0392b'>The sweep starts too high for a reliable DC extrapolation "
+                       f"({', '.join(bad)}): start the sweep lower (e.g. at its step size) or use "
+                       "ImpulseBandPass.</span> " + msg)
+        self.info.setText(msg)
 
     def _apply_axes(self, ax, ax2) -> None:
         p = self.report.props
@@ -1508,6 +1570,7 @@ class ReportWindow(QWidget):
             st.write_touchstone(sol, data["freq"], data["S"], data["z0"], path)
             return
         fc = self._family_columns()
-        arr = np.column_stack([data["freq"]] + [c[1] for c in fc])
-        xh = "Pass" if data.get("xaxis") == "Pass" else "Freq [Hz]"
+        arr = np.column_stack([data["freq"]] + [c[1] for c in fc]) if self.report.kind != TIME_KIND else \
+            np.column_stack([self._columns()[0] * 1e-9] + [c[1] for c in fc])
+        xh = "Pass" if data.get("xaxis") == "Pass" else ("Time [s]" if self.report.kind == TIME_KIND else "Freq [Hz]")
         np.savetxt(path, arr, delimiter=",", header=",".join([xh] + [c[0] for c in fc]), comments="")
