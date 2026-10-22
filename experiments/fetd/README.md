@@ -70,3 +70,21 @@ frequency dependent materials, TDR report, GUI integration.
     pip install emerge==2.8.9 pypardiso   # plus Hertzon on the path for run_patch.py
     python run_microstrip.py 40
     python run_patch.py ../../examples/PatchAntenna.hzn 40
+
+## Comparison with openEMS (same patch, 4 cores)
+
+`patch_oems.py` rebuilds `PatchAntenna.hzn` in openEMS (thirds rule at metal edges, PML_8, -50 dB end
+criterion). Reference: Hertzon adaptive FEM, converged after 8 passes (33k tets, delta S 0.0056),
+resonance 2.45 GHz / -13.4 dB.
+
+| solver | mesh | time | max d\|S11\| vs adaptive FEM |
+|---|---|---|---|
+| FEM adaptive + 41 discrete points | 33k tets | 74 s + 439 s | reference |
+| openEMS lambda/30 | 330k cells | 107 s | 5.3 dB (resonance depth) |
+| openEMS lambda/50 | 1.1M cells | 188 s | 1.1 dB (0.1 dB off resonance) |
+| FETD on the initial FEM mesh | 5k tets | ~400 s | resonance 4 % too low (mesh, not FETD) |
+
+The initial FEM mesh used for the FETD validation is not converged (resonance 2.35 GHz instead of
+2.45 GHz). On the converged mesh (303k unknowns) FETD would need several times longer per step.
+
+![comparison](patch_vergleich_openems.png)
