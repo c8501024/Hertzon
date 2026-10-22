@@ -193,7 +193,7 @@ def eval_time(data: dict, expr: str, opt: Options | None = None) -> tuple[np.nda
             y = z * (1 + rho) / (1 - rho)
     tau = max_delay(f, S)
     tmax = opt.t_max or min(max(2.5 * tau, 20.0 / f[-1]), t[-1])
-    k = t <= tmax
+    k = (t <= tmax) & (t >= -3.0 / f[-1])               # a short lead-in before t = 0
     # DC extrapolation is only trustworthy if the lowest sweep frequency is small against the rate at
     # which S turns (one phase period = 1 / (2 tau) for a round trip of tau): fmin * 2 tau < 5 %
     dc_quality = float(f[0] * 2 * tau)
