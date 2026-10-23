@@ -218,7 +218,7 @@ writing code. The list follows the [all-contributors](https://allcontributors.or
 <table>
   <tbody>
     <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/c8501024"><img src="https://avatars.githubusercontent.com/u/29594166?v=4?s=80" width="80px;" alt="c8501024"/><br /><sub><b>c8501024</b></sub></a><br /><a href="https://github.com/c8501024/hertzon/commits?author=c8501024" title="Code">💻</a> <a href="#maintenance-c8501024" title="Maintenance">🚧</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/c8501024"><img src="https://avatars.githubusercontent.com/u/29594166?v=4?s=80" width="80px;" alt="c8501024"/><br /><sub><b>c8501024</b></sub></a><br /><a href="https://github.com/c8501024/hertzon/commits?author=c8501024" title="Code">💻</a> <a href="#maintenance-c8501024" title="Maintenance">🚧</a> <a href="#ideas-c8501024" title="Ideas, Planning, & Feedback">🤔</a> <a href="#research-c8501024" title="Research">🔬</a> <a href="https://github.com/c8501024/hertzon/commits?author=c8501024" title="Tests">⚠️</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/FeruzTopalov"><img src="https://avatars.githubusercontent.com/u/32893186?v=4?s=80" width="80px;" alt="FeruzTopalov"/><br /><sub><b>FeruzTopalov</b></sub></a><br /><a href="https://github.com/c8501024/hertzon/issues?q=author%3AFeruzTopalov" title="Bug reports">🐛</a> <a href="#ideas-FeruzTopalov" title="Ideas, Planning, & Feedback">🤔</a></td>
     </tr>
   </tbody>
