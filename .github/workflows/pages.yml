@@ -1,7 +1,7 @@
 # Publishes the project website (site/) to GitHub Pages: https://c8501024.github.io/Hertzon/
 # Needs Settings > Pages > Source: "GitHub Actions" once. Screenshots and the splash come from the repo,
 # so the site has no copies of its own.
-# The branch overview (tools/branch_overview.py, taken from dev) is built into /branches/ on every run.
+# The branch overview (c8501024/branch-overview-action) is built into /branches/ on every run.
 # Besides the triggers below, branch-overview.yml starts this workflow when dev, main or a pull request
 # changes, so the overview stays current.
 name: Website
@@ -42,14 +42,14 @@ jobs:
           cp hertzon/gui/*.png _site/ 2>/dev/null || true
       - name: Branch overview
         continue-on-error: true   # the website is deployed even if the overview fails
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TZ: Europe/Berlin
-        run: |
-          git fetch --depth=1 origin dev
-          git show origin/dev:tools/branch_overview.py > "$RUNNER_TEMP/branch_overview.py"
-          mkdir -p _site/branches
-          python3 "$RUNNER_TEMP/branch_overview.py" --repo "$GITHUB_REPOSITORY" --no-open --out _site/branches/index.html
+        uses: c8501024/branch-overview-action@v1
+        with:
+          base: main
+          head: dev
+          output: _site/branches/index.html
+          lang: de
+          noindex: "true"
+          timezone: Europe/Berlin
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
