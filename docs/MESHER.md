@@ -29,6 +29,7 @@ the result as usual.
 - [Building](#building)
 - [C interface](#c-interface)
 - [Known limitations](#known-limitations)
+- [How it was developed](#how-it-was-developed)
 
 ## Refinement methods
 
@@ -302,3 +303,18 @@ the exact predicates lose their guarantees and Linux and Windows meshes differ.
   be strictly nested.
 - The error estimator and marking come from EMerge. The slow convergence of the patch (S11 still
   drifts at 20-40k tets) belongs to the problem; Remesh only hides the drift behind its noise.
+
+## How it was developed
+
+The adaptive meshing in Hertzon (hzmesh, curved elements, the parallel error estimator, the faster
+import and the convergence loop) was developed by [c8501024](https://github.com/c8501024) with
+AI-assisted programming (Claude Code); most commits in this area are authored by the assistant.
+
+- **c8501024**: set the goals (nested local refinement without remeshing noise in Delta S, geometry-true
+  curved surfaces), defined the tests and benchmarks and gave the instructions for running them,
+  evaluated the results, and decided which approach to keep. The approaches compared above
+  (bisection, Mmg, TetGen, gmsh with fixed nodes, remesh variants) were tried and dropped on that basis.
+- **AI assistant**: wrote most of the code, the documentation and the test scripts following these
+  instructions.
+- **EMerge** ([Robert Fennis](https://github.com/FennisRobert/EMerge)): FEM solver, basis functions,
+  error estimator and element marking, which Hertzon builds on.
