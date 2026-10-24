@@ -1,0 +1,26 @@
+# Keeps the branch overview on the website current (https://c8501024.github.io/Hertzon/branches/):
+# when dev or main gets a push or a pull request changes, start the website workflow on main, which
+# rebuilds the overview. Runs no code of the pull request.
+name: Branch overview
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request_target:
+    types: [opened, reopened, closed, synchronize, ready_for_review, converted_to_draft, edited]
+
+permissions:
+  actions: write
+
+concurrency:
+  group: branch-overview
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start the website workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main --repo "$GITHUB_REPOSITORY"
