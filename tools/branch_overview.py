@@ -246,6 +246,7 @@ def render(m: dict) -> str:
     n_pending = len(m["pending"]) + len(m["direct"])
     return f"""<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
 <title>Branch-Überblick {_e(repo)}</title>
 <style>
 :root {{ --bg:#f6f7f9; --panel:#fff; --text:#1d2330; --muted:#667085; --line:#e3e6eb;
