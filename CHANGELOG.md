@@ -12,6 +12,9 @@ the GitHub release notes.
   250 mm PEC sphere at 1 GHz the error of the bistatic RCS against the exact solution drops from 0.6 dB to
   about 0.4 dB (monostatic from +1.4 dB to +0.2 dB), with fewer tetrahedra (26k instead of 38k). A padding
   set in the design is used as before.
+- **Warning for dents with AURA refinement**: when AURA cannot move new boundary nodes fully onto a curved
+  CAD face, the Message Manager says so once per analysis, with a hint to Local (Delaunay) refinement, which
+  follows the surface exactly.
 
 ## 0.2.1 (2026-10-25)
 

@@ -2013,6 +2013,12 @@ def _refine_aura(m, error, pct: float, step: int):
         grow = (m.mesh.n_tets / n0 - 1) * 100
         info(f"Pass {step}: AURA refinement -> {m.mesh.n_tets} tetrahedra (+{grow:.1f}%), "
              f"min. quality {rep['q_min']:.3f}, {time.time() - t0:.2f} s")
+        # a new node AURA could not move fully onto a curved face stays (partly) on the chord: a dent
+        off = int(rep.get("n_projection_reduced", 0)) + int(rep.get("n_projection_rejected", 0))
+        if off and not getattr(m, "_aura_off_warned", False):
+            m._aura_off_warned = True
+            warn(f"Pass {step}: AURA could not place {off} new boundary node(s) on the curved CAD surface; "
+                 "the mesh has small dents there. Local (Delaunay) refinement follows the surface exactly.")
         return grow
     except Exception as e:  # noqa: BLE001
         warn(f"AURA refinement failed ({e}); re-meshing the model instead")
