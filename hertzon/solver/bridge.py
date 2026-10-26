@@ -741,12 +741,22 @@ class Bridge:
                         info(f"Port '{e.name}': {len(tp['terminals'])} terminal(s), solving "
                              f"{len(tp['terminals'])} mode(s)")
                     nmodes = len(tp["terminals"])
-                port = mw.bc.ModalPort(sel, num, modetype=None if mt == "Auto" else mt,
-                                       number_of_modes=nmodes,
-                                       # several modes: solved once per solve (see fresh_port_modes)
-                                       mixed_materials=nmodes == 1,
-                                       impedance_definition={"Zpv": "PV", "Zpi": "PI", "Zvi": "VI"}[
-                                           p.get("ImpedanceDefinition", "Zpv")])
+                zdef = {"Zpv": "PV", "Zpi": "PI", "Zvi": "VI"}[p.get("ImpedanceDefinition", "Zpv")]
+                if term is not None and nmodes > 1:
+                    # several signal conductors: every mode is absorbed with its own propagation constant
+                    # (even and odd mode of coupled lines), modes solved at every frequency
+                    # without the end faces of the conductors: the port block couples all port unknowns,
+                    # and those of a face inside metal would have nothing else (singular matrix)
+                    sel = em.FaceSelection(self.faces_off_metal(tags))
+                    port = mw.bc.MultiModeWavePort(sel, num, number_of_modes=nmodes,
+                                                   modetype="TEM" if mt == "Auto" else mt,
+                                                   impedance_definition=zdef)
+                else:
+                    port = mw.bc.ModalPort(sel, num, modetype=None if mt == "Auto" else mt,
+                                           number_of_modes=nmodes,
+                                           # several modes: solved once per solve (see fresh_port_modes)
+                                           mixed_materials=nmodes == 1,
+                                           impedance_definition=zdef)
             elif e.kind == "Lumped Port":
                 w, h, d = self.port_geometry(e, tags)
                 port = mw.bc.LumpedPort(sel, num, width=w, height=h, direction=d, Z0=ev.value(p["Impedance"]))
@@ -871,14 +881,23 @@ class Bridge:
         zr = self.ev.value(p.get("RenormImpedance", "50ohm") or "50ohm") if p.get("Renormalize") == "True" else 50.0
         lines = [voltage_line(g["points"], groups[ref]["points"]) for g in sig]
         info(f"Port '{e.name}': reference conductor '{groups[ref]['name']}', terminals " + ", ".join(names))
-        if len(sig) > 1:
-            warn(f"Port '{e.name}' has {len(sig)} signal conductors: correct when all its modes have the same "
-                 "propagation constant (conductors in one homogeneous dielectric). With different ones (e.g. "
-                 "coupled microstrip lines, EMerge then warns about a variation in the propagation constants) the "
-                 "terminal S-parameters may be wrong; use one lumped port per conductor (and differential pairs) "
-                 "for those for now")
         return {"name": e.name, "number": self.ev.integer(p["PortNumber"]), "kind": "wave", "terminals": names,
                 "lines": lines, "reference": groups[ref]["name"], "zref": [zr] * len(sig)}
+
+    def faces_off_metal(self, tags: list[int]) -> list[int]:
+        """The faces of tags without those that only touch PEC solids (the end face of a conductor that ends
+        on a port face)."""
+        import gmsh
+        metal = set()
+        for name, g in self.geos.items():
+            if g.dim == 3 and self.design.has_obj(name) and self.project.material(self.design.obj(name).material).pec:
+                metal |= {int(v) for v in g.tags}
+        keep = []
+        for t in tags:
+            vols = {int(v) for v in gmsh.model.getAdjacencies(2, t)[0]}
+            if not vols or not vols <= metal:
+                keep.append(t)
+        return keep or list(tags)
 
     def back_port_with_void(self, port: str, tags: list[int]) -> None:
         """A wave port on a face of a PEC solid (e.g. the bottom of a coax bore in a metal body) has the

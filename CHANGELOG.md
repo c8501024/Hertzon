@@ -11,10 +11,9 @@ the GitHub release notes.
   with the largest conductor (or the one named in the port's new *Reference conductor*, Terminals tab) as
   reference. The terminal S-parameters refer to 50 ohm, or to the renormalization impedance when
   Renormalize is on. The solver log names the terminals of every port. A wave port with one signal
-  conductor gives exactly the renormalized result of the modal port. Wave ports with several signal
-  conductors are correct when all their modes have the same propagation constant (conductors in one
-  homogeneous dielectric); with different ones (coupled microstrip lines) they warn, and one lumped port per
-  conductor is the way until then (see [EMERGE_CHANGES.md](docs/EMERGE_CHANGES.md)).
+  conductor gives exactly the renormalized result of the modal port. A wave port with several signal
+  conductors absorbs each of its modes with the mode's own propagation constant, so the even and odd mode of
+  coupled lines (differential microstrip pairs) leave the model without spurious reflection.
 - **Differential pairs** (Simulation > Excitations > Diff. Pairs, or right click Excitations): pairs of
   terminals with the reference impedances of the differential and common mode (default twice and half the
   terminal reference). Reports offer the mixed-mode quantities `S(Diff1,Diff1)`, `S(Diff2,Diff1)`,
