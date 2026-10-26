@@ -31,11 +31,11 @@ the GitHub release notes.
 - Wave ports with several modes: EMerge added the modes of a repeated modal analysis at one frequency to the
   modes it already had (a sweep analyses its mean frequency and then every frequency), so a port with
   several modes could mix the modes of two analyses. Hertzon now solves the modes of such ports once per
-  solve, and EMerge replaces the modes of a repeated analysis (EMerge `1a478c6`).
+  solve, and EMerge replaces the modes of a repeated analysis (EMerge `debe7ba`).
 - Wave ports with several modes of the same propagation constant (several conductors in one homogeneous
   dielectric): EMerge returned these modes in any basis, often two almost equal modes, so the port could not
   represent all fields and the S-parameters of a lossless model were not lossless (|S^H S − I| up to 0.54 on
-  two wires in a box). EMerge `1a478c6` makes them real and orthogonal; the same model now gives 1e-6.
+  two wires in a box). EMerge `debe7ba` makes them real and orthogonal; the same model now gives 1e-6.
 
 ## 0.2.4 (2026-10-26)
 
