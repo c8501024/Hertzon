@@ -12,8 +12,9 @@ the GitHub release notes.
   reference. The terminal S-parameters refer to 50 ohm, or to the renormalization impedance when
   Renormalize is on. The solver log names the terminals of every port. A wave port with one signal
   conductor gives exactly the renormalized result of the modal port. Wave ports with several signal
-  conductors are solved, but warn: EMerge's port modes are not yet reliable for several conductors on one
-  port (see [EMERGE_CHANGES.md](docs/EMERGE_CHANGES.md)); use one lumped port per conductor until then.
+  conductors are correct when all their modes have the same propagation constant (conductors in one
+  homogeneous dielectric); with different ones (coupled microstrip lines) they warn, and one lumped port per
+  conductor is the way until then (see [EMERGE_CHANGES.md](docs/EMERGE_CHANGES.md)).
 - **Differential pairs** (Simulation > Excitations > Diff. Pairs, or right click Excitations): pairs of
   terminals with the reference impedances of the differential and common mode (default twice and half the
   terminal reference). Reports offer the mixed-mode quantities `S(Diff1,Diff1)`, `S(Diff2,Diff1)`,
@@ -31,7 +32,11 @@ the GitHub release notes.
 - Wave ports with several modes: EMerge added the modes of a repeated modal analysis at one frequency to the
   modes it already had (a sweep analyses its mean frequency and then every frequency), so a port with
   several modes could mix the modes of two analyses. Hertzon now solves the modes of such ports once per
-  solve.
+  solve, and EMerge replaces the modes of a repeated analysis (EMerge `1a478c6`).
+- Wave ports with several modes of the same propagation constant (several conductors in one homogeneous
+  dielectric): EMerge returned these modes in any basis, often two almost equal modes, so the port could not
+  represent all fields and the S-parameters of a lossless model were not lossless (|S^H S − I| up to 0.54 on
+  two wires in a box). EMerge `1a478c6` makes them real and orthogonal; the same model now gives 1e-6.
 
 ## 0.2.4 (2026-10-26)
 
