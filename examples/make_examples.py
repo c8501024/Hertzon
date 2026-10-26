@@ -9,7 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from hertzon.model.design import Project, Design, Command, Assignment, FaceRef, Setup, Sweep, InfiniteSphere  # noqa: E402
+from hertzon.model.design import (Project, Design, Command, Assignment, FaceRef, Setup, Sweep, InfiniteSphere,  # noqa: E402
+                                  Report)
 from hertzon.model import schema  # noqa: E402
 
 
@@ -132,9 +133,47 @@ def hairpin_filter() -> Project:
     return p
 
 
+def differential_pair() -> Project:
+    """Edge-coupled microstrip pair on RO4350B in a shielded box, terminal solution: one wave port per end with
+    a terminal per trace (the even and odd mode are absorbed each with its own propagation constant), one
+    differential pair per end and the mixed-mode S-parameters."""
+    import json
+    p = Project("DifferentialPair")
+    d = p.designs[0]
+    d.name = "CoupledMicrostrip"
+    d.settings["SolutionType"] = "Terminal"
+    d.settings["DifferentialPairs"] = json.dumps([{"pos": 1, "neg": 2}, {"pos": 3, "neg": 4}])
+    d.variables.update({"h": "0.508mm", "w": "0.8mm", "s": "0.4mm", "L": "20mm", "Wbox": "6mm", "Hair": "3mm"})
+    d.add_object("CreateBox", name="Substrate", material="Rogers RO4350B (tm)", Position="-Wbox/2,0,0", XSize="Wbox",
+                 YSize="L", ZSize="h")
+    d.add_object("CreateBox", name="Air", material="air", Position="-Wbox/2,0,h", XSize="Wbox", YSize="L",
+                 ZSize="Hair")
+    tp = d.add_object("CreateRectangle", name="TraceP", Position="-s/2-w,0,h", Axis="Z", XSize="w", YSize="L")
+    tn = d.add_object("CreateRectangle", name="TraceN", Position="s/2,0,h", Axis="Z", XSize="w", YSize="L")
+    p1 = d.add_object("CreateRectangle", name="Port1Sheet", Position="-Wbox/2,0,0", Axis="Y", XSize="Wbox",
+                      ZSize="h+Hair")
+    p2 = d.add_object("CreateRectangle", name="Port2Sheet", Position="-Wbox/2,L,0", Axis="Y", XSize="Wbox",
+                      ZSize="h+Hair")
+    boundary(d, "Perfect E", "PerfE_Traces", objects=[tp.name, tn.name])
+    # the outer faces of the box are a perfect conductor: the shield and the ground of the lines
+    excitation(d, "Wave Port", "P1", objects=[p1.name], PortNumber=1)
+    excitation(d, "Wave Port", "P2", objects=[p2.name], PortNumber=2)
+    s = setup(d, Frequency="10GHz", MaximumPasses=6, MaximumDeltaS=0.02)
+    sweep(s, "Sweep", SweepType="Interpolating", Distribution="Linear Count", Start="1GHz", Stop="12GHz", Count=111)
+    sol = "Setup1 : Sweep"
+    d.reports += [
+        Report("Differential S", "Rectangular", sol, ["dB(S(Diff1,Diff1))", "dB(S(Diff2,Diff1))"]),
+        Report("Mode Conversion", "Rectangular", sol, ["dB(S(Comm1,Diff1))", "dB(S(Comm2,Diff1))"]),
+        Report("Single-Ended S", "Rectangular", sol, ["dB(S(1,1))", "dB(S(3,1))", "dB(S(2,1))", "dB(S(4,1))"]),
+        Report("Line Impedance", "Rectangular", sol, ["re(Zo(1))", "re(Zo(2))"]),
+        Report("Propagation Constant", "Rectangular", sol, ["im(Gamma(1))", "im(Gamma(2))"]),
+    ]
+    return p
+
+
 if __name__ == "__main__":
     out = Path(__file__).resolve().parent
-    for fn in (waveguide_post, microstrip_line, patch_antenna, hairpin_filter):
+    for fn in (waveguide_post, microstrip_line, patch_antenna, hairpin_filter, differential_pair):
         proj = fn()
         path = out / f"{proj.name}.hzn"
         proj.save(path)
