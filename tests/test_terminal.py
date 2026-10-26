@@ -92,8 +92,9 @@ def test_lumped_ports_keep_their_s_parameters():
 
 
 # ---- with EMerge ---------------------------------------------------------------------------------
-def _wire_design(stype: str, ports_only: bool = False):
-    """A PEC wire in an air-filled PEC box (a TEM line) with a wave port at both ends."""
+def _wire_design(stype: str, ports_only: bool = False, wires=("1mm",)):
+    """PEC wires (at these x) in an air-filled PEC box (a TEM line) with a wave port at both ends, one mode per
+    wire."""
     from hertzon.kernel import occ as K
     from hertzon.model.design import Assignment, FaceRef, Project, Setup, Sweep
     from hertzon.model.facetrack import track_faces
@@ -101,8 +102,9 @@ def _wire_design(stype: str, ports_only: bool = False):
     d = p.designs[0]
     d.settings["SolutionType"] = stype
     d.add_object("CreateBox", "Air", Position="-5mm,0,-5mm", XSize="10mm", YSize="20mm", ZSize="10mm").material = "air"
-    d.add_object("CreateCylinder", "Wire", CenterPosition="1mm,0,0", Axis="Y", Radius="1mm",
-                 Height="20mm").material = "pec"
+    for k, x in enumerate(wires):
+        d.add_object("CreateCylinder", "Wire" if k == 0 else f"Wire{k + 1}", CenterPosition=f"{x},0,0", Axis="Y",
+                     Radius="1mm" if len(wires) == 1 else "0.6mm", Height="20mm").material = "pec"
     K.ensure_gmsh("terminal")
     t = K.tessellate(K.build_design(d, d.evaluator(p)))
     ta = t["Air"]
@@ -110,7 +112,7 @@ def _wire_design(stype: str, ports_only: bool = False):
     ends = sorted([i for i in range(len(c)) if abs(ta.face_normal[i][1]) > 0.99], key=lambda i: c[i][1])
     for k, i in enumerate(ends):
         d.excitations.append(Assignment(f"P{k + 1}", "Wave Port", {
-            "PortNumber": str(k + 1), "NumberOfModes": "1", "ModeType": "Auto", "ImpedanceDefinition": "Zpv",
+            "PortNumber": str(k + 1), "NumberOfModes": str(len(wires)), "ModeType": "Auto", "ImpedanceDefinition": "Zpv",
             "Renormalize": "True", "RenormImpedance": "50ohm", "Deembed": "False", "DeembedDistance": "0"},
             faces=[FaceRef("Air", i)]))
     track_faces(d, t)
@@ -124,11 +126,11 @@ def _wire_design(stype: str, ports_only: bool = False):
     return p, d, st
 
 
-def _solve(tmp_path, stype, ports_only=False):
+def _solve(tmp_path, stype, ports_only=False, wires=("1mm",)):
     em = pytest.importorskip("emerge")
     from hertzon.solver import bridge as B
     from hertzon.solver.results import ResultStore
-    p, d, st = _wire_design(stype, ports_only)
+    p, d, st = _wire_design(stype, ports_only, wires)
     out = tmp_path / stype
     b = B.Bridge(p, d, st, out)
     try:
@@ -156,6 +158,16 @@ def test_single_conductor_terminal_port_equals_the_renormalized_modal_port(tmp_p
     assert np.allclose(term["gamma"].imag / k0[:, None], 1.0, atol=2e-3)
     pf = term_store.npz("portfields_LastAdaptive.npz")
     assert pf is not None and pf["E_1_1_0"].shape == pf["nodes_1"].shape
+
+
+def test_two_wires_lossless(tmp_path):
+    # two TEM modes of the same propagation constant at each port: modal and terminal S of the lossless line
+    # are unitary (with modes that are not orthogonal: 0.54 and 0.04 to 0.16)
+    for stype, tol in (("Modal", 1e-4), ("Terminal", 1e-4)):
+        S = _solve(tmp_path / stype, stype, wires=("-2mm", "2mm")).sparams("LastAdaptive")["S"]
+        assert S.shape[1:] == (4, 4)
+        for Sf in S:
+            assert np.abs(Sf.conj().T @ Sf - np.eye(4)).max() < tol
 
 
 def test_solve_ports_only(tmp_path, monkeypatch):

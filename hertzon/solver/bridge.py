@@ -872,9 +872,11 @@ class Bridge:
         lines = [voltage_line(g["points"], groups[ref]["points"]) for g in sig]
         info(f"Port '{e.name}': reference conductor '{groups[ref]['name']}', terminals " + ", ".join(names))
         if len(sig) > 1:
-            warn(f"Port '{e.name}' has {len(sig)} signal conductors: the port modes of EMerge are not yet reliable "
-                 "for several conductors on one wave port, so its terminal S-parameters may be wrong. Use one "
-                 "lumped port per conductor (and differential pairs) for now")
+            warn(f"Port '{e.name}' has {len(sig)} signal conductors: correct when all its modes have the same "
+                 "propagation constant (conductors in one homogeneous dielectric). With different ones (e.g. "
+                 "coupled microstrip lines, EMerge then warns about a variation in the propagation constants) the "
+                 "terminal S-parameters may be wrong; use one lumped port per conductor (and differential pairs) "
+                 "for those for now")
         return {"name": e.name, "number": self.ev.integer(p["PortNumber"]), "kind": "wave", "terminals": names,
                 "lines": lines, "reference": groups[ref]["name"], "zref": [zr] * len(sig)}
 
@@ -2751,9 +2753,9 @@ def solve_at(m, freqs, on_solved=None, **kw):
 
 def fresh_port_modes(m) -> None:
     """Ports with several modes: their modes are solved once for each solve (at the mean frequency of a
-    sweep, at the frequency of an adaptive pass). EMerge adds the modes of a repeated modal analysis at a
-    frequency to the ones it already has, so a port with several modes would mix modes of two analyses
-    (a sweep analyses the mean frequency and then every frequency); one analysis per solve avoids that."""
+    sweep, at the frequency of an adaptive pass), so all frequencies of a solve use the same mode basis.
+    (EMerge before the hertzon branch of 26 October 2026 also added the modes of a repeated modal analysis at
+    a frequency to the ones it already had; one analysis per solve avoided that as well.)"""
     try:
         from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
         for bc in m.mw.bc.oftype(ModalPort):
