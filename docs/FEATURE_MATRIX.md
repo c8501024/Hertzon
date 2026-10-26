@@ -11,7 +11,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 |---|---|---|---|
 | Project with several designs | Project Manager: Project > Design | ✔ | Insert / copy / rename / delete design |
 | Project and design variables (`$var`, `var`) | Project Variables, Design Properties | ✔ | Expressions with units (`2*w+1mm`, `c0/f`), functions `sin cos sqrt …` |
-| Solution Type Modal / Terminal / Eigenmode | Simulation > Solution Type | ◐ | Terminal: terminals of lumped ports and of wave ports (one per signal conductor, reference conductor automatic or named), terminal S-parameters at 50 ohm or the renormalization impedance, differential pairs, Zo and Gamma, port field display, solve ports only. Wave ports with several signal conductors wait for EMerge (warning) |
+| Solution Type Modal / Terminal / Eigenmode | Simulation > Solution Type | ◐ | Terminal: terminals of lumped ports and of wave ports (one per signal conductor, reference conductor automatic or named), terminal S-parameters at 50 ohm or the renormalization impedance, differential pairs, Zo and Gamma, port field display, solve ports only, wave ports with several signal conductors (each mode absorbed with its own propagation constant) |
 | Auto Open region | Solution Type dialog: Auto Open | ✔ | Radiation or PML picked automatically (PML when the design radiates: far-field sphere, plane wave or "Radiating structure") |
 | — | **Auto Open - Filter** | ✔ | Air box with a fixed margin and radiation boundary on all outer faces (filter workflow) |
 | Undo / Redo, copy / paste | Edit menu, Ctrl+Z / Ctrl+Y / Ctrl+C / Ctrl+V | ✔ | |

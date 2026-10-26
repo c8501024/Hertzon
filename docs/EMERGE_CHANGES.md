@@ -66,7 +66,7 @@ The maintainer may later take any of them into `main` in his own way.
 
 | Item | Hertzon code today | Why | Status |
 |---|---|---|---|
-| Wave port with several modes of different propagation constant (coupled microstrip lines: even and odd mode): the port condition uses the propagation constant of the first mode for all modes, so the others are not absorbed exactly | Terminal solution warns for wave ports with several signal conductors | Needed for terminal wave ports on differential lines | Agreed with the Hertzon maintainer (26 October 2026): a new port class next to `ModalPort` that projects on every mode with its own propagation constant, marked as AI written, after the bug fixes above |
+| Wave port with several modes of different propagation constant (coupled microstrip lines: even and odd mode): the port condition uses the propagation constant of the first mode for all modes, so the others are not absorbed exactly | – | Needed for terminal wave ports on differential lines | `MultiModeWavePort` on `hertzon` (FennisRobert/EMerge#85, agreed with the Hertzon maintainer, 26 October 2026): the dense wave port condition of `WavePortIH` with one projection term per mode, each with its own propagation constant, and S-parameters from the same projection. Coupled microstrip: odd mode reflection −38 dB instead of −23 dB, S unitary to 1e-11. Hertzon uses it for terminal wave ports with several signal conductors |
 
 ### AI-written EMerge code: free to improve (R5)
 
