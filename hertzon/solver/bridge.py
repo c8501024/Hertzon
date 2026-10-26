@@ -2751,9 +2751,9 @@ def solve_at(m, freqs, on_solved=None, **kw):
 
 def fresh_port_modes(m) -> None:
     """Ports with several modes: their modes are solved once for each solve (at the mean frequency of a
-    sweep, at the frequency of an adaptive pass). EMerge adds the modes of a repeated modal analysis at a
-    frequency to the ones it already has, so a port with several modes would mix modes of two analyses
-    (a sweep analyses the mean frequency and then every frequency); one analysis per solve avoids that."""
+    sweep, at the frequency of an adaptive pass), so all frequencies of a solve use the same mode basis.
+    (EMerge before the hertzon branch of 26 October 2026 also added the modes of a repeated modal analysis at
+    a frequency to the ones it already had; one analysis per solve avoided that as well.)"""
     try:
         from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
         for bc in m.mw.bc.oftype(ModalPort):
