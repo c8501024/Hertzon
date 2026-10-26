@@ -163,7 +163,7 @@ def test_single_conductor_terminal_port_equals_the_renormalized_modal_port(tmp_p
 def test_two_wires_lossless(tmp_path):
     # two TEM modes of the same propagation constant at each port: modal and terminal S of the lossless line
     # are unitary (with modes that are not orthogonal: 0.54 and 0.04 to 0.16)
-    for stype, tol in (("Modal", 1e-4), ("Terminal", 2e-2)):
+    for stype, tol in (("Modal", 1e-4), ("Terminal", 1e-4)):
         S = _solve(tmp_path / stype, stype, wires=("-2mm", "2mm")).sparams("LastAdaptive")["S"]
         assert S.shape[1:] == (4, 4)
         for Sf in S:
