@@ -509,6 +509,11 @@ class Bridge:
                 for bx in boxes:
                     bx.background()
                 self.geos[rname] = boxes[0]
+                # far fields: the faces of the air box under the PML (not the ones left closed, e.g. a ground)
+                names = {"T": "top", "B": "bottom", "L": "left", "R": "right", "F": "front", "A": "back"}
+                for s in sorted(set(sides)):
+                    sel = boxes[0].face(names[s])
+                    self.open_faces = sel if self.open_faces is None else self.open_faces + sel
                 info(f"PML on '{rname}' sides {''.join(sorted(set(sides)))}, thickness {thick * 1e3:.3g} mm")
 
     # ----------------------------------------------------------------------------------------

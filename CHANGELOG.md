@@ -3,6 +3,19 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Far field with a PML drawn by hand**: PML assigned on the faces of an air box gave no far field ("Far
+  field requested but no radiation/PML boundary present"). The faces under the PML are now the far-field
+  surface, as with Auto Open.
+- **Slow display of thin wires**: the display mesh of a thin wire, a bondwire or the inner conductor of a
+  coax followed its small radius along the whole length (a monopole wire had 53 000 triangles, opening such
+  a design took seconds). Thin tubes now get the coarser display sizing of swept pipes; other cylinders keep
+  their round outline.
+- **Showcase project**: the coax-fed monopole has its inner conductor, 50 ohm, an annular port and a far
+  field with its PML.
+
 ## 0.2.4 (2026-10-26)
 
 ### Added
