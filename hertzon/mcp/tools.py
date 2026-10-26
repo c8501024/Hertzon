@@ -2111,7 +2111,10 @@ TOOLS = [
                   "sigma": {"type": "string", "description": "S/m"}, "tan_delta": {"type": "string"},
                   "description": {"type": "string"}}, ["name"]), t_add_material),
     Tool("set_design", "Change units, variables (null deletes), design settings (SolutionType, AutoOpen, "
-         "AutoOpenBoundary, AutoOpenPadding ...), rename, or add a new design.",
+         "AutoOpenBoundary, AutoOpenPadding, DifferentialPairs ...), rename, or add a new design. "
+         "DifferentialPairs: JSON list of {\"pos\": terminal, \"neg\": terminal, \"zdiff\": \"100ohm\", "
+         "\"zcomm\": \"25ohm\"} (terminals from 1); pair k gives the report quantities Diffk and Commk, "
+         "e.g. dB(S(Diff1,Diff1)).",
          _schema({"units": {"type": "string"}, "variables": {"type": "object"},
                   "project_variables": {"type": "object", "description": "names start with $"},
                   "settings": OBJ, "rename": {"type": "string"},

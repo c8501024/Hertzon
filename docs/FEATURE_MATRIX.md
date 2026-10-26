@@ -11,7 +11,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 |---|---|---|---|
 | Project with several designs | Project Manager: Project > Design | ✔ | Insert / copy / rename / delete design |
 | Project and design variables (`$var`, `var`) | Project Variables, Design Properties | ✔ | Expressions with units (`2*w+1mm`, `c0/f`), functions `sin cos sqrt …` |
-| Solution Type Modal / Terminal / Eigenmode | Simulation > Solution Type | ◐ | Terminal is solved as Modal (port S-parameters, no terminal transform) |
+| Solution Type Modal / Terminal / Eigenmode | Simulation > Solution Type | ◐ | Terminal: terminals of lumped ports and of wave ports (one per signal conductor, reference conductor automatic or named), terminal S-parameters at 50 ohm or the renormalization impedance, differential pairs, Zo and Gamma, port field display, solve ports only. Wave ports with several signal conductors wait for EMerge (warning) |
 | Auto Open region | Solution Type dialog: Auto Open | ✔ | Radiation or PML picked automatically (PML when the design radiates: far-field sphere, plane wave or "Radiating structure") |
 | — | **Auto Open - Filter** | ✔ | Air box with a fixed margin and radiation boundary on all outer faces (filter workflow) |
 | Undo / Redo, copy / paste | Edit menu, Ctrl+Z / Ctrl+Y / Ctrl+C / Ctrl+V | ✔ | |
@@ -112,7 +112,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 |---|---|---|
 | Solution Data: Profile, Convergence (table + plot), Matrix Data S/Y/Z (mag/phase, dB, re/im), Mesh Statistics | ✔ |
 | Rectangular plot, Smith chart, Data table, markers | ✔ |
-| Expressions `dB(S(1,1))`, `VSWR`, `GroupDelay`, `Z`, `Y`, `ang_deg`, `re`, `im` | ✔ (also as named equations, e.g. `RL = -dB(S(1,1))`, category Equations) |
+| Expressions `dB(S(1,1))`, `VSWR`, `GroupDelay`, `Z`, `Y`, `Zo`, `Gamma`, mixed-mode `S(Diff1,Comm1)`, `ang_deg`, `re`, `im` | ✔ (also as named equations, e.g. `RL = -dB(S(1,1))`, category Equations) |
 | Units on report axes, data tables, CSV export and colour bars | ✔ |
 | Radiation: Infinite Sphere, 2D pattern cuts, 3D polar plot, Gain / Directivity / Realized gain, Eθ/Eφ, markers, beamwidth and side lobes | ✔ (half and quarter models with Symmetry boundaries are mirrored) |
 | Field overlays on faces, objects and cut planes: Mag, Complex Mag and Vector of E, H, Jsurf and J (volume current sigma E), phase animation | ✔ (with nothing selected, the faces or objects are picked in the 3D view) |

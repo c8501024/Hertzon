@@ -157,7 +157,8 @@ class Optimizer:
             data = st.sparams(self.sol)
             if data is None:
                 raise RuntimeError(e.error or "no result (the solver stopped early; see solver.log)")
-            cost, goals = evaluate_goals(self.opt, data, self.ev, self.outvars)
+            from .expressions import with_pairs
+            cost, goals = evaluate_goals(self.opt, with_pairs(data, self.des), self.ev, self.outvars)
             row.update(cost=cost, goals=goals)
         except Exception as ex:  # noqa: BLE001
             row.update(cost=None, error=str(ex))

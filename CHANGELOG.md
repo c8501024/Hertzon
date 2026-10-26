@@ -3,6 +3,36 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Terminal solution**: a design of solution type Terminal is now solved as terminals instead of modes.
+  Each lumped port is one terminal; a wave port gets one terminal per signal conductor touching its face,
+  with the largest conductor (or the one named in the port's new *Reference conductor*, Terminals tab) as
+  reference. The terminal S-parameters refer to 50 ohm, or to the renormalization impedance when
+  Renormalize is on. The solver log names the terminals of every port. A wave port with one signal
+  conductor gives exactly the renormalized result of the modal port. Wave ports with several signal
+  conductors are solved, but warn: EMerge's port modes are not yet reliable for several conductors on one
+  port (see [EMERGE_CHANGES.md](docs/EMERGE_CHANGES.md)); use one lumped port per conductor until then.
+- **Differential pairs** (Simulation > Excitations > Diff. Pairs, or right click Excitations): pairs of
+  terminals with the reference impedances of the differential and common mode (default twice and half the
+  terminal reference). Reports offer the mixed-mode quantities `S(Diff1,Diff1)`, `S(Diff2,Diff1)`,
+  `S(Comm1,Diff1)`, `Z(...)`, `Y(...)` and `VSWR(Diff1)` next to the single-ended ones, also in output
+  variables, optimization goals and parametric calculations. Changing the pairs needs no new solve.
+- **Port impedance and propagation constant as report quantities**: `Zo(i)` (ohm, per port or terminal) and
+  `Gamma(i)` (1/m, per port mode; `re(Gamma(1))` is the attenuation, `im(Gamma(1))` the phase constant),
+  categories *Port Zo* and *Propagation Constant*. Stored over frequency for every new solution.
+- **Port Field Display**: right click a wave port > Port Field Display: Mode k shows the mode field on the
+  port face (magnitude and arrows) with its Zo and Gamma; Hide Port Field removes it.
+- **Solve ports only** (setup option): solves only the port modes of the wave ports at the solution and
+  sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
+
+### Fixed
+- Wave ports with several modes: EMerge added the modes of a repeated modal analysis at one frequency to the
+  modes it already had (a sweep analyses its mean frequency and then every frequency), so a port with
+  several modes could mix the modes of two analyses. Hertzon now solves the modes of such ports once per
+  solve.
+
 ## 0.2.4 (2026-10-26)
 
 ### Added

@@ -54,16 +54,30 @@ class ResultStore:
         (np.savez if big else np.savez_compressed)(tmp, **arrays)
         _replace(tmp, self.folder / name)
 
-    def save_sparams(self, solution: str, freq, S, z0, ports, solved=None) -> None:
+    def save_sparams(self, solution: str, freq, S, z0, ports, solved=None, gamma=None, zo=None,
+                     terminals=None, ports_only: bool = False) -> None:
+        """gamma, zo: propagation constant per port mode and characteristic impedance per port (terminal)
+        over frequency; terminals: the terminals of a terminal solution; ports_only: only the port modes
+        were solved (no S-parameters, no Touchstone file)."""
         freq = np.asarray(freq, float).ravel()
         S = np.asarray(S, complex)
         if S.ndim == 2:
             S = S[None]
         z0 = np.asarray(z0)
+        extra = {}
+        if gamma is not None:
+            extra["gamma"] = np.asarray(gamma, complex)
+        if zo is not None:
+            extra["zo"] = np.asarray(zo, complex)
+        if terminals is not None:
+            extra["terminals"] = np.array(json.dumps(terminals))
+        if ports_only:
+            extra["ports_only"] = np.array(True)
         self.save_npz(f"sparams_{_safe(solution)}.npz", freq=freq, S=S, z0=z0,
                       solved=np.asarray(solved if solved is not None else freq, float),
-                      ports=np.array(json.dumps(ports)))
-        self.write_touchstone(solution, freq, S, z0)
+                      ports=np.array(json.dumps(ports)), **extra)
+        if not ports_only:
+            self.write_touchstone(solution, freq, S, z0)
 
     def write_touchstone(self, solution: str, freq, S, z0, path: Path | str | None = None) -> Path:
         n = S.shape[1]
@@ -112,8 +126,16 @@ class ResultStore:
         if not p.exists():
             return None
         with np.load(p, allow_pickle=False) as d:
-            return {"freq": d["freq"], "S": d["S"], "z0": d["z0"], "solved": d["solved"],
-                    "ports": json.loads(str(d["ports"]))}
+            out = {"freq": d["freq"], "S": d["S"], "z0": d["z0"], "solved": d["solved"],
+                   "ports": json.loads(str(d["ports"]))}
+            for k in ("gamma", "zo"):
+                if k in d.files:
+                    out[k] = d[k]
+            if "terminals" in d.files:
+                out["terminals"] = json.loads(str(d["terminals"]))
+            if "ports_only" in d.files:
+                out["ports_only"] = bool(d["ports_only"])
+            return out
 
     def npz(self, name: str):
         if name.startswith("fields_") and name.endswith(".npz"):    # computed from the solution on demand

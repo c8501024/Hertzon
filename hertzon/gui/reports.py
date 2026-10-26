@@ -24,13 +24,14 @@ from ..solver.ffquant import monostatic_rcs, farfield_quantities, antenna_parame
 from ..solver.ffquant import ANTENNA_QUANTITIES, ANTENNA_POWER, ANTENNA_PASSES, antenna_series, antenna_pass_series
 from ..solver.ffquant import RCS_PASSES, rcs_pass_series
 from ..solver.expressions import (network, split_trace, output_variables, _FUNCS, _ast_eval,  # noqa: F401
-                                  eval_expr, eval_trace)
+                                  eval_expr, eval_trace, with_pairs)
 
 ANTENNA_KINDS = ("Antenna Parameters", "Antenna Parameters Table")
 
 ETA0 = 376.730313668
 FUNCS = ["dB", "mag", "ang_deg", "ang_rad", "re", "im", "dB10"]
-CATEGORIES = ["S Parameter", "Y Parameter", "Z Parameter", "VSWR", "Gamma", "Group Delay"]
+CATEGORIES = ["S Parameter", "Y Parameter", "Z Parameter", "VSWR", "Gamma", "Group Delay", "Port Zo",
+              "Propagation Constant"]
 FF_QUANTITIES = ["GainTotal", "RealizedGainTotal", "DirTotal", "GainTheta", "GainPhi", "GainLHCP", "GainRHCP",
                  "DirLHCP", "DirRHCP", "rETotal", "rETheta", "rEPhi", "rELHCP", "rERHCP", "AxialRatioValue",
                  "BistaticRCSTotal", "BistaticRCSTheta", "BistaticRCSPhi"]
@@ -60,7 +61,7 @@ NF_QUANTITIES = ["NearETotal", "NearEX", "NearEY", "NearEZ", "NearHTotal", "Near
 
 
 # units of the report quantities (linear); dB of them is "dB", of an area "dBsm"
-_QTY_UNITS = {"S": "", "Y": "S", "Z": "Ω", "VSWR": "", "Gamma": "", "Freq": "Hz", "F": "Hz",
+_QTY_UNITS = {"S": "", "Y": "S", "Z": "Ω", "VSWR": "", "Zo": "Ω", "Gamma": "1/m", "Freq": "Hz", "F": "Hz",
               "RadiatedPower": "W", "AcceptedPower": "W", "IncidentPower": "W", "MaxU": "W/sr",
               "ThetaAtMax": "deg", "PhiAtMax": "deg"}
 _PREFIX_UNITS = (("rE", "V"), ("NearE", "V/m"), ("NearH", "A/m"), ("BistaticRCS", "m²"), ("MonostaticRCS", "m²"))
@@ -114,7 +115,7 @@ def trace_unit(doc, trace: str) -> str | None:
             return None
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             fn, args = node.func.id, node.args
-            if fn in ("S", "Y", "Z", "VSWR"):
+            if fn in ("S", "Y", "Z", "VSWR", "Zo", "Gamma"):
                 return _QTY_UNITS[fn]
             if fn == "GroupDelay":
                 return "s"
@@ -345,8 +346,8 @@ def load_solution(doc, solution: str, root=None) -> tuple[ResultStore, str, dict
     setup, _, sol = [x.strip() for x in solution.partition(":")]
     st = ResultStore(result_dir(doc, setup) if root is None else root / _safe(setup))
     if sol.startswith("AdaptivePasses"):
-        return st, sol, adaptive_pass_data(st, sol)
-    return st, sol, st.sparams(sol)
+        return st, sol, with_pairs(adaptive_pass_data(st, sol), doc.design)
+    return st, sol, with_pairs(st.sparams(sol), doc.design)
 
 
 def x_axis(data: dict) -> tuple[np.ndarray, str, float]:
@@ -774,15 +775,44 @@ class ReportWindow(QWidget):
             from .calc_bridge import value_names
             self.qty.addItems(value_names(self.doc, fields=is_fields_report(self.doc, self.report)))
             self.func.setCurrentText("<none>")       # values in their own unit (W, V, J, ...)
-        elif cat == "VSWR":
-            self.qty.addItems([f"VSWR({i})" for i in range(1, n + 1)])
-        elif cat == "Gamma":
-            self.qty.addItems([f"S({i},{i})" for i in range(1, n + 1)])
-        elif cat == "Group Delay":
-            self.qty.addItems([f"GroupDelay(S({i},{j}))" for i in range(1, n + 1) for j in range(1, n + 1)])
-        else:
-            letter = cat[0]
-            self.qty.addItems([f"{letter}({i},{j})" for i in range(1, n + 1) for j in range(1, n + 1)])
+            return
+        if cat in ("Port Zo", "Propagation Constant"):
+            key, fn = ("zo", "Zo") if cat == "Port Zo" else ("gamma", "Gamma")
+            k = self._port_quantity_count(key)
+            self.qty.addItems([f"{fn}({i})" for i in range(1, k + 1)])
+            return
+        # with differential pairs: first the mixed-mode quantities, then the single-ended ones
+        for mm in ([self._mixed_ports(n)] if self._mixed_ports(n) else []) + [list(range(1, n + 1))]:
+            if cat == "VSWR":
+                self.qty.addItems([f"VSWR({i})" for i in mm])
+            elif cat == "Gamma":
+                self.qty.addItems([f"S({i},{i})" for i in mm])
+            elif cat == "Group Delay":
+                self.qty.addItems([f"GroupDelay(S({i},{j}))" for i in mm for j in mm])
+            else:
+                letter = cat[0]
+                self.qty.addItems([f"{letter}({i},{j})" for i in mm for j in mm])
+
+    def _mixed_ports(self, n: int) -> list:
+        """With differential pairs, the port indices of the mixed-mode quantities: the Diff/Comm modes and the
+        terminals that are in no pair; without pairs an empty list."""
+        from ..solver.expressions import diff_pairs
+        pairs = diff_pairs(self.doc.design)
+        if not pairs:
+            return []
+        used = {int(q["pos"]) for q in pairs} | {int(q["neg"]) for q in pairs}
+        return ([f"Diff{k + 1}" for k in range(len(pairs))] + [f"Comm{k + 1}" for k in range(len(pairs))]
+                + [i for i in range(1, n + 1) if i not in used])
+
+    def _port_quantity_count(self, key: str) -> int:
+        """Number of port impedances (one per port or terminal) or propagation constants (one per mode)."""
+        try:
+            _, _, data = load_solution(self.doc, self.sol.currentText())
+            if data is not None and key in data:
+                return int(np.asarray(data[key]).shape[1])
+        except Exception:  # noqa: BLE001
+            pass
+        return self._ports()
 
     def _apply(self) -> None:
         expr = self._expr()

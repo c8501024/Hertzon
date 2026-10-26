@@ -207,7 +207,12 @@ EXCITATIONS: dict[str, list[Prop]] = {
                   P("Renormalize", "bool", "False", tab="Post Processing"),
                   P("RenormImpedance", "expr", "50ohm", tab="Post Processing", visible_if=("Renormalize", "True")),
                   P("Deembed", "bool", "False", tab="Post Processing"),
-                  P("DeembedDistance", "length", "0", tab="Post Processing", visible_if=("Deembed", "True"))],
+                  P("DeembedDistance", "length", "0", tab="Post Processing", visible_if=("Deembed", "True")),
+                  P("ReferenceConductor", "text", "", label="Reference conductor", tab="Terminals",
+                    help="Terminal solution: the conductor on the port face that is the reference (ground) of "
+                         "the terminals, as an object or boundary name. Empty: the largest conductor. Every "
+                         "other conductor touching the port face is one terminal; the terminals refer to the "
+                         "renormalization impedance when Renormalize is on, else to 50 ohm")],
     "Lumped Port": [P("PortNumber", "int", "1"), P("Impedance", "expr", "50ohm", label="Full port impedance"),
                     P("IntegrationLine", "points", "", help="Start;End of the voltage line, from one conductor to the other. Set "
                      "automatically between the two conductors touching the sheet (empty = auto); right click the "
@@ -265,6 +270,10 @@ SETUP: list[Prop] = [
       visible_if=("SolutionFrequencyMode", "Multi-Frequencies")),
     P("LowFrequency", "freq", "1GHz", visible_if=("SolutionFrequencyMode", "Broadband")),
     P("HighFrequency", "freq", "10GHz", visible_if=("SolutionFrequencyMode", "Broadband")),
+    P("PortsOnly", "bool", "False", label="Solve ports only",
+      help="Solve only the port modes of the wave ports: port impedance Zo, propagation constant Gamma and "
+           "the port fields at the solution frequency and the sweep frequencies, without the 3D solution "
+           "(no S-parameters). For checking ports quickly"),
     P("MaximumPasses", "int", "6", label="Maximum number of passes"),
     P("MaximumDeltaS", "float", "0.02", label="Maximum Delta S"),
     P("MaximumDeltaEnergy", "float", "0.001", label="Maximum Delta Energy",
