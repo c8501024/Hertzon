@@ -181,7 +181,8 @@ HELP: dict[str, str] = {
     "RestrictElements": "Limit the number of elements this operation may create; the length is enlarged if needed (Restrict the number of elements).",
     "MaxElements": "Maximum number of elements created by this mesh operation.",
     # ---- design settings ----------------------------------------------------------------------
-    "SolutionType": "Modal (S-parameters by modes), Terminal or Eigenmode.",
+    "SolutionType": "Modal (S-parameters by port modes), Terminal (S-parameters by terminals: one per lumped "
+                    "port and one per signal conductor of a wave port, with differential pairs) or Eigenmode.",
     "AutoOpen": "Automatically add an air region with a radiation boundary around the model.",
     "AutoOpenBoundary": "Boundary type of the automatic open region. With an incident plane wave the radiation boundary is "
                         "always used (the incident wave enters through it).",

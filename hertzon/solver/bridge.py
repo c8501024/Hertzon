@@ -252,6 +252,8 @@ class Bridge:
             self.run_eigen()
         elif self.plane_wave() is not None:
             self.run_plane_wave()
+        elif self.setup.props.get("PortsOnly") == "True":
+            self.run_ports_only()
         else:
             self.run_adaptive()
             self.run_sweeps()
@@ -716,6 +718,13 @@ class Bridge:
         em, mw = self.em, self.m.mw
         ev = self.ev
         self.port_map = []
+        global TERMINALS, DEEMBED
+        TERMINALS, DEEMBED = None, {}
+        term = None
+        if self.design.settings.get("SolutionType") == "Terminal" and self.plane_wave() is None:
+            from .terminals import Terminals
+            term = Terminals()
+            cond_faces = self.terminal_conductor_faces()
         for e in self.design.ports():
             sel, tags = self.selection_for(e)
             if not tags:
@@ -725,9 +734,17 @@ class Bridge:
             if e.kind == "Wave Port":
                 self.back_port_with_void(e.name, tags)
                 mt = p.get("ModeType", "Auto")
+                nmodes = max(1, ev.integer(p.get("NumberOfModes", "1")))
+                if term is not None:
+                    tp = self.wave_port_terminals(e, tags, cond_faces)
+                    if nmodes != len(tp["terminals"]):
+                        info(f"Port '{e.name}': {len(tp['terminals'])} terminal(s), solving "
+                             f"{len(tp['terminals'])} mode(s)")
+                    nmodes = len(tp["terminals"])
                 port = mw.bc.ModalPort(sel, num, modetype=None if mt == "Auto" else mt,
-                                       number_of_modes=max(1, ev.integer(p.get("NumberOfModes", "1"))),
-                                       mixed_materials=True,
+                                       number_of_modes=nmodes,
+                                       # several modes: solved once per solve (see fresh_port_modes)
+                                       mixed_materials=nmodes == 1,
                                        impedance_definition={"Zpv": "PV", "Zpi": "PI", "Zvi": "VI"}[
                                            p.get("ImpedanceDefinition", "Zpv")])
             elif e.kind == "Lumped Port":
@@ -736,6 +753,18 @@ class Bridge:
                 info(f"Lumped port {num}: width {w * 1e3:.4g} mm, height {h * 1e3:.4g} mm, direction {d}")
             else:  # Floquet
                 port = mw.bc.FloquetPort(sel, num, er=ev.value(p.get("Permittivity", "1")))
+            if term is not None:
+                if e.kind == "Wave Port":
+                    tp["bc"] = port
+                    term.ports.append(tp)
+                elif e.kind == "Lumped Port":
+                    z = ev.value(p["Impedance"])
+                    term.ports.append({"name": e.name, "number": num, "kind": "lumped", "z0": z,
+                                       "terminals": [e.name], "zref": [z]})
+                else:
+                    raise RuntimeError(f"Port '{e.name}': {e.kind}s are not available in a terminal solution")
+                if p.get("Deembed") == "True":
+                    DEEMBED[num] = ev.length(p["DeembedDistance"])
             self.port_map.append({"name": e.name, "number": num, "kind": e.kind,
                                   "renorm": p.get("RenormImpedance") if p.get("Renormalize") == "True" else None,
                                   "renorm_ohm": ev.value(p["RenormImpedance"]) if p.get("Renormalize") == "True" else None,
@@ -754,7 +783,100 @@ class Bridge:
             info(f"Excitation '{pw.name}' (incident plane wave, scattered-field formulation)")
         elif any(e.kind == "Incident Plane Wave" and e.enabled for e in self.design.excitations):
             warn("Incident plane waves are ignored while ports are present")
+        if term is not None and term.ports:
+            term.ports.sort(key=lambda q: q["number"])
+            TERMINALS = term
+            names = ", ".join(f"{i + 1}: {n}" for i, n in enumerate(term.names))
+            info(f"Terminal solution: {len(term.names)} terminal(s) ({names})")
+            self.store.write_json("terminals.json", term.info())
         self.store.write_json("ports.json", self.port_map)
+
+    def terminal_conductor_faces(self) -> set[int]:
+        """Faces of the solver model that are conductors for the terminals: Perfect E and finite
+        conductivity boundaries, the surface of conductor solids, and outer faces without another boundary
+        (the default outer boundary is a perfect conductor)."""
+        import gmsh
+        mw = self.m.mw
+        cond = {int(t) for b in mw.bc.get_conductors() for t in b.tags}
+        other = {int(t) for b in mw.bc.boundary_conditions for t in b.tags} - cond
+        for obj in self.design.live_objects():
+            g = self.geos.get(obj.name)
+            if g is None or not obj.model:
+                continue
+            try:
+                mat = self.project.material(obj.material)
+            except Exception:  # noqa: BLE001
+                continue
+            if getattr(g, "dim", 0) == 3 and is_conductor(mat):
+                cond |= {int(t) for t in g.boundary().tags}
+        for _, f in gmsh.model.getEntities(2):
+            up, _ = gmsh.model.getAdjacencies(2, f)
+            if len(up) == 1 and f not in other:
+                cond.add(int(f))
+        return cond
+
+    def conductor_name(self, curves: list[int], cond_faces: set[int]) -> str:
+        """Name of a conductor touching the port face: a conductor object, else a Perfect E / finite
+        conductivity boundary, else the outer boundary."""
+        import gmsh
+        faces = set()
+        for c in curves:
+            up, _ = gmsh.model.getAdjacencies(1, c)
+            faces |= {int(s) for s in up} & cond_faces
+        objs, bnds = [], []
+        for obj in self.design.live_objects():
+            g = self.geos.get(obj.name)
+            if g is None or not obj.model or obj.history[0].kind == "CreateRegion":
+                continue
+            try:
+                ftags = set(g.boundary().tags) if getattr(g, "dim", 0) == 3 else set(g.tags)
+            except Exception:  # noqa: BLE001
+                continue
+            mat = self.project.material(obj.material) if getattr(g, "dim", 0) == 3 else None
+            if ftags & faces and (mat is None or is_conductor(mat)):
+                objs.append(obj.name)
+        for b in self.design.boundaries:
+            if b.enabled and b.kind in ("Perfect E", "Finite Conductivity"):
+                try:
+                    _, tags = self.selection_for(b)
+                except Exception:  # noqa: BLE001
+                    continue
+                if set(int(t) for t in tags) & faces:
+                    bnds.append(b.name)
+        return (objs or bnds or ["Outer"])[0]
+
+    def wave_port_terminals(self, e: Assignment, tags: list[int], cond_faces: set[int]) -> dict:
+        """Terminals of a wave port: one per signal conductor on its face, the reference conductor is the
+        one named in ReferenceConductor or else the largest one."""
+        from .terminals import port_conductors, voltage_line
+        cond_faces = cond_faces - {int(t) for t in tags}
+        groups = port_conductors(list(tags), cond_faces)
+        if len(groups) < 2:
+            raise RuntimeError(f"Port '{e.name}': a terminal solution needs at least two conductors on the port "
+                               f"face (found {len(groups)}); check the conductors and boundaries touching it")
+        for g in groups:
+            g["name"] = self.conductor_name(g["curves"], cond_faces)
+        want = e.props.get("ReferenceConductor", "").strip()
+        named = [i for i, g in enumerate(groups) if want and g["name"] == want]
+        if want and not named:
+            warn(f"Port '{e.name}': reference conductor '{want}' does not touch the port face; using the largest")
+        ref = named[0] if named else int(np.argmax([g["length"] for g in groups]))
+        sig = [g for i, g in enumerate(groups) if i != ref]
+        seen: dict[str, int] = {}
+        names = []
+        for g in sig:
+            seen[g["name"]] = seen.get(g["name"], 0) + 1
+            names.append(f"{e.name}_{g['name']}" + (f"_{seen[g['name']]}" if seen[g["name"]] > 1 else ""))
+        p = e.props
+        zr = self.ev.value(p.get("RenormImpedance", "50ohm") or "50ohm") if p.get("Renormalize") == "True" else 50.0
+        lines = [voltage_line(g["points"], groups[ref]["points"]) for g in sig]
+        info(f"Port '{e.name}': reference conductor '{groups[ref]['name']}', terminals " + ", ".join(names))
+        if len(sig) > 1:
+            warn(f"Port '{e.name}' has {len(sig)} signal conductors: the port modes of EMerge are not yet reliable "
+                 "for several conductors on one wave port, so its terminal S-parameters may be wrong. Use one "
+                 "lumped port per conductor (and differential pairs) for now")
+        return {"name": e.name, "number": self.ev.integer(p["PortNumber"]), "kind": "wave", "terminals": names,
+                "lines": lines, "reference": groups[ref]["name"], "zref": [zr] * len(sig)}
 
     def back_port_with_void(self, port: str, tags: list[int]) -> None:
         """A wave port on a face of a PEC solid (e.g. the bottom of a coax bore in a metal body) has the
@@ -934,6 +1056,7 @@ class Bridge:
             f, S, z0, data = solve_at(m, fa)
             flds = list(data.field)[-len(f):]
         self.save_s("LastAdaptive", f, S, z0)
+        self.save_port_fields("LastAdaptive", f[:1])
         self.save_mesh()
         if p.get("SaveFields", "True") == "True":
             self.save_fields(flds, "LastAdaptive")
@@ -1116,12 +1239,94 @@ class Bridge:
         emit("done", elapsed=time.time() - self.t0)
         hard_exit()
 
-    def save_s(self, name: str, f, S, z0, solved=None) -> None:
+    def save_s(self, name: str, f, S, z0, solved=None, ports_only: bool = False) -> None:
         try:
             S, z0 = postprocess_ports(f, S, z0, self.port_map)
         except Exception as e:  # noqa: BLE001
             warn(f"Port de-embedding/renormalization skipped: {e}")
-        self.store.save_sparams(name, f, S, z0, self.port_map, solved=solved)
+        gamma, zo = port_data(f)
+        self.store.save_sparams(name, f, S, z0, self.port_map, solved=solved, gamma=gamma, zo=zo,
+                                terminals=TERMINALS.info() if TERMINALS is not None else None,
+                                ports_only=ports_only)
+
+    def wave_ports(self) -> list[tuple[dict, object]]:
+        """(port_map entry, EMerge port) of every wave port."""
+        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+        bcs = {bc.port_number: bc for bc in self.m.mw.bc.oftype(ModalPort)}
+        return [(q, bcs[q["number"]]) for q in self.port_map if q.get("kind") == "Wave Port" and q["number"] in bcs]
+
+    def save_port_fields(self, label: str, freqs) -> None:
+        """Mode fields of the wave ports on the port faces (Port Field Display): E and H at the nodes of the
+        port triangles for every mode at the frequencies freqs (the modes solved nearest to them)."""
+        try:
+            mesh = self.m.mesh
+            out, meta = {"freq": np.asarray(freqs, float)}, []
+            for q, bc in self.wave_ports():
+                tris = mesh.tris[:, mesh.get_triangles(bc.tags)]
+                ids, inv = np.unique(tris.ravel(), return_inverse=True)
+                xyz = mesh.nodes[:, ids]
+                n = q["number"]
+                out[f"nodes_{n}"] = xyz.T.astype(np.float64)
+                out[f"tris_{n}"] = inv.reshape(tris.shape).T.astype(np.int32)
+                rows = []
+                for k, f in enumerate(np.atleast_1d(freqs)):
+                    k0 = 2 * np.pi * float(f) / C0
+                    modes = bc.get_modes(k0)
+                    for i, md in enumerate(modes[:len(bc.port_modes)]):
+                        out[f"E_{n}_{i + 1}_{k}"] = np.asarray(md.E_function(*xyz), complex).T.astype(np.complex64)
+                        out[f"H_{n}_{i + 1}_{k}"] = np.asarray(md.H_function(*xyz), complex).T.astype(np.complex64)
+                        rows.append({"freq_index": k, "mode": i + 1, "type": str(md.modetype),
+                                     "gamma": [float(np.real(1j * md.beta)), float(np.imag(1j * md.beta))],
+                                     "zo": float(np.real(md.Z0))})
+                meta.append({"name": q["name"], "number": n, "modes": rows})
+            out["meta"] = np.array(json.dumps(meta))
+            if meta:
+                self.store.save_npz(f"portfields_{label}.npz", **out)
+        except Exception as e:  # noqa: BLE001
+            warn(f"Port fields not saved: {e}")
+
+    def run_ports_only(self) -> None:
+        """Solve only the port modes: propagation constant, port impedance and port fields at the adaptive
+        frequencies and at the frequencies of every sweep, no 3D solution (Solve Ports Only)."""
+        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+        mw = self.m.mw
+        if not self.wave_ports():
+            raise RuntimeError("Solve ports only needs at least one wave port")
+        sols = [("LastAdaptive", np.array(adaptive_frequencies(self.setup, self.ev), float))]
+        sols += [(sw.name, sweep_frequencies(sw.props, self.ev)) for sw in self.setup.sweeps
+                 if sw.props.get("Enabled", "True") == "True"]
+        lumped = [q for q in self.port_map if q.get("kind") != "Wave Port"]
+        if lumped:
+            warn("Solve ports only: lumped ports have no port modes; only the wave ports are solved")
+        for i, (label, fr) in enumerate(sols):
+            emit("progress", value=15 + 80 * i / len(sols), text=f"Port modes: {label}")
+            S, labels = [], []
+            for f in fr:
+                portnumbers = []
+                for q, bc in self.wave_ports():
+                    bc.clear_modes()
+                    mt = bc.forced_modetype
+                    mw.modal_analysis(bc, len(bc.port_modes), direct=False, freq=float(f), TEM=mt == "TEM")
+                    nm = len(bc.port_modes)
+                    portnumbers += [q["number"]] if nm == 1 else [float(f"{q['number']}.{k + 1}") for k in range(nm)]
+                k0 = 2 * np.pi * float(f) / C0
+                if TERMINALS is not None:
+                    TERMINALS.transform([f], np.zeros((1, len(portnumbers), len(portnumbers))), portnumbers)
+                else:
+                    g, z = [], []
+                    for q, bc in self.wave_ports():
+                        for md in bc.get_modes(k0)[:len(bc.port_modes)]:
+                            g.append(1j * md.beta)
+                            z.append(md.Z0)
+                    PORT_RECORDS[float(f)] = (np.array(g, complex), np.array(z, complex))
+                labels = portnumbers
+            n = len(TERMINALS.names) if TERMINALS is not None else len(labels)
+            nan = np.full((len(fr), n, n), np.nan, complex)
+            z0 = TERMINALS.zref if TERMINALS is not None else np.full(n, 50.0)
+            self.save_s(label, fr, nan, z0, solved=fr, ports_only=True)
+            self.save_port_fields(label, fr)
+            info(f"Port modes of '{label}' at {len(fr)} frequenc{'y' if len(fr) == 1 else 'ies'}")
+        self.save_mesh()
 
     def save_mesh(self) -> None:
         m = self.m
@@ -1706,16 +1911,20 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         solve_ids = None
         z0 = np.array([50.0])
         for sf in fa:
+            fresh_port_modes(m)
             data, solve_ids = m.mw._run_adaptive_mesh(step, sf)
             fields.append(data.field[-1])
             Ss.append(np.array(data.scalar[-1].Sp))
             try:
                 if data.scalar[-1].Z0 is not None:
                     z0 = np.asarray(data.scalar[-1].Z0)
-                if data.scalar[-1].beta is not None:
-                    BETA[float(sf)] = np.asarray(data.scalar[-1].beta, complex).ravel()
             except Exception:  # noqa: BLE001
                 pass
+            _record_port_data(data.scalar[-1], sf)
+            if TERMINALS is not None:
+                # convergence and results on the terminal S-parameters (unique for degenerate port modes)
+                Ss[-1] = TERMINALS.transform([sf], Ss[-1][None], list(data.scalar[-1]._portnumbers), DEEMBED)[0]
+                z0 = TERMINALS.zref
         last = (list(fa), list(Ss), z0, list(fields), m.mesh.n_tets)
         row = {"pass": step, "tets": int(m.mesh.n_tets), "time": time.time() - t_pass,
                "S": [[[float(v.real), float(v.imag)] for v in S.ravel()] for S in Ss]}
@@ -2299,7 +2508,9 @@ def _save_pass_results(out: Path, fa: list[float], Ss: list, z0, passes: list, m
         ports = store.read_json("ports.json", []) or []
         S = np.array(Ss)
         S, z = postprocess_ports(np.asarray(fa, float), S, z0, ports)
-        store.save_sparams("LastAdaptive", np.asarray(fa, float), S, z, ports)
+        gamma, zo = port_data(fa)
+        store.save_sparams("LastAdaptive", np.asarray(fa, float), S, z, ports, gamma=gamma, zo=zo,
+                           terminals=TERMINALS.info() if TERMINALS is not None else None)
         store.write_json("convergence.json", {"passes": passes, "converged": False, "max_delta_s": max_ds,
                                               "frequencies": list(fa), "running": True})
     except Exception as e:  # noqa: BLE001
@@ -2538,8 +2749,23 @@ def solve_at(m, freqs, on_solved=None, **kw):
             _SOLVED_CB.remove(on_solved)
 
 
+def fresh_port_modes(m) -> None:
+    """Ports with several modes: their modes are solved once for each solve (at the mean frequency of a
+    sweep, at the frequency of an adaptive pass). EMerge adds the modes of a repeated modal analysis at a
+    frequency to the ones it already has, so a port with several modes would mix modes of two analyses
+    (a sweep analyses the mean frequency and then every frequency); one analysis per solve avoids that."""
+    try:
+        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+        for bc in m.mw.bc.oftype(ModalPort):
+            if len(bc.port_modes) > 1:
+                bc.clear_modes()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _solve_at(m, freqs, **kw):
     from . import mt_pardiso
+    fresh_port_modes(m)
     try:
         n0 = int(m.mw.data.scalar.n)
     except Exception:  # noqa: BLE001
@@ -2578,15 +2804,38 @@ def _solve_at(m, freqs, **kw):
     S = np.array([np.asarray(e.Sp) for e in entries])
     z0 = np.asarray(entries[0].Z0) if entries and entries[0].Z0 is not None else np.array([50.0])
     for e, fk in zip(entries, f):
-        try:
-            if e.beta is not None:
-                BETA[float(fk)] = np.asarray(e.beta, complex).ravel()
-        except Exception:  # noqa: BLE001
-            pass
+        _record_port_data(e, fk)
+    if TERMINALS is not None and len(entries):
+        S, z0 = TERMINALS.transform(f, S, list(entries[0]._portnumbers), DEEMBED), TERMINALS.zref
     return f, S, z0, data
 
 
 BETA: dict[float, np.ndarray] = {}     # solved frequency -> propagation constant per port
+PORT_RECORDS: dict[float, tuple[np.ndarray, np.ndarray]] = {}    # solved frequency -> (gamma, Zo) per port mode
+TERMINALS = None                       # terminals.Terminals of a Terminal design (set by the Bridge)
+DEEMBED: dict[int, float] = {}         # port number -> de-embedding distance (terminal designs)
+
+
+def _record_port_data(entry, freq: float) -> None:
+    """Propagation constant and port impedance of every port mode of one solved frequency."""
+    try:
+        if entry.beta is not None:
+            beta = np.asarray(entry.beta, complex).ravel()
+            BETA[float(freq)] = beta
+            z = np.asarray(entry.Z0, complex).ravel() if entry.Z0 is not None else np.full(len(beta), np.nan)
+            PORT_RECORDS[float(freq)] = (1j * beta, z)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+
+def port_data(freq) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Propagation constant gamma (per port mode) and characteristic impedance Zo (per port, or per terminal
+    in a terminal design) at the frequencies freq, interpolated between the solved frequencies."""
+    from .terminals import interp_records
+    if TERMINALS is not None:
+        return interp_records(TERMINALS.records, freq)
+    return interp_records(PORT_RECORDS, freq)
 
 
 def port_beta(freq: np.ndarray, nports: int) -> np.ndarray:
@@ -2607,8 +2856,11 @@ def port_beta(freq: np.ndarray, nports: int) -> np.ndarray:
 
 
 def postprocess_ports(freq, S, z0, port_map: list) -> tuple[np.ndarray, np.ndarray]:
-    """Wave-port de-embedding and renormalization (port post-processing)."""
+    """Wave-port de-embedding and renormalization (port post-processing). Terminal S-parameters are
+    de-embedded and referred to the terminal impedances when they are made (terminals.Terminals)."""
     S = np.array(S, complex)
+    if TERMINALS is not None:
+        return S, np.asarray(z0, complex).ravel()
     n = S.shape[1]
     z0v = np.resize(np.asarray(z0, complex).ravel(), n)
     ports = sorted(port_map, key=lambda q: q.get("number", 0))[:n]

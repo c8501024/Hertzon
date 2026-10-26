@@ -43,6 +43,8 @@ these pull requests start from `main`, never from `hertzon`.
 | Error estimate counts the current jump at finite-conductivity sheets as error | – | – | No PR. The face terms of EMerge's estimate contribute practically nothing (unnormalised coefficients); normalising them made the adaptive meshing worse on four models. Hertzon's patch changed no mesh and is removed |
 | gmsh fails on trimmed B-spline faces of CAD files | `emerge_patches.apply_mesh_fallback` | Meshing crash for imported CAD, not GUI specific | To do, low priority |
 | Far field with symmetry planes: radiated power scaled by `factor**2` although only the simulated part is integrated | – | Wrong radiated power (and directivity 3 dB too high per plane) for every user of `syms` | Fixed on `main` (#75, `0a607f2`), checked with a dipole as full and half model. Hertzon mirrors its stored surface fields itself with the same scaling (`farfield_post.mirrored`) |
+| A repeated modal analysis at the same frequency adds its modes to the ones already stored (`ModalPort.try_add_mode`); `run_sweep` analyses the mean frequency and then every frequency, so a port with several modes mixes the modes of two analyses | `bridge.fresh_port_modes` clears the modes of ports with several modes before every solve (public `clear_modes()`, no patch) and solves them once per solve | Wrong S-parameters (not lossless on a lossless model) of every port with several modes | To do: PR with a test (two wires in an air-filled box, two modes per port) |
+| Degenerate port modes (equal propagation constant, e.g. two conductors in a homogeneous dielectric) are not orthogonal: the eigen solver returns two almost equal modes (cross power 0.93 of the mode power) | – | A port with several conductors cannot represent all its TEM fields: wrong S-parameters | To do: PR that orthogonalizes the modes of one eigenvalue in the power product, with a test |
 
 ### Speed features in the solver core: `hertzon` branch (R4, R6)
 
@@ -59,6 +61,12 @@ existing code, switched on by a setting, and marked as AI written (R3).
 | Curved (isoparametric) elements | `curvilinear.py` keeps only the map for the plots | accuracy on curved surfaces | On `hertzon` (FennisRobert/EMerge#77, `Settings.mw_curved_elements`); Hertzon's kernels removed |
 
 The maintainer may later take any of them into `main` in his own way.
+
+### EM formulation in the core: `hertzon` branch (R4, R6)
+
+| Item | Hertzon code today | Why | Status |
+|---|---|---|---|
+| Wave port with several modes of different propagation constant (coupled microstrip lines: even and odd mode): the port condition uses the propagation constant of the first mode for all modes, so the others are not absorbed exactly | Terminal solution warns for wave ports with several signal conductors | Needed for terminal wave ports on differential lines | Agreed with the Hertzon maintainer (26 October 2026): a new port class next to `ModalPort` that projects on every mode with its own propagation constant, marked as AI written, after the bug fixes above |
 
 ### AI-written EMerge code: free to improve (R5)
 
