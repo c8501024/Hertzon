@@ -41,6 +41,14 @@ the GitHub release notes.
 - **Example `examples/DifferentialPair.hzn`** (File > Open Example): a 100 ohm edge-coupled microstrip pair
   with the terminal solution, differential pairs and reports of the mixed-mode S-parameters, the line
   impedances and the propagation constants; tutorial section 9 walks through it.
+- **Named rows of S**: with terminals or ports of several modes, the report quantities name the rows,
+  `S(P1_TraceP,P1_TraceN)` for terminals and `S(P1_M1,P1_M2)` for port modes (Floquet ports
+  `S(FP1_TE00,FP1_TM00)`); the numbers keep working. The report dialog and the data table list which
+  terminal, port or mode each number is.
+- **Edit Sources per terminal**: a terminal design with a port of several terminals stores its fields per
+  terminal (1 W incident on the terminal, the others terminated in their reference impedance), and Edit
+  Sources lists the terminals. A differential pair is driven with 0.5 W at 0° and 180° on its two terminals,
+  so field plots, animations and far fields show the differential or the common mode.
 - **Solve ports only** (setup option): solves only the port modes of the wave ports at the solution and
   sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
 
@@ -48,6 +56,11 @@ the GitHub release notes.
 - Hertzon now requires gmsh 4.15 or newer. With gmsh 4.13 or 4.14 one failed mesh generation (for example
   on faces of an imported CAD model) left every later display and solver mesh of the session empty, so
   ports and boundaries of the next model had no faces.
+- **Field plots of the Poynting vector** no longer turn with the plot phase. `S = 1/2 E x H*` is a time
+  average; the plot showed `Re{S e^(j phase)}`, so at other phases and in phase animations the arrows showed
+  the reactive power, and a real expression such as `re(S)` reversed its direction every half period. Real
+  expressions and expressions with `S` now show the same picture at every phase: the real part of `S`, the
+  active power flow.
 - **First click in the 3D view no longer hangs.** Right after the start, the first hover or click in the 3D
   view stalled while the graphics driver built the shaders of the highlight styles (half transparent faces,
   wide lines, vertex spheres). They are now drawn once, unseen, when the window opens.

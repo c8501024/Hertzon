@@ -203,8 +203,11 @@ def adaptive_pass_data(st: ResultStore, sol: str) -> dict | None:
     last = st.sparams("LastAdaptive")
     z0 = last["z0"] if last is not None else np.array([50.0])
     x = np.array([p["pass"] for p in passes], float)
-    return {"freq": x, "S": np.array(S), "z0": z0, "solved": x, "ports": last["ports"] if last is not None else [],
-            "xaxis": "Pass", "adaptive_freq": fa[k]}
+    out = {"freq": x, "S": np.array(S), "z0": z0, "solved": x, "ports": last["ports"] if last is not None else [],
+           "xaxis": "Pass", "adaptive_freq": fa[k]}
+    if last is not None and last.get("terminals"):
+        out["terminals"] = last["terminals"]
+    return out
 
 
 def antenna_solution_list(doc) -> list[str]:
@@ -644,6 +647,11 @@ class ReportWindow(QWidget):
         form.addRow("Quantity:", self.qty)
         form.addRow("Function:", self.func)
         ll.addLayout(form)
+        # what the numbers in S(i,j), Zo(i) ... are: the ports, or the terminals of a terminal solution
+        self.numbering = QLabel()
+        self.numbering.setWordWrap(True)
+        self.numbering.setVisible(False)
+        ll.addWidget(self.numbering)
         if report.kind not in ("Radiation Pattern", "3D Polar Plot"):
             er = QHBoxLayout()
             self.expr = QLineEdit()
@@ -764,11 +772,41 @@ class ReportWindow(QWidget):
         self.changed.emit()
         self.refresh()
 
+    def _s_labels(self) -> list[tuple[str, str]]:
+        try:
+            from ..solver.results import s_labels
+            st, _, _ = load_solution(self.doc, self.sol.currentText())
+            return s_labels(st)
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _show_numbering(self, cat: str) -> None:
+        """The names behind the numbers (Terminals: 1 = P1_TraceP, ...) under the quantity, and as tool tips of
+        the quantities."""
+        rows = [] if cat in ("Equations", "Propagation Constant") else self._s_labels()
+        names = {str(i + 1): n for i, (n, _) in enumerate(rows)}
+        term = bool(rows) and rows[0][1] == "Terminal"
+        self.numbering.setVisible(len(rows) > 1)
+        self.numbering.setText(("Terminals: " if term else "Ports: ")
+                               + ", ".join(f"{i} = {n}" for i, n in names.items()))
+        for k in range(self.qty.count()):
+            idx = re.findall(r"[(,]\s*(\w+)", self.qty.itemText(k))
+            tip = ", ".join(f"{i} = {names[i]}" for i in dict.fromkeys(idx) if i in names)
+            if tip:
+                self.qty.setItemData(k, tip, Qt.ToolTipRole)
+
     def _fill_qty(self, *_):
         if self.report.kind in ("Radiation Pattern", "3D Polar Plot", "Near Field Line") + ANTENNA_KINDS \
                 or self.report.kind.startswith("Monostatic RCS"):
             return
         self.qty.clear()
+        try:
+            self._fill_qty_items()
+        finally:
+            if getattr(self, "numbering", None) is not None:
+                self._show_numbering(self.cat.currentText())
+
+    def _fill_qty_items(self) -> None:
         n = self._ports()
         cat = self.cat.currentText()
         if cat == "Equations":
@@ -782,7 +820,8 @@ class ReportWindow(QWidget):
             self.qty.addItems([f"{fn}({i})" for i in range(1, k + 1)])
             return
         # with differential pairs: first the mixed-mode quantities, then the single-ended ones
-        for mm in ([self._mixed_ports(n)] if self._mixed_ports(n) else []) + [list(range(1, n + 1))]:
+        rows = self._row_names(n)
+        for mm in ([self._mixed_ports(n)] if self._mixed_ports(n) else []) + [rows]:
             if cat == "VSWR":
                 self.qty.addItems([f"VSWR({i})" for i in mm])
             elif cat == "Gamma":
@@ -802,7 +841,21 @@ class ReportWindow(QWidget):
             return []
         used = {int(q["pos"]) for q in pairs} | {int(q["neg"]) for q in pairs}
         return ([f"Diff{k + 1}" for k in range(len(pairs))] + [f"Comm{k + 1}" for k in range(len(pairs))]
-                + [i for i in range(1, n + 1) if i not in used])
+                + [r for i, r in enumerate(self._row_names(n), 1) if i not in used])
+
+    def _row_names(self, n: int) -> list:
+        """The rows of S as the quantities name them: terminal or port-mode names (S(P1_M1,P1_M2)), or the
+        numbers when no port has several modes or terminals."""
+        try:
+            from ..solver.results import row_names
+            _, _, data = load_solution(self.doc, self.sol.currentText())
+            if data is not None:
+                names = row_names(data.get("ports") or [], data.get("terminals"))
+                if len(names) == n:
+                    return names
+        except Exception:  # noqa: BLE001
+            pass
+        return [str(i) for i in range(1, n + 1)]
 
     def _port_quantity_count(self, key: str) -> int:
         """Number of port impedances (one per port or terminal) or propagation constants (one per mode)."""

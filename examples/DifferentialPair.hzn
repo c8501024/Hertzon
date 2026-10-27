@@ -324,10 +324,10 @@
      "kind": "Rectangular",
      "solution": "Setup1 : Sweep",
      "traces": [
-      "dB(S(1,1))",
-      "dB(S(3,1))",
-      "dB(S(2,1))",
-      "dB(S(4,1))"
+      "dB(S(P1_TraceP,P1_TraceP))",
+      "dB(S(P2_TraceP,P1_TraceP))",
+      "dB(S(P1_TraceN,P1_TraceP))",
+      "dB(S(P2_TraceN,P1_TraceP))"
      ],
      "props": {}
     },
@@ -336,8 +336,8 @@
      "kind": "Rectangular",
      "solution": "Setup1 : Sweep",
      "traces": [
-      "re(Zo(1))",
-      "re(Zo(2))"
+      "re(Zo(P1_TraceP))",
+      "re(Zo(P1_TraceN))"
      ],
      "props": {}
     },
