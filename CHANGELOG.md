@@ -53,6 +53,9 @@ the GitHub release notes.
   sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
 
 ### Fixed
+- Hertzon now requires gmsh 4.15 or newer. With gmsh 4.13 or 4.14 one failed mesh generation (for example
+  on faces of an imported CAD model) left every later display and solver mesh of the session empty, so
+  ports and boundaries of the next model had no faces.
 - **Field plots of the Poynting vector** no longer turn with the plot phase. `S = 1/2 E x H*` is a time
   average; the plot showed `Re{S e^(j phase)}`, so at other phases and in phase animations the arrows showed
   the reactive power, and a real expression such as `re(S)` reversed its direction every half period. Real
