@@ -718,8 +718,8 @@ class Bridge:
         em, mw = self.em, self.m.mw
         ev = self.ev
         self.port_map = []
-        global TERMINALS, DEEMBED
-        TERMINALS, DEEMBED = None, {}
+        global TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS
+        TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS = None, {}, False
         term = None
         if self.design.settings.get("SolutionType") == "Terminal" and self.plane_wave() is None:
             from .terminals import Terminals
@@ -748,8 +748,9 @@ class Bridge:
                     # without the end faces of the conductors: the port block couples all port unknowns,
                     # and those of a face inside metal would have nothing else (singular matrix)
                     sel = em.FaceSelection(self.faces_off_metal(tags))
+                    MULTI_TERMINAL_PORTS = True
                     port = mw.bc.MultiModeWavePort(sel, num, number_of_modes=nmodes,
-                                                   modetype="TEM" if mt == "Auto" else mt,
+                                                   modetype=None if mt == "Auto" else mt,
                                                    impedance_definition=zdef)
                 else:
                     port = mw.bc.ModalPort(sel, num, modetype=None if mt == "Auto" else mt,
@@ -2834,6 +2835,7 @@ def _solve_at(m, freqs, **kw):
 BETA: dict[float, np.ndarray] = {}     # solved frequency -> propagation constant per port
 PORT_RECORDS: dict[float, tuple[np.ndarray, np.ndarray]] = {}    # solved frequency -> (gamma, Zo) per port mode
 TERMINALS = None                       # terminals.Terminals of a Terminal design (set by the Bridge)
+MULTI_TERMINAL_PORTS = False           # a port with several signal conductors is in the model (set by the Bridge)
 DEEMBED: dict[int, float] = {}         # port number -> de-embedding distance (terminal designs)
 
 
@@ -2944,6 +2946,9 @@ def _install_log_sink() -> None:
     loading = {"Starting mesh generation phase.": None,
                "Calling GMSH mesher": "Loading the {} into EMerge (no gmsh meshing)",
                "GMSH Meshing complete!": None}
+    # a port with several signal conductors has no single conductor pair, so EMerge finds no voltage line for
+    # its modes; the terminal impedances come from the line voltages of every conductor (terminals.py)
+    no_pair = ("PEC islands without a terminal definition", "Skipping characteristic impedance calculation.")
 
     def sink(message):
         rec = message.record
@@ -2953,6 +2958,8 @@ def _install_log_sink() -> None:
             if loading[msg] is None:
                 return
             msg = loading[msg].format(LR.LOADING[-1])
+        if MULTI_TERMINAL_PORTS and any(x in msg for x in no_pair):
+            return
         if lvl in ("warning", "error", "critical"):
             emit("log", level="warning" if lvl == "warning" else "error", msg=msg)
         elif lvl == "info":

@@ -164,14 +164,15 @@ reports and field plots ready: after **Analyze All** (F5) double-click a report,
 | `examples/DroneRCS.hzn` | RCS of an imported drone STL model (`Delta_Composites_Demo_3_Layers/`) at 1 GHz, plane wave, 3D RCS pattern |
 | `examples/Coax.hzn` | 20 mm, 50 Ω PTFE coax with TEM wave ports, sweep 1-10 GHz, Vector E across and Mag E along the line on cut planes ([tutorial](docs/TUTORIAL.md#2-coaxial-cable-with-wave-ports)) |
 | `examples/Dipole.hzn` | Half-wave dipole for 1 GHz with a lumped port, **Auto Open**, gain, impedance and antenna parameters; second design: the **half model with a Symmetry boundary** (Perfect H), whose far field includes the mirror image ([tutorial](docs/TUTORIAL.md#3-half-wave-dipole)) |
+| `examples/DifferentialPair.hzn` | 100 Ω edge-coupled microstrip pair on RO4350B with the **terminal solution**: one wave port per end with a terminal per trace (even and odd mode each absorbed with its own propagation constant), **differential pairs** and the mixed-mode S-parameters `S(Diff1,Diff1)`, `S(Comm1,Diff1)`, sweep 1-12 GHz ([tutorial](docs/TUTORIAL.md#9-a-differential-pair-with-the-terminal-solution)) |
 | `examples/GerberTestBoard.hzn` | Two-layer board with copper shapes, cut-outs, a via (grouped with its pad) and holes: the test case of **File > Export > Gerber** ([docs](docs/GERBER_EXPORT.md)) |
 | `examples/SphereRCS.hzn` | RCS of a 100 mm PEC sphere at 1 GHz, plane wave, **Auto Open**, bistatic and monostatic RCS reports, checked against the Mie series ([tutorial](docs/TUTORIAL.md#4-radar-cross-section-of-a-sphere)) |
 | `examples/Showcase_AllFeatures.hzn` | Test project that uses nearly every feature in six designs: patch array (all report types, field overlays, Fields Calculator, optimization, parametric sweeps, three setups, all sweep types, all mesh operations, coordinate systems), half-model iris filter (Symmetry, wave ports with modes, de-embedding and renormalization), eigenmode cavity, a geometry zoo with every create command and operation under a plane wave (RCS), a terminal coax monopole with PML and a periodic unit cell (Floquet port, not solved yet). Built by `python examples/make_showcase.py` |
 
 `examples/benchmark/` holds the validation and timing cases (patch antenna, waveguide post against a reference,
 sphere RCS against the Mie series, scaling from small to large models) with their scripts.
-`python examples/make_examples.py` builds the first versions of four of them (waveguide, microstrip, patch,
-hairpin) from code; the shipped files were finished in Hertzon.
+`python examples/make_examples.py` builds the first versions of five of them (waveguide, microstrip, patch,
+hairpin, differential pair) from code; the shipped files were finished in Hertzon.
 
 ## Manufacturing data (Gerber)
 

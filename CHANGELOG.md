@@ -24,10 +24,17 @@ the GitHub release notes.
   categories *Port Zo* and *Propagation Constant*. Stored over frequency for every new solution.
 - **Port Field Display**: right click a wave port > Port Field Display: Mode k shows the mode field on the
   port face (magnitude and arrows) with its Zo and Gamma; Hide Port Field removes it.
+- **Example `examples/DifferentialPair.hzn`** (File > Open Example): a 100 ohm edge-coupled microstrip pair
+  with the terminal solution, differential pairs and reports of the mixed-mode S-parameters, the line
+  impedances and the propagation constants; tutorial section 9 walks through it.
 - **Solve ports only** (setup option): solves only the port modes of the wave ports at the solution and
   sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
 
 ### Fixed
+- Terminal solution, wave port with several signal conductors and mode type Auto: the port only accepted
+  TEM modes, and on coupled microstrip the odd quasi-TEM mode (a small axial field at high frequency) was
+  rejected, so the solve stopped with a division by zero. Auto now accepts every mode type; the log no
+  longer reports the missing conductor pair of such ports, whose impedances come from the terminals.
 - Wave ports with several modes: EMerge added the modes of a repeated modal analysis at one frequency to the
   modes it already had (a sweep analyses its mean frequency and then every frequency), so a port with
   several modes could mix the modes of two analyses. Hertzon now solves the modes of such ports once per
