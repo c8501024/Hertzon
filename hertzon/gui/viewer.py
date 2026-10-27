@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import types
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -455,6 +456,63 @@ class ModelerView(QWidget):
 
     def _drop_actor(self, act) -> None:
         self.plotter.renderer.RemoveActor(act)
+
+    def warm_up(self) -> None:
+        """Draw every pre-highlight and selection style once, unseen, right after the window is shown. The
+        graphics driver builds the shaders for a style (half transparent faces, wide lines, vertex spheres)
+        the first time it is drawn: without this the first hover or click in the 3D view hung while they
+        were built, and everything ran smoothly afterwards."""
+        if getattr(self, "_warmed", False):
+            return
+        self._warmed = True
+        ren = self.plotter.renderer
+        rw = self.plotter.render_window
+        cam = ren.GetActiveCamera()
+        c = np.array(cam.GetFocalPoint(), float)
+        s = 1e-6 * max(float(cam.GetDistance()), 1e-9)         # far below one pixel
+        pts = c + s * np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], float)
+        t = types.SimpleNamespace(points=pts, tris=np.array([[0, 1, 2]]), tri_face=np.zeros(1, np.int32),
+                                  edges=[pts[:2], pts[1:]], vertices=pts, dim=3)
+        a = self._make_actors("", t)
+        acts = [a.surface, a.edges, a.vertices]
+        a.vertices.SetVisibility(True)
+        face = a.mesh.extract_cells([0])
+        edge = a.edge_mesh.extract_cells([0])
+        point = pv.PolyData(pts[:1])
+        # the pre-highlight styles of _update_hover
+        hover = [self._plain_actor(a.mesh, HIGHLIGHT, opacity=0.45), self._plain_actor(face, HIGHLIGHT, opacity=0.6),
+                 self._plain_actor(edge, HIGHLIGHT, line_width=4),
+                 self._plain_actor(point, HIGHLIGHT, point_size=12, spheres=True)]
+        for act in hover:
+            act.GetMapper().SetResolveCoincidentTopologyToPolygonOffset()
+            act.GetMapper().SetRelativeCoincidentTopologyPolygonOffsetParameters(-2, -2)
+        # the selection styles of refresh_selection
+        n = len(self.highlight_actors)
+        self._add_highlight_mesh(a.mesh, HIGHLIGHT, opacity=0.35)
+        self._add_highlight_mesh(face, HIGHLIGHT)
+        acts += hover + self.highlight_actors[n:]
+        del self.highlight_actors[n:]
+        rim = self._plain_actor(edge, SEL_EDGE, line_width=2.5)
+        rim.GetMapper().SetResolveCoincidentTopologyToPolygonOffset()
+        rim.GetMapper().SetRelativeCoincidentTopologyLineOffsetParameters(-2, -300)
+        acts += [rim, self._plain_actor(a.edge_mesh, SEL_EDGE, line_width=2.5),
+                 self._plain_actor(edge, SEL_EDGE, line_width=5),
+                 self._plain_actor(point, SEL_EDGE, point_size=14, spheres=True)]
+        cullers = [ren.GetCullers().GetItemAsObject(i) for i in range(ren.GetCullers().GetNumberOfItems())]
+        ren.GetCullers().RemoveAllItems()       # the tiny objects must be drawn, not culled
+        swap = rw.GetSwapBuffers()
+        try:
+            rw.SwapBuffersOff()                 # drawn into the back buffer only, never shown
+            rw.Render()
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            rw.SetSwapBuffers(swap)
+            for cl in cullers:
+                ren.AddCuller(cl)
+            for act in acts:
+                self._drop_actor(act)
+        self.request_render()
 
     # ------------------------------------------------------------------------------------------
     # interaction
