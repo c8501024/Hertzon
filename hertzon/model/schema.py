@@ -34,6 +34,11 @@ def P(name, type_, default="", label="", choices=(), tab="General", help="", vis
     return Prop(name, type_, str(default), label, tuple(choices), tab, help, visible_if, enabled_if)
 
 
+# Rotate / Sweep Around Axis: the axis and the centre are given in this coordinate system
+AXIS_CS = P("CoordinateSystem", "choice", "Global", label="Coordinate system", choices=("Global",),
+            help="Axis and Center are given in this coordinate system")
+
+
 # --------------------------------------------------------------------------------------------
 # Geometry commands
 # --------------------------------------------------------------------------------------------
@@ -95,7 +100,7 @@ GEOMETRY: dict[str, list[Prop]] = {
     # operations on an existing object
     "Move": [P("Vector", "vector", "0,0,0")],
     "Rotate": [P("Axis", "choice", "Z", choices=AXES), P("Angle", "angle", "90deg"),
-               P("Center", "point", "0,0,0")],
+               P("Center", "point", "0,0,0"), AXIS_CS],
     "Mirror": [P("Base", "point", "0,0,0"), P("Normal", "vector", "1,0,0")],
     "Scale": [P("Factor", "expr", "1"), P("Center", "point", "0,0,0")],
     "ThickenSheet": [P("Thickness", "length", "1"), P("BothSides", "bool", "False"),
@@ -103,7 +108,7 @@ GEOMETRY: dict[str, list[Prop]] = {
                        visible_if=("BothSides", "False"))],
     "SweepAlongVector": [P("Vector", "vector", "0,0,1")],
     "SweepAroundAxis": [P("Axis", "choice", "Z", choices=AXES), P("Angle", "angle", "360deg"),
-                        P("Center", "point", "0,0,0")],
+                        P("Center", "point", "0,0,0"), AXIS_CS],
     "Cover": [],
     "Unite": [P("Tools", "objects", ""), P("KeepOriginals", "bool", "False")],
     "Subtract": [P("Tools", "objects", ""), P("KeepOriginals", "bool", "False")],

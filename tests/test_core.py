@@ -824,6 +824,57 @@ def test_split_in_object_and_face_coordinate_systems():
         pytest.approx([0, 1.5, 50, 4, 2, 52], abs=1e-3)
 
 
+def _rotated_box(kind="Rotate", cs=None, **rot):
+    """Box 0..4 x 0..2 x 0..2 (mm) rotated or swept about an axis; returns the design and the bounding box in mm."""
+    p = Project()
+    d = p.designs[0]
+    d.add_object("CreateBox", Position="0,0,0", XSize="4", YSize="2", ZSize="2")
+    if cs is not None:
+        d.coord_systems.append(cs)
+        rot["CoordinateSystem"] = cs.name
+    d.obj("Box1").history.append(Command.new(kind, **rot))
+    K.ensure_gmsh("test_rotate")
+    ctx = K.build_design(d, d.evaluator(p))
+    assert "Box1" not in ctx.errors, ctx.errors.get("Box1")
+    return d, p, np.asarray(K._bbox(ctx.built["Box1"])) * 1e3
+
+
+def test_rotate_and_sweep_around_axis_in_object_and_face_coordinate_systems():
+    from hertzon.model import objframe
+    from hertzon.model.design import CoordSys
+    # global: 90deg about z through the origin
+    _, _, bb = _rotated_box(Axis="Z", Angle="90deg")
+    assert bb == pytest.approx([-2, 0, 0, 0, 4, 2], abs=1e-3)
+    # object CS at the box centre: the box turns in place
+    ocs = CoordSys("ObjectCS1", "Object", "Global")
+    ocs.props.update(Origin="2,1,1", Object="Box1")
+    d, p, bb = _rotated_box(cs=ocs, Axis="Z", Angle="90deg")
+    assert bb == pytest.approx([1, -1, 0, 3, 3, 2], abs=1e-3)
+    # the object frame (integration lines) follows the same rotation
+    M = objframe.object_matrix(d, d.obj("Box1"), d.evaluator(p))
+    assert M[:3, :3] @ [0.004, 0, 0] + M[:3, 3] == pytest.approx([0.003, 0.003, 0], abs=1e-9)
+    # face CS on the face x=4 (local x = global y, local z = global x): local Z is the global x axis
+    fcs = CoordSys("FaceCS1", "Face", "Global")
+    fcs.props.update(Mode="Axis/Position", Origin="4,1,1", XAxis="0,1,0", YPoint="0,0,1", Face="Box1:1")
+    _, _, bb = _rotated_box(cs=fcs, Axis="Z", Angle="90deg")
+    assert bb == pytest.approx([0, 0, 0, 4, 2, 2], abs=1e-3)     # turned in place about its own long axis
+    _, _, bb = _rotated_box(cs=fcs, Axis="X", Angle="180deg")    # local X = global y through (4, 1, 1)
+    assert bb == pytest.approx([4, 0, 0, 8, 2, 2], abs=1e-3)
+    # Sweep Around Axis: a sheet x 0..1, y 0..1 at z=0 revolved about the object CS z axis at x=3
+    q = Project()
+    e = q.designs[0]
+    e.add_object("CreateRectangle", Position="0,0,0", Axis="Z", Width="1", Height="1")
+    cs = CoordSys("RelativeCS1", "Relative", "Global")
+    cs.props.update(Origin="3,0,0", XAxis="0,1,0", YPoint="0,0,1")    # local z = global x
+    e.coord_systems.append(cs)
+    e.obj("Rectangle1").history.append(Command.new("SweepAroundAxis", Axis="Z", Angle="90deg",
+                                                    CoordinateSystem="RelativeCS1"))
+    ctx = K.build_design(e, e.evaluator(q))
+    assert "Rectangle1" not in ctx.errors, ctx.errors.get("Rectangle1")
+    # revolved about the global x axis: y/z sweep a quarter disc of radius 1, x stays 0..1
+    assert np.asarray(K._bbox(ctx.built["Rectangle1"])) * 1e3 == pytest.approx([0, 0, 0, 1, 1, 1], abs=1e-3)
+
+
 def test_assign_material_only_for_solids(monkeypatch):
     """Sheets carry no material (they get boundaries such as Finite Conductivity): Assign Material is greyed
     out for a sheet selection, a mixed selection assigns the material to the solids only, and the object
