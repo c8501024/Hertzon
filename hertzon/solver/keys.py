@@ -47,7 +47,8 @@ def model_key(project, design, setup) -> str:
     d.pop("field_exprs", None)
     d.pop("field_funcs", None)
     if isinstance(d.get("settings"), dict):
-        d["settings"] = {k: v for k, v in d["settings"].items() if k not in ("OutputVariables", "Sources", "FieldType")}
+        d["settings"] = {k: v for k, v in d["settings"].items() if k not in ("OutputVariables", "Sources", "FieldType",
+                                                                       "DifferentialPairs")}
     objs = []
     for o in d.get("objects", []):
         if not o.get("model", True):

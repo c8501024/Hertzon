@@ -87,9 +87,13 @@ The FEM core stays the centrepiece. These packages close the remaining gaps of a
 touch the EMerge core should go upstream to EMerge, so that Hertzon does not depend on a fork.
 
 - [ ] **1.1 Terminal solution (M–L).** Terminal transformation, port field display, Z<sub>0</sub> and
-  γ as report quantities, ports-only solve. *Used by step 3.*
+  γ as report quantities, ports-only solve. *Used by step 3.* Done so far: all of it in Hertzon, with
+  differential pairs, and wave ports with several signal conductors (orthogonal port modes, each absorbed
+  with its own propagation constant, see [EMERGE_CHANGES.md](EMERGE_CHANGES.md)).
 - [ ] **1.2 Periodic boundaries (L).** Primary/secondary boundaries, Floquet ports, impedance
-  multiplier for symmetry. *Used by arrays, metamaterials and step 6 (grating couplers).*
+  multiplier for symmetry. Done so far: periodic cells from Primary / Secondary pairs with scan angles or
+  phase delays, Floquet ports with TE00 and TM00. Open: higher Floquet modes, TM00 at oblique incidence,
+  rotated periodicity, impedance multiplier. *Used by arrays, metamaterials and step 6 (grating couplers).*
 - [ ] **1.3 Dispersive and anisotropic materials (M).** Debye, Djordjevic-Sarkar, Drude/Lorentz,
   tensors. *Used by steps 2 and 6.*
 - [ ] **1.4 Field post-processing (M–L).** Fields calculator, losses, quality factor Q, field export,

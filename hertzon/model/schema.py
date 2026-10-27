@@ -34,6 +34,11 @@ def P(name, type_, default="", label="", choices=(), tab="General", help="", vis
     return Prop(name, type_, str(default), label, tuple(choices), tab, help, visible_if, enabled_if)
 
 
+# Rotate / Sweep Around Axis: the axis and the centre are given in this coordinate system
+AXIS_CS = P("CoordinateSystem", "choice", "Global", label="Coordinate system", choices=("Global",),
+            help="Axis and Center are given in this coordinate system")
+
+
 # --------------------------------------------------------------------------------------------
 # Geometry commands
 # --------------------------------------------------------------------------------------------
@@ -95,7 +100,7 @@ GEOMETRY: dict[str, list[Prop]] = {
     # operations on an existing object
     "Move": [P("Vector", "vector", "0,0,0")],
     "Rotate": [P("Axis", "choice", "Z", choices=AXES), P("Angle", "angle", "90deg"),
-               P("Center", "point", "0,0,0")],
+               P("Center", "point", "0,0,0"), AXIS_CS],
     "Mirror": [P("Base", "point", "0,0,0"), P("Normal", "vector", "1,0,0")],
     "Scale": [P("Factor", "expr", "1"), P("Center", "point", "0,0,0")],
     "ThickenSheet": [P("Thickness", "length", "1"), P("BothSides", "bool", "False"),
@@ -103,7 +108,7 @@ GEOMETRY: dict[str, list[Prop]] = {
                        visible_if=("BothSides", "False"))],
     "SweepAlongVector": [P("Vector", "vector", "0,0,1")],
     "SweepAroundAxis": [P("Axis", "choice", "Z", choices=AXES), P("Angle", "angle", "360deg"),
-                        P("Center", "point", "0,0,0")],
+                        P("Center", "point", "0,0,0"), AXIS_CS],
     "Cover": [],
     "Unite": [P("Tools", "objects", ""), P("KeepOriginals", "bool", "False")],
     "Subtract": [P("Tools", "objects", ""), P("KeepOriginals", "bool", "False")],
@@ -187,7 +192,12 @@ BOUNDARIES: dict[str, list[Prop]] = {
     "Symmetry": [P("Type", "choice", "Perfect E", choices=("Perfect E", "Perfect H")),
                  P("ImpedanceMultiplier", "expr", "1")],
     "Primary": [P("UVector", "points", "", label="U vector (origin;point)")],
-    "Secondary": [P("Primary", "text", ""), P("UVector", "points", ""), P("PhaseDelay", "angle", "0deg")],
+    "Secondary": [P("Primary", "text", ""), P("UVector", "points", ""),
+                  P("PhaseMode", "choice", "Scan Angles", label="Phase delay",
+                    choices=("Scan Angles", "Input Phase Delay")),
+                  P("ScanTheta", "angle", "0deg", label="Scan angle theta", visible_if=("PhaseMode", "Scan Angles")),
+                  P("ScanPhi", "angle", "0deg", label="Scan angle phi", visible_if=("PhaseMode", "Scan Angles")),
+                  P("PhaseDelay", "angle", "0deg", visible_if=("PhaseMode", "Input Phase Delay"))],
     "Layered Impedance": [],
 }
 UNSUPPORTED_BOUNDARIES = {"Layered Impedance": "EMerge has no layered impedance boundary yet."}
@@ -207,13 +217,18 @@ EXCITATIONS: dict[str, list[Prop]] = {
                   P("Renormalize", "bool", "False", tab="Post Processing"),
                   P("RenormImpedance", "expr", "50ohm", tab="Post Processing", visible_if=("Renormalize", "True")),
                   P("Deembed", "bool", "False", tab="Post Processing"),
-                  P("DeembedDistance", "length", "0", tab="Post Processing", visible_if=("Deembed", "True"))],
+                  P("DeembedDistance", "length", "0", tab="Post Processing", visible_if=("Deembed", "True")),
+                  P("ReferenceConductor", "text", "", label="Reference conductor", tab="Terminals",
+                    help="Terminal solution: the conductor on the port face that is the reference (ground) of "
+                         "the terminals, as an object or boundary name. Empty: the largest conductor. Every "
+                         "other conductor touching the port face is one terminal; the terminals refer to the "
+                         "renormalization impedance when Renormalize is on, else to 50 ohm")],
     "Lumped Port": [P("PortNumber", "int", "1"), P("Impedance", "expr", "50ohm", label="Full port impedance"),
                     P("IntegrationLine", "points", "", help="Start;End of the voltage line, from one conductor to the other. Set "
                      "automatically between the two conductors touching the sheet (empty = auto); right click the "
                      "port to draw it in the 3D view or to place it automatically again. Given in the coordinates of the sheet as "
                      "created: the line moves, rotates and mirrors with its object")],
-    "Floquet Port": [P("PortNumber", "int", "1"), P("NumberOfModes", "int", "2"),
+    "Floquet Port": [P("PortNumber", "int", "1"), P("NumberOfModes", "int", "2", help="1 = TE00, 2 = TE00 and TM00"),
                      P("Permittivity", "expr", "1", label="Medium permittivity")],
     "Incident Plane Wave": [P("VectorInput", "choice", "Cartesian", label="Vector input format",
                               choices=("Cartesian", "Spherical")),
@@ -265,6 +280,10 @@ SETUP: list[Prop] = [
       visible_if=("SolutionFrequencyMode", "Multi-Frequencies")),
     P("LowFrequency", "freq", "1GHz", visible_if=("SolutionFrequencyMode", "Broadband")),
     P("HighFrequency", "freq", "10GHz", visible_if=("SolutionFrequencyMode", "Broadband")),
+    P("PortsOnly", "bool", "False", label="Solve ports only",
+      help="Solve only the port modes of the wave ports: port impedance Zo, propagation constant Gamma and "
+           "the port fields at the solution frequency and the sweep frequencies, without the 3D solution "
+           "(no S-parameters). For checking ports quickly"),
     P("MaximumPasses", "int", "6", label="Maximum number of passes"),
     P("MaximumDeltaS", "float", "0.02", label="Maximum Delta S"),
     P("MaximumDeltaEnergy", "float", "0.001", label="Maximum Delta Energy",

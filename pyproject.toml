@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hertzon"
-version = "0.2.4"
+version = "0.2.5"
 description = "3D full-wave FEM simulator with an adaptive-meshing workflow, built on EMerge"
 readme = "README.md"
 license = {text = "GPL-2.0-or-later"}
@@ -13,9 +13,12 @@ dependencies = [
     # EMerge at the commit in packaging/emerge-commit, from the wheels .github/workflows/emerge-wheels.yml
     # built for it (release emerge-<short sha>); other platforms build that commit from source (Rust).
     # Brings emsutil (material library) with it.
-    "emerge @ https://github.com/c8501024/Hertzon/releases/download/emerge-55ebd4d/emerge-3.0.0b5.post202610251349-cp310-abi3-win_amd64.whl ; sys_platform == 'win32' and platform_machine == 'AMD64'",
-    "emerge @ https://github.com/c8501024/Hertzon/releases/download/emerge-55ebd4d/emerge-3.0.0b5.post202610251349-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "emerge @ git+https://github.com/FennisRobert/EMerge@55ebd4d259fa7080f801ed38f2e1eae668e4bceb ; sys_platform == 'darwin' or (sys_platform == 'win32' and platform_machine != 'AMD64') or (sys_platform == 'linux' and platform_machine != 'x86_64')",
+    "emerge @ https://github.com/c8501024/Hertzon/releases/download/emerge-9ef0053/emerge-3.0.0b5.post202610271720-cp310-abi3-win_amd64.whl ; sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "emerge @ https://github.com/c8501024/Hertzon/releases/download/emerge-9ef0053/emerge-3.0.0b5.post202610271720-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "emerge @ git+https://github.com/FennisRobert/EMerge@9ef005323bfcf354497764226f574141d26e1ac5 ; sys_platform == 'darwin' or (sys_platform == 'win32' and platform_machine != 'AMD64') or (sys_platform == 'linux' and platform_machine != 'x86_64')",
+    # gmsh 4.13 and 4.14 fail on some faces of the showcase example, and after such a failure later meshes of
+    # the same session come out empty (4.13 stays locked: "I'm busy! Ask me that later"). EMerge allows 4.13.
+    "gmsh>=4.15",
     "numba>=0.60",                # Hertzon's own kernels (curved elements, refinement size field); EMerge 3 no longer needs it
     "PySide6>=6.5",
     "pyvista>=0.43",

@@ -42,7 +42,10 @@ these pull requests start from `main`, never from `hertzon`.
 | Port mode solve ends the whole solve on `ArpackNoConvergence` | `emerge_patches._robust_eigs` | – | No PR: since 3.0.0b5 the port mode solvers factorize the shift once, use an oversampled Krylov space and skip a failing shift. Three waveport runs without Hertzon's retry and all benchmark runs: no failure. Dropped from Hertzon |
 | Error estimate counts the current jump at finite-conductivity sheets as error | – | – | No PR. The face terms of EMerge's estimate contribute practically nothing (unnormalised coefficients); normalising them made the adaptive meshing worse on four models. Hertzon's patch changed no mesh and is removed |
 | gmsh fails on trimmed B-spline faces of CAD files | `emerge_patches.apply_mesh_fallback` | Meshing crash for imported CAD, not GUI specific | To do, low priority |
+| PARDISO solves A^T x = b: the interface hands the CSC arrays to PARDISO as CSR arrays | `periodic.pardiso_transposes` picks SuperLU for periodic cells while it is wrong | Wrong results for every non-symmetric system, i.e. every periodic model with a dielectric at oblique incidence (a lossless slab at 30 degrees keeps only 69 % of the power); symmetric matrices are not affected | On `hertzon` (FennisRobert/EMerge#89, iparm(12) = 2 for CSC input, with test); not yet on `main`. With it `pardiso_transposes` is false and periodic cells use PARDISO again |
 | Far field with symmetry planes: radiated power scaled by `factor**2` although only the simulated part is integrated | – | Wrong radiated power (and directivity 3 dB too high per plane) for every user of `syms` | Fixed on `main` (#75, `0a607f2`), checked with a dipole as full and half model. Hertzon mirrors its stored surface fields itself with the same scaling (`farfield_post.mirrored`) |
+| A repeated modal analysis at the same frequency adds its modes to the ones already stored (`ModalPort.try_add_mode`); `run_sweep` analyses the mean frequency and then every frequency, so a port with several modes mixes the modes of two analyses | `bridge.fresh_port_modes` clears the modes of ports with several modes before every solve (public `clear_modes()`, no patch) and solves them once per solve | Wrong S-parameters (not lossless on a lossless model) of every port with several modes | On `hertzon` (FennisRobert/EMerge#84, a new analysis at the same frequency replaces the modes); PR to `main` FennisRobert/EMerge#82. `fresh_port_modes` stays: it keeps one modal analysis per solve |
+| Degenerate port modes (equal propagation constant, e.g. two conductors in a homogeneous dielectric) are not orthogonal: the eigen solver returns two almost equal modes (cross power 0.93 of the mode power) | – | A port with several conductors cannot represent all its TEM fields: wrong S-parameters | On `hertzon` (FennisRobert/EMerge#84 and #86, the modes of one eigenvalue get a real basis and are made orthogonal in the power product); PR to `main` FennisRobert/EMerge#83. Two wires in a box: \|S^H S − I\| of the modal S from 0.54 to 1e-6, of the terminal S from up to 0.16 to 1e-6 (`tests/test_terminal.py::test_two_wires_lossless`) |
 
 ### Speed features in the solver core: `hertzon` branch (R4, R6)
 
@@ -59,6 +62,12 @@ existing code, switched on by a setting, and marked as AI written (R3).
 | Curved (isoparametric) elements | `curvilinear.py` keeps only the map for the plots | accuracy on curved surfaces | On `hertzon` (FennisRobert/EMerge#77, `Settings.mw_curved_elements`); Hertzon's kernels removed |
 
 The maintainer may later take any of them into `main` in his own way.
+
+### EM formulation in the core: `hertzon` branch (R4, R6)
+
+| Item | Hertzon code today | Why | Status |
+|---|---|---|---|
+| Wave port with several modes of different propagation constant (coupled microstrip lines: even and odd mode): the port condition uses the propagation constant of the first mode for all modes, so the others are not absorbed exactly | – | Needed for terminal wave ports on differential lines | `MultiModeWavePort` on `hertzon` (FennisRobert/EMerge#85, agreed with the Hertzon maintainer, 26 October 2026): the dense wave port condition of `WavePortIH` with one projection term per mode, each with its own propagation constant, and S-parameters from the same projection. Coupled microstrip: odd mode reflection −38 dB instead of −23 dB, S unitary to 1e-11. Hertzon uses it for terminal wave ports with several signal conductors |
 
 ### AI-written EMerge code: free to improve (R5)
 

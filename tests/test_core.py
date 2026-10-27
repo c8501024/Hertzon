@@ -692,6 +692,33 @@ def test_center_point_arc_drawing():
     assert np.allclose(np.linalg.norm(P[:-1], axis=1), 1) and np.allclose(P[-1], [0, -2, 0])
 
 
+def test_view_warm_up_draws_the_highlight_styles_unseen():
+    """Start: every hover and selection style is drawn once into the back buffer, so the first click in the
+    3D view does not wait for the graphics driver. Nothing of it stays in the view."""
+    import types
+    import pyvista as pv
+    from hertzon.gui import viewer as Vw
+    names = ("warm_up", "_make_actors", "_plain_actor", "_add_highlight_mesh", "_drop_actor")
+    View = type("View", (), {k: Vw.ModelerView.__dict__[k] for k in names})
+    v = View()
+    v.plotter = pv.Plotter(off_screen=True, window_size=(200, 150))
+    v.doc = types.SimpleNamespace(selection_mode="object")
+    v.highlight_actors = []
+    v.request_render = lambda: None
+    ren, rw = v.plotter.renderer, v.plotter.render_window
+    n_actors, n_cullers = ren.GetActors().GetNumberOfItems(), ren.GetCullers().GetNumberOfItems()
+    drawn = []
+    rw.AddObserver("EndEvent", lambda *a: drawn.append(ren.GetActors().GetNumberOfItems()))
+    v.warm_up()
+    assert drawn and drawn[0] > n_actors + 10              # the styles were drawn ...
+    assert ren.GetActors().GetNumberOfItems() == n_actors  # ... and are gone again
+    assert ren.GetCullers().GetNumberOfItems() == n_cullers and rw.GetSwapBuffers()
+    assert v.highlight_actors == []
+    v.warm_up()                                            # once per view
+    assert len(drawn) == 1
+    v.plotter.close()
+
+
 def test_first_start_note(monkeypatch):
     """Solver kernels not compiled yet: the main window says so in the Message Manager and the status bar."""
     import types
@@ -822,6 +849,57 @@ def test_split_in_object_and_face_coordinate_systems():
     # custom plane: Base and Normal are local to the CS (local x = global y)
     assert _split_box(fcs, Plane="Custom", Base="0.5,0,0", Normal="1,0,0", Keep="Positive") == \
         pytest.approx([0, 1.5, 50, 4, 2, 52], abs=1e-3)
+
+
+def _rotated_box(kind="Rotate", cs=None, **rot):
+    """Box 0..4 x 0..2 x 0..2 (mm) rotated or swept about an axis; returns the design and the bounding box in mm."""
+    p = Project()
+    d = p.designs[0]
+    d.add_object("CreateBox", Position="0,0,0", XSize="4", YSize="2", ZSize="2")
+    if cs is not None:
+        d.coord_systems.append(cs)
+        rot["CoordinateSystem"] = cs.name
+    d.obj("Box1").history.append(Command.new(kind, **rot))
+    K.ensure_gmsh("test_rotate")
+    ctx = K.build_design(d, d.evaluator(p))
+    assert "Box1" not in ctx.errors, ctx.errors.get("Box1")
+    return d, p, np.asarray(K._bbox(ctx.built["Box1"])) * 1e3
+
+
+def test_rotate_and_sweep_around_axis_in_object_and_face_coordinate_systems():
+    from hertzon.model import objframe
+    from hertzon.model.design import CoordSys
+    # global: 90deg about z through the origin
+    _, _, bb = _rotated_box(Axis="Z", Angle="90deg")
+    assert bb == pytest.approx([-2, 0, 0, 0, 4, 2], abs=1e-3)
+    # object CS at the box centre: the box turns in place
+    ocs = CoordSys("ObjectCS1", "Object", "Global")
+    ocs.props.update(Origin="2,1,1", Object="Box1")
+    d, p, bb = _rotated_box(cs=ocs, Axis="Z", Angle="90deg")
+    assert bb == pytest.approx([1, -1, 0, 3, 3, 2], abs=1e-3)
+    # the object frame (integration lines) follows the same rotation
+    M = objframe.object_matrix(d, d.obj("Box1"), d.evaluator(p))
+    assert M[:3, :3] @ [0.004, 0, 0] + M[:3, 3] == pytest.approx([0.003, 0.003, 0], abs=1e-9)
+    # face CS on the face x=4 (local x = global y, local z = global x): local Z is the global x axis
+    fcs = CoordSys("FaceCS1", "Face", "Global")
+    fcs.props.update(Mode="Axis/Position", Origin="4,1,1", XAxis="0,1,0", YPoint="0,0,1", Face="Box1:1")
+    _, _, bb = _rotated_box(cs=fcs, Axis="Z", Angle="90deg")
+    assert bb == pytest.approx([0, 0, 0, 4, 2, 2], abs=1e-3)     # turned in place about its own long axis
+    _, _, bb = _rotated_box(cs=fcs, Axis="X", Angle="180deg")    # local X = global y through (4, 1, 1)
+    assert bb == pytest.approx([4, 0, 0, 8, 2, 2], abs=1e-3)
+    # Sweep Around Axis: a sheet x 0..1, y 0..1 at z=0 revolved about the object CS z axis at x=3
+    q = Project()
+    e = q.designs[0]
+    e.add_object("CreateRectangle", Position="0,0,0", Axis="Z", Width="1", Height="1")
+    cs = CoordSys("RelativeCS1", "Relative", "Global")
+    cs.props.update(Origin="3,0,0", XAxis="0,1,0", YPoint="0,0,1")    # local z = global x
+    e.coord_systems.append(cs)
+    e.obj("Rectangle1").history.append(Command.new("SweepAroundAxis", Axis="Z", Angle="90deg",
+                                                    CoordinateSystem="RelativeCS1"))
+    ctx = K.build_design(e, e.evaluator(q))
+    assert "Rectangle1" not in ctx.errors, ctx.errors.get("Rectangle1")
+    # revolved about the global x axis: y/z sweep a quarter disc of radius 1, x stays 0..1
+    assert np.asarray(K._bbox(ctx.built["Rectangle1"])) * 1e3 == pytest.approx([0, 0, 0, 1, 1, 1], abs=1e-3)
 
 
 def test_assign_material_only_for_solids(monkeypatch):

@@ -750,6 +750,8 @@ class MainWindow(QMainWindow):
         g.large("Wave Port", "waveport", exc("Wave Port"))
         g.small("Lumped Port", "lumpedport", exc("Lumped Port"))
         g.small("More", "waveport", menu=[(k, exc(k)) for k in schema.EXCITATIONS])
+        g.small("Diff. Pairs", "lumpedport", self.differential_pairs,
+                tip="Differential pairs of the terminals (Diff/Comm report quantities)")
         g = pg.group("Mesh")
         g.large("Mesh Ops", "mesh", menu=[(k, (lambda k=k: self.assign("mesh", k))) for k in schema.MESH_OPS])
         g.large("Plot Mesh", "plot_mesh", lambda: self.plot_mesh())
@@ -1995,6 +1997,9 @@ class MainWindow(QMainWindow):
                 return
         from .reports import load_solution
         st, s, data = load_solution(self.doc, sol)
+        if data is None or data.get("ports_only"):
+            self.msgs.add("warning", f"{sol}: only the ports were solved, there are no S-parameters to export")
+            return
         n = data["S"].shape[1]
         path, _ = QFileDialog.getSaveFileName(self, "Export Touchstone", f"{self.des.name}_{s}.s{n}p",
                                               f"Touchstone (*.s{n}p)")
@@ -2376,7 +2381,7 @@ class MainWindow(QMainWindow):
             return
         props = schema.GEOMETRY[kind]
         vals = schema.defaults(props)
-        if "CoordinateSystem" in vals:      # Split: the plane is given in the working coordinate system
+        if "CoordinateSystem" in vals:      # Split, Rotate, Around Axis: given in the working coordinate system
             vals["CoordinateSystem"] = self.des.working_cs
         dlg = NamedPropsDialog(kind, kind, props, vals, self.doc.evaluator(), parent=self,
                                info=f"Apply to: {', '.join(objs)}")
@@ -2615,16 +2620,18 @@ class MainWindow(QMainWindow):
         objs = self.selected_objects(1)
         if not objs:
             return
-        vals = {"Axis": "Z", "Angle": "90deg", "TotalNumber": "2"}
+        vals = {"Axis": "Z", "Angle": "90deg", "TotalNumber": "2", "CoordinateSystem": self.des.working_cs}
         dlg = NamedPropsDialog("Duplicate Around Axis", "Duplicate",
                                [schema.P("Axis", "choice", "Z", choices=schema.AXES), schema.P("Angle", "angle", "90deg"),
-                                schema.P("TotalNumber", "int", "2")], vals, self.doc.evaluator(), parent=self)
+                                schema.P("TotalNumber", "int", "2"), schema.AXIS_CS], vals, self.doc.evaluator(),
+                               parent=self)
         dlg.name_edit.setEnabled(False)
         if dlg.exec() != QDialog.Accepted:
             return
         n = max(2, int(self.doc.evaluator().integer(dlg.values["TotalNumber"])))
         cmds = [[Command("Rotate", {"Axis": dlg.values["Axis"], "Angle": f"({dlg.values['Angle']})*{i}",
-                                    "Center": "0,0,0"})] for i in range(1, n)]
+                                    "Center": "0,0,0", "CoordinateSystem": dlg.values["CoordinateSystem"]})]
+                for i in range(1, n)]
         self._duplicate(objs, cmds)
 
     def duplicate_mirror(self) -> None:
@@ -3100,6 +3107,35 @@ class MainWindow(QMainWindow):
             self.doc.checkpoint()
             self.des.settings.update(dlg.result())
             self.doc.commit("settings", geometry=False)
+
+    def differential_pairs(self) -> None:
+        """Simulation > Differential Pairs: pairs of terminals for the Diff/Comm report quantities."""
+        import json
+        from .terminal_dialogs import DiffPairsDialog
+        dlg = DiffPairsDialog(self.doc, self)
+        if dlg.exec() == QDialog.Accepted:
+            self.doc.checkpoint()
+            pairs = dlg.pairs()
+            self.des.settings["DifferentialPairs"] = json.dumps(pairs) if pairs else ""
+            self.doc.commit("settings", geometry=False)
+            self.msgs.add("info", f"{len(pairs)} differential pair(s): report quantities "
+                          + ", ".join(f"Diff{k + 1}/Comm{k + 1}" for k in range(len(pairs))) if pairs
+                          else "Differential pairs removed")
+
+    def port_field_display(self, port: str, mode: int = 1) -> None:
+        """The mode field of a wave port on its face (from the newest solution with port fields)."""
+        from .terminal_dialogs import port_field_meshes
+        try:
+            meshes, info = port_field_meshes(self.doc, port, mode=mode)
+        except Exception as e:  # noqa: BLE001
+            self.msgs.add("error", f"Port field display: {e}")
+            return
+        name = f"Port field {port}"
+        self.view.set_overlay(name, meshes)
+        self._overlay_info[name] = info
+        self.tabs.setCurrentIndex(0)
+        self.hint.setText(info)
+        self.msgs.add("info", info)
 
     def _selection_refs(self) -> tuple[list[FaceRef], list[str]]:
         mode = self.doc.selection_mode
@@ -4620,8 +4656,10 @@ class MainWindow(QMainWindow):
     def edit_sources(self) -> None:
         """Edit Sources: post-processing magnitudes/phases and the incident wave field type."""
         from .dialogs import EditSourcesDialog
+        from .terminal_dialogs import field_terminal_names
         from ..model import sources as SRC
-        if not SRC.defaults(self.des):
+        names = field_terminal_names(self.doc) if self.des.settings.get("SolutionType") == "Terminal" else None
+        if not SRC.defaults(self.des, names):
             QMessageBox.information(self, "Edit Sources", "Assign a port or an incident wave first.")
             return
         state = {"applied": None}
@@ -4634,7 +4672,7 @@ class MainWindow(QMainWindow):
             state["applied"] = (sources, ftype)
             self._apply_sources(sources, ftype)
 
-        dlg = EditSourcesDialog(self, self.des, on_apply=apply)
+        dlg = EditSourcesDialog(self, self.des, on_apply=apply, names=names)
         if dlg.exec() == QDialog.Accepted:
             apply(*dlg.values())
 
@@ -4907,6 +4945,7 @@ class MainWindow(QMainWindow):
                 for k in schema.EXCITATIONS:
                     sub.addAction(k, lambda _=False, k=k: self.assign("excitation", k))
                 m.addAction("Edit Sources...", self.edit_sources)
+                m.addAction("Differential Pairs...", self.differential_pairs)
                 m.addAction("Delete All", lambda: self.delete_all("excitation"))
             elif g == "Mesh":
                 sub = m.addMenu("Assign Mesh Operation")
@@ -4957,6 +4996,16 @@ class MainWindow(QMainWindow):
                 m.addAction("Draw Integration Line", lambda: self.draw_integration_line(data[1]))
                 m.addAction("Auto Integration Line", lambda: self.auto_integration_line(data[1]))
                 m.addSeparator()
+            if a.kind == "Wave Port":
+                m.addSeparator()
+                n = max(1, int(float(a.props.get("NumberOfModes", "1") or 1)))
+                term = self.des.settings.get("SolutionType") == "Terminal"
+                for k in range(1, (n if not term else max(n, 4)) + 1):
+                    m.addAction(f"Port Field Display: Mode {k}", lambda k=k: self.port_field_display(data[1], k))
+                m.addAction("Hide Port Field", lambda: self.view.remove_overlay(f"Port field {data[1]}"))
+                m.addSeparator()
+            if a.kind in ("Wave Port", "Lumped Port"):
+                m.addAction("Differential Pairs...", self.differential_pairs)
             m.addAction("Delete", self._delete_project_items)
         elif kind == "setup":
             m.addAction("Properties...", lambda: self._project_activated(data))

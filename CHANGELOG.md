@@ -3,6 +3,83 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.2.5 (2026-10-27)
+
+### Added
+- **Periodic unit cells and Floquet ports** are now solved. Primary / Secondary boundaries tie every
+  Secondary face to the Primary face it is a translated copy of (one lattice vector away) and make the model
+  a unit cell of an infinite array. The phase between them comes from the new *Scan angle theta / phi* of the
+  Secondary boundary, or from the phase delay (*Phase delay: Input Phase Delay*), which is converted to the
+  scan angles at the solution frequency. Floquet ports on faces normal to z excite and absorb the plane
+  waves TE00 and, with two modes, TM00 in the scan direction; S-parameters have one row per mode
+  (Matrix Data lists them as `FP1:TE00`, `FP1:TM00`, ...). Checked against the exact transmission through a
+  dielectric slab at normal and oblique incidence. Limits: higher Floquet modes, a Floquet port in a
+  dielectric, and TM00 at oblique incidence (absorbed with the TE00 propagation constant) are not available.
+  Periodic models are solved with PARDISO (EMerge `9ef0053` solves the non-symmetric system of a periodic
+  cell correctly); with an EMerge whose PARDISO interface solves the transposed system Hertzon falls back to
+  SuperLU.
+- **Example `examples/FSS_UnitCell.hzn`** (File > Open Example): a cross dipole frequency selective surface
+  as a periodic unit cell with Floquet ports below and above. The showcase's unit cell design is solved now.
+- **Terminal solution**: a design of solution type Terminal is now solved as terminals instead of modes.
+  Each lumped port is one terminal; a wave port gets one terminal per signal conductor touching its face,
+  with the largest conductor (or the one named in the port's new *Reference conductor*, Terminals tab) as
+  reference. The terminal S-parameters refer to 50 ohm, or to the renormalization impedance when
+  Renormalize is on. The solver log names the terminals of every port. A wave port with one signal
+  conductor gives exactly the renormalized result of the modal port. A wave port with several signal
+  conductors absorbs each of its modes with the mode's own propagation constant, so the even and odd mode of
+  coupled lines (differential microstrip pairs) leave the model without spurious reflection.
+- **Differential pairs** (Simulation > Excitations > Diff. Pairs, or right click Excitations): pairs of
+  terminals with the reference impedances of the differential and common mode (default twice and half the
+  terminal reference). Reports offer the mixed-mode quantities `S(Diff1,Diff1)`, `S(Diff2,Diff1)`,
+  `S(Comm1,Diff1)`, `Z(...)`, `Y(...)` and `VSWR(Diff1)` next to the single-ended ones, also in output
+  variables, optimization goals and parametric calculations. Changing the pairs needs no new solve.
+- **Port impedance and propagation constant as report quantities**: `Zo(i)` (ohm, per port or terminal) and
+  `Gamma(i)` (1/m, per port mode; `re(Gamma(1))` is the attenuation, `im(Gamma(1))` the phase constant),
+  categories *Port Zo* and *Propagation Constant*. Stored over frequency for every new solution.
+- **Port Field Display**: right click a wave port > Port Field Display: Mode k shows the mode field on the
+  port face (magnitude and arrows) with its Zo and Gamma; Hide Port Field removes it.
+- **Example `examples/DifferentialPair.hzn`** (File > Open Example): a 100 ohm edge-coupled microstrip pair
+  with the terminal solution, differential pairs and reports of the mixed-mode S-parameters, the line
+  impedances and the propagation constants; tutorial section 9 walks through it.
+- **Named rows of S**: with terminals or ports of several modes, the report quantities name the rows,
+  `S(P1_TraceP,P1_TraceN)` for terminals and `S(P1_M1,P1_M2)` for port modes (Floquet ports
+  `S(FP1_TE00,FP1_TM00)`); the numbers keep working. The report dialog and the data table list which
+  terminal, port or mode each number is.
+- **Edit Sources per terminal**: a terminal design with a port of several terminals stores its fields per
+  terminal (1 W incident on the terminal, the others terminated in their reference impedance), and Edit
+  Sources lists the terminals. A differential pair is driven with 0.5 W at 0° and 180° on its two terminals,
+  so field plots, animations and far fields show the differential or the common mode.
+- **Solve ports only** (setup option): solves only the port modes of the wave ports at the solution and
+  sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
+
+### Fixed
+- Hertzon now requires gmsh 4.15 or newer. With gmsh 4.13 or 4.14 one failed mesh generation (for example
+  on faces of an imported CAD model) left every later display and solver mesh of the session empty, so
+  ports and boundaries of the next model had no faces.
+- **Field plots of the Poynting vector** no longer turn with the plot phase. `S = 1/2 E x H*` is a time
+  average; the plot showed `Re{S e^(j phase)}`, so at other phases and in phase animations the arrows showed
+  the reactive power, and a real expression such as `re(S)` reversed its direction every half period. Real
+  expressions and expressions with `S` now show the same picture at every phase: the real part of `S`, the
+  active power flow.
+- **First click in the 3D view no longer hangs.** Right after the start, the first hover or click in the 3D
+  view stalled while the graphics driver built the shaders of the highlight styles (half transparent faces,
+  wide lines, vertex spheres). They are now drawn once, unseen, when the window opens.
+- **Rotate, Sweep Around Axis and Duplicate Around Axis** now use the working coordinate system (for example
+  an object or face coordinate system) instead of always the global one. The dialogs have a *Coordinate
+  system* field, preset to the working CS; Axis and Center are given in it.
+- Terminal solution, wave port with several signal conductors and mode type Auto: the port only accepted
+  TEM modes, and on coupled microstrip the odd quasi-TEM mode (a small axial field at high frequency) was
+  rejected, so the solve stopped with a division by zero. Auto now accepts every mode type; the log no
+  longer reports the missing conductor pair of such ports, whose impedances come from the terminals.
+- Wave ports with several modes: EMerge added the modes of a repeated modal analysis at one frequency to the
+  modes it already had (a sweep analyses its mean frequency and then every frequency), so a port with
+  several modes could mix the modes of two analyses. Hertzon now solves the modes of such ports once per
+  solve, and EMerge replaces the modes of a repeated analysis (EMerge `debe7ba`).
+- Wave ports with several modes of the same propagation constant (several conductors in one homogeneous
+  dielectric): EMerge returned these modes in any basis, often two almost equal modes, so the port could not
+  represent all fields and the S-parameters of a lossless model were not lossless (|S^H S − I| up to 0.54 on
+  two wires in a box). EMerge `debe7ba` makes them real and orthogonal; the same model now gives 1e-6.
+
 ## 0.2.4 (2026-10-26)
 
 ### Added

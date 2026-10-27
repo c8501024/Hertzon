@@ -10,6 +10,8 @@ This guide walks through five complete simulations step by step:
 * [4. The radar cross section of a sphere](#4-radar-cross-section-of-a-sphere) (incident plane wave, RCS)
 * [7. A chip capacitor on a microstrip line](#7-a-chip-capacitor-on-a-microstrip-line) (Lumped Elements tab,
   Lumped RLC, groups)
+* [9. A differential pair](#9-a-differential-pair-with-the-terminal-solution) (terminal solution, one wave port
+  for two traces, mixed-mode S-parameters)
 
 and shows how to let an AI assistant do the same work for you through
 [Hertzon's MCP server](#5-let-an-ai-assistant-build-and-run-it-mcp), how to
@@ -737,9 +739,44 @@ and field plots of them as well (MCP tools `set_equation`, `set_report`, `set_fi
 
 ---
 
+## 9. A differential pair with the terminal solution
+
+**Goal:** the differential S-parameters of an edge-coupled microstrip pair (100 Ω differential on 0.508 mm
+RO4350B, 20 mm long). The finished project is `examples/DifferentialPair.hzn`.
+
+1. **Simulation > Solution Type...**: choose **Terminal**. The S-parameters then refer to terminals (one per
+   trace) instead of port modes.
+2. **Design Properties**: `h = 0.508mm`, `w = 0.8mm`, `s = 0.4mm`, `L = 20mm`, `Wbox = 6mm`, `Hair = 3mm`.
+3. Draw the box `Substrate` (Rogers RO4350B (tm)) and `Air` above it, both `Wbox` wide and `L` long, and the
+   traces `TraceP` and `TraceN` as rectangles on top of the substrate, `w` wide with the gap `s` between them.
+   Assign them **Perfect E**. The outer faces of the box are a perfect conductor, the ground of the lines.
+4. Draw one sheet across each end of the box (Axis `Y`, `Wbox` by `h+Hair`) and assign a **Wave Port** to
+   each. Hertzon finds the two traces on each port face and gives the port two terminals (`P1_TraceP`,
+   `P1_TraceN`) with the box as reference, so it solves two modes: the even and the odd mode of the pair.
+   Each mode leaves the model with its own propagation constant, so neither reflects at the port.
+5. **Simulation > Excitations > Diff. Pairs**: pair terminal 1 with 2 and 3 with 4. The differential mode
+   refers to 100 Ω, the common mode to 25 Ω.
+6. **Analyze All** and plot `dB(S(Diff1,Diff1))` and `dB(S(Diff2,Diff1))`, the mode conversion
+   `dB(S(Comm1,Diff1))`, and `Zo(i)` and `Gamma(i)` of the port modes (reports in the example). The
+   differential return loss stays below −20 dB from 1 to 12 GHz and the conversion into the common mode
+   below −36 dB.
+7. The terminals are numbered in port order: 1 = `P1_TraceP`, 2 = `P1_TraceN`, 3 = `P2_TraceP`,
+   4 = `P2_TraceN` (shown under the quantity in the report dialog). Reports can also name them:
+   `dB(S(P2_TraceP,P1_TraceP))` is the same as `dB(S(3,1))`.
+8. To see the differential field, open **Edit Sources** (right click Excitations): it lists the terminals.
+   Set `P1_TraceP` to 0.5 W at 0° and `P1_TraceN` to 0.5 W at 180° (1 W in the differential mode), the
+   other terminals to 0. Field plots and animations then show the differential mode (same phase: the common
+   mode). No new solve is needed.
+
+Changing the pairs needs no new solve: the mixed-mode quantities are computed from the terminal S-parameters.
+Ports with several modes are named the same way in modal designs: `S(P1_M2,P1_M1)` is the coupling from
+mode 1 to mode 2 of port P1, and a Floquet port uses its modes (`S(FP1_TM00,FP1_TE00)`).
+
+---
+
 ## Where to go next
 
-* `examples/` has thirteen finished projects, from a microstrip line to a Rotman lens, all with hzAURA
+* `examples/` has fifteen finished projects, from a microstrip line to a Rotman lens, all with hzAURA
   and curved elements; most open with their reports and field plots. See the table in the
   [README](../README.md#examples).
 * **Tools > Antenna Design > Rectangular Patch...** and **Tools > Filter Design > Tapped Hairpin...** create

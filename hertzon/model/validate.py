@@ -170,6 +170,16 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                     add("Boundaries and Excitations", "error",
                         f"'{a.name}' is on '{o}' whose material is {mat.name}: the radiation region must be a "
                         "dielectric (air or vacuum), a conductor leaves nothing to solve")
+    primaries = {b.name for b in design.boundaries if b.kind == "Primary" and b.enabled}
+    secondaries = [b for b in design.boundaries if b.kind == "Secondary" and b.enabled]
+    for b in secondaries:
+        pname = b.props.get("Primary", "").strip()
+        if pname not in primaries:
+            add("Boundaries and Excitations", "error", f"'{b.name}': its Primary boundary '{pname}' does not exist "
+                                                       "or is disabled")
+    if not secondaries and any(e.kind == "Floquet Port" and e.enabled for e in design.excitations):
+        add("Boundaries and Excitations", "error", "Floquet ports need a periodic cell: assign Primary / Secondary "
+                                                   "boundary pairs to the side faces")
     if tess and not design.ports() and any(e.kind == "Incident Plane Wave" and e.enabled
                                            for e in design.excitations):
         for b in design.boundaries:
