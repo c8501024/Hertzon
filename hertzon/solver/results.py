@@ -17,6 +17,17 @@ from pathlib import Path
 import numpy as np
 
 
+def port_entries(port_map: list) -> list[dict]:
+    """One entry per row of S: a port with several modes has a row per mode, in port number order."""
+    out = []
+    for q in sorted(port_map, key=lambda q: q.get("number", 0)):
+        n = int(q.get("modes") or 1)
+        names = q.get("mode_names") or [f"Mode{i + 1}" for i in range(n)]
+        name = q.get("name", str(q.get("number", "")))
+        out += [dict(q, mode=i + 1, label=name if n == 1 else f"{name}:{names[i]}") for i in range(n)]
+    return out
+
+
 def results_dir(project_path: str | Path, design: str, setup: str) -> Path:
     p = Path(project_path)
     return p.with_suffix((p.suffix or ".hzn") + "results") / _safe(design) / _safe(setup)

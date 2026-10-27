@@ -26,10 +26,11 @@ from ..model.materials import EMERGE_DISPERSION, is_conductor
 from ..model import schema
 from ..kernel import occ as K
 from . import facematch
-from .results import ResultStore
+from .results import ResultStore, port_entries
 from .emerge_compat import amr as _amr
 
 C0 = 299792458.0
+FLOQUET_MODES = ["TE00", "TM00"]     # modes of a Floquet port in S-parameter order
 FF_OFFSET = 1 / 8     # far-field box of a scattering problem: distance from the scatterers in wavelengths
 TAG = "@@HZN "
 
@@ -149,6 +150,8 @@ class Bridge:
     t0: float = field(default_factory=time.time)
     profile: list = field(default_factory=list)
     touchstone_elements: list = field(default_factory=list)     # (boundary name, ComponentImpedance)
+    cell: object = None                             # EMerge periodic cell of the Primary / Secondary pairs
+    scan: tuple = (0.0, 0.0)                        # scan angles theta, phi of the periodic cell (degrees)
 
     def __post_init__(self):
         self.ev = self.design.evaluator(self.project)
@@ -560,6 +563,7 @@ class Bridge:
             else:
                 self.open_faces = self.region_geo.boundary()
         self.sym_faces = []
+        periodic = []
         for b in self.design.boundaries:
             if not b.enabled:
                 continue
@@ -604,8 +608,68 @@ class Bridge:
                 if p.get("FarFieldReference", "True") == "True":
                     self.open_faces = sel if self.open_faces is None else self.open_faces + sel
             elif b.kind in ("Primary", "Secondary"):
-                warn(f"{b.name}: primary/secondary boundaries need a periodic cell; use a Floquet design. Skipped.")
+                periodic.append((b, tags))
             info(f"Boundary '{b.name}' ({b.kind}) on {len(tags)} face(s)")
+        self.build_periodic_cell(periodic)
+
+    def build_periodic_cell(self, assigned: list) -> None:
+        """Primary / Secondary boundaries as an EMerge periodic cell: one face pair per Secondary face, the
+        Floquet phase from the scan angles or the phase delays of the Secondary boundaries."""
+        import gmsh
+        from . import periodic as PER
+        self.cell = None
+        if not assigned:
+            return
+        primaries = {b.name: tags for b, tags in assigned if b.kind == "Primary"}
+        secondaries = [(b, tags) for b, tags in assigned if b.kind == "Secondary"]
+
+        def faces(tags):
+            return [(t, np.asarray(gmsh.model.occ.getCenterOfMass(2, t)), gmsh.model.occ.getMass(2, t)) for t in tags]
+
+        ev = self.ev
+        pairs, lattice, delays, scans, linked = [], [], [], [], set()
+        for b, tags in secondaries:
+            p = b.props
+            pname = p.get("Primary", "").strip()
+            if pname not in primaries:
+                raise RuntimeError(f"{b.name}: its Primary boundary '{pname}' does not exist or is disabled")
+            linked.add(pname)
+            f1, f2 = faces(primaries[pname]), faces(tags)
+            dv = PER.lattice_vector(f1, f2)
+            pairs += [([t1], [t2], dv) for t1, t2 in PER.pair_faces(f1, f2, dv, b.name)]
+            lattice.append(dv)
+            if p.get("PhaseMode", "Scan Angles") == "Scan Angles":
+                scans.append((math.degrees(ev.angle(p.get("ScanTheta", "0deg") or "0")),
+                              math.degrees(ev.angle(p.get("ScanPhi", "0deg") or "0")), b.name))
+            else:
+                delays.append(math.degrees(ev.angle(p.get("PhaseDelay", "0deg") or "0")))
+            info(f"Periodic pair '{pname}' -> '{b.name}': {len(tags)} face(s), lattice vector "
+                 f"({dv[0] * 1e3:.4g}, {dv[1] * 1e3:.4g}, {dv[2] * 1e3:.4g}) mm")
+        for name in sorted(set(primaries) - linked):
+            warn(f"{name}: no Secondary boundary is linked to this Primary boundary; its faces stay Perfect E")
+        if not pairs:
+            return
+        if scans and delays:
+            warn("Some Secondary boundaries use scan angles, others phase delays: the scan angles are used")
+        if scans:
+            theta, phi, first = scans[0]
+            if any(abs(t - theta) > 1e-9 or abs(f - phi) > 1e-9 for t, f, _ in scans[1:]):
+                warn(f"The Secondary boundaries have different scan angles; the angles of '{first}' are used")
+            u = PER.scan_direction(theta, phi)
+        else:
+            f0 = adaptive_frequencies(self.setup, ev)[0]
+            u, theta, phi = PER.scan_from_phases(lattice, delays, f0)
+            info(f"Phase delays at {f0 / 1e9:g} GHz = scan angles theta {theta:.4g} deg, phi {phi:.4g} deg "
+                 "(kept for all frequencies)")
+        cell = PER.make_cell(pairs)
+        self.m.set_periodic_cell(cell)
+        for bc in cell.generate_bcs():
+            bc.ux, bc.uy, bc.uz = (float(x) for x in u)
+            self.m.mw.bc.assign(bc)
+        self.cell, self.scan = cell, (theta, phi)
+        self.store.write_json("periodic.json", {"scan_theta": theta, "scan_phi": phi,
+                                                "lattice": [list(map(float, d)) for d in lattice]})
+        info(f"Periodic cell: {len(pairs)} face pair(s), scan angles theta {theta:.4g} deg, phi {phi:.4g} deg")
 
     def open_bc(self, sel, order: int) -> None:
         """Radiation boundary; with an incident plane wave it is the scattered-field ABC that injects it."""
@@ -763,7 +827,7 @@ class Bridge:
                 port = mw.bc.LumpedPort(sel, num, width=w, height=h, direction=d, Z0=ev.value(p["Impedance"]))
                 info(f"Lumped port {num}: width {w * 1e3:.4g} mm, height {h * 1e3:.4g} mm, direction {d}")
             else:  # Floquet
-                port = mw.bc.FloquetPort(sel, num, er=ev.value(p.get("Permittivity", "1")))
+                port = self.floquet_port(e, sel, tags, num)
             if term is not None:
                 if e.kind == "Wave Port":
                     tp["bc"] = port
@@ -776,7 +840,9 @@ class Bridge:
                     raise RuntimeError(f"Port '{e.name}': {e.kind}s are not available in a terminal solution")
                 if p.get("Deembed") == "True":
                     DEEMBED[num] = ev.length(p["DeembedDistance"])
-            self.port_map.append({"name": e.name, "number": num, "kind": e.kind,
+            modes = nmodes if e.kind == "Wave Port" else len(getattr(port, "port_modes", None) or [1])
+            self.port_map.append({"name": e.name, "number": num, "kind": e.kind, "modes": modes,
+                                  "mode_names": FLOQUET_MODES[:modes] if e.kind == "Floquet Port" else None,
                                   "renorm": p.get("RenormImpedance") if p.get("Renormalize") == "True" else None,
                                   "renorm_ohm": ev.value(p["RenormImpedance"]) if p.get("Renormalize") == "True" else None,
                                   "deembed": ev.length(p["DeembedDistance"]) if p.get("Deembed") == "True" else 0.0})
@@ -899,6 +965,36 @@ class Bridge:
             if not vols or not vols <= metal:
                 keep.append(t)
         return keep or list(tags)
+
+    def floquet_port(self, e: Assignment, sel, tags: list[int], num: int):
+        """Floquet port of the periodic cell: the plane waves TE00 (s polarization) and, with two modes, TM00
+        (p polarization) in the scan direction of the cell. The port face has to be normal to z."""
+        import gmsh
+        if self.cell is None:
+            raise RuntimeError(f"Floquet port '{e.name}' needs a periodic cell: assign Primary / Secondary "
+                               "boundary pairs to the side faces")
+        normals = [np.asarray(gmsh.model.getNormal(t, [0.5, 0.5])) for t in tags]
+        if any(abs(n[2]) < 1 - 1e-6 for n in normals):
+            raise RuntimeError(f"Floquet port '{e.name}': the port face has to be normal to the z axis (the scan "
+                               "angles are measured from z)")
+        p, ev = e.props, self.ev
+        n = ev.integer(p.get("NumberOfModes", "2") or "2")
+        if n > 2:
+            warn(f"Floquet port '{e.name}': EMerge has the two zeroth order modes TE00 and TM00 only; "
+                 f"{n - 2} higher mode(s) left out")
+        er = ev.value(p.get("Permittivity", "1") or "1")
+        if abs(er - 1) > 1e-9:
+            warn(f"Floquet port '{e.name}': EMerge's Floquet port takes the propagation constant of free space; "
+                 f"the medium permittivity {er:g} only scales the port H field. Put the port in air or vacuum")
+        port = self.m.mw.bc.FloquetPort(sel, num, er=er)
+        port.area = float(sum(gmsh.model.occ.getMass(2, t) for t in tags))
+        port.scan_theta, port.scan_phi = (math.radians(a) for a in self.scan)
+        if n >= 2:
+            port.port_modes = {1: (1 + 0j, 0j), 2: (0j, 1 + 0j)}
+            if self.scan[0] > 1e-6:
+                warn(f"Floquet port '{e.name}': at oblique incidence EMerge absorbs both modes with the "
+                     "propagation constant of TE00; the TM00 results are only exact at normal incidence")
+        return port
 
     def back_port_with_void(self, port: str, tags: list[int]) -> None:
         """A wave port on a face of a PEC solid (e.g. the bottom of a coax bore in a metal body) has the
@@ -1030,9 +1126,17 @@ class Bridge:
 
     def set_solver(self) -> None:
         name = self.setup.props.get("Solver", "Auto")
+        em = self.em
+        if self.cell is not None and name in ("Auto", "PARDISO"):
+            from .periodic import pardiso_transposes
+            if pardiso_transposes():
+                # the periodic system matrix is not symmetric and this EMerge's PARDISO interface solves the
+                # transposed system: SuperLU (exact, slower on large cells) until EMerge is fixed
+                info("Periodic cell: solving with SuperLU (PARDISO of this EMerge version solves the "
+                     "transposed system)")
+                name = "SuperLU"
         if name == "Auto":
             return
-        em = self.em
         try:
             self.m.set_solver({"PARDISO": em.EMSolver.PARDISO, "MUMPS": em.EMSolver.MUMPS,
                                "UMFPACK": em.EMSolver.UMFPACK, "SuperLU": em.EMSolver.SUPERLU}[name])
@@ -2412,7 +2516,10 @@ def excite(fld, port: dict) -> None:
     if port.get("kind") == "Incident Plane Wave":
         fld.set_field_vector()
     else:
-        fld.excite_port(port["number"])
+        # a port with several modes has the S indices n.1, n.2, ...: its field is that of the first mode
+        n = port["number"]
+        keys = list(getattr(fld, "_fields", None) or [])
+        fld.excite_port(n if n in keys or not keys else min((k for k in keys if int(k) == n), default=n))
 
 
 def _interp_known_tets(fld, x, y, z, mapping) -> None:
@@ -2886,7 +2993,7 @@ def postprocess_ports(freq, S, z0, port_map: list) -> tuple[np.ndarray, np.ndarr
         return S, np.asarray(z0, complex).ravel()
     n = S.shape[1]
     z0v = np.resize(np.asarray(z0, complex).ravel(), n)
-    ports = sorted(port_map, key=lambda q: q.get("number", 0))[:n]
+    ports = port_entries(port_map)[:n]
     dist = np.array([float(q.get("deembed") or 0.0) for q in ports] + [0.0] * (n - len(ports)))
     if np.any(dist != 0):
         beta = port_beta(np.asarray(freq, float), n)

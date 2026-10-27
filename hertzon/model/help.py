@@ -102,11 +102,18 @@ HELP: dict[str, str] = {
     "Type": "Symmetry type: Perfect E (tangential E = 0) or Perfect H (tangential H = 0).",
     "ImpedanceMultiplier": "Factor for port impedances when a symmetry plane cuts a port (2 for one plane). "
                            "Not applied by the solver yet: a port cut by the plane is referred to the half port.",
-    "UVector": "In-plane U direction of the periodic boundary. Primary / Secondary boundaries are not passed "
-               "to the solver yet; it skips them with a warning.",
-    "Primary": "Primary boundary this secondary boundary is linked to. Primary / Secondary boundaries are not "
-               "passed to the solver yet; it skips them with a warning.",
-    "PhaseDelay": "Phase difference between primary and secondary boundary (scan angle).",
+    "UVector": "In-plane U direction of the periodic boundary (origin;point). The solver links each Secondary "
+               "face to the Primary face it is a translated copy of; rotated periodicity is not supported.",
+    "Primary": "Primary boundary this secondary boundary is linked to. Its faces have to be the Primary faces "
+               "moved by one lattice vector.",
+    "PhaseMode": "How the phase between primary and secondary boundary is given: by the scan angles of the "
+                 "incident wave (the phase follows the frequency) or as a fixed phase delay (converted to scan "
+                 "angles at the solution frequency, which are kept over the sweep).",
+    "ScanTheta": "Scan angle theta of the incident wave, from the +z axis. The same for all Secondary "
+                 "boundaries and the Floquet ports of the cell.",
+    "ScanPhi": "Scan angle phi of the incident wave, from the +x axis in the xy plane.",
+    "PhaseDelay": "Phase difference between primary and secondary boundary: the field on the secondary is the "
+                  "field on the primary times exp(-j delay).",
     # ---- excitations --------------------------------------------------------------------------
     "PortNumber": "Port index used in S(i,j).",
     "NumberOfModes": "Number of port modes / eigenmodes to compute.",
@@ -117,7 +124,8 @@ HELP: dict[str, str] = {
     "Deembed": "Shift the port reference plane.",
     "DeembedDistance": "De-embedding distance; positive values move the reference plane into the port.",
     "Impedance": "Port reference impedance (Ohm).",
-    "Permittivity": "Relative permittivity used for the Floquet modes.",
+    "Permittivity": "Relative permittivity of the medium at the Floquet port. EMerge's Floquet port assumes free "
+                    "space (1): put the port in air or vacuum.",
     "Theta": "Incidence angle theta.",
     "Phi": "Incidence angle phi.",
     "Polarization": "Polarization of the incident plane wave.",

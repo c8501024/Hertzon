@@ -406,6 +406,9 @@ def design_from_dict(d: dict) -> Design:
     for b in des.boundaries:
         if b.kind == "Finite Conductivity":
             b.props.setdefault("TwoSided", b.props.get("UseThickness", "False"))  # older files: thickness = two-sided
+        if b.kind == "Secondary" and "PhaseMode" not in b.props:     # older files: a phase delay only
+            delay = str(b.props.get("PhaseDelay", "0")).strip()
+            b.props["PhaseMode"] = "Scan Angles" if delay in ("", "0", "0deg") else "Input Phase Delay"
     des.mesh_ops = [_assign(a) for a in d.get("mesh_ops", [])]
     for s in d.get("setups", []):
         st = Setup(s["name"], eigen=s.get("eigen", False))

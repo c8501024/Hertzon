@@ -723,7 +723,10 @@ class SolutionDataDialog(QDialog):
         load_freqs()
         ports = self.st.read_json("ports.json", [])
         if ports:
-            lay.addWidget(QLabel("Ports: " + ", ".join(f"{p['number']}: {p['name']} ({p['kind']})" for p in ports)))
+            from ..solver.results import port_entries
+            # one entry per row of S: a port with several modes (Floquet TE00 / TM00) has a row per mode
+            lay.addWidget(QLabel("Ports: " + ", ".join(f"{i + 1}: {p['label']} ({p['kind']})"
+                                                       for i, p in enumerate(port_entries(ports)))))
         return w
 
     def _ports(self, d) -> list:
