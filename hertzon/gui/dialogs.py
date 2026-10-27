@@ -880,7 +880,7 @@ class EditSourcesDialog(QDialog):
     """Edit Sources: magnitude and phase of every excitation for post processing, and for an
     incident wave the field that is shown (Total, Scattered or Incident)."""
 
-    def __init__(self, parent, design, on_apply=None):
+    def __init__(self, parent, design, on_apply=None, names: list[str] | None = None):
         super().__init__(parent)
         from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QComboBox, QDoubleSpinBox, QLabel, QHBoxLayout
         from ..model import sources as SRC
@@ -888,7 +888,8 @@ class EditSourcesDialog(QDialog):
         self.setWindowTitle("Edit Sources")
         self.resize(560, 320)
         lay = QVBoxLayout(self)
-        cur = SRC.get(design) or SRC.defaults(design)
+        # names: the terminals of a solved terminal design (its fields are stored per terminal)
+        cur = SRC.get(design, names) or SRC.defaults(design, names)
         kinds = {e.name: e.kind for e in design.excitations}
         self.names = list(cur)
         t = QTableWidget(len(self.names), 5)
@@ -897,7 +898,8 @@ class EditSourcesDialog(QDialog):
         self.mag, self.ph = {}, {}
         for r, n in enumerate(self.names):
             pw = kinds.get(n) == "Incident Plane Wave"
-            for c, txt in ((0, n), (1, "Incident Wave" if pw else "Port"), (3, "V/m" if pw else "W")):
+            for c, txt in ((0, n), (1, "Incident Wave" if pw else "Terminal" if names else "Port"),
+                           (3, "V/m" if pw else "W")):
                 it = QTableWidgetItem(txt)
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                 t.setItem(r, c, it)
@@ -924,7 +926,10 @@ class EditSourcesDialog(QDialog):
             row.addStretch(1)
             lay.addLayout(row)
         lay.addWidget(QLabel("Field plots and animations use these sources; no new solve is needed. "
-                             "Port fields are for 1 W incident power, scaled by sqrt(P)."))
+                             "Port fields are for 1 W incident power, scaled by sqrt(P)."
+                             + ("\nTerminals: the other terminals are terminated in their reference "
+                                "impedance. Differential mode with 1 W: 0.5 W on the positive terminal "
+                                "at 0 deg and 0.5 W on the negative terminal at 180 deg." if names else "")))
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Apply | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)

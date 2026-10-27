@@ -46,6 +46,28 @@ def test_terminal_s_does_not_depend_on_the_mode_basis():
     assert np.allclose(St, St2)
 
 
+def test_terminal_excitation_drives_one_terminal(monkeypatch):
+    """The mode amplitudes for 1 W on terminal t (others terminated in their reference) give the incident
+    terminal waves e_t and the outgoing ones column t of the terminal S-parameters."""
+    from hertzon.solver import bridge as B
+    S = _random_passive(4, 3)
+    D = np.array([[12.0, 3.0, 0, 0], [-4.0, 11.0, 0, 0], [0, 0, 9.0, 2.0], [0, 0, 5.0, -10.0]]) / np.sqrt(2)
+    zr = np.array([50.0, 50.0, 40.0, 60.0])
+    keys = [1.1, 1.2, 2.1, 2.2]
+    term = types.SimpleNamespace(zref=zr, _blocks=lambda k0, pn: (D, None, None))
+    monkeypatch.setattr(B, "TERMINALS", term)
+    fld = types.SimpleNamespace(port_modes=[types.SimpleNamespace(smat_index=k) for k in keys], freq=1e9, _Sp=S)
+    St, _ = T.terminal_s(S, D, zr)
+    sq = np.sqrt(zr)
+    for t in range(4):
+        exc = B.terminal_excitation(fld, t)
+        a = np.array([exc[k] for k in keys])
+        b = S @ a
+        V, I = D @ (a + b), np.linalg.solve(D.T, a - b)
+        assert np.allclose((V + zr * I) / (2 * sq), np.eye(4)[t])
+        assert np.allclose((V - zr * I) / (2 * sq), St[:, t])
+
+
 def test_mixed_mode_of_two_uncoupled_lines():
     """Two matched, uncoupled 50 ohm lines: differential and common mode pass unchanged at 100 / 25 ohm,
     with no mode conversion."""
@@ -183,10 +205,18 @@ def test_two_wires_lossless(tmp_path):
 def test_coupled_lines_lossless(tmp_path):
     # two wires above a dielectric: the even and odd mode have different propagation constants. The wave port
     # absorbs each with its own one, so the terminal S of the lossless line is unitary
-    S = _solve(tmp_path, "Terminal", wires=("-1mm", "1mm"), substrate=True).sparams("LastAdaptive")["S"]
+    st = _solve(tmp_path, "Terminal", wires=("-1mm", "1mm"), substrate=True)
+    S = st.sparams("LastAdaptive")["S"]
     assert S.shape[1:] == (4, 4)
     for Sf in S:
         assert np.abs(Sf.conj().T @ Sf - np.eye(4)).max() < 1e-6
+    # the S rows and the stored fields are the terminals (Edit Sources drives each terminal)
+    from hertzon.solver.results import s_labels
+    assert [k for _, k in s_labels(st)] == ["Terminal"] * 4
+    fs = st.read_json("field_sources.json")
+    assert [q["number"] for q in fs] == [1, 2, 3, 4] and all(q["kind"] == "Terminal" for q in fs)
+    f = st.npz("fields_LastAdaptive.npz")
+    assert all(f"E_0_{n}" in f for n in range(1, 5))
 
 
 def test_solve_ports_only(tmp_path, monkeypatch):
@@ -202,3 +232,25 @@ def test_solve_ports_only(tmp_path, monkeypatch):
     monkeypatch.setattr(D, "result_dir", lambda doc, setup: st.folder)
     meshes, info = TD.port_field_meshes(doc, "P1", solution="Setup1 : Sweep")
     assert meshes[0][0].n_cells > 0 and "Zo" in info
+
+
+def test_rows_of_s_by_name():
+    """S(P1_TraceP,P1_TraceN) for terminals, S(P1_M1,P1_M2) for ports with several modes; the numbers stay."""
+    from hertzon.solver.results import row_names
+    S = _random_passive(4, 4)[None]
+    term = [{"port": "P1", "number": 1, "terminals": ["P1_TraceP", "P1_TraceN"]},
+            {"port": "P2", "number": 2, "terminals": ["P2_TraceP", "P2_TraceN"]}]
+    data = {"freq": np.array([1e9]), "S": S, "z0": np.full(4, 50.0), "ports": [], "terminals": term}
+    assert np.allclose(eval_expr(data, "S(P2_TraceN,P1_TraceP)"), S[:, 3, 0])
+    assert np.allclose(eval_expr(data, "S(4,1)"), S[:, 3, 0])
+    modes = [{"name": "P1", "number": 1, "kind": "Wave Port", "modes": 2},
+             {"name": "P2", "number": 2, "kind": "Wave Port", "modes": 2}]
+    assert row_names(modes) == ["P1_M1", "P1_M2", "P2_M1", "P2_M2"]
+    data = {"freq": np.array([1e9]), "S": S, "z0": np.full(4, 50.0), "ports": modes}
+    assert np.allclose(eval_expr(data, "S(P1_M2,P1_M1)"), S[:, 1, 0])
+    floq = [{"name": "FP1", "number": 1, "kind": "Floquet Port", "modes": 2, "mode_names": ["TE00", "TM00"]},
+            {"name": "P2", "number": 2, "kind": "Wave Port", "modes": 1}]
+    assert row_names(floq) == ["FP1_TE00", "FP1_TM00", "P2"]
+    single = [{"name": "P1", "number": 1, "kind": "Wave Port", "modes": 1},
+              {"name": "P2", "number": 2, "kind": "Wave Port", "modes": 1}]
+    assert row_names(single) == ["1", "2"]
