@@ -6,6 +6,19 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Periodic unit cells and Floquet ports** are now solved. Primary / Secondary boundaries tie every
+  Secondary face to the Primary face it is a translated copy of (one lattice vector away) and make the model
+  a unit cell of an infinite array. The phase between them comes from the new *Scan angle theta / phi* of the
+  Secondary boundary, or from the phase delay (*Phase delay: Input Phase Delay*), which is converted to the
+  scan angles at the solution frequency. Floquet ports on faces normal to z excite and absorb the plane
+  waves TE00 and, with two modes, TM00 in the scan direction; S-parameters have one row per mode
+  (Matrix Data lists them as `FP1:TE00`, `FP1:TM00`, ...). Checked against the exact transmission through a
+  dielectric slab at normal and oblique incidence. Limits: higher Floquet modes, a Floquet port in a
+  dielectric, and TM00 at oblique incidence (absorbed with the TE00 propagation constant) are not available.
+  While EMerge's PARDISO interface solves the transposed system (wrong for the non-symmetric matrix of a
+  periodic cell) periodic models are solved with SuperLU.
+- **Example `examples/FSS_UnitCell.hzn`** (File > Open Example): a cross dipole frequency selective surface
+  as a periodic unit cell with Floquet ports below and above. The showcase's unit cell design is solved now.
 - **Terminal solution**: a design of solution type Terminal is now solved as terminals instead of modes.
   Each lumped port is one terminal; a wave port gets one terminal per signal conductor touching its face,
   with the largest conductor (or the one named in the port's new *Reference conductor*, Terminals tab) as

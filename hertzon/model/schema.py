@@ -187,7 +187,12 @@ BOUNDARIES: dict[str, list[Prop]] = {
     "Symmetry": [P("Type", "choice", "Perfect E", choices=("Perfect E", "Perfect H")),
                  P("ImpedanceMultiplier", "expr", "1")],
     "Primary": [P("UVector", "points", "", label="U vector (origin;point)")],
-    "Secondary": [P("Primary", "text", ""), P("UVector", "points", ""), P("PhaseDelay", "angle", "0deg")],
+    "Secondary": [P("Primary", "text", ""), P("UVector", "points", ""),
+                  P("PhaseMode", "choice", "Scan Angles", label="Phase delay",
+                    choices=("Scan Angles", "Input Phase Delay")),
+                  P("ScanTheta", "angle", "0deg", label="Scan angle theta", visible_if=("PhaseMode", "Scan Angles")),
+                  P("ScanPhi", "angle", "0deg", label="Scan angle phi", visible_if=("PhaseMode", "Scan Angles")),
+                  P("PhaseDelay", "angle", "0deg", visible_if=("PhaseMode", "Input Phase Delay"))],
     "Layered Impedance": [],
 }
 UNSUPPORTED_BOUNDARIES = {"Layered Impedance": "EMerge has no layered impedance boundary yet."}
@@ -218,7 +223,7 @@ EXCITATIONS: dict[str, list[Prop]] = {
                      "automatically between the two conductors touching the sheet (empty = auto); right click the "
                      "port to draw it in the 3D view or to place it automatically again. Given in the coordinates of the sheet as "
                      "created: the line moves, rotates and mirrors with its object")],
-    "Floquet Port": [P("PortNumber", "int", "1"), P("NumberOfModes", "int", "2"),
+    "Floquet Port": [P("PortNumber", "int", "1"), P("NumberOfModes", "int", "2", help="1 = TE00, 2 = TE00 and TM00"),
                      P("Permittivity", "expr", "1", label="Medium permittivity")],
     "Incident Plane Wave": [P("VectorInput", "choice", "Cartesian", label="Vector input format",
                               choices=("Cartesian", "Spherical")),

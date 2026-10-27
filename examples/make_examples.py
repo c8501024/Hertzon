@@ -171,9 +171,56 @@ def differential_pair() -> Project:
     return p
 
 
+def fss_unit_cell() -> Project:
+    """Frequency selective surface: a cross dipole on RO3003 in a periodic unit cell, Floquet ports below and
+    above, TE00 and TM00. The cell is the infinite array; the scan angle is the variable scan_theta (in the
+    xz plane). The transmission has its stop band where the cross arms are half a wavelength long."""
+    p = Project("FSS_UnitCell")
+    d = p.designs[0]
+    d.name = "CrossDipoleFSS"
+    d.variables.update({"px": "15mm", "py": "15mm", "h": "0.76mm", "ls": "11mm", "ws": "1mm", "air": "15mm",
+                        "scan_theta": "0deg"})
+    d.add_object("CreateBox", name="Cell", material="vacuum", Position="-px/2,-py/2,-air", XSize="px", YSize="py",
+                 ZSize="2*air+h").transparency = 0.85
+    d.add_object("CreateBox", name="Substrate", material="Rogers RO3003 (tm)", Position="-px/2,-py/2,0", XSize="px",
+                 YSize="py", ZSize="h")
+    a = d.add_object("CreateRectangle", name="Cross", Position="-ls/2,-ws/2,h", Axis="Z", XSize="ls", YSize="ws")
+    b = d.add_object("CreateRectangle", name="CrossY", Position="-ws/2,-ls/2,h", Axis="Z", XSize="ws", YSize="ls")
+    a.history.append(Command.new("Unite", Tools=b.name, KeepOriginals="False"))
+    b.consumed_by = a.name
+    boundary(d, "Perfect E", "PerfE_Cross", objects=[a.name])
+    # the side faces of the cell: sheets on them carry the periodic boundaries (Secondary = Primary moved by px / py)
+    side = {}
+    for nm, pos, ax, sx, sy, sz in (("SideXm", "-px/2,-py/2,-air", "X", "", "py", "2*air+h"),
+                                    ("SideXp", "px/2,-py/2,-air", "X", "", "py", "2*air+h"),
+                                    ("SideYm", "-px/2,-py/2,-air", "Y", "px", "", "2*air+h"),
+                                    ("SideYp", "-px/2,py/2,-air", "Y", "px", "", "2*air+h")):
+        kw = {k: v for k, v in (("XSize", sx), ("YSize", sy), ("ZSize", sz)) if v}
+        side[nm] = d.add_object("CreateRectangle", name=nm, Position=pos, Axis=ax, **kw).name
+    boundary(d, "Primary", "Primary_X", objects=[side["SideXm"]], UVector="-px/2,-py/2,-air;-px/2,py/2,-air")
+    boundary(d, "Secondary", "Secondary_X", objects=[side["SideXp"]], Primary="Primary_X",
+             UVector="px/2,-py/2,-air;px/2,py/2,-air", PhaseMode="Scan Angles", ScanTheta="scan_theta", ScanPhi="0deg")
+    boundary(d, "Primary", "Primary_Y", objects=[side["SideYm"]], UVector="-px/2,-py/2,-air;px/2,-py/2,-air")
+    boundary(d, "Secondary", "Secondary_Y", objects=[side["SideYp"]], Primary="Primary_Y",
+             UVector="-px/2,py/2,-air;px/2,py/2,-air", PhaseMode="Scan Angles", ScanTheta="scan_theta", ScanPhi="0deg")
+    bot = d.add_object("CreateRectangle", name="PortBottom", Position="-px/2,-py/2,-air", Axis="Z", XSize="px", YSize="py")
+    top = d.add_object("CreateRectangle", name="PortTop", Position="-px/2,-py/2,air+h", Axis="Z", XSize="px", YSize="py")
+    excitation(d, "Floquet Port", "FP1", objects=[bot.name], PortNumber=1, NumberOfModes=2)
+    excitation(d, "Floquet Port", "FP2", objects=[top.name], PortNumber=2, NumberOfModes=2)
+    s = setup(d, Frequency="12GHz", MaximumPasses=10, MaximumDeltaS=0.02)
+    sweep(s, "Sweep", SweepType="Interpolating", Distribution="Linear Count", Start="6GHz", Stop="18GHz", Count=241)
+    sol = "Setup1 : Sweep"
+    # S indices: 1 = FP1:TE00, 2 = FP1:TM00, 3 = FP2:TE00, 4 = FP2:TM00
+    d.reports += [
+        Report("Transmission", "Rectangular", sol, ["dB(S(3,1))", "dB(S(4,2))"]),
+        Report("Reflection", "Rectangular", sol, ["dB(S(1,1))", "dB(S(2,2))"]),
+    ]
+    return p
+
+
 if __name__ == "__main__":
     out = Path(__file__).resolve().parent
-    for fn in (waveguide_post, microstrip_line, patch_antenna, hairpin_filter, differential_pair):
+    for fn in (waveguide_post, microstrip_line, patch_antenna, hairpin_filter, differential_pair, fss_unit_cell):
         proj = fn()
         path = out / f"{proj.name}.hzn"
         proj.save(path)

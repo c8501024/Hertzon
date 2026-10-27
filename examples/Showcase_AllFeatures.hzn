@@ -671,6 +671,7 @@
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
+      "PortsOnly": "False",
       "MaximumPasses": "10",
       "MaximumDeltaS": "0.02",
       "MaximumDeltaEnergy": "0.001",
@@ -781,6 +782,7 @@
       "MultiFrequencies": "2.4GHz,2.5GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
+      "PortsOnly": "False",
       "MaximumPasses": "8",
       "MaximumDeltaS": "0.02",
       "MaximumDeltaEnergy": "0.001",
@@ -837,6 +839,7 @@
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "2GHz",
       "HighFrequency": "3GHz",
+      "PortsOnly": "False",
       "MaximumPasses": "6",
       "MaximumDeltaS": "0.02",
       "MaximumDeltaEnergy": "0.001",
@@ -1734,7 +1737,8 @@
       "Renormalize": "False",
       "RenormImpedance": "50ohm",
       "Deembed": "True",
-      "DeembedDistance": "-5mm"
+      "DeembedDistance": "-5mm",
+      "ReferenceConductor": ""
      },
      "faces": [],
      "objects": [
@@ -1754,7 +1758,8 @@
       "Renormalize": "True",
       "RenormImpedance": "50ohm",
       "Deembed": "False",
-      "DeembedDistance": "0"
+      "DeembedDistance": "0",
+      "ReferenceConductor": ""
      },
      "faces": [],
      "objects": [
@@ -1775,6 +1780,7 @@
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
+      "PortsOnly": "False",
       "MaximumPasses": "10",
       "MaximumDeltaS": "0.01",
       "MaximumDeltaEnergy": "0.001",
@@ -3533,6 +3539,7 @@
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
+      "PortsOnly": "False",
       "MaximumPasses": "6",
       "MaximumDeltaS": "0.02",
       "MaximumDeltaEnergy": "0.002",
@@ -4031,7 +4038,8 @@
       "Renormalize": "False",
       "RenormImpedance": "50ohm",
       "Deembed": "False",
-      "DeembedDistance": "0"
+      "DeembedDistance": "0",
+      "ReferenceConductor": ""
      },
      "faces": [],
      "objects": [
@@ -4077,6 +4085,7 @@
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
+      "PortsOnly": "False",
       "MaximumPasses": "8",
       "MaximumDeltaS": "0.02",
       "MaximumDeltaEnergy": "0.001",
@@ -4200,7 +4209,8 @@
     "py": "15mm",
     "hz": "30mm",
     "ls": "11mm",
-    "ws": "1.5mm"
+    "ws": "1.5mm",
+    "scan_theta": "0deg"
    },
    "objects": [
     {
@@ -4359,6 +4369,9 @@
      "props": {
       "Primary": "Master_X",
       "UVector": "px/2,-py/2,0;px/2,py/2,0",
+      "PhaseMode": "Scan Angles",
+      "ScanTheta": "scan_theta",
+      "ScanPhi": "0deg",
       "PhaseDelay": "0deg"
      },
      "faces": [
@@ -4411,6 +4424,9 @@
      "props": {
       "Primary": "Master_Y",
       "UVector": "-px/2,py/2,0;px/2,py/2,0",
+      "PhaseMode": "Scan Angles",
+      "ScanTheta": "scan_theta",
+      "ScanPhi": "0deg",
       "PhaseDelay": "0deg"
      },
      "faces": [
@@ -4498,6 +4514,7 @@
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
+      "PortsOnly": "False",
       "MaximumPasses": "6",
       "MaximumDeltaS": "0.02",
       "MaximumDeltaEnergy": "0.001",
@@ -4547,7 +4564,28 @@
     }
    ],
    "spheres": [],
-   "reports": [],
+   "reports": [
+    {
+     "name": "Reflection Phase",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "ang_deg(S(1,1))",
+      "ang_deg(S(2,2))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Reflection",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "dB(S(1,1))",
+      "dB(S(2,1))"
+     ],
+     "props": {}
+    }
+   ],
    "field_plots": [],
    "coord_systems": [],
    "field_exprs": [],
@@ -4555,7 +4593,7 @@
    "optimetrics": [],
    "parametrics": [],
    "working_cs": "Global",
-   "notes": "Periodic unit cell with Primary / Secondary boundaries and a Floquet port. These can be assigned and saved but are not yet passed to the solver (Validation Check warns): the design is here to test the data model, the dialogs and the MCP server."
+   "notes": "Periodic unit cell (the infinite array) of a cross on a grounded RO3003 spacer: Primary / Secondary pairs in x and y with the scan angles theta = scan_theta, phi = 0 and a Floquet port with TE00 and TM00 above. The ground reflects everything; the result is the reflection phase over frequency (a reflectarray element)."
   }
  ],
  "variables": {

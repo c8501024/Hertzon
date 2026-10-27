@@ -56,7 +56,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Radiation (first order) | Radiation | `AbsorbingBoundary` | ✔ (second order ◐) |
 | PML | PML (on region faces) and Auto Open | `pmlbox` | ✔ |
 | Symmetry (Perfect E / Perfect H) | Symmetry | `PEC` / `PMC` | ✔ far field with mirror images at planes parallel to XY, YZ or ZX (impedance multiplier ✖) |
-| Periodic (Primary / Secondary) | Primary / Secondary | — | ✖ (can be assigned, not passed to the solver: it warns and skips them) |
+| Periodic (Primary / Secondary) | Primary / Secondary | `Periodic` (periodic cell) | ✔ translated face pairs, scan angles or a phase delay (converted to scan angles at the solution frequency); rotated periodicity ✖ |
 | Layered Impedance | — | — | ✖ |
 
 ## Excitations
@@ -65,7 +65,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 |---|---|---|---|
 | Wave Port (modes, Zpi/Zpv/Zvi, renormalize, de-embed) | Wave Port | ✔ | De-embedding uses the solved port propagation constant |
 | Lumped Port (impedance, integration line) | Lumped Port | ✔ | Integration line placed automatically between the touching conductors, or drawn in the 3D view; it moves, rotates, mirrors and scales with its sheet |
-| Floquet Port | Floquet Port | ◐ | Needs periodic boundaries, which are not available yet |
+| Floquet Port | Floquet Port | ◐ | TE00 and TM00 of the periodic cell, port normal to z, in air or vacuum. Higher Floquet modes ✖; at oblique incidence TM00 is absorbed with the TE00 propagation constant (only TE00 exact) |
 | Incident Plane Wave | Incident Plane Wave | ✔ | Scattered-field formulation with a radiation boundary, RCS (monostatic and bistatic); one plane wave per design, ignored while ports are present |
 
 ## Mesh operations
