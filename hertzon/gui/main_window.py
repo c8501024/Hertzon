@@ -2381,7 +2381,7 @@ class MainWindow(QMainWindow):
             return
         props = schema.GEOMETRY[kind]
         vals = schema.defaults(props)
-        if "CoordinateSystem" in vals:      # Split: the plane is given in the working coordinate system
+        if "CoordinateSystem" in vals:      # Split, Rotate, Around Axis: given in the working coordinate system
             vals["CoordinateSystem"] = self.des.working_cs
         dlg = NamedPropsDialog(kind, kind, props, vals, self.doc.evaluator(), parent=self,
                                info=f"Apply to: {', '.join(objs)}")
@@ -2620,16 +2620,18 @@ class MainWindow(QMainWindow):
         objs = self.selected_objects(1)
         if not objs:
             return
-        vals = {"Axis": "Z", "Angle": "90deg", "TotalNumber": "2"}
+        vals = {"Axis": "Z", "Angle": "90deg", "TotalNumber": "2", "CoordinateSystem": self.des.working_cs}
         dlg = NamedPropsDialog("Duplicate Around Axis", "Duplicate",
                                [schema.P("Axis", "choice", "Z", choices=schema.AXES), schema.P("Angle", "angle", "90deg"),
-                                schema.P("TotalNumber", "int", "2")], vals, self.doc.evaluator(), parent=self)
+                                schema.P("TotalNumber", "int", "2"), schema.AXIS_CS], vals, self.doc.evaluator(),
+                               parent=self)
         dlg.name_edit.setEnabled(False)
         if dlg.exec() != QDialog.Accepted:
             return
         n = max(2, int(self.doc.evaluator().integer(dlg.values["TotalNumber"])))
         cmds = [[Command("Rotate", {"Axis": dlg.values["Axis"], "Angle": f"({dlg.values['Angle']})*{i}",
-                                    "Center": "0,0,0"})] for i in range(1, n)]
+                                    "Center": "0,0,0", "CoordinateSystem": dlg.values["CoordinateSystem"]})]
+                for i in range(1, n)]
         self._duplicate(objs, cmds)
 
     def duplicate_mirror(self) -> None:

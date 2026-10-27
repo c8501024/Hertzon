@@ -40,14 +40,22 @@ def _rotation(axis, angle: float) -> np.ndarray:
     return np.eye(3) + math.sin(angle) * K + (1 - math.cos(angle)) * (K @ K)
 
 
-def command_matrix(cmd, ev) -> np.ndarray | None:
+def rotation_axis(design, p: dict, ev) -> tuple[np.ndarray, np.ndarray]:
+    """Global centre (m) and axis direction of a Rotate / Sweep Around Axis command: Axis and Center are
+    given in the command's coordinate system (Global when not set)."""
+    O, R = coordsys.frame(design, p.get("CoordinateSystem", coordsys.GLOBAL) or coordsys.GLOBAL, ev)
+    c = O + R @ np.asarray(ev.point(p.get("Center", "0,0,0") or "0,0,0"), float)
+    return c, R @ np.asarray(_AXIS[p.get("Axis", "Z")], float)
+
+
+def command_matrix(cmd, ev, design=None) -> np.ndarray | None:
     """Affine map of one Move / Rotate / Mirror / Scale command (None for other commands)."""
     p = cmd.props
     if cmd.kind == "Move":
         return _translate(ev.vector(p["Vector"]))
     if cmd.kind == "Rotate":
-        return _about(ev.point(p.get("Center", "0,0,0") or "0,0,0"),
-                      _rotation(_AXIS[p.get("Axis", "Z")], ev.angle(p["Angle"])))
+        c, ax = rotation_axis(design, p, ev)
+        return _about(c, _rotation(ax, ev.angle(p["Angle"])))
     if cmd.kind == "Mirror":
         n = np.asarray(ev.vector(p["Normal"]), float)
         n = n / (np.linalg.norm(n) + 1e-300)
@@ -66,7 +74,7 @@ def object_matrix(design, obj, ev) -> np.ndarray:
     for cmd in obj.history[1:]:
         if cmd.suppressed or cmd.kind not in TRANSFORMS:
             continue
-        M = command_matrix(cmd, ev) @ M
+        M = command_matrix(cmd, ev, design) @ M
     return M
 
 

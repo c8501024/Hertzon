@@ -44,6 +44,9 @@ the GitHub release notes.
   sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
 
 ### Fixed
+- **Rotate, Sweep Around Axis and Duplicate Around Axis** now use the working coordinate system (for example
+  an object or face coordinate system) instead of always the global one. The dialogs have a *Coordinate
+  system* field, preset to the working CS; Axis and Center are given in it.
 - Terminal solution, wave port with several signal conductors and mode type Auto: the port only accepted
   TEM modes, and on coupled microstrip the odd quasi-TEM mode (a small axial field at high frequency) was
   rejected, so the solve stopped with a division by zero. Auto now accepts every mode type; the log no
