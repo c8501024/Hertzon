@@ -15,8 +15,9 @@ the GitHub release notes.
   (Matrix Data lists them as `FP1:TE00`, `FP1:TM00`, ...). Checked against the exact transmission through a
   dielectric slab at normal and oblique incidence. Limits: higher Floquet modes, a Floquet port in a
   dielectric, and TM00 at oblique incidence (absorbed with the TE00 propagation constant) are not available.
-  While EMerge's PARDISO interface solves the transposed system (wrong for the non-symmetric matrix of a
-  periodic cell) periodic models are solved with SuperLU.
+  Periodic models are solved with PARDISO (EMerge `9ef0053` solves the non-symmetric system of a periodic
+  cell correctly); with an EMerge whose PARDISO interface solves the transposed system Hertzon falls back to
+  SuperLU.
 - **Example `examples/FSS_UnitCell.hzn`** (File > Open Example): a cross dipole frequency selective surface
   as a periodic unit cell with Floquet ports below and above. The showcase's unit cell design is solved now.
 - **Terminal solution**: a design of solution type Terminal is now solved as terminals instead of modes.
