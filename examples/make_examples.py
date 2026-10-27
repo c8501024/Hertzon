@@ -164,8 +164,9 @@ def differential_pair() -> Project:
     d.reports += [
         Report("Differential S", "Rectangular", sol, ["dB(S(Diff1,Diff1))", "dB(S(Diff2,Diff1))"]),
         Report("Mode Conversion", "Rectangular", sol, ["dB(S(Comm1,Diff1))", "dB(S(Comm2,Diff1))"]),
-        Report("Single-Ended S", "Rectangular", sol, ["dB(S(1,1))", "dB(S(3,1))", "dB(S(2,1))", "dB(S(4,1))"]),
-        Report("Line Impedance", "Rectangular", sol, ["re(Zo(1))", "re(Zo(2))"]),
+        Report("Single-Ended S", "Rectangular", sol, ["dB(S(P1_TraceP,P1_TraceP))", "dB(S(P2_TraceP,P1_TraceP))",
+                                                      "dB(S(P1_TraceN,P1_TraceP))", "dB(S(P2_TraceN,P1_TraceP))"]),
+        Report("Line Impedance", "Rectangular", sol, ["re(Zo(P1_TraceP))", "re(Zo(P1_TraceN))"]),
         Report("Propagation Constant", "Rectangular", sol, ["im(Gamma(1))", "im(Gamma(2))"]),
     ]
     return p

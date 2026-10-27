@@ -28,6 +28,38 @@ def port_entries(port_map: list) -> list[dict]:
     return out
 
 
+def row_names(ports: list, terminals: list | None = None) -> list[str]:
+    """Name of every row of S, usable in report expressions as S(P1_TraceP,P1_TraceN): the terminals of a
+    terminal solution, else with ports of several modes PortName_M1, PortName_M2 (Floquet ports the mode,
+    PortName_TE00) and the port name for a port with one mode. Without several modes or terminals the
+    rows have no names (S(1,2)). A name that is no identifier stays the row number."""
+    if terminals:
+        out = [t for q in sorted(terminals, key=lambda q: q["number"]) for t in q["terminals"]]
+    else:
+        rows = port_entries(ports)
+        if not any(int(q.get("modes") or 1) > 1 for q in ports):
+            return [str(i + 1) for i in range(len(rows))]
+        out = []
+        for q in rows:
+            name = q.get("name", "")
+            if int(q.get("modes") or 1) == 1:
+                out.append(name)
+            else:
+                mn = q.get("mode_names")
+                out.append(f"{name}_{mn[q['mode'] - 1]}" if mn else f"{name}_M{q['mode']}")
+    return [n if n.isidentifier() else str(i + 1) for i, n in enumerate(out)]
+
+
+def s_labels(store) -> list[tuple[str, str]]:
+    """(name, kind) of every row of the stored S-parameters (see row_names)."""
+    term = store.read_json("terminals.json", None)
+    ports = store.read_json("ports.json", []) or []
+    if term:
+        return [(n, "Terminal") for n in row_names(ports, term)]
+    rows = port_entries(ports)
+    return [(p["label"] if n.isdigit() else n, p["kind"]) for n, p in zip(row_names(ports), rows)]
+
+
 def results_dir(project_path: str | Path, design: str, setup: str) -> Path:
     p = Path(project_path)
     return p.with_suffix((p.suffix or ".hzn") + "results") / _safe(design) / _safe(setup)

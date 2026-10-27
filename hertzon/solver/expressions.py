@@ -200,6 +200,11 @@ def eval_expr(data: dict, expr: str, outvars: dict[str, str] | None = None, _dep
     names.update({"S": par("S Parameter"), "Y": par("Y Parameter"), "Z": par("Z Parameter"), "VSWR": vswr,
                   "GroupDelay": gd, "Freq": f, "F": f, "pi": np.pi, "j": 1j, "e": np.e,
                   "Zo": port_qty("zo", "port impedance"), "Gamma": port_qty("gamma", "propagation constant")})
+    from .results import row_names
+    # the rows of S by name: S(P1_TraceP,P1_TraceN), S(P1_M1,P1_M2) (the numbers stay valid)
+    for i, n in enumerate(row_names(data.get("ports") or [], data.get("terminals"))):
+        if not n.isdigit() and n not in names:
+            names[n] = i + 1
     for k in range(len(data.get("diffpairs") or [])):
         names[f"Diff{k + 1}"] = _MixedPort("Diff", k)
         names[f"Comm{k + 1}"] = _MixedPort("Comm", k)

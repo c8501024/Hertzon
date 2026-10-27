@@ -760,8 +760,17 @@ RO4350B, 20 mm long). The finished project is `examples/DifferentialPair.hzn`.
    `dB(S(Comm1,Diff1))`, and `Zo(i)` and `Gamma(i)` of the port modes (reports in the example). The
    differential return loss stays below −20 dB from 1 to 12 GHz and the conversion into the common mode
    below −36 dB.
+7. The terminals are numbered in port order: 1 = `P1_TraceP`, 2 = `P1_TraceN`, 3 = `P2_TraceP`,
+   4 = `P2_TraceN` (shown under the quantity in the report dialog). Reports can also name them:
+   `dB(S(P2_TraceP,P1_TraceP))` is the same as `dB(S(3,1))`.
+8. To see the differential field, open **Edit Sources** (right click Excitations): it lists the terminals.
+   Set `P1_TraceP` to 0.5 W at 0° and `P1_TraceN` to 0.5 W at 180° (1 W in the differential mode), the
+   other terminals to 0. Field plots and animations then show the differential mode (same phase: the common
+   mode). No new solve is needed.
 
 Changing the pairs needs no new solve: the mixed-mode quantities are computed from the terminal S-parameters.
+Ports with several modes are named the same way in modal designs: `S(P1_M2,P1_M1)` is the coupling from
+mode 1 to mode 2 of port P1, and a Floquet port uses its modes (`S(FP1_TM00,FP1_TE00)`).
 
 ---
 

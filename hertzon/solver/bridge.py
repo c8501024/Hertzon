@@ -866,7 +866,18 @@ class Bridge:
             names = ", ".join(f"{i + 1}: {n}" for i, n in enumerate(term.names))
             info(f"Terminal solution: {len(term.names)} terminal(s) ({names})")
             self.store.write_json("terminals.json", term.info())
+        else:
+            (self.store.folder / "terminals.json").unlink(missing_ok=True)
         self.store.write_json("ports.json", self.port_map)
+        # a port with several terminals: the fields are stored per terminal (1 W incident on the terminal, the
+        # other terminals terminated in their reference impedances), so Edit Sources can drive a differential
+        # pair; otherwise per port
+        self.field_map = self.port_map
+        if TERMINALS is not None and any(len(q["terminals"]) > 1 for q in TERMINALS.ports):
+            self.field_map = [{"name": n, "number": i + 1, "kind": "Terminal"} for i, n in enumerate(TERMINALS.names)]
+            self.store.write_json("field_sources.json", self.field_map)
+        else:
+            (self.store.folder / "field_sources.json").unlink(missing_ok=True)
 
     def terminal_conductor_faces(self) -> set[int]:
         """Faces of the solver model that are conductors for the terminals: Perfect E and finite
@@ -1545,6 +1556,10 @@ class Bridge:
             except Exception as e:  # noqa: BLE001
                 warn(f"Field data '{label}' not computed ({e}); it is computed when plotted")
 
+    def fields_of(self) -> list[dict]:
+        """The excitations whose fields are stored: the ports, or the terminals (see build)."""
+        return getattr(self, "field_map", None) or self.port_map
+
     def save_fields(self, fields: list, label: str, progress: bool = True) -> None:
         """E and H on the mesh nodes for each port excitation."""
         if progress:
@@ -1557,7 +1572,7 @@ class Bridge:
         tets = np.asarray(m.mesh.tets)
         nt = tets.shape[1]
         C = np.asarray(m.mesh.nodes)[:, tets]                    # (3, 4, N)
-        quad = nt * max(1, len(self.port_map)) * max(1, len(fields)) <= 600_000
+        quad = nt * max(1, len(self.fields_of())) * max(1, len(fields)) <= 600_000
         if quad:
             mids = [(C[:, i] + C[:, j]) / 2 for i, j in TET10_EDGES]
             C = np.concatenate([C, np.stack(mids, axis=1)], axis=1)   # (3, 10, N)
@@ -1569,7 +1584,7 @@ class Bridge:
         if lazy:   # only the solution: fields are computed when a plot needs them (hertzon.solver.lazy_fields)
             from .lazy_fields import solution_arrays
             self.store.save_npz(f"solution_{label}.npz",
-                                **solution_arrays(m, fields, self.port_map, excite, npt == 10, cm))
+                                **solution_arrays(m, fields, self.fields_of(), excite, npt == 10, cm))
             info("Solution saved (field data is computed at the end of the analysis)")
             return
         P = C.transpose(0, 2, 1).reshape(3, -1)                  # tet-major
@@ -1613,7 +1628,7 @@ class Bridge:
 
         for k, fld in enumerate(fields):
             freq = float(getattr(fld, "freq", 0.0))
-            for port in self.port_map:
+            for port in self.fields_of():
                 try:
                     excite(fld, port)
                     _interp_known_tets(fld, x, y, z, mapping)
@@ -1672,7 +1687,7 @@ class Bridge:
         mapping = None
         for k, fld in enumerate(fields):
             out[f"freq_{k}"] = np.array([float(fld.freq)])
-            for port in self.port_map:
+            for port in self.fields_of():
                 try:
                     excite(fld, port)
                     f2 = fld.relative if port.get("kind") == "Incident Plane Wave" else fld
@@ -2513,13 +2528,30 @@ def keep_global_max_size(m) -> None:
 
 
 def excite(fld, port: dict) -> None:
-    if port.get("kind") == "Incident Plane Wave":
+    if port.get("kind") == "Terminal":
+        fld.excitation = terminal_excitation(fld, port["number"] - 1)
+    elif port.get("kind") == "Incident Plane Wave":
         fld.set_field_vector()
     else:
         # a port with several modes has the S indices n.1, n.2, ...: its field is that of the first mode
         n = port["number"]
         keys = list(getattr(fld, "_fields", None) or [])
         fld.excite_port(n if n in keys or not keys else min((k for k in keys if int(k) == n), default=n))
+
+
+def terminal_excitation(fld, t: int) -> dict:
+    """Mode amplitudes of the solution fld for 1 W incident on terminal t, all terminals terminated in their
+    reference impedances: with V = D (a + S a), I = D^-T (a - S a) the incident terminal waves are
+    (V + Zr I) / (2 sqrt(Zr)) (terminals.py)."""
+    keys = [pm.smat_index for pm in fld.port_modes]
+    D, _, _ = TERMINALS._blocks(2 * np.pi * float(fld.freq) / C0, keys)
+    S = np.asarray(fld._Sp, complex)
+    zr = TERMINALS.zref
+    I = np.eye(len(keys))
+    A = D @ (I + S) + np.diag(zr) @ np.linalg.solve(D.T, I - S)
+    rhs = np.zeros(len(zr), complex)
+    rhs[t] = 2 * np.sqrt(zr[t])
+    return dict(zip(keys, np.linalg.solve(A, rhs)))
 
 
 def _interp_known_tets(fld, x, y, z, mapping) -> None:

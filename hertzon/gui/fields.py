@@ -217,8 +217,8 @@ def source_vector(doc, st, fields: dict, grid, which: str, fi: int, port: int) -
     sqrt(P) exp(j phase); an incident plane wave scaled to its V/m and shown as total, scattered
     or incident field."""
     from ..model import sources as SRC, planewave
-    srcs = SRC.get(doc.design)
-    pmap = st.read_json("ports.json", []) or []
+    pmap = st.read_json("field_sources.json", None) or st.read_json("ports.json", []) or []
+    srcs = SRC.get(doc.design, SRC.field_names(st))
     pw = next((p for p in pmap if p.get("kind") == "Incident Plane Wave"), None)
     key = f"{which}_{fi}_{port}"
     if pw is not None:

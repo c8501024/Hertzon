@@ -41,6 +41,14 @@ the GitHub release notes.
 - **Example `examples/DifferentialPair.hzn`** (File > Open Example): a 100 ohm edge-coupled microstrip pair
   with the terminal solution, differential pairs and reports of the mixed-mode S-parameters, the line
   impedances and the propagation constants; tutorial section 9 walks through it.
+- **Named rows of S**: with terminals or ports of several modes, the report quantities name the rows,
+  `S(P1_TraceP,P1_TraceN)` for terminals and `S(P1_M1,P1_M2)` for port modes (Floquet ports
+  `S(FP1_TE00,FP1_TM00)`); the numbers keep working. The report dialog and the data table list which
+  terminal, port or mode each number is.
+- **Edit Sources per terminal**: a terminal design with a port of several terminals stores its fields per
+  terminal (1 W incident on the terminal, the others terminated in their reference impedance), and Edit
+  Sources lists the terminals. A differential pair is driven with 0.5 W at 0° and 180° on its two terminals,
+  so field plots, animations and far fields show the differential or the common mode.
 - **Solve ports only** (setup option): solves only the port modes of the wave ports at the solution and
   sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
 

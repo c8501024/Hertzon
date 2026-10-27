@@ -4656,8 +4656,10 @@ class MainWindow(QMainWindow):
     def edit_sources(self) -> None:
         """Edit Sources: post-processing magnitudes/phases and the incident wave field type."""
         from .dialogs import EditSourcesDialog
+        from .terminal_dialogs import field_terminal_names
         from ..model import sources as SRC
-        if not SRC.defaults(self.des):
+        names = field_terminal_names(self.doc) if self.des.settings.get("SolutionType") == "Terminal" else None
+        if not SRC.defaults(self.des, names):
             QMessageBox.information(self, "Edit Sources", "Assign a port or an incident wave first.")
             return
         state = {"applied": None}
@@ -4670,7 +4672,7 @@ class MainWindow(QMainWindow):
             state["applied"] = (sources, ftype)
             self._apply_sources(sources, ftype)
 
-        dlg = EditSourcesDialog(self, self.des, on_apply=apply)
+        dlg = EditSourcesDialog(self, self.des, on_apply=apply, names=names)
         if dlg.exec() == QDialog.Accepted:
             apply(*dlg.values())
 
