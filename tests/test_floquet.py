@@ -129,9 +129,19 @@ def test_slab_normal_incidence_two_modes(tmp_path):
     assert abs(S[0, 1]) < 1e-2 and abs(S[0, 3]) < 1e-2      # no polarization conversion
 
 
+def test_pardiso_not_transposed():
+    # the pinned EMerge solves A x = b for the non-symmetric CSC matrix of a periodic cell, so Hertzon keeps
+    # PARDISO for periodic cells instead of falling back to SuperLU
+    pytest.importorskip("emerge")
+    from emerge._emerge import solver as S
+    if not S._PARDISO_AVAILABLE:
+        pytest.skip("PARDISO not available")
+    assert not PER.pardiso_transposes()
+
+
 def test_slab_oblique_incidence(tmp_path):
     # PARDISO as chosen solver: the periodic matrix is not symmetric, an EMerge whose PARDISO interface solves
-    # the transposed system (|S11|^2 + |S21|^2 = 0.69 here) is replaced by SuperLU
+    # the transposed system (|S11|^2 + |S21|^2 = 0.69 here) would be replaced by SuperLU
     S = _solve(tmp_path, theta="30deg", phi="0deg", modes=1, solver="PARDISO")["S"][-1]
     _check(S, 30.0, "TE", 0, 1)
 
