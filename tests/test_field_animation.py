@@ -117,3 +117,31 @@ def test_animation_bar_keeps_the_view_width():
     app.processEvents()
     assert split.sizes() == before
     split.close()
+
+
+@pytest.mark.parametrize("expr", ["S", "re(S)", "x(S)"])
+def test_poynting_vector_does_not_turn_with_the_phase(plot, tmp_path, monkeypatch, expr):
+    """S = 1/2 E x H* is a time average: at every phase the plot shows its real part (the active power),
+    not Re{S e^(j phase)}, which would show the reactive power or turn the power flow around."""
+    from hertzon.gui import calc_bridge
+    from hertzon.post.calc import lang as L
+    doc, view = plot
+    m = ResultStore(tmp_path).npz("mesh.npz")
+    P = m["nodes"][m["tets"]].reshape(-1, 3)
+    info = L.analyze(expr, L.Env())
+    # stand-in values linear in the position (exact on the plot), complex like S, real like re(S)
+    vals = _field(P) if info.cx else np.real(_field(P)).astype(complex)
+    vals = vals if info.vec else vals[:, 0]
+    monkeypatch.setattr(calc_bridge, "field_values_at_grid", lambda *a, **k: (vals, info, None))
+    prep = F.prepare_overlay(doc, view, "=" + expr, "Setup1 : LastAdaptive", plane="XY@")
+    first = None
+    for phase in (0.0, 90.0, 180.0):
+        meshes, _ = F.overlay_at(prep, phase)
+        got = meshes[0][0].point_data["=" + expr]
+        first = got if first is None else first
+        assert np.array_equal(got, first)                      # the same picture at every phase
+    s = F._at_phase(prep["sampled"][0], 1.0, 0.0)
+    want = np.real(_field(np.asarray(s.points)))
+    if not info.vec:
+        want = want[:, :1]
+    assert np.allclose(np.asarray(s.point_data["re"])[:, :want.shape[1]], want, atol=1e-12 * np.abs(want).max())

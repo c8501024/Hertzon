@@ -45,6 +45,11 @@ the GitHub release notes.
   sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
 
 ### Fixed
+- **Field plots of the Poynting vector** no longer turn with the plot phase. `S = 1/2 E x H*` is a time
+  average; the plot showed `Re{S e^(j phase)}`, so at other phases and in phase animations the arrows showed
+  the reactive power, and a real expression such as `re(S)` reversed its direction every half period. Real
+  expressions and expressions with `S` now show the same picture at every phase: the real part of `S`, the
+  active power flow.
 - **First click in the 3D view no longer hangs.** Right after the start, the first hover or click in the 3D
   view stalled while the graphics driver built the shaders of the highlight styles (half transparent faces,
   wide lines, vertex spheres). They are now drawn once, unseen, when the window opens.
