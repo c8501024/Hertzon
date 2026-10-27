@@ -45,6 +45,9 @@ the GitHub release notes.
   sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
 
 ### Fixed
+- **First click in the 3D view no longer hangs.** Right after the start, the first hover or click in the 3D
+  view stalled while the graphics driver built the shaders of the highlight styles (half transparent faces,
+  wide lines, vertex spheres). They are now drawn once, unseen, when the window opens.
 - **Rotate, Sweep Around Axis and Duplicate Around Axis** now use the working coordinate system (for example
   an object or face coordinate system) instead of always the global one. The dialogs have a *Coordinate
   system* field, preset to the working CS; Axis and Center are given in it.

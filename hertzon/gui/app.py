@@ -146,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
     # always maximized: a restored maximized geometry (or a resize on top of it) left the window a bit wider
     # than the screen on Windows, so its right edge was cut off until it was restored and maximized again
     win.showMaximized()
+    app.processEvents()
+    win.view.warm_up()        # the first hover or click in the 3D view then does not wait for the graphics driver
     if sp is not None:
         sp.finish(win)
     if files:

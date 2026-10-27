@@ -692,6 +692,33 @@ def test_center_point_arc_drawing():
     assert np.allclose(np.linalg.norm(P[:-1], axis=1), 1) and np.allclose(P[-1], [0, -2, 0])
 
 
+def test_view_warm_up_draws_the_highlight_styles_unseen():
+    """Start: every hover and selection style is drawn once into the back buffer, so the first click in the
+    3D view does not wait for the graphics driver. Nothing of it stays in the view."""
+    import types
+    import pyvista as pv
+    from hertzon.gui import viewer as Vw
+    names = ("warm_up", "_make_actors", "_plain_actor", "_add_highlight_mesh", "_drop_actor")
+    View = type("View", (), {k: Vw.ModelerView.__dict__[k] for k in names})
+    v = View()
+    v.plotter = pv.Plotter(off_screen=True, window_size=(200, 150))
+    v.doc = types.SimpleNamespace(selection_mode="object")
+    v.highlight_actors = []
+    v.request_render = lambda: None
+    ren, rw = v.plotter.renderer, v.plotter.render_window
+    n_actors, n_cullers = ren.GetActors().GetNumberOfItems(), ren.GetCullers().GetNumberOfItems()
+    drawn = []
+    rw.AddObserver("EndEvent", lambda *a: drawn.append(ren.GetActors().GetNumberOfItems()))
+    v.warm_up()
+    assert drawn and drawn[0] > n_actors + 10              # the styles were drawn ...
+    assert ren.GetActors().GetNumberOfItems() == n_actors  # ... and are gone again
+    assert ren.GetCullers().GetNumberOfItems() == n_cullers and rw.GetSwapBuffers()
+    assert v.highlight_actors == []
+    v.warm_up()                                            # once per view
+    assert len(drawn) == 1
+    v.plotter.close()
+
+
 def test_first_start_note(monkeypatch):
     """Solver kernels not compiled yet: the main window says so in the Message Manager and the status bar."""
     import types
