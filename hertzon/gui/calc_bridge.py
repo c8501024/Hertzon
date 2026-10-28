@@ -104,19 +104,42 @@ def make_env(doc) -> L.Env:
                  variable=variable, model_unit=LENGTH_UNITS.get(des.units, 1e-3))
 
 
+# a component of a vector value in a report trace: mag(Spp), x(Spp), ...
+VECTOR_PARTS = ("mag", "x", "y", "z")
+
+
 def value_names(doc, fields: bool | None = None) -> list[str]:
-    """Named expressions that are scalar values (integrals, maxima, point values): report quantities.
-    fields True: only the values computed from the fields (Fields reports), False: only those without
-    fields, e.g. of S parameters (the Equations of the solution data reports), None: all."""
+    """Named expressions that are values (integrals, maxima, point values): report quantities; a vector
+    value as its magnitude and components (mag(Spp), x(Spp), ...). fields True: only the values computed
+    from the fields (Fields reports), False: only those without fields, e.g. of S parameters (the Equations
+    of the solution data reports), None: all."""
     env, out = make_env(doc), []
     for e in doc.design.field_exprs:
         try:
             i = L.analyze(e.name, env)
         except L.CalcError:
             continue
-        if not i.field and not i.vec and (fields is None or fields == ("fields" in i.uses)):
-            out.append(e.name)
+        if i.field or not (fields is None or fields == ("fields" in i.uses)):
+            continue
+        out += [f"{c}({e.name})" for c in VECTOR_PARTS] if i.vec else [e.name]
     return out
+
+
+def vector_parts(doc, expr: str) -> tuple[str, dict[str, str]]:
+    """A report trace with components of vector values (mag(Spp), x(Spp)): each component replaced by a
+    name of its own -> (trace, {name: expression of the calculator})."""
+    vecs = [n for n, k in expression_kinds(doc).items() if k == "vector"]
+    parts: dict[str, str] = {}
+    if not vecs:
+        return expr, parts
+
+    def sub(m):
+        key = f"_part{len(parts)}"
+        parts[key] = m.group(0)
+        return key
+    alt = "|".join(map(re.escape, vecs))
+    expr = re.sub(r"\b(?:" + "|".join(L.COMP_FN + ("mag",)) + r")\(\s*(?:" + alt + r")\s*\)", sub, expr)
+    return expr, parts
 
 
 def uses_fields(doc, names) -> bool:
@@ -509,7 +532,7 @@ def over_frequency(doc, src: str, solution: str, port: int = 1, store=None, prog
     if info.field:
         raise L.CalcError(f"'{src}' is a field; a report needs a value (an integral, maximum or point value)")
     if info.vec:
-        raise L.CalcError(f"'{src}' is a vector; report one component, e.g. x({src})")
+        raise L.CalcError(f"'{src}' is a vector; report its magnitude or one component, e.g. mag({src}) or x({src})")
     st, sol = (store, solution.partition(":")[2].strip()) if store is not None else F.store_for(doc, solution)
     if "fields" not in info.uses:
         data = st.sparams(sol)

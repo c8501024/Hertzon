@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Vector values in reports**: an equation that is a vector value, e.g. the integral `int_surf(Patch, E × H)`,
+  was offered nowhere. Fields reports now list its magnitude and components (`mag(Spp)`, `x(Spp)`, ...),
+  and Add to Report on the equation makes a Fields report of its magnitude. The calculator says that an
+  integral is a value, not a field plot, and that the integrand without the integral is the field to plot.
+
 ## 0.2.5 (2026-10-27)
 
 ### Added
