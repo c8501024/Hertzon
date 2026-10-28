@@ -3,6 +3,15 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Update without "Set up the Python environment"**: when that component of the installer was switched off
+  for an update (or failed), the new program ran on the packages of the old version (for example the previous EMerge)
+  and showed "First start detected" until its first solve, because the setup never compiled the kernels.
+  The installer now marks the Python environment as outdated, so Hertzon.exe updates it and compiles the
+  kernels at the next start, as the installer's message already promised.
+
 ## 0.2.5 (2026-10-27)
 
 ### Added
