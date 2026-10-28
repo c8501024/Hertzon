@@ -93,6 +93,19 @@ def _heavy_imports():
     from . import main_window  # noqa: F401   (VTK, solver interface, dialogs)
 
 
+def _material_library():
+    """EMerge's material library: importing emsutil (with scipy and matplotlib) took seconds on a cold start,
+    and the first click on an object waited for it (the Properties list every material)."""
+    from ..model.materials import emerge_library
+    emerge_library()
+
+
+def _load_in_thread(work) -> None:
+    """Run work in the background once the window is open, so it is ready before it is first needed."""
+    import threading
+    threading.Thread(target=work, name="hertzon-preload", daemon=True).start()
+
+
 def _web_engine_setup() -> None:
     """The formula editor of the Fields Calculator is a web view in the main window, next to the 3D view.
     Qt WebEngine has to be loaded before the application object exists. The main window can draw with one
@@ -148,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     win.showMaximized()
     app.processEvents()
     win.view.warm_up()        # the first hover or click in the 3D view then does not wait for the graphics driver
+    _load_in_thread(_material_library)
     if sp is not None:
         sp.finish(win)
     if files:

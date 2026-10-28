@@ -6,6 +6,9 @@ the GitHub release notes.
 ## Unreleased
 
 ### Fixed
+- **First click on an object no longer hangs for seconds.** The Properties of the clicked object list every
+  material, and the first time this read the EMerge material library, whose import (with scipy) took several
+  seconds on a cold start. The library is now read in the background as soon as the window is open.
 - **Update without "Set up the Python environment"**: when that component of the installer was switched off
   for an update (or failed), the new program ran on the packages of the old version (for example the previous EMerge)
   and showed "First start detected" until its first solve, because the setup never compiled the kernels.
