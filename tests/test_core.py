@@ -1338,3 +1338,52 @@ def test_helix_wire_leaves_no_loose_faces(nseg):
     assert all(len(gmsh.model.getAdjacencies(2, s)[0]) for _, s in gmsh.model.getEntities(2))
     assert len(gmsh.model.getEntities(1)) == len({abs(t) for _, t in gmsh.model.getBoundary(
         gmsh.model.getEntities(2), combined=False, oriented=False)})
+
+
+def test_3d_polar_plot_has_no_cut_fields():
+    """The 3D polar plot shows the whole sphere: no Constant / Value of a 2D cut (#129). The Radiation
+    Pattern keeps them."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QFormLayout
+    from hertzon.gui.doc import Document
+    from hertzon.gui.reports import ReportWindow
+    from hertzon.model.design import Report
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    doc = Document(Project.load(EX / "PatchAntenna.hzn"))
+
+    def labels(kind):
+        w = ReportWindow(doc, Report("P", kind, "Setup1 : LastAdaptive", ["dB(GainTotal)"]))
+        form = next(f for f in w.findChildren(QFormLayout) if f.rowCount() > 2)
+        return [form.itemAt(i, QFormLayout.LabelRole).widget().text() for i in range(form.rowCount())
+                if form.itemAt(i, QFormLayout.LabelRole) is not None]
+    assert "Constant:" not in labels("3D Polar Plot") and "Value (deg):" not in labels("3D Polar Plot")
+    assert {"Constant:", "Value (deg):"} <= set(labels("Radiation Pattern"))
+
+
+def test_rename_report(monkeypatch):
+    """Project tree > report > Rename...: the report and its open tab get the new name; a name that is
+    taken is refused (#130)."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    from hertzon.gui import main_window as mw
+    from hertzon.model.design import Report
+    win = mw.MainWindow(Project())
+    win.des.reports += [Report("XY Plot 1", "Rectangular Plot", "Setup1 : LastAdaptive"),
+                        Report("XY Plot 2", "Rectangular Plot", "Setup1 : LastAdaptive")]
+    win.open_report("XY Plot 1")
+    tab = win.report_tabs["XY Plot 1"]
+    monkeypatch.setattr(mw.QInputDialog, "getText", staticmethod(lambda *a, **k: ("  Return Loss ", True)))
+    win.rename_report("XY Plot 1")
+    assert [r.name for r in win.des.reports] == ["Return Loss", "XY Plot 2"]
+    assert win.report_tabs == {"Return Loss": tab} and win.tabs.tabText(win.tabs.indexOf(tab)) == "Return Loss"
+    assert win.doc.dirty
+    warned = []
+    monkeypatch.setattr(mw.QMessageBox, "warning", staticmethod(lambda *a, **k: warned.append(a[2])))
+    monkeypatch.setattr(mw.QInputDialog, "getText", staticmethod(lambda *a, **k: ("XY Plot 2", True)))
+    win.rename_report("Return Loss")
+    assert [r.name for r in win.des.reports] == ["Return Loss", "XY Plot 2"] and warned
+    win.doc.dirty = False
+    win.close()
