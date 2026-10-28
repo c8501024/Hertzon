@@ -5037,6 +5037,8 @@ class MainWindow(QMainWindow):
                 m.addAction("Plot Field...", lambda: self.plot_fields(data[1]))
             elif k == "value":
                 m.addAction("Add to Report", lambda: self.field_report(data[1]))
+            elif k == "vector":                    # a vector value: its magnitude, the components in the report
+                m.addAction("Add to Report", lambda: self.field_report(f"mag({data[1]})"))
             m.addSeparator()
             m.addAction("Rename...", lambda: self.rename_equation(data[1]))
             m.addAction("Delete", self._delete_project_items)

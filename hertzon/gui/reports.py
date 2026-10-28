@@ -130,7 +130,7 @@ def trace_unit(doc, trace: str) -> str | None:
                 return "deg"
             if fn in ("ang_rad", "phase", "angle"):
                 return "rad"
-            if fn in ("mag", "abs", "re", "im", "real", "imag", "conj"):
+            if fn in ("mag", "abs", "re", "im", "real", "imag", "conj", "x", "y", "z", "rho", "phi", "r", "theta"):
                 return inner
         return None
     return unit(tree)
@@ -1456,17 +1456,18 @@ class ReportWindow(QWidget):
     def _field_trace(self, expr: str, sol: str | None, root=None):
         """A trace with values of the Fields Calculator: each named value at every frequency with saved
         fields (S, Y, Z of the trace are taken at those frequencies)."""
-        from .calc_bridge import field_names_in, over_frequency
+        from .calc_bridge import field_names_in, over_frequency, vector_parts
         cache = self.__dict__.setdefault("_cache", {})
         key = sol or self.sol.currentText()
         st, _, data = load_solution(self.doc, key, root)
         port = int(self.report.props.get("port", "1") or 1)
         names = dict(_FUNCS)
         f = None
-        for n in field_names_in(self.doc.design, expr):
-            ck = ("field", n, key, root, port)
+        expr, parts = vector_parts(self.doc, expr)          # mag(Spp), x(Spp): computed by the calculator
+        for n, src in [(n, n) for n in field_names_in(self.doc.design, expr)] + list(parts.items()):
+            ck = ("field", src, key, root, port)
             if ck not in cache:
-                cache[ck] = over_frequency(self.doc, n, key, port, store=st if root is not None else None)
+                cache[ck] = over_frequency(self.doc, src, key, port, store=st if root is not None else None)
             f, names[n] = cache[ck]
         names.update({"Freq": f, "pi": np.pi, "j": 1j})
         if data is not None and re.search(r"\b(S|Y|Z|VSWR)\s*\(", expr):

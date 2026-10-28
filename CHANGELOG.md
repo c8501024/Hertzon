@@ -15,6 +15,10 @@ the GitHub release notes.
   version number), numba, Python or a change of Hertzon's own kernels. An update that keeps all of them no
   longer runs the warm-up in the setup and shows no "First start detected" note; Hertzon's own few kernels
   are compiled quickly during the first solve.
+- **Vector values in reports**: an equation that is a vector value, e.g. the integral `int_surf(Patch, E × H)`,
+  was offered nowhere. Fields reports now list its magnitude and components (`mag(Spp)`, `x(Spp)`, ...),
+  and Add to Report on the equation makes a Fields report of its magnitude. The calculator says that an
+  integral is a value, not a field plot, and that the integrand without the integral is the field to plot.
 
 ## 0.2.5 (2026-10-27)
 
