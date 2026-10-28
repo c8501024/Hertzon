@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.2.6 (2026-10-28)
 
 ### Fixed
 - **Update without "Set up the Python environment"**: when that component of the installer was switched off
