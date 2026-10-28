@@ -154,7 +154,12 @@ HELP: dict[str, str] = {
     "MinimumConvergedPasses": "Number of consecutive converged passes required.",
     "BasisOrder": "Order of basis functions: Zero Order (6 per tetrahedron), First Order (20, "
                   "default), Second Order (higher order for strong field gradients).",
-    "Solver": "Sparse matrix solver (Auto selects the fastest available direct solver).",
+    "Solver": "Sparse matrix solver (Auto selects the fastest available direct solver). SPARTA (GPU) factors "
+              "the matrix on the graphics card (Metal on Apple silicon, Vulkan on AMD and NVIDIA) in single "
+              "precision, SPARTA (CPU) on the processor in double precision; both need SPARTA installed "
+              "(Tools > Options > Install SPARTA). Without a usable GPU, SPARTA (GPU) factorizes on the CPU. "
+              "With SPARTA the frequencies of a sweep are solved one after another, and the Fast sweep keeps "
+              "PARDISO.",
     "ErrorInclusion": "Share of the estimated error that selects elements for refinement (%).",
     "RefinementRatio": "Size reduction of refined elements.",
     "GrowthRate": "Mesh grading away from refined regions.",
