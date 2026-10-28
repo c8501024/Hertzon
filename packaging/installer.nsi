@@ -51,8 +51,8 @@ LangString SecDesktop ${LANG_GERMAN} "Verknüpfung auf dem Desktop"
 LangString SecDesktop ${LANG_ENGLISH} "Desktop shortcut"
 LangString SecAssoc ${LANG_GERMAN} ".hzn-Projekte mit Hertzon öffnen"
 LangString SecAssoc ${LANG_ENGLISH} "Open .hzn projects with Hertzon"
-LangString SecEnv ${LANG_GERMAN} "Python-Umgebung jetzt einrichten bzw. aktualisieren (ca. 1 GB Download bei der ersten Installation)"
-LangString SecEnv ${LANG_ENGLISH} "Set up or update the Python environment now (about 1 GB download on the first installation)"
+LangString SecEnv ${LANG_GERMAN} "Python-Umgebung einrichten bzw. aktualisieren (ca. 1 GB Download bei der ersten Installation)"
+LangString SecEnv ${LANG_ENGLISH} "Set up or update the Python environment (about 1 GB download on the first installation)"
 LangString EnvRunning ${LANG_GERMAN} "Python-Umgebung wird eingerichtet (eigenes Fenster, einige Minuten) ..."
 LangString EnvRunning ${LANG_ENGLISH} "Setting up the Python environment (separate window, a few minutes) ..."
 LangString EnvFailed ${LANG_GERMAN} "Die Python-Umgebung konnte nicht eingerichtet werden. Hertzon versucht es beim ersten Start erneut."
@@ -122,6 +122,8 @@ Section "$(SecAssoc)" SEC_ASSOC
 SectionEnd
 
 Section "$(SecEnv)" SEC_ENV
+    ; always part of an installation: an update without it ran the new program on the old packages
+    SectionIn RO
     DetailPrint "$(EnvRunning)"
     ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1"' $0
     IfFileExists "$INSTDIR\.venv\hertzon_installed.txt" +2 0
