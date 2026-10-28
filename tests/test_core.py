@@ -719,6 +719,16 @@ def test_view_warm_up_draws_the_highlight_styles_unseen():
     v.plotter.close()
 
 
+def test_material_library_preload_fills_the_cache(monkeypatch):
+    """Start: the EMerge material library is read in the background, so the first click on an object (the
+    Properties list every material) does not wait for the emsutil import."""
+    from hertzon.gui import app
+    from hertzon.model import materials
+    monkeypatch.setattr(materials, "_EMERGE_CACHE", None)
+    app._material_library()
+    assert materials._EMERGE_CACHE is not None
+
+
 def test_first_start_note(monkeypatch):
     """Solver kernels not compiled yet: the main window says so in the Message Manager and the status bar."""
     import types
