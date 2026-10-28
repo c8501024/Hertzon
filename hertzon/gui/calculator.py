@@ -893,11 +893,17 @@ class EquationsTab(QWidget):
             self.details.setText("—")
             return
         self.kind.setText(f"{'Vector' if i.vec else 'Scalar'} {'field' if i.field else 'value'}")
+        integral = re.search(r"\b(int_line|int_surf|int_vol|circ|flux|max|min|avg|at)\s*\(", self.formula_text())
+        where = ("a Fields report (Results > Create Fields Report)" if "fields" in i.uses else
+                 "a solution data report (category Equations)")
         self.kind_note.setText(
             "A value at every point: plot it with Plot Fields (Quantity)." if i.field else
-            "One number per frequency: show it in a Fields report (Results > Create Fields Report)."
-            if "fields" in i.uses else
-            "One number per frequency: show it in a solution data report (category Equations).")
+            ("A vector, one per frequency" + (" (an integral is a value, not a field plot)" if integral else "")
+             + f": show its magnitude or a component (mag, x, y, z) in {where}."
+             + (" For the field over the model, plot the integrand without the integral." if integral else ""))
+            if i.vec else
+            "One number per frequency" + (" (an integral is a value, not a field plot)" if integral else "")
+            + f": show it in {where}.")
         self.unit.setText(L.unit_label(i) or "1")
         det = ["complex" if i.cx else "real"] + list(L.conventions_text(i))
         if i.normals:

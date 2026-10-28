@@ -2679,16 +2679,28 @@ def _save_pass_results(out: Path, fa: list[float], Ss: list, z0, passes: list, m
 
 
 def kernel_tag() -> str:
-    """Versions the compiled numba kernels depend on (a new EMerge or numba compiles them again). The
-    Hertzon version is part of it: an update rewrites the source files, which makes numba's disk cache of
-    Hertzon's kernels stale on Windows, so the setup's warm-up compiles them again after every update."""
-    from importlib.metadata import version
-    from .. import __version__
+    """Versions the compiled numba kernels depend on: a new EMerge (version and the wheel or commit it was
+    installed from), numba, Python or Hertzon kernels (kernels_version.txt) compiles them again. The Hertzon
+    version is not part of it: an update that changes none of these keeps EMerge's kernels, which take
+    minutes to compile. Hertzon's own few kernels are compiled again quickly on the first solve (the
+    update replaces their files and numba's cache next to them), which needs neither warm-up nor a note."""
+    from importlib.metadata import distribution, version
     try:
-        return (f"emerge {version('emerge')}, numba {version('numba')}, python {sys.version.split()[0]}, "
-                f"hertzon kernels {KERNELS_VERSION}, hertzon {__version__}")
+        return (f"emerge {version('emerge')}{_emerge_source(distribution('emerge'))}, numba {version('numba')}, "
+                f"python {sys.version.split()[0]}, hertzon kernels {KERNELS_VERSION}")
     except Exception:  # noqa: BLE001
         return "1"
+
+
+def _emerge_source(dist) -> str:
+    """Where pip installed EMerge from (direct_url.json: git commit or wheel URL), empty for an editable or
+    plain installation: EMerge built from another commit can keep its version number, its source changes."""
+    try:
+        d = json.loads(dist.read_text("direct_url.json") or "{}")
+    except (OSError, ValueError):
+        return ""
+    src = (d.get("vcs_info") or {}).get("commit_id") or d.get("url", "")
+    return f" from {src}" if src and not d.get("dir_info", {}).get("editable") else ""
 
 
 def _kernels_version() -> str:
