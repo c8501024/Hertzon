@@ -736,6 +736,35 @@ def test_first_start_note(monkeypatch):
     assert "compiles the solver kernels" in status[0]
 
 
+def test_kernel_tag_ignores_hertzon_version(monkeypatch):
+    """An update that keeps EMerge, numba and Hertzon's kernels does not compile again: the Hertzon version is
+    not in the tag, the source EMerge was installed from is (a new commit can keep the version number)."""
+    import importlib.metadata as md
+    import json
+    import hertzon
+    from hertzon.solver import bridge
+
+    class Dist:
+        def __init__(self, direct):
+            self.direct = direct
+
+        def read_text(self, name):
+            return json.dumps(self.direct) if name == "direct_url.json" and self.direct is not None else None
+    dist = Dist({"url": "https://example.org/emerge-9ef0053/emerge.whl", "archive_info": {}})
+    monkeypatch.setattr(md, "version", lambda name: {"emerge": "3.0.0b5", "numba": "0.68.0"}[name])
+    monkeypatch.setattr(md, "distribution", lambda name: dist)
+    tag = bridge.kernel_tag()
+    assert "emerge-9ef0053" in tag and "numba 0.68.0" in tag and f"hertzon kernels {bridge.KERNELS_VERSION}" in tag
+    monkeypatch.setattr(hertzon, "__version__", "99.0.0")
+    assert bridge.kernel_tag() == tag
+    dist.direct = {"url": "https://github.com/x/EMerge", "vcs_info": {"vcs": "git", "commit_id": "abc123"}}
+    assert "from abc123" in bridge.kernel_tag()
+    dist.direct = {"url": "file:///src/EMerge", "dir_info": {"editable": True}}
+    assert "from" not in bridge.kernel_tag().split(",")[0]
+    dist.direct = None
+    assert bridge.kernel_tag().startswith("emerge 3.0.0b5, numba")
+
+
 def test_solid_overlaps_and_resolve():
     """Exact overlap check as the reference tool: with material override a metal partially in a dielectric is
     fine, two different dielectrics (or metals) partially overlapping are an error, contained objects are only

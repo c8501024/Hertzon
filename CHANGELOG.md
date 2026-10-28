@@ -11,6 +11,10 @@ the GitHub release notes.
   and showed "First start detected" until its first solve, because the setup never compiled the kernels.
   The installer now marks the Python environment as outdated, so Hertzon.exe updates it and compiles the
   kernels at the next start, as the installer's message already promised.
+- **Solver kernels are compiled again only when they change**: a new EMerge (also another build with the same
+  version number), numba, Python or a change of Hertzon's own kernels. An update that keeps all of them no
+  longer runs the warm-up in the setup and shows no "First start detected" note; Hertzon's own few kernels
+  are compiled quickly during the first solve.
 
 ## 0.2.5 (2026-10-27)
 
