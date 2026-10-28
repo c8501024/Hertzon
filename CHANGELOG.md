@@ -6,6 +6,15 @@ the GitHub release notes.
 ## Unreleased
 
 ### Fixed
+- **Update without "Set up the Python environment"**: when that component of the installer was switched off
+  for an update (or failed), the new program ran on the packages of the old version (for example the previous EMerge)
+  and showed "First start detected" until its first solve, because the setup never compiled the kernels.
+  The installer now marks the Python environment as outdated, so Hertzon.exe updates it and compiles the
+  kernels at the next start, as the installer's message already promised.
+- **Solver kernels are compiled again only when they change**: a new EMerge (also another build with the same
+  version number), numba, Python or a change of Hertzon's own kernels. An update that keeps all of them no
+  longer runs the warm-up in the setup and shows no "First start detected" note; Hertzon's own few kernels
+  are compiled quickly during the first solve.
 - **Vector values in reports**: an equation that is a vector value, e.g. the integral `int_surf(Patch, E × H)`,
   was offered nowhere. Fields reports now list its magnitude and components (`mag(Spp)`, `x(Spp)`, ...),
   and Add to Report on the equation makes a Fields report of its magnitude. The calculator says that an

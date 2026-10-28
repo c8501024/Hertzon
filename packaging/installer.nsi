@@ -51,8 +51,8 @@ LangString SecDesktop ${LANG_GERMAN} "Verknüpfung auf dem Desktop"
 LangString SecDesktop ${LANG_ENGLISH} "Desktop shortcut"
 LangString SecAssoc ${LANG_GERMAN} ".hzn-Projekte mit Hertzon öffnen"
 LangString SecAssoc ${LANG_ENGLISH} "Open .hzn projects with Hertzon"
-LangString SecEnv ${LANG_GERMAN} "Python-Umgebung jetzt einrichten (ca. 1 GB Download)"
-LangString SecEnv ${LANG_ENGLISH} "Set up the Python environment now (about 1 GB download)"
+LangString SecEnv ${LANG_GERMAN} "Python-Umgebung jetzt einrichten bzw. aktualisieren (ca. 1 GB Download bei der ersten Installation)"
+LangString SecEnv ${LANG_ENGLISH} "Set up or update the Python environment now (about 1 GB download on the first installation)"
 LangString EnvRunning ${LANG_GERMAN} "Python-Umgebung wird eingerichtet (eigenes Fenster, einige Minuten) ..."
 LangString EnvRunning ${LANG_ENGLISH} "Setting up the Python environment (separate window, a few minutes) ..."
 LangString EnvFailed ${LANG_GERMAN} "Die Python-Umgebung konnte nicht eingerichtet werden. Hertzon versucht es beim ersten Start erneut."
@@ -84,6 +84,9 @@ Section "!$(SecApp)" SEC_APP
     ; an update replaces the program files completely; the Python environment (.venv) stays
     RMDir /r "$INSTDIR\hertzon"
     File /r "${STAGE}\*.*"
+    ; the new program files may need other packages (EMerge, numba, ...) and new solver kernels: without
+    ; this marker Hertzon.exe runs setup.ps1 at its next start, unless the Python environment is set up below
+    Delete "$INSTDIR\.venv\hertzon_installed.txt"
 
     CreateShortcut "$SMPROGRAMS\Hertzon.lnk" "$INSTDIR\Hertzon.exe" "" "$INSTDIR\Hertzon.exe" 0
     WriteRegStr HKCU "Software\Hertzon" "InstallDir" "$INSTDIR"
