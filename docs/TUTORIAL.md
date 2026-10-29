@@ -786,6 +786,7 @@ mode 1 to mode 2 of port P1, and a Floquet port uses its modes (`S(FP1_TM00,FP1_
 * [MESHER.md](MESHER.md) explains how adaptive meshing works. [FEATURE_MATRIX.md](FEATURE_MATRIX.md)
   shows what is implemented.
 * **Tools > Solver Benchmark** times the projects of `examples/benchmark/scaling` on your computer and
-  suggests the number of cores and sweep processes.
+  suggests the number of cores and sweep processes; its *Solver Comparison* tab times the matrix solvers
+  (e.g. PARDISO, SPARTA on the CPU and on the GPU) with all cores.
 * **File > Export > EMerge Python Script** turns any design into a stand-alone EMerge script.
 * **File > Export > Gerber...** writes Gerber X2 and Excellon files of a board ([section 6](#6-gerber-export-of-a-printed-circuit-board)).
