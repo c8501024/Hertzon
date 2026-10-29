@@ -58,6 +58,34 @@ def installed_version() -> str | None:
         return None
 
 
+def mkl_library() -> str | None:
+    """MKL's runtime library of this Python environment (it comes with PARDISO), None without one."""
+    import glob
+    import os
+    if sys.platform == "win32":
+        pats = [os.path.join(sys.prefix, "Library", "bin", "mkl_rt*.dll")]
+    elif sys.platform == "darwin":
+        pats = [os.path.join(sys.prefix, "lib", "libmkl_rt*.dylib")]
+    else:
+        pats = [os.path.join(sys.prefix, "lib", "libmkl_rt.so*")]
+    found = sorted(f for p in pats for f in glob.glob(p))
+    return found[-1] if found else None
+
+
+def prefer_mkl() -> None:
+    """Let SPARTA's CPU solver use MKL instead of the OpenBLAS of scipy-openblas32. MKL sets its thread count
+    per thread, which SPARTA uses to run BLAS inside its own thread pool; OpenBLAS has only a process-wide
+    setting, and with many cores (64 on a Threadripper) its concurrent calls overflow its precompiled thread
+    table ("precompiled NUM_THREADS exceeded") and the solver process crashes. SPARTA reads SPARTA_BLAS when
+    it is imported, so this runs before EMerge is imported. A SPARTA_BLAS set by the user is kept."""
+    import os
+    if sys.platform == "darwin" or os.environ.get("SPARTA_BLAS"):
+        return               # Apple: SPARTA links Accelerate
+    lib = mkl_library()
+    if lib:
+        os.environ["SPARTA_BLAS"] = lib
+
+
 def configure(solver, mode: str, symmetric: bool = True) -> str:
     """Set an EMerge SolverSparta to `mode` ('GPU' or 'CPU'); returns the mode it got. Without a usable GPU
     in this process it falls back to the CPU. A matrix that is not complex symmetric (periodic cells) is

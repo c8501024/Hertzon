@@ -81,3 +81,20 @@ def test_emerge_sparta_cpu_solves_symmetric_and_periodic_matrices(symmetric):
     solver.reset()
     assert report.exit_code == 0
     assert np.linalg.norm(A @ x - b) / np.linalg.norm(b) < 1e-9
+
+
+def test_sparta_uses_mkl_when_this_environment_has_it(monkeypatch, tmp_path):
+    """OpenBLAS crashes SPARTA's CPU solver with many threads; MKL (PARDISO's library) does not."""
+    if sys.platform == "darwin":
+        pytest.skip("SPARTA links Accelerate on Apple")
+    lib = tmp_path / ("Library/bin/mkl_rt.2.dll" if sys.platform == "win32" else "lib/libmkl_rt.so.2")
+    lib.parent.mkdir(parents=True)
+    lib.write_bytes(b"")
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    monkeypatch.delenv("SPARTA_BLAS", raising=False)
+    sparta_setup.prefer_mkl()
+    import os
+    assert os.environ["SPARTA_BLAS"] == str(lib)
+    monkeypatch.setenv("SPARTA_BLAS", "mine")
+    sparta_setup.prefer_mkl()
+    assert os.environ["SPARTA_BLAS"] == "mine"
