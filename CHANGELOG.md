@@ -3,6 +3,24 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **SPARTA as matrix solver.** A setup's *Matrix solver* (and the default in Tools > Options) now offers
+  *SPARTA (GPU)* and *SPARTA (CPU)*: the sparse direct solver of EMerge's author, which factors the matrix on
+  the graphics card (Metal on Apple silicon, Vulkan on AMD and NVIDIA under Windows and Linux, single
+  precision) or on the processor (double precision). SPARTA is optional (AGPL-3.0): *Install SPARTA* in
+  Tools > Options > HPC and Analysis installs its release wheel into Hertzon's Python environment. Without a
+  usable GPU, SPARTA (GPU) factorizes on the CPU and says so in the log; periodic cells use its LU, as their
+  matrix is not symmetric. SPARTA's CPU solver uses MKL (installed with PARDISO) instead of its OpenBLAS,
+  which crashed the solver with 64 threads, and keeps its symbolic analysis for all frequencies of the sweeps
+  on the final mesh (it was repeated for every batch of an interpolating sweep). With SPARTA the frequencies of a sweep are solved one after another, and the Fast
+  sweep keeps PARDISO. *PARDISO + SPARTA sweep (CPU/GPU)* solves the adaptive passes with PARDISO (every pass
+  is a new mesh, where SPARTA's analysis is slow) and the sweeps on the final mesh with SPARTA.
+- **Solver comparison in the benchmark**: `python -m hertzon.solver.benchmark ... --solvers "PARDISO,SPARTA (CPU)"`
+  solves the setup with each solver and then the sweeps of every further solver on the first solver's final
+  mesh, with the sweep time and the largest S-parameter difference to the first solver.
+
 ## 0.2.6 (2026-10-28)
 
 ### Fixed

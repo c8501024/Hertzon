@@ -815,12 +815,24 @@ class OptionsDialog(QDialog):
         self.workers.setRange(1, max(1, ncpu))
         self.workers.setValue(int(s.value("hpc/sweep_workers", 2)))
         self.solver = QComboBox()
-        self.solver.addItems(["Auto", "PARDISO", "MUMPS", "UMFPACK", "SuperLU"])
+        self.solver.addItems(list(schema.SOLVERS))
         self.solver.setCurrentText(s.value("hpc/default_solver", "Auto"))
         f.addRow("Number of cores", self.all_cores)
         f.addRow("", self.cores)
         f.addRow("Parallel sweep processes", self.workers)
         f.addRow("Default matrix solver (new setups)", self.solver)
+        self.sparta_state = QLabel()
+        self.sparta_install = QPushButton()
+        self.sparta_install.setToolTip("Installs the GPU/CPU sparse direct solver SPARTA (AGPL-3.0) of EMerge's\n"
+                                       "author from its GitHub release into Hertzon's Python environment.\n"
+                                       "Select it as 'SPARTA (GPU)' or 'SPARTA (CPU)' in a setup's Options.")
+        self.sparta_install.clicked.connect(self._install_sparta)
+        self._sparta_proc = None
+        row = QHBoxLayout()
+        row.addWidget(self.sparta_state, 1)
+        row.addWidget(self.sparta_install)
+        f.addRow("SPARTA solver", row)
+        self._sparta_status()
         f.addRow(QLabel("Cores are used by the matrix solver, meshing and field post-processing.\n"
                         "A value in a setup's 'Solver threads' overrides this for that setup."))
         tabs.addTab(hpc, "HPC and Analysis")
@@ -859,6 +871,42 @@ class OptionsDialog(QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+    def _sparta_status(self, note: str = "") -> None:
+        from ..solver import sparta_setup
+        v = sparta_setup.installed_version()
+        self.sparta_state.setText(note or (f"SPARTA {v} installed" if v else "Not installed"))
+        self.sparta_install.setText("Update SPARTA" if v and v != sparta_setup.VERSION else
+                                    "Reinstall SPARTA" if v else "Install SPARTA")
+
+    def _install_sparta(self) -> None:
+        """pip installs the SPARTA release wheel in a QProcess; the next solve uses it."""
+        from PySide6.QtCore import QProcess
+        from ..solver import sparta_setup
+        args = sparta_setup.install_args()
+        p = QProcess(self.win)        # keeps running when the dialog is closed
+        p.setProcessChannelMode(QProcess.MergedChannels)
+        out: list[bytes] = []
+        p.readyReadStandardOutput.connect(lambda: out.append(bytes(p.readAllStandardOutput())))
+
+        def done(code, _status):
+            text = b"".join(out).decode("utf-8", "replace").strip()
+            if code == 0:
+                self.win.msgs.add("info", f"SPARTA {sparta_setup.installed_version() or ''} installed; "
+                                          "select it as the matrix solver of a setup")
+            else:
+                self.win.msgs.add("error", f"Installing SPARTA failed: {text[-2000:]}")
+            try:
+                self._sparta_proc = None
+                self.sparta_install.setEnabled(True)
+                self._sparta_status("" if code == 0 else "Installation failed (see Message Manager)")
+            except RuntimeError:      # the dialog is gone
+                pass
+        p.finished.connect(done)
+        self.sparta_install.setEnabled(False)
+        self.sparta_state.setText("Installing ...")
+        self._sparta_proc = p
+        p.start(args[0], args[1:])
 
     def apply(self) -> None:
         s, w = self.win.settings, self.win
