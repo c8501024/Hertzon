@@ -13,7 +13,8 @@ the GitHub release notes.
   Tools > Options > HPC and Analysis installs its release wheel into Hertzon's Python environment. Without a
   usable GPU, SPARTA (GPU) factorizes on the CPU and says so in the log; periodic cells use its LU, as their
   matrix is not symmetric. SPARTA's CPU solver uses MKL (installed with PARDISO) instead of its OpenBLAS,
-  which crashed the solver with 64 threads. With SPARTA the frequencies of a sweep are solved one after another, and the Fast
+  which crashed the solver with 64 threads, and keeps its symbolic analysis for all frequencies of the sweeps
+  on the final mesh (it was repeated for every batch of an interpolating sweep). With SPARTA the frequencies of a sweep are solved one after another, and the Fast
   sweep keeps PARDISO.
 - **Solver comparison in the benchmark**: `python -m hertzon.solver.benchmark ... --solvers "PARDISO,SPARTA (CPU)"`
   solves the setup with each solver and then the sweeps of every further solver on the first solver's final

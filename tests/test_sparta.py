@@ -98,3 +98,33 @@ def test_sparta_uses_mkl_when_this_environment_has_it(monkeypatch, tmp_path):
     monkeypatch.setenv("SPARTA_BLAS", "mine")
     sparta_setup.prefer_mkl()
     assert os.environ["SPARTA_BLAS"] == "mine"
+
+
+def test_sweeps_with_sparta_keep_the_solver_between_batches(monkeypatch):
+    """An interpolating sweep solves in batches; with SPARTA each batch would repeat its symbolic analysis."""
+    from types import SimpleNamespace as NS
+    from hertzon.solver import bridge
+    calls = []
+    entry = NS(freq=1e9, Sp=np.zeros((1, 1)), Z0=None, beta=None, _portnumbers=[1])
+
+    class Scalar:
+        n = 0
+
+        def __getitem__(self, i):
+            return entry
+
+    data = NS(scalar=Scalar())
+
+    def run_sweep(**kw):
+        calls.append(kw)
+        data.scalar.n = 1
+        return data
+
+    m = NS(mw=NS(data=NS(scalar=Scalar()), set_frequency=lambda f: None, run_sweep=run_sweep,
+                 bc=NS(oftype=lambda t: [])))
+    monkeypatch.setattr(bridge, "KEEP_SOLVER", False)
+    bridge._solve_at(m, [1e9])
+    monkeypatch.setattr(bridge, "KEEP_SOLVER", True)
+    data.scalar.n = 0
+    bridge._solve_at(m, [1e9])
+    assert "_reset_solvers" not in calls[0] and calls[1]["_reset_solvers"] is False

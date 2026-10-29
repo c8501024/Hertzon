@@ -1791,6 +1791,22 @@ class Bridge:
                 warn(f"Far field '{sph.name}' failed: {ex}")
 
     def run_sweeps(self) -> None:
+        """All enabled sweeps on the final mesh. SPARTA keeps its symbolic analysis from one batch of
+        frequencies to the next (an interpolating sweep solves in batches, and the analysis costs two to three
+        factorizations); EMerge's own adaptive sweep does the same with _reset_solvers=False."""
+        global KEEP_SOLVER
+        KEEP_SOLVER = self.sparta
+        try:
+            self._run_sweeps()
+        finally:
+            KEEP_SOLVER = False
+            if self.sparta:
+                try:
+                    self.m.mw.solveroutine.reset()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _run_sweeps(self) -> None:
         m, ev = self.m, self.ev
         sweeps = [s for s in self.setup.sweeps if s.props.get("Enabled", "True") == "True"]
         self.factor_memory()
@@ -2815,6 +2831,7 @@ def solver_threads(setup) -> int:
 
 
 SOLVER_THREADS = 0      # cores of this solve (solver_threads), set when the model is built
+KEEP_SOLVER = False     # sweeps with SPARTA: run_sweep keeps the solver state between batches (run_sweeps)
 _PAR_NOTE: list = []
 
 
@@ -2977,6 +2994,8 @@ def _solve_at(m, freqs, **kw):
     except Exception:  # noqa: BLE001
         n0 = 0
     m.mw.set_frequency(freqs if len(freqs) > 1 else freqs[0])
+    if KEEP_SOLVER:
+        kw = dict(kw, _reset_solvers=False)
     if kw.get("parallel"):
         # several frequencies at once, each with PARDISO on its share of the cores (mt_pardiso);
         # without it EMerge would use SuperLU in the worker threads
