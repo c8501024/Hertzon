@@ -135,3 +135,26 @@ def test_pardiso_passes_and_sparta_sweeps_is_a_setup_choice():
     for name, sweep in sparta_setup.SWEEP_ONLY.items():
         assert name in schema.SOLVERS and "," not in name      # the benchmark's --solvers splits at commas
         assert sparta_setup.is_sparta(sweep) and not sparta_setup.is_sparta(name)
+
+
+def test_solver_comparison_marks_runs_without_their_solver_and_names_the_fastest(tmp_path):
+    import json
+    from hertzon.gui.benchmark import solver_recommendation, solver_runs
+    from hertzon.solver.benchmark import solver_notes
+    gpu = "Solver SPARTA (GPU): no GPU usable by SPARTA in this process; factorizing on the CPU"
+    (tmp_path / "solver.log").write_text(
+        "plain line\n@@HZN " + json.dumps({"type": "log", "level": "warning", "msg": gpu}) + "\n"
+        + "@@HZN " + json.dumps({"type": "log", "level": "info", "msg": "Solver start: x"}) + "\n", encoding="utf-8")
+    assert solver_notes(tmp_path) == [gpu]
+
+    def run(sv, cores, total, notes=()):
+        return {"kind": "cores", "solver": sv, "cores": cores, "total": total, "sweep": total / 2,
+                "notes": list(notes)}
+    res = {"runs": [run("PARDISO", 4, 90.0), run("PARDISO", 16, 80.0), run("SPARTA (CPU)", 16, 60.0),
+                    run("SPARTA (GPU)", 16, 70.0, [gpu]),
+                    {"kind": "same_mesh", "solver": "SPARTA (GPU)", "sweep": 30.0, "ds_max": {"S": 2e-3}}]}
+    top, same = solver_runs(res)
+    assert [r["solver"] for r in top] == ["PARDISO", "SPARTA (CPU)", "SPARTA (GPU)"] and list(same) == ["SPARTA (GPU)"]
+    text, best = solver_recommendation(res)
+    assert best == "SPARTA (CPU)" and "25 % faster than PARDISO" in text
+    assert "single precision" in text and "Note column" in text

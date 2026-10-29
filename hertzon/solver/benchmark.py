@@ -74,7 +74,30 @@ def run_summary(folder: Path) -> dict:
             "passes": len(passes), "tets": int(conv.get("final_tets") or (passes[-1]["tets"] if passes else 0)),
             "pass_times": [float(p.get("time", 0.0)) for p in passes],
             "memory_mb": max((float(p.get("memory", 0.0)) for p in prof), default=0.0),
-            "converged": bool(conv.get("converged", False))}
+            "converged": bool(conv.get("converged", False)), "notes": solver_notes(folder)}
+
+
+def solver_notes(folder: Path) -> list[str]:
+    """The run's warnings about its matrix solver (not installed, no usable GPU): a solver comparison that
+    silently measured another solver would mislead."""
+    tag = "@@HZN "
+    out = []
+    try:
+        lines = (folder / "solver.log").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        if not line.startswith(tag):
+            continue
+        try:
+            msg = json.loads(line[len(tag):])
+        except ValueError:
+            continue
+        text = str(msg.get("msg", ""))
+        if msg.get("type") == "log" and msg.get("level") == "warning" and text.startswith("Solver ") \
+                and text not in out:
+            out.append(text)
+    return out
 
 
 class Benchmark:

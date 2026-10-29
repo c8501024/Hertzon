@@ -19,7 +19,11 @@ the GitHub release notes.
   is a new mesh, where SPARTA's analysis is slow) and the sweeps on the final mesh with SPARTA.
 - **Solver comparison in the benchmark**: `python -m hertzon.solver.benchmark ... --solvers "PARDISO,SPARTA (CPU)"`
   solves the setup with each solver and then the sweeps of every further solver on the first solver's final
-  mesh, with the sweep time and the largest S-parameter difference to the first solver.
+  mesh, with the sweep time and the largest S-parameter difference to the first solver. In Tools > Solver
+  Benchmark this is the *Solver Comparison* tab: check the solvers (PARDISO, SPARTA (CPU) and SPARTA (GPU)
+  by default), solve with all cores, and compare the time per phase, the sweeps on the same mesh, the peak
+  memory and the S-parameter difference; a run that could not use its solver (SPARTA not installed, no
+  usable GPU) is marked. *Make Fastest the Default Solver* sets the default for new setups.
 
 ## 0.2.6 (2026-10-28)
 
