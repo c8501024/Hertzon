@@ -577,9 +577,9 @@ class ReportWindow(QWidget):
             self.cut_val = QLineEdit(report.props.get("cut_value", "0"))
             self.cut.currentTextChanged.connect(lambda *_: self._save_props())
             self.cut_val.editingFinished.connect(self._save_props)
-            form.addRow("Constant:", self.cut)
-            form.addRow("Value (deg):", self.cut_val)
-            if report.kind == "Radiation Pattern":
+            if report.kind == "Radiation Pattern":   # the 2D cut; the 3D polar plot shows the whole sphere
+                form.addRow("Constant:", self.cut)
+                form.addRow("Value (deg):", self.cut_val)
                 self.ff_plot = QComboBox()
                 self.ff_plot.addItems(["Polar", "Rectangular"])
                 self.ff_plot.setCurrentText(report.props.get("plot", "Polar"))
