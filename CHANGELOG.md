@@ -30,7 +30,7 @@ the GitHub release notes.
   boundary, a lumped port or an impedance face was meshed flat, and so was every curved surface connected to
   it: a cone or post standing on the air box lost all its curved elements (the mesh plot showed the facets).
   Now only the edges on such a face stay straight; only a wave port still keeps the curved surfaces connected
-  to it flat.
+  to it flat. (EMerge `78a7003`, FennisRobert/EMerge#91.)
 
 ## 0.2.6 (2026-10-28)
 

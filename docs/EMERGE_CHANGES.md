@@ -59,7 +59,7 @@ existing code, switched on by a setting, and marked as AI written (R3).
 | PARDISO per worker thread in parallel sweeps (EMerge uses SuperLU there) | `mt_pardiso` | parallel sweeps 5× faster, no out-of-memory | Waits for the maintainer's solver plans (SPARTA) |
 | Far field for many excitations (phases once) as a new Rust kernel | – | 3.7–4.6× on 11 ports | On `hertzon` (FennisRobert/EMerge#76); Hertzon calls `emr.sc_multi` |
 | Error estimate for many excitations in one pass | – | up to about 9 % with many ports, low priority | Open |
-| Curved (isoparametric) elements | `curvilinear.py` keeps only the map for the plots | accuracy on curved surfaces | On `hertzon` (FennisRobert/EMerge#77, `Settings.mw_curved_elements`); Hertzon's kernels removed |
+| Curved (isoparametric) elements | `curvilinear.py` keeps only the map for the plots | accuracy on curved surfaces | On `hertzon` (FennisRobert/EMerge#77, #91, `Settings.mw_curved_elements`); Hertzon's kernels removed |
 
 The maintainer may later take any of them into `main` in his own way.
 
