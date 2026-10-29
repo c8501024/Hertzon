@@ -128,3 +128,10 @@ def test_sweeps_with_sparta_keep_the_solver_between_batches(monkeypatch):
     data.scalar.n = 0
     bridge._solve_at(m, [1e9])
     assert "_reset_solvers" not in calls[0] and calls[1]["_reset_solvers"] is False
+
+
+def test_pardiso_passes_and_sparta_sweeps_is_a_setup_choice():
+    from hertzon.model import schema
+    for name, sweep in sparta_setup.SWEEP_ONLY.items():
+        assert name in schema.SOLVERS and "," not in name      # the benchmark's --solvers splits at commas
+        assert sparta_setup.is_sparta(sweep) and not sparta_setup.is_sparta(name)

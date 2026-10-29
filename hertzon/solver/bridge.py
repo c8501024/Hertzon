@@ -154,6 +154,7 @@ class Bridge:
     cell: object = None                             # EMerge periodic cell of the Primary / Secondary pairs
     scan: tuple = (0.0, 0.0)                        # scan angles theta, phi of the periodic cell (degrees)
     sparta: bool = False                            # the matrix solver is SPARTA (set_sparta)
+    sweep_solver: str = ""                          # SPARTA choice for the sweeps only (set_solver)
 
     def __post_init__(self):
         self.ev = self.design.evaluator(self.project)
@@ -1143,6 +1144,11 @@ class Bridge:
         # HERTZON_SOLVER: the benchmark's solver comparison on one mesh (the setup's key stays the same)
         name = os.environ.get("HERTZON_SOLVER") or self.setup.props.get("Solver", "Auto")
         em = self.em
+        if name in sparta_setup.SWEEP_ONLY:
+            # PARDISO for the adaptive passes (a new mesh every pass, where SPARTA's analysis is slow),
+            # SPARTA for the sweeps on the final mesh (run_sweeps)
+            self.sweep_solver = sparta_setup.SWEEP_ONLY[name]
+            name = "PARDISO"
         if self.cell is not None and name in ("Auto", "PARDISO"):
             from .periodic import pardiso_transposes
             if pardiso_transposes():
@@ -1795,6 +1801,8 @@ class Bridge:
         frequencies to the next (an interpolating sweep solves in batches, and the analysis costs two to three
         factorizations); EMerge's own adaptive sweep does the same with _reset_solvers=False."""
         global KEEP_SOLVER
+        if self.sweep_solver and not self.sparta:
+            self.set_sparta(self.sweep_solver)
         KEEP_SOLVER = self.sparta
         try:
             self._run_sweeps()

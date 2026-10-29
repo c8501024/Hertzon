@@ -15,7 +15,8 @@ the GitHub release notes.
   matrix is not symmetric. SPARTA's CPU solver uses MKL (installed with PARDISO) instead of its OpenBLAS,
   which crashed the solver with 64 threads, and keeps its symbolic analysis for all frequencies of the sweeps
   on the final mesh (it was repeated for every batch of an interpolating sweep). With SPARTA the frequencies of a sweep are solved one after another, and the Fast
-  sweep keeps PARDISO.
+  sweep keeps PARDISO. *PARDISO + SPARTA sweep (CPU/GPU)* solves the adaptive passes with PARDISO (every pass
+  is a new mesh, where SPARTA's analysis is slow) and the sweeps on the final mesh with SPARTA.
 - **Solver comparison in the benchmark**: `python -m hertzon.solver.benchmark ... --solvers "PARDISO,SPARTA (CPU)"`
   solves the setup with each solver and then the sweeps of every further solver on the first solver's final
   mesh, with the sweep time and the largest S-parameter difference to the first solver.

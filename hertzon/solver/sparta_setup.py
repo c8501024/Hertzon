@@ -27,6 +27,9 @@ SOURCE = f"git+https://github.com/FennisRobert/SPARTA@v{VERSION}"     # other pl
 
 CHOICES = ("SPARTA (GPU)", "SPARTA (CPU)")
 MODES = {"SPARTA (GPU)": "GPU", "SPARTA (CPU)": "CPU"}
+# PARDISO for the adaptive passes, SPARTA for the sweeps: every pass has a new mesh, and SPARTA's analysis of
+# a new matrix pattern costs about two factorizations, while on the final mesh it factorizes faster than PARDISO
+SWEEP_ONLY = {"PARDISO + SPARTA sweep (CPU)": "SPARTA (CPU)", "PARDISO + SPARTA sweep (GPU)": "SPARTA (GPU)"}
 
 
 def is_sparta(name: str) -> bool:

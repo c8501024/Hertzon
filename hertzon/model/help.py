@@ -157,7 +157,8 @@ HELP: dict[str, str] = {
     "Solver": "Sparse matrix solver (Auto selects the fastest available direct solver). SPARTA (GPU) factors "
               "the matrix on the graphics card (Metal on Apple silicon, Vulkan on AMD and NVIDIA) in single "
               "precision, SPARTA (CPU) on the processor in double precision; both need SPARTA installed "
-              "(Tools > Options > Install SPARTA). Without a usable GPU, SPARTA (GPU) factorizes on the CPU. "
+              "(Tools > Options > Install SPARTA). 'PARDISO + SPARTA sweep' solves the adaptive passes with PARDISO "
+              "(every pass is a new mesh, where SPARTA's analysis is slow) and the sweeps with SPARTA. Without a usable GPU, SPARTA (GPU) factorizes on the CPU. "
               "With SPARTA the frequencies of a sweep are solved one after another, and the Fast sweep keeps "
               "PARDISO.",
     "ErrorInclusion": "Share of the estimated error that selects elements for refinement (%).",
