@@ -25,6 +25,13 @@ the GitHub release notes.
   memory and the S-parameter difference; a run that could not use its solver (SPARTA not installed, no
   usable GPU) is marked. *Make Fastest the Default Solver* sets the default for new setups.
 
+### Fixed
+- **Curved elements next to a radiation boundary or lumped port.** A curved surface that touched a radiation
+  boundary, a lumped port or an impedance face was meshed flat, and so was every curved surface connected to
+  it: a cone or post standing on the air box lost all its curved elements (the mesh plot showed the facets).
+  Now only the edges on such a face stay straight; only a wave port still keeps the curved surfaces connected
+  to it flat.
+
 ## 0.2.6 (2026-10-28)
 
 ### Fixed
