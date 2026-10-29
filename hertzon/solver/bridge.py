@@ -1555,7 +1555,7 @@ class Bridge:
             from . import curvilinear as CV
             if not CV.enabled():
                 return {}
-            cd = CV.curved_data(self.m.mesh, CV.exclude_tags(self.m.mw.bc.boundary_conditions))
+            cd = CV.curved_data_bcs(self.m.mesh, self.m.mw.bc.boundary_conditions)
             if cd is None:
                 return {}
             return {"curv_tets": np.asarray(cd[0], np.int32), "curv_disp": np.asarray(cd[1], np.float64)}
