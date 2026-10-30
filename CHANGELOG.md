@@ -26,6 +26,10 @@ the GitHub release notes.
   usable GPU) is marked. *Make Fastest the Default Solver* sets the default for new setups.
 
 ### Fixed
+- **Port Zo over a sweep** (#125): the Zo of a TEM port is the same at every frequency up to rounding
+  (1e-12 ohm), and a report of it alone autoscaled onto those last digits, so the flat line looked like
+  random data. A curve that is constant up to rounding is now drawn in a range of +-1 % around its value,
+  without an axis offset; set Y min/max in the report to choose another range.
 - **Export Data and Copy Data of a report** (#136) write the curves as the report draws them: the x values
   in the units of the axis (GHz, the angle of a far-field cut in deg, the distance of a near-field line), one
   x column per curve when the curves have different x values, and quoted column names. Far-field cuts and
