@@ -360,6 +360,24 @@ def x_axis(data: dict) -> tuple[np.ndarray, str, float]:
     return data["freq"] / 1e9, "Freq [GHz]", 1e-9
 
 
+def flat_ylim(ax, ys: list, rel: float = 1e-9) -> None:
+    """y range of curves that are constant up to rounding (the Zo of a TEM port over a sweep): +-1 % around
+    the value, not an autoscale onto the last digits that draws the rounding noise as a random curve."""
+    v = np.concatenate([np.ravel(np.asarray(y, float)) for y in ys]) if ys else np.zeros(0)
+    v = v[np.isfinite(v)]
+    if not len(v):
+        return
+    lo, hi = float(v.min()), float(v.max())
+    mid = 0.5 * (lo + hi)
+    if hi - lo > rel * max(abs(lo), abs(hi)):
+        return
+    half = 0.01 * abs(mid) or 1.0
+    ax.set_ylim(mid - half, mid + half)
+    fmt = ax.yaxis.get_major_formatter()
+    if hasattr(fmt, "set_useOffset"):
+        fmt.set_useOffset(False)
+
+
 def apply_func(func: str, v: np.ndarray) -> np.ndarray:
     if func == "dB":
         return 20 * np.log10(np.maximum(np.abs(v), 1e-300))
@@ -1734,6 +1752,10 @@ class ReportWindow(QWidget):
         if passes:
             from matplotlib.ticker import MaxNLocator
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        if self.report.props.get("ylog") != "True":
+            for a in (ax, ax2):
+                if a is not None:
+                    flat_ylim(a, [c[2] for c in curves if c[3] is a])
         self._apply_axes(ax, ax2)
         ax.set_xlabel(p.get("xlabel") or xlabel)
         y1 = [t for t in self.report.traces if not self._style(t).get("y2")]
