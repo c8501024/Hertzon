@@ -593,6 +593,64 @@ def test_radiation_pattern_of_a_sweep_frequency_and_rectangular(tmp_path):
     assert w.mtable.isVisibleTo(w) and w.mtable.rowCount() == 1
 
 
+def _csv(path):
+    import csv
+    with open(path) as fh:
+        rows = list(csv.reader(fh))
+    return rows[0], np.array(rows[1:], float)
+
+
+def test_export_data_writes_the_curves_as_drawn(tmp_path):
+    """Export Data (#136): the CSV holds the x values and traces as the report draws them (GHz, deg), for
+    S parameters, a far-field cut and a complex trace without a function (its magnitude); errors go to
+    the info line instead of leaving an empty or no file."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from hertzon.gui.doc import Document, result_dir
+    from hertzon.gui.reports import ReportWindow
+    from hertzon.model.design import Report
+    from hertzon.solver.results import ResultStore
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    proj = Project.load(EX / "PatchAntenna.hzn")
+    proj.save(tmp_path / "p.hzn")
+    doc = Document(proj)
+    st = ResultStore(result_dir(doc, "Setup1"))
+    ports = [{"name": "1", "number": 1, "kind": "Lumped Port"}]
+    st.write_json("ports.json", ports)
+    f = np.array([1e9, 1.5e9, 2e9])
+    S = np.array([0.5, 0.1j, -0.25], complex).reshape(3, 1, 1)
+    st.save_sparams("Sweep", f, S, np.array([50.0]), ports)
+    w = ReportWindow(doc, Report("XY", "Rectangular Plot", "Setup1 : Sweep", ["dB(S(1,1))", "S(1,1)"]))
+    w.export_to(str(tmp_path / "s.csv"))
+    head, a = _csv(tmp_path / "s.csv")
+    assert head[0] == "Freq [GHz]" and head[1].startswith("dB(S(1,1))") and len(head) == 3
+    assert a[:, 0] == pytest.approx([1, 1.5, 2])
+    assert a[:, 1] == pytest.approx(20 * np.log10([0.5, 0.1, 0.25]))
+    assert a[:, 2] == pytest.approx([0.5, 0.1, 0.25])                  # no function: |S11|, as plotted
+    line = next(ln for ln in w.fig.axes[0].get_lines() if ln.get_label() == "S(1,1)")
+    assert line.get_ydata() == pytest.approx(a[:, 2])
+    # a far-field cut over the angle, polar plot or not
+    n = 40
+    rng = np.random.default_rng(1)
+    E = rng.normal(size=(3, n)) + 1j * rng.normal(size=(3, n))
+    st.save_npz("huygens_Sweep.npz", vis=rng.normal(size=(3, n)) * 0.01, wns=rng.normal(size=(3, n)) * 1e-4,
+                stamp=np.array([1]), freq_0=np.array([1e9]), E_0_1=E, H_0_1=E / 377, Prad_0_1=np.array([0.5]))
+    w = ReportWindow(doc, Report("RP", "Radiation Pattern", "Setup1 : Sweep", ["dB(GainTotal)"]))
+    w.export_to(str(tmp_path / "ff.csv"))
+    head, a = _csv(tmp_path / "ff.csv")
+    x, y = w._trace_xy("dB(GainTotal)")
+    assert head == ["Theta [deg]", "dB(GainTotal) [dB]"]
+    assert a[:, 0] == pytest.approx(x) and a[:, 1] == pytest.approx(y)
+    # nothing to export: the reason is shown, no file is written
+    w = ReportWindow(doc, Report("3D", "3D Polar Plot", "Setup1 : Sweep", ["dB(GainTotal)"]))
+    from PySide6.QtWidgets import QFileDialog
+    import unittest.mock as um
+    with um.patch.object(QFileDialog, "getSaveFileName", return_value=(str(tmp_path / "x.csv"), "")):
+        w.export()
+    assert "Export failed" in w.info.text() and not (tmp_path / "x.csv").exists()
+
+
 def test_beamwidth_and_side_lobes():
     from hertzon.gui.reports import beamwidth
     x = np.linspace(-180, 180, 361)                       # Phi cut over the full circle
