@@ -25,6 +25,7 @@ Versions are those of a current installation; `pyproject.toml` lists the require
 | [fast-simplification](https://github.com/pyvista/fast-simplification) | 0.2.0 | MIT | STL simplification on import |
 | [hfsynpy](https://github.com/GenerativeAntennaDesign/hfsynpy) | 0.1.3 | GPL-2.0-or-later | Microstrip synthesis in the filter and antenna design tools |
 | [pytest](https://pytest.org) (tests only) | | MIT | Test suite |
+| [SPARTA](https://github.com/FennisRobert/SPARTA) (optional, `sparta-solver`) | 0.3.2 | AGPL-3.0 | GPU/CPU sparse direct solver; installed only on request (Tools > Options > Install SPARTA), not by the setup |
 
 ## Pulled in by the packages above
 
@@ -56,5 +57,7 @@ Versions are those of a current installation; `pyproject.toml` lists the require
 
 * Hertzon is GPL-2.0-or-later, which matches EMerge, gmsh and hfsynpy. Anyone who passes Hertzon on
   must pass on its source code as well; the GitHub repository is that source.
+* SPARTA (AGPL-3.0) is not a dependency of Hertzon: the setup does not install it, and Hertzon works
+  without it. Tools > Options downloads its release wheel from GitHub only when the user asks for it.
 * Intel MKL and its companions are not open source. They are installed by pip as a dependency of
   EMerge and are not part of the Hertzon installers.
