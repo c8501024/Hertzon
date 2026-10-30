@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.2.8 (2026-10-30)
 
 ### Fixed
 - **Far field with a PML drawn by hand**: PML assigned on the faces of an air box gave no far field ("Far
