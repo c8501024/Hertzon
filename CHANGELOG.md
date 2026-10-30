@@ -26,6 +26,12 @@ the GitHub release notes.
   usable GPU) is marked. *Make Fastest the Default Solver* sets the default for new setups.
 
 ### Fixed
+- **Export Data and Copy Data of a report** (#136) write the curves as the report draws them: the x values
+  in the units of the axis (GHz, the angle of a far-field cut in deg, the distance of a near-field line), one
+  x column per curve when the curves have different x values, and quoted column names. Far-field cuts and
+  sweeps with fields gave an empty file or none; a failed export now says why in the report's info line. A
+  complex trace without a function (`S(1,1)`, `Zo(1)`) is drawn and exported as its magnitude, not its real
+  part.
 - **Curved elements next to a radiation boundary or lumped port.** A curved surface that touched a radiation
   boundary, a lumped port or an impedance face was meshed flat, and so was every curved surface connected to
   it: a cone or post standing on the air box lost all its curved elements (the mesh plot showed the facets).
