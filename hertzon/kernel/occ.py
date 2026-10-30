@@ -1730,16 +1730,35 @@ def _resolve_planar_curves(ents, n_turn: float, skip=()) -> None:
             gmsh.model.mesh.setTransfiniteCurve(t, n + 1)
 
 
+def _thin_tube(e, model_diag: float) -> bool:
+    """A swept pipe (BSpline surface), or a round face of a body much longer than the radius, or with a radius
+    tiny against the model: a wire, a bondwire, the inner conductor of a coax."""
+    typ = gmsh.model.getType(*e)
+    if typ == "BSpline surface":
+        return True
+    if typ not in ("Cylinder", "Torus"):
+        return False
+    try:
+        lo, hi = gmsh.model.getParametrizationBounds(*e)
+        k = gmsh.model.getCurvature(2, e[1], [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2])[0]
+        vols = gmsh.model.getAdjacencies(*e)[0]        # the body of the face (a bondwire: the whole wire)
+        b = np.asarray(_bbox([(3, int(v)) for v in vols] or [e]), float)
+    except Exception:  # noqa: BLE001
+        return False
+    return abs(k) * max(10 * float(np.linalg.norm(b[3:] - b[:3])), model_diag) > 400
+
+
 def _generate_planar_first() -> None:
-    """Display mesh in passes. Swept pipes (helix wire, BSpline surfaces) get a coarser curvature
-    sizing: it is isotropic, so the thin tube radius would also set the size along the whole length
-    -> tens of thousands of display triangles. That limit holds only for those faces; cylinders and
-    spheres, also ones fused with the pipe, keep the full sizing (a single helix in the model used
-    to make every cylinder coarse)."""
+    """Display mesh in passes. Thin tubes (helix wire, swept pipes, wires, bondwires: see _thin_tube) get a
+    coarser curvature sizing: it is isotropic, so the thin tube radius would also set the size along the
+    whole length -> tens of thousands of display triangles. That limit holds only for those faces; other
+    cylinders and spheres, also ones fused with the tube, keep the full sizing (a single helix in the model
+    used to make every cylinder coarse)."""
     _PASS_CACHE.clear()
     S = gmsh.model.getEntities(2)
     curv = gmsh.option.getNumber("Mesh.MeshSizeFromCurvature")
-    swept = [e for e in S if gmsh.model.getType(*e) == "BSpline surface"]
+    diag = float(np.linalg.norm(np.subtract(*np.reshape(_bbox(S), (2, 3))[::-1]))) if S else 0.0
+    swept = [e for e in S if _thin_tube(e, diag)]
     rest = [e for e in S if e not in swept]
     # lines and points outside every face (wires, helix lines) go with the last pass
     in_faces = set(_closure(S)) if S else set()
