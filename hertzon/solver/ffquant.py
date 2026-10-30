@@ -185,7 +185,8 @@ def excitation_weights(design, ports: list) -> dict[int, complex] | None:
     """Port number -> complex amplitude sqrt(P) e^(j phase) from Edit Sources; None while the sources
     were never edited (then port 1 is excited with 1 W)."""
     from ..model import sources as SRC
-    srcs = SRC.get(design) if design is not None else None
+    names = [p["name"] for p in ports] if any(p.get("kind") == "Terminal" for p in ports) else None
+    srcs = SRC.get(design, names) if design is not None else None
     if srcs is None or any(p.get("kind") == "Incident Plane Wave" for p in ports):
         return None
     w = {}
@@ -202,7 +203,7 @@ def excited_quantities(st, design, ff: dict, label: str, k: int, port: int | Non
     """Far field quantities of the excitation set in Edit Sources: the far fields of the ports superposed
     with their amplitudes. Incident power = sum of the port powers, accepted power = a^H (I - S^H S) a,
     radiated power from the superposed fields on the radiation surface. port: one port with 1 W instead."""
-    ports = st.read_json("ports.json", []) or []
+    ports = st.read_json("field_sources.json", None) or st.read_json("ports.json", []) or []
     f = float(ff[f"freq_{k}"][0])
     sp = st.sparams(label)
     S = None

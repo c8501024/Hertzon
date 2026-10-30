@@ -656,13 +656,14 @@ def design_monopole(p: Project) -> Design:
     return d
 
 
-# ---- F: periodic unit cell with a Floquet port (assignable, not yet solved) -------------------------------
+# ---- F: periodic unit cell with a Floquet port ---------------------------------------------------------
 def design_unit_cell(p: Project) -> Design:
     d = Design("F_UnitCell_Periodic")
-    d.notes = ("Periodic unit cell with Primary / Secondary boundaries and a Floquet port. These can be "
-               "assigned and saved but are not yet passed to the solver (Validation Check warns): the design is "
-               "here to test the data model, the dialogs and the MCP server.")
-    d.variables.update({"px": "15mm", "py": "15mm", "hz": "30mm", "ls": "11mm", "ws": "1.5mm"})
+    d.notes = ("Periodic unit cell (the infinite array) of a cross on a grounded RO3003 spacer: Primary / "
+               "Secondary pairs in x and y with the scan angles theta = scan_theta, phi = 0 and a Floquet port "
+               "with TE00 and TM00 above. The ground reflects everything; the result is the reflection phase "
+               "over frequency (a reflectarray element).")
+    d.variables.update({"px": "15mm", "py": "15mm", "hz": "30mm", "ls": "11mm", "ws": "1.5mm", "scan_theta": "0deg"})
     cell = d.add_object("CreateBox", name="Cell", material="vacuum", Position="-px/2,-py/2,0", XSize="px",
                         YSize="py", ZSize="hz")
     cell.transparency = 0.85
@@ -678,14 +679,17 @@ def design_unit_cell(p: Project) -> Design:
     f = lambda ax, s: b.faces("Cell", lambda c, n: n[ax] * s > 0.99)   # noqa: E731
     boundary(d, "Primary", "Master_X", faces=f(0, -1), UVector="-px/2,-py/2,0;-px/2,py/2,0")
     boundary(d, "Secondary", "Slave_X", faces=f(0, 1), Primary="Master_X", UVector="px/2,-py/2,0;px/2,py/2,0",
-             PhaseDelay="0deg")
+             PhaseMode="Scan Angles", ScanTheta="scan_theta", ScanPhi="0deg")
     boundary(d, "Primary", "Master_Y", faces=f(1, -1), UVector="-px/2,-py/2,0;px/2,-py/2,0")
     boundary(d, "Secondary", "Slave_Y", faces=f(1, 1), Primary="Master_Y", UVector="-px/2,py/2,0;px/2,py/2,0",
-             PhaseDelay="0deg")
+             PhaseMode="Scan Angles", ScanTheta="scan_theta", ScanPhi="0deg")
     boundary(d, "Perfect E", "Backplane", faces=f(2, -1))
     excitation(d, "Floquet Port", "FP1", faces=f(2, 1), PortNumber=1, NumberOfModes=2, Permittivity="1")
     s = setup(d, "Setup1", Frequency="10GHz", MaximumPasses=6)
     sweep(s, "Sweep", SweepType="Interpolating", Distribution="Linear Count", Start="6GHz", Stop="14GHz", Count=161)
+    # S indices: 1 = FP1:TE00, 2 = FP1:TM00
+    d.reports.append(Report("Reflection Phase", "Rectangular", "Setup1 : Sweep", ["ang_deg(S(1,1))", "ang_deg(S(2,2))"]))
+    d.reports.append(Report("Reflection", "Rectangular", "Setup1 : Sweep", ["dB(S(1,1))", "dB(S(2,1))"]))
     return d
 
 

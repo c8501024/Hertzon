@@ -95,6 +95,16 @@ def _collinear(a, b, c) -> bool:
     return np.linalg.norm(np.cross(b - a, c - a)) < 1e-9 * L * L
 
 
+def _axis_in_cs(p: dict, ev: Evaluator, ctx, kind: str):
+    """Global centre and axis of Rotate / Sweep Around Axis (given in the command's coordinate system)."""
+    from ..model import objframe
+    try:
+        c, ax = objframe.rotation_axis(ctx.design, p, ev)
+    except (KeyError, ValueError) as e:
+        raise GeometryError(f"{kind}: coordinate system: {e}") from e
+    return [float(x) for x in c], [float(x) for x in ax]
+
+
 def _axis_frame(loc: np.ndarray, axis: str) -> np.ndarray:
     """Points given in a local frame with +Z = axis -> global coordinates (same convention as _orient_from_z)."""
     x, y, z = loc[:, 0], loc[:, 1], loc[:, 2]
@@ -898,8 +908,8 @@ def _apply(cmd: Command, dt: list[tuple[int, int]], ctx: BuildContext, owner: st
         o.translate(dt, *ev.vector(p["Vector"]))
         return dt
     if k == "Rotate":
-        c = ev.point(p.get("Center", "0,0,0") or "0,0,0")
-        o.rotate(dt, *c, *AXIS_VEC[p["Axis"]], ev.angle(p["Angle"]))
+        c, ax = _axis_in_cs(p, ev, ctx, k)
+        o.rotate(dt, *c, *ax, ev.angle(p["Angle"]))
         return dt
     if k == "Mirror":
         b = np.asarray(ev.point(p["Base"]))
@@ -931,10 +941,10 @@ def _apply(cmd: Command, dt: list[tuple[int, int]], ctx: BuildContext, owner: st
         elif k == "SweepAlongVector":
             out = o.extrude(dt, *ev.vector(p["Vector"]))
         else:
-            c = ev.point(p.get("Center", "0,0,0") or "0,0,0")
+            c, ax = _axis_in_cs(p, ev, ctx, k)
             ang = ev.angle(p["Angle"])
             ang = min(ang, 2 * math.pi)
-            out = o.revolve(dt, *c, *AXIS_VEC[p["Axis"]], ang)
+            out = o.revolve(dt, *c, *ax, ang)
         res = [d for d in out if d[0] == dim + 1]
         o.remove([d for d in out if d[0] == dim and d not in res], recursive=True)
         return res

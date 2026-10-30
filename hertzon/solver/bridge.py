@@ -26,10 +26,12 @@ from ..model.materials import EMERGE_DISPERSION, is_conductor
 from ..model import schema
 from ..kernel import occ as K
 from . import facematch
-from .results import ResultStore
+from . import sparta_setup
+from .results import ResultStore, port_entries
 from .emerge_compat import amr as _amr
 
 C0 = 299792458.0
+FLOQUET_MODES = ["TE00", "TM00"]     # modes of a Floquet port in S-parameter order
 FF_OFFSET = 1 / 8     # far-field box of a scattering problem: distance from the scatterers in wavelengths
 TAG = "@@HZN "
 
@@ -149,6 +151,10 @@ class Bridge:
     t0: float = field(default_factory=time.time)
     profile: list = field(default_factory=list)
     touchstone_elements: list = field(default_factory=list)     # (boundary name, ComponentImpedance)
+    cell: object = None                             # EMerge periodic cell of the Primary / Secondary pairs
+    scan: tuple = (0.0, 0.0)                        # scan angles theta, phi of the periodic cell (degrees)
+    sparta: bool = False                            # the matrix solver is SPARTA (set_sparta)
+    sweep_solver: str = ""                          # SPARTA choice for the sweeps only (set_solver)
 
     def __post_init__(self):
         self.ev = self.design.evaluator(self.project)
@@ -224,6 +230,8 @@ class Bridge:
             numba.set_num_threads(min(threads, numba.config.NUMBA_NUM_THREADS))
         except Exception:  # noqa: BLE001
             pass
+        # SPARTA's thread pool (rayon) reads this when the first solve starts it
+        os.environ["RAYON_NUM_THREADS"] = str(threads)
         info(f"Using {threads} core(s)")
         self.probe()
         self.build_model()
@@ -252,6 +260,8 @@ class Bridge:
             self.run_eigen()
         elif self.plane_wave() is not None:
             self.run_plane_wave()
+        elif self.setup.props.get("PortsOnly") == "True":
+            self.run_ports_only()
         else:
             self.run_adaptive()
             self.run_sweeps()
@@ -563,6 +573,7 @@ class Bridge:
             else:
                 self.open_faces = self.region_geo.boundary()
         self.sym_faces = []
+        periodic = []
         for b in self.design.boundaries:
             if not b.enabled:
                 continue
@@ -607,8 +618,68 @@ class Bridge:
                 if p.get("FarFieldReference", "True") == "True":
                     self.open_faces = sel if self.open_faces is None else self.open_faces + sel
             elif b.kind in ("Primary", "Secondary"):
-                warn(f"{b.name}: primary/secondary boundaries need a periodic cell; use a Floquet design. Skipped.")
+                periodic.append((b, tags))
             info(f"Boundary '{b.name}' ({b.kind}) on {len(tags)} face(s)")
+        self.build_periodic_cell(periodic)
+
+    def build_periodic_cell(self, assigned: list) -> None:
+        """Primary / Secondary boundaries as an EMerge periodic cell: one face pair per Secondary face, the
+        Floquet phase from the scan angles or the phase delays of the Secondary boundaries."""
+        import gmsh
+        from . import periodic as PER
+        self.cell = None
+        if not assigned:
+            return
+        primaries = {b.name: tags for b, tags in assigned if b.kind == "Primary"}
+        secondaries = [(b, tags) for b, tags in assigned if b.kind == "Secondary"]
+
+        def faces(tags):
+            return [(t, np.asarray(gmsh.model.occ.getCenterOfMass(2, t)), gmsh.model.occ.getMass(2, t)) for t in tags]
+
+        ev = self.ev
+        pairs, lattice, delays, scans, linked = [], [], [], [], set()
+        for b, tags in secondaries:
+            p = b.props
+            pname = p.get("Primary", "").strip()
+            if pname not in primaries:
+                raise RuntimeError(f"{b.name}: its Primary boundary '{pname}' does not exist or is disabled")
+            linked.add(pname)
+            f1, f2 = faces(primaries[pname]), faces(tags)
+            dv = PER.lattice_vector(f1, f2)
+            pairs += [([t1], [t2], dv) for t1, t2 in PER.pair_faces(f1, f2, dv, b.name)]
+            lattice.append(dv)
+            if p.get("PhaseMode", "Scan Angles") == "Scan Angles":
+                scans.append((math.degrees(ev.angle(p.get("ScanTheta", "0deg") or "0")),
+                              math.degrees(ev.angle(p.get("ScanPhi", "0deg") or "0")), b.name))
+            else:
+                delays.append(math.degrees(ev.angle(p.get("PhaseDelay", "0deg") or "0")))
+            info(f"Periodic pair '{pname}' -> '{b.name}': {len(tags)} face(s), lattice vector "
+                 f"({dv[0] * 1e3:.4g}, {dv[1] * 1e3:.4g}, {dv[2] * 1e3:.4g}) mm")
+        for name in sorted(set(primaries) - linked):
+            warn(f"{name}: no Secondary boundary is linked to this Primary boundary; its faces stay Perfect E")
+        if not pairs:
+            return
+        if scans and delays:
+            warn("Some Secondary boundaries use scan angles, others phase delays: the scan angles are used")
+        if scans:
+            theta, phi, first = scans[0]
+            if any(abs(t - theta) > 1e-9 or abs(f - phi) > 1e-9 for t, f, _ in scans[1:]):
+                warn(f"The Secondary boundaries have different scan angles; the angles of '{first}' are used")
+            u = PER.scan_direction(theta, phi)
+        else:
+            f0 = adaptive_frequencies(self.setup, ev)[0]
+            u, theta, phi = PER.scan_from_phases(lattice, delays, f0)
+            info(f"Phase delays at {f0 / 1e9:g} GHz = scan angles theta {theta:.4g} deg, phi {phi:.4g} deg "
+                 "(kept for all frequencies)")
+        cell = PER.make_cell(pairs)
+        self.m.set_periodic_cell(cell)
+        for bc in cell.generate_bcs():
+            bc.ux, bc.uy, bc.uz = (float(x) for x in u)
+            self.m.mw.bc.assign(bc)
+        self.cell, self.scan = cell, (theta, phi)
+        self.store.write_json("periodic.json", {"scan_theta": theta, "scan_phi": phi,
+                                                "lattice": [list(map(float, d)) for d in lattice]})
+        info(f"Periodic cell: {len(pairs)} face pair(s), scan angles theta {theta:.4g} deg, phi {phi:.4g} deg")
 
     def open_bc(self, sel, order: int) -> None:
         """Radiation boundary; with an incident plane wave it is the scattered-field ABC that injects it."""
@@ -721,6 +792,13 @@ class Bridge:
         em, mw = self.em, self.m.mw
         ev = self.ev
         self.port_map = []
+        global TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS
+        TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS = None, {}, False
+        term = None
+        if self.design.settings.get("SolutionType") == "Terminal" and self.plane_wave() is None:
+            from .terminals import Terminals
+            term = Terminals()
+            cond_faces = self.terminal_conductor_faces()
         for e in self.design.ports():
             sel, tags = self.selection_for(e)
             if not tags:
@@ -730,18 +808,51 @@ class Bridge:
             if e.kind == "Wave Port":
                 self.back_port_with_void(e.name, tags)
                 mt = p.get("ModeType", "Auto")
-                port = mw.bc.ModalPort(sel, num, modetype=None if mt == "Auto" else mt,
-                                       number_of_modes=max(1, ev.integer(p.get("NumberOfModes", "1"))),
-                                       mixed_materials=True,
-                                       impedance_definition={"Zpv": "PV", "Zpi": "PI", "Zvi": "VI"}[
-                                           p.get("ImpedanceDefinition", "Zpv")])
+                nmodes = max(1, ev.integer(p.get("NumberOfModes", "1")))
+                if term is not None:
+                    tp = self.wave_port_terminals(e, tags, cond_faces)
+                    if nmodes != len(tp["terminals"]):
+                        info(f"Port '{e.name}': {len(tp['terminals'])} terminal(s), solving "
+                             f"{len(tp['terminals'])} mode(s)")
+                    nmodes = len(tp["terminals"])
+                zdef = {"Zpv": "PV", "Zpi": "PI", "Zvi": "VI"}[p.get("ImpedanceDefinition", "Zpv")]
+                if term is not None and nmodes > 1:
+                    # several signal conductors: every mode is absorbed with its own propagation constant
+                    # (even and odd mode of coupled lines), modes solved at every frequency
+                    # without the end faces of the conductors: the port block couples all port unknowns,
+                    # and those of a face inside metal would have nothing else (singular matrix)
+                    sel = em.FaceSelection(self.faces_off_metal(tags))
+                    MULTI_TERMINAL_PORTS = True
+                    port = mw.bc.MultiModeWavePort(sel, num, number_of_modes=nmodes,
+                                                   modetype=None if mt == "Auto" else mt,
+                                                   impedance_definition=zdef)
+                else:
+                    port = mw.bc.ModalPort(sel, num, modetype=None if mt == "Auto" else mt,
+                                           number_of_modes=nmodes,
+                                           # several modes: solved once per solve (see fresh_port_modes)
+                                           mixed_materials=nmodes == 1,
+                                           impedance_definition=zdef)
             elif e.kind == "Lumped Port":
                 w, h, d = self.port_geometry(e, tags)
                 port = mw.bc.LumpedPort(sel, num, width=w, height=h, direction=d, Z0=ev.value(p["Impedance"]))
                 info(f"Lumped port {num}: width {w * 1e3:.4g} mm, height {h * 1e3:.4g} mm, direction {d}")
             else:  # Floquet
-                port = mw.bc.FloquetPort(sel, num, er=ev.value(p.get("Permittivity", "1")))
-            self.port_map.append({"name": e.name, "number": num, "kind": e.kind,
+                port = self.floquet_port(e, sel, tags, num)
+            if term is not None:
+                if e.kind == "Wave Port":
+                    tp["bc"] = port
+                    term.ports.append(tp)
+                elif e.kind == "Lumped Port":
+                    z = ev.value(p["Impedance"])
+                    term.ports.append({"name": e.name, "number": num, "kind": "lumped", "z0": z,
+                                       "terminals": [e.name], "zref": [z]})
+                else:
+                    raise RuntimeError(f"Port '{e.name}': {e.kind}s are not available in a terminal solution")
+                if p.get("Deembed") == "True":
+                    DEEMBED[num] = ev.length(p["DeembedDistance"])
+            modes = nmodes if e.kind == "Wave Port" else len(getattr(port, "port_modes", None) or [1])
+            self.port_map.append({"name": e.name, "number": num, "kind": e.kind, "modes": modes,
+                                  "mode_names": FLOQUET_MODES[:modes] if e.kind == "Floquet Port" else None,
                                   "renorm": p.get("RenormImpedance") if p.get("Renormalize") == "True" else None,
                                   "renorm_ohm": ev.value(p["RenormImpedance"]) if p.get("Renormalize") == "True" else None,
                                   "deembed": ev.length(p["DeembedDistance"]) if p.get("Deembed") == "True" else 0.0})
@@ -759,7 +870,152 @@ class Bridge:
             info(f"Excitation '{pw.name}' (incident plane wave, scattered-field formulation)")
         elif any(e.kind == "Incident Plane Wave" and e.enabled for e in self.design.excitations):
             warn("Incident plane waves are ignored while ports are present")
+        if term is not None and term.ports:
+            term.ports.sort(key=lambda q: q["number"])
+            TERMINALS = term
+            names = ", ".join(f"{i + 1}: {n}" for i, n in enumerate(term.names))
+            info(f"Terminal solution: {len(term.names)} terminal(s) ({names})")
+            self.store.write_json("terminals.json", term.info())
+        else:
+            (self.store.folder / "terminals.json").unlink(missing_ok=True)
         self.store.write_json("ports.json", self.port_map)
+        # a port with several terminals: the fields are stored per terminal (1 W incident on the terminal, the
+        # other terminals terminated in their reference impedances), so Edit Sources can drive a differential
+        # pair; otherwise per port
+        self.field_map = self.port_map
+        if TERMINALS is not None and any(len(q["terminals"]) > 1 for q in TERMINALS.ports):
+            self.field_map = [{"name": n, "number": i + 1, "kind": "Terminal"} for i, n in enumerate(TERMINALS.names)]
+            self.store.write_json("field_sources.json", self.field_map)
+        else:
+            (self.store.folder / "field_sources.json").unlink(missing_ok=True)
+
+    def terminal_conductor_faces(self) -> set[int]:
+        """Faces of the solver model that are conductors for the terminals: Perfect E and finite
+        conductivity boundaries, the surface of conductor solids, and outer faces without another boundary
+        (the default outer boundary is a perfect conductor)."""
+        import gmsh
+        mw = self.m.mw
+        cond = {int(t) for b in mw.bc.get_conductors() for t in b.tags}
+        other = {int(t) for b in mw.bc.boundary_conditions for t in b.tags} - cond
+        for obj in self.design.live_objects():
+            g = self.geos.get(obj.name)
+            if g is None or not obj.model:
+                continue
+            try:
+                mat = self.project.material(obj.material)
+            except Exception:  # noqa: BLE001
+                continue
+            if getattr(g, "dim", 0) == 3 and is_conductor(mat):
+                cond |= {int(t) for t in g.boundary().tags}
+        for _, f in gmsh.model.getEntities(2):
+            up, _ = gmsh.model.getAdjacencies(2, f)
+            if len(up) == 1 and f not in other:
+                cond.add(int(f))
+        return cond
+
+    def conductor_name(self, curves: list[int], cond_faces: set[int]) -> str:
+        """Name of a conductor touching the port face: a conductor object, else a Perfect E / finite
+        conductivity boundary, else the outer boundary."""
+        import gmsh
+        faces = set()
+        for c in curves:
+            up, _ = gmsh.model.getAdjacencies(1, c)
+            faces |= {int(s) for s in up} & cond_faces
+        objs, bnds = [], []
+        for obj in self.design.live_objects():
+            g = self.geos.get(obj.name)
+            if g is None or not obj.model or obj.history[0].kind == "CreateRegion":
+                continue
+            try:
+                ftags = set(g.boundary().tags) if getattr(g, "dim", 0) == 3 else set(g.tags)
+            except Exception:  # noqa: BLE001
+                continue
+            mat = self.project.material(obj.material) if getattr(g, "dim", 0) == 3 else None
+            if ftags & faces and (mat is None or is_conductor(mat)):
+                objs.append(obj.name)
+        for b in self.design.boundaries:
+            if b.enabled and b.kind in ("Perfect E", "Finite Conductivity"):
+                try:
+                    _, tags = self.selection_for(b)
+                except Exception:  # noqa: BLE001
+                    continue
+                if set(int(t) for t in tags) & faces:
+                    bnds.append(b.name)
+        return (objs or bnds or ["Outer"])[0]
+
+    def wave_port_terminals(self, e: Assignment, tags: list[int], cond_faces: set[int]) -> dict:
+        """Terminals of a wave port: one per signal conductor on its face, the reference conductor is the
+        one named in ReferenceConductor or else the largest one."""
+        from .terminals import port_conductors, voltage_line
+        cond_faces = cond_faces - {int(t) for t in tags}
+        groups = port_conductors(list(tags), cond_faces)
+        if len(groups) < 2:
+            raise RuntimeError(f"Port '{e.name}': a terminal solution needs at least two conductors on the port "
+                               f"face (found {len(groups)}); check the conductors and boundaries touching it")
+        for g in groups:
+            g["name"] = self.conductor_name(g["curves"], cond_faces)
+        want = e.props.get("ReferenceConductor", "").strip()
+        named = [i for i, g in enumerate(groups) if want and g["name"] == want]
+        if want and not named:
+            warn(f"Port '{e.name}': reference conductor '{want}' does not touch the port face; using the largest")
+        ref = named[0] if named else int(np.argmax([g["length"] for g in groups]))
+        sig = [g for i, g in enumerate(groups) if i != ref]
+        seen: dict[str, int] = {}
+        names = []
+        for g in sig:
+            seen[g["name"]] = seen.get(g["name"], 0) + 1
+            names.append(f"{e.name}_{g['name']}" + (f"_{seen[g['name']]}" if seen[g["name"]] > 1 else ""))
+        p = e.props
+        zr = self.ev.value(p.get("RenormImpedance", "50ohm") or "50ohm") if p.get("Renormalize") == "True" else 50.0
+        lines = [voltage_line(g["points"], groups[ref]["points"]) for g in sig]
+        info(f"Port '{e.name}': reference conductor '{groups[ref]['name']}', terminals " + ", ".join(names))
+        return {"name": e.name, "number": self.ev.integer(p["PortNumber"]), "kind": "wave", "terminals": names,
+                "lines": lines, "reference": groups[ref]["name"], "zref": [zr] * len(sig)}
+
+    def faces_off_metal(self, tags: list[int]) -> list[int]:
+        """The faces of tags without those that only touch PEC solids (the end face of a conductor that ends
+        on a port face)."""
+        import gmsh
+        metal = set()
+        for name, g in self.geos.items():
+            if g.dim == 3 and self.design.has_obj(name) and self.project.material(self.design.obj(name).material).pec:
+                metal |= {int(v) for v in g.tags}
+        keep = []
+        for t in tags:
+            vols = {int(v) for v in gmsh.model.getAdjacencies(2, t)[0]}
+            if not vols or not vols <= metal:
+                keep.append(t)
+        return keep or list(tags)
+
+    def floquet_port(self, e: Assignment, sel, tags: list[int], num: int):
+        """Floquet port of the periodic cell: the plane waves TE00 (s polarization) and, with two modes, TM00
+        (p polarization) in the scan direction of the cell. The port face has to be normal to z."""
+        import gmsh
+        if self.cell is None:
+            raise RuntimeError(f"Floquet port '{e.name}' needs a periodic cell: assign Primary / Secondary "
+                               "boundary pairs to the side faces")
+        normals = [np.asarray(gmsh.model.getNormal(t, [0.5, 0.5])) for t in tags]
+        if any(abs(n[2]) < 1 - 1e-6 for n in normals):
+            raise RuntimeError(f"Floquet port '{e.name}': the port face has to be normal to the z axis (the scan "
+                               "angles are measured from z)")
+        p, ev = e.props, self.ev
+        n = ev.integer(p.get("NumberOfModes", "2") or "2")
+        if n > 2:
+            warn(f"Floquet port '{e.name}': EMerge has the two zeroth order modes TE00 and TM00 only; "
+                 f"{n - 2} higher mode(s) left out")
+        er = ev.value(p.get("Permittivity", "1") or "1")
+        if abs(er - 1) > 1e-9:
+            warn(f"Floquet port '{e.name}': EMerge's Floquet port takes the propagation constant of free space; "
+                 f"the medium permittivity {er:g} only scales the port H field. Put the port in air or vacuum")
+        port = self.m.mw.bc.FloquetPort(sel, num, er=er)
+        port.area = float(sum(gmsh.model.occ.getMass(2, t) for t in tags))
+        port.scan_theta, port.scan_phi = (math.radians(a) for a in self.scan)
+        if n >= 2:
+            port.port_modes = {1: (1 + 0j, 0j), 2: (0j, 1 + 0j)}
+            if self.scan[0] > 1e-6:
+                warn(f"Floquet port '{e.name}': at oblique incidence EMerge absorbs both modes with the "
+                     "propagation constant of TE00; the TM00 results are only exact at normal incidence")
+        return port
 
     def back_port_with_void(self, port: str, tags: list[int]) -> None:
         """A wave port on a face of a PEC solid (e.g. the bottom of a coax bore in a metal body) has the
@@ -890,15 +1146,52 @@ class Bridge:
             pass
 
     def set_solver(self) -> None:
-        name = self.setup.props.get("Solver", "Auto")
+        # HERTZON_SOLVER: the benchmark's solver comparison on one mesh (the setup's key stays the same)
+        name = os.environ.get("HERTZON_SOLVER") or self.setup.props.get("Solver", "Auto")
+        em = self.em
+        if name in sparta_setup.SWEEP_ONLY:
+            # PARDISO for the adaptive passes (a new mesh every pass, where SPARTA's analysis is slow),
+            # SPARTA for the sweeps on the final mesh (run_sweeps)
+            self.sweep_solver = sparta_setup.SWEEP_ONLY[name]
+            name = "PARDISO"
+        if self.cell is not None and name in ("Auto", "PARDISO"):
+            from .periodic import pardiso_transposes
+            if pardiso_transposes():
+                # the periodic system matrix is not symmetric and this EMerge's PARDISO interface solves the
+                # transposed system: SuperLU (exact, slower on large cells) until EMerge is fixed
+                info("Periodic cell: solving with SuperLU (PARDISO of this EMerge version solves the "
+                     "transposed system)")
+                name = "SuperLU"
         if name == "Auto":
             return
-        em = self.em
+        if sparta_setup.is_sparta(name):
+            self.set_sparta(name)
+            return
         try:
             self.m.set_solver({"PARDISO": em.EMSolver.PARDISO, "MUMPS": em.EMSolver.MUMPS,
                                "UMFPACK": em.EMSolver.UMFPACK, "SuperLU": em.EMSolver.SUPERLU}[name])
         except Exception as ex:  # noqa: BLE001
             warn(f"Solver {name} not available ({ex}); using automatic choice")
+
+    def set_sparta(self, name: str) -> None:
+        """SPARTA on the GPU or the CPU (sparta_setup). Not installed: EMerge's automatic choice."""
+        em = self.em
+        from emerge._emerge import solver as S
+        if not S._SPARTA_AVAILABLE:
+            warn(f"Solver {name}: SPARTA is not installed (Tools > Options > Install SPARTA); "
+                 "using automatic choice")
+            return
+        try:
+            solver = self.m.set_solver(em.EMSolver.SPARTA)
+            # a periodic cell's matrix is not symmetric: LU instead of LDL^T
+            mode = sparta_setup.configure(solver, sparta_setup.MODES[name], symmetric=self.cell is None)
+        except Exception as ex:  # noqa: BLE001
+            warn(f"Solver {name} not available ({ex}); using automatic choice")
+            return
+        self.sparta = True
+        info(f"Matrix solver: {sparta_setup.describe()}; factorization on the {mode}")
+        if mode != sparta_setup.MODES[name]:
+            warn(f"Solver {name}: no GPU usable by SPARTA in this process; factorizing on the CPU")
 
     # ----------------------------------------------------------------------------------------
     def run_adaptive(self) -> None:
@@ -939,6 +1232,7 @@ class Bridge:
             f, S, z0, data = solve_at(m, fa)
             flds = list(data.field)[-len(f):]
         self.save_s("LastAdaptive", f, S, z0)
+        self.save_port_fields("LastAdaptive", f[:1])
         self.save_mesh()
         if p.get("SaveFields", "True") == "True":
             self.save_fields(flds, "LastAdaptive")
@@ -1121,12 +1415,94 @@ class Bridge:
         emit("done", elapsed=time.time() - self.t0)
         hard_exit()
 
-    def save_s(self, name: str, f, S, z0, solved=None) -> None:
+    def save_s(self, name: str, f, S, z0, solved=None, ports_only: bool = False) -> None:
         try:
             S, z0 = postprocess_ports(f, S, z0, self.port_map)
         except Exception as e:  # noqa: BLE001
             warn(f"Port de-embedding/renormalization skipped: {e}")
-        self.store.save_sparams(name, f, S, z0, self.port_map, solved=solved)
+        gamma, zo = port_data(f)
+        self.store.save_sparams(name, f, S, z0, self.port_map, solved=solved, gamma=gamma, zo=zo,
+                                terminals=TERMINALS.info() if TERMINALS is not None else None,
+                                ports_only=ports_only)
+
+    def wave_ports(self) -> list[tuple[dict, object]]:
+        """(port_map entry, EMerge port) of every wave port."""
+        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+        bcs = {bc.port_number: bc for bc in self.m.mw.bc.oftype(ModalPort)}
+        return [(q, bcs[q["number"]]) for q in self.port_map if q.get("kind") == "Wave Port" and q["number"] in bcs]
+
+    def save_port_fields(self, label: str, freqs) -> None:
+        """Mode fields of the wave ports on the port faces (Port Field Display): E and H at the nodes of the
+        port triangles for every mode at the frequencies freqs (the modes solved nearest to them)."""
+        try:
+            mesh = self.m.mesh
+            out, meta = {"freq": np.asarray(freqs, float)}, []
+            for q, bc in self.wave_ports():
+                tris = mesh.tris[:, mesh.get_triangles(bc.tags)]
+                ids, inv = np.unique(tris.ravel(), return_inverse=True)
+                xyz = mesh.nodes[:, ids]
+                n = q["number"]
+                out[f"nodes_{n}"] = xyz.T.astype(np.float64)
+                out[f"tris_{n}"] = inv.reshape(tris.shape).T.astype(np.int32)
+                rows = []
+                for k, f in enumerate(np.atleast_1d(freqs)):
+                    k0 = 2 * np.pi * float(f) / C0
+                    modes = bc.get_modes(k0)
+                    for i, md in enumerate(modes[:len(bc.port_modes)]):
+                        out[f"E_{n}_{i + 1}_{k}"] = np.asarray(md.E_function(*xyz), complex).T.astype(np.complex64)
+                        out[f"H_{n}_{i + 1}_{k}"] = np.asarray(md.H_function(*xyz), complex).T.astype(np.complex64)
+                        rows.append({"freq_index": k, "mode": i + 1, "type": str(md.modetype),
+                                     "gamma": [float(np.real(1j * md.beta)), float(np.imag(1j * md.beta))],
+                                     "zo": float(np.real(md.Z0))})
+                meta.append({"name": q["name"], "number": n, "modes": rows})
+            out["meta"] = np.array(json.dumps(meta))
+            if meta:
+                self.store.save_npz(f"portfields_{label}.npz", **out)
+        except Exception as e:  # noqa: BLE001
+            warn(f"Port fields not saved: {e}")
+
+    def run_ports_only(self) -> None:
+        """Solve only the port modes: propagation constant, port impedance and port fields at the adaptive
+        frequencies and at the frequencies of every sweep, no 3D solution (Solve Ports Only)."""
+        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+        mw = self.m.mw
+        if not self.wave_ports():
+            raise RuntimeError("Solve ports only needs at least one wave port")
+        sols = [("LastAdaptive", np.array(adaptive_frequencies(self.setup, self.ev), float))]
+        sols += [(sw.name, sweep_frequencies(sw.props, self.ev)) for sw in self.setup.sweeps
+                 if sw.props.get("Enabled", "True") == "True"]
+        lumped = [q for q in self.port_map if q.get("kind") != "Wave Port"]
+        if lumped:
+            warn("Solve ports only: lumped ports have no port modes; only the wave ports are solved")
+        for i, (label, fr) in enumerate(sols):
+            emit("progress", value=15 + 80 * i / len(sols), text=f"Port modes: {label}")
+            S, labels = [], []
+            for f in fr:
+                portnumbers = []
+                for q, bc in self.wave_ports():
+                    bc.clear_modes()
+                    mt = bc.forced_modetype
+                    mw.modal_analysis(bc, len(bc.port_modes), direct=False, freq=float(f), TEM=mt == "TEM")
+                    nm = len(bc.port_modes)
+                    portnumbers += [q["number"]] if nm == 1 else [float(f"{q['number']}.{k + 1}") for k in range(nm)]
+                k0 = 2 * np.pi * float(f) / C0
+                if TERMINALS is not None:
+                    TERMINALS.transform([f], np.zeros((1, len(portnumbers), len(portnumbers))), portnumbers)
+                else:
+                    g, z = [], []
+                    for q, bc in self.wave_ports():
+                        for md in bc.get_modes(k0)[:len(bc.port_modes)]:
+                            g.append(1j * md.beta)
+                            z.append(md.Z0)
+                    PORT_RECORDS[float(f)] = (np.array(g, complex), np.array(z, complex))
+                labels = portnumbers
+            n = len(TERMINALS.names) if TERMINALS is not None else len(labels)
+            nan = np.full((len(fr), n, n), np.nan, complex)
+            z0 = TERMINALS.zref if TERMINALS is not None else np.full(n, 50.0)
+            self.save_s(label, fr, nan, z0, solved=fr, ports_only=True)
+            self.save_port_fields(label, fr)
+            info(f"Port modes of '{label}' at {len(fr)} frequenc{'y' if len(fr) == 1 else 'ies'}")
+        self.save_mesh()
 
     def save_mesh(self) -> None:
         m = self.m
@@ -1184,7 +1560,7 @@ class Bridge:
             from . import curvilinear as CV
             if not CV.enabled():
                 return {}
-            cd = CV.curved_data(self.m.mesh, CV.exclude_tags(self.m.mw.bc.boundary_conditions))
+            cd = CV.curved_data_bcs(self.m.mesh, self.m.mw.bc.boundary_conditions)
             if cd is None:
                 return {}
             return {"curv_tets": np.asarray(cd[0], np.int32), "curv_disp": np.asarray(cd[1], np.float64)}
@@ -1219,6 +1595,10 @@ class Bridge:
             except Exception as e:  # noqa: BLE001
                 warn(f"Field data '{label}' not computed ({e}); it is computed when plotted")
 
+    def fields_of(self) -> list[dict]:
+        """The excitations whose fields are stored: the ports, or the terminals (see build)."""
+        return getattr(self, "field_map", None) or self.port_map
+
     def save_fields(self, fields: list, label: str, progress: bool = True) -> None:
         """E and H on the mesh nodes for each port excitation."""
         if progress:
@@ -1231,7 +1611,7 @@ class Bridge:
         tets = np.asarray(m.mesh.tets)
         nt = tets.shape[1]
         C = np.asarray(m.mesh.nodes)[:, tets]                    # (3, 4, N)
-        quad = nt * max(1, len(self.port_map)) * max(1, len(fields)) <= 600_000
+        quad = nt * max(1, len(self.fields_of())) * max(1, len(fields)) <= 600_000
         if quad:
             mids = [(C[:, i] + C[:, j]) / 2 for i, j in TET10_EDGES]
             C = np.concatenate([C, np.stack(mids, axis=1)], axis=1)   # (3, 10, N)
@@ -1243,7 +1623,7 @@ class Bridge:
         if lazy:   # only the solution: fields are computed when a plot needs them (hertzon.solver.lazy_fields)
             from .lazy_fields import solution_arrays
             self.store.save_npz(f"solution_{label}.npz",
-                                **solution_arrays(m, fields, self.port_map, excite, npt == 10, cm))
+                                **solution_arrays(m, fields, self.fields_of(), excite, npt == 10, cm))
             info("Solution saved (field data is computed at the end of the analysis)")
             return
         P = C.transpose(0, 2, 1).reshape(3, -1)                  # tet-major
@@ -1287,7 +1667,7 @@ class Bridge:
 
         for k, fld in enumerate(fields):
             freq = float(getattr(fld, "freq", 0.0))
-            for port in self.port_map:
+            for port in self.fields_of():
                 try:
                     excite(fld, port)
                     _interp_known_tets(fld, x, y, z, mapping)
@@ -1346,7 +1726,7 @@ class Bridge:
         mapping = None
         for k, fld in enumerate(fields):
             out[f"freq_{k}"] = np.array([float(fld.freq)])
-            for port in self.port_map:
+            for port in self.fields_of():
                 try:
                     excite(fld, port)
                     f2 = fld.relative if port.get("kind") == "Incident Plane Wave" else fld
@@ -1422,6 +1802,24 @@ class Bridge:
                 warn(f"Far field '{sph.name}' failed: {ex}")
 
     def run_sweeps(self) -> None:
+        """All enabled sweeps on the final mesh. SPARTA keeps its symbolic analysis from one batch of
+        frequencies to the next (an interpolating sweep solves in batches, and the analysis costs two to three
+        factorizations); EMerge's own adaptive sweep does the same with _reset_solvers=False."""
+        global KEEP_SOLVER
+        if self.sweep_solver and not self.sparta:
+            self.set_sparta(self.sweep_solver)
+        KEEP_SOLVER = self.sparta
+        try:
+            self._run_sweeps()
+        finally:
+            KEEP_SOLVER = False
+            if self.sparta:
+                try:
+                    self.m.mw.solveroutine.reset()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _run_sweeps(self) -> None:
         m, ev = self.m, self.ev
         sweeps = [s for s in self.setup.sweeps if s.props.get("Enabled", "True") == "True"]
         self.factor_memory()
@@ -1439,6 +1837,11 @@ class Bridge:
                     warn(f"{nm}: sweep '{sw.name}' goes beyond the Touchstone data ({z.f[0] / 1e9:g} to "
                          f"{z.f[-1] / 1e9:g} GHz); outside it the nearest data point is used")
             par = p.get("Parallel") == "True"
+            if par and self.sparta:
+                # EMerge's sweep worker threads only take solvers that release the GIL, so they would not
+                # use SPARTA; SPARTA itself uses all cores (CPU) or the GPU on one frequency at a time
+                info(f"Sweep '{sw.name}': SPARTA solves the frequencies one after another")
+                par = False
             nw = max(1, int(os.environ.get("HERTZON_SWEEP_WORKERS", "2") or 2))
             prog = SweepProgress(sw.name, 65 + 30 * i / max(1, len(sweeps)), 30 / max(1, len(sweeps)))
             kind = p.get("SweepType", "Interpolating")
@@ -1711,16 +2114,20 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         solve_ids = None
         z0 = np.array([50.0])
         for sf in fa:
+            fresh_port_modes(m)
             data, solve_ids = m.mw._run_adaptive_mesh(step, sf)
             fields.append(data.field[-1])
             Ss.append(np.array(data.scalar[-1].Sp))
             try:
                 if data.scalar[-1].Z0 is not None:
                     z0 = np.asarray(data.scalar[-1].Z0)
-                if data.scalar[-1].beta is not None:
-                    BETA[float(sf)] = np.asarray(data.scalar[-1].beta, complex).ravel()
             except Exception:  # noqa: BLE001
                 pass
+            _record_port_data(data.scalar[-1], sf)
+            if TERMINALS is not None:
+                # convergence and results on the terminal S-parameters (unique for degenerate port modes)
+                Ss[-1] = TERMINALS.transform([sf], Ss[-1][None], list(data.scalar[-1]._portnumbers), DEEMBED)[0]
+                z0 = TERMINALS.zref
         last = (list(fa), list(Ss), z0, list(fields), m.mesh.n_tets)
         row = {"pass": step, "tets": int(m.mesh.n_tets), "time": time.time() - t_pass,
                "S": [[[float(v.real), float(v.imag)] for v in S.ravel()] for S in Ss]}
@@ -2183,10 +2590,30 @@ def keep_global_max_size(m) -> None:
 
 
 def excite(fld, port: dict) -> None:
-    if port.get("kind") == "Incident Plane Wave":
+    if port.get("kind") == "Terminal":
+        fld.excitation = terminal_excitation(fld, port["number"] - 1)
+    elif port.get("kind") == "Incident Plane Wave":
         fld.set_field_vector()
     else:
-        fld.excite_port(port["number"])
+        # a port with several modes has the S indices n.1, n.2, ...: its field is that of the first mode
+        n = port["number"]
+        keys = list(getattr(fld, "_fields", None) or [])
+        fld.excite_port(n if n in keys or not keys else min((k for k in keys if int(k) == n), default=n))
+
+
+def terminal_excitation(fld, t: int) -> dict:
+    """Mode amplitudes of the solution fld for 1 W incident on terminal t, all terminals terminated in their
+    reference impedances: with V = D (a + S a), I = D^-T (a - S a) the incident terminal waves are
+    (V + Zr I) / (2 sqrt(Zr)) (terminals.py)."""
+    keys = [pm.smat_index for pm in fld.port_modes]
+    D, _, _ = TERMINALS._blocks(2 * np.pi * float(fld.freq) / C0, keys)
+    S = np.asarray(fld._Sp, complex)
+    zr = TERMINALS.zref
+    I = np.eye(len(keys))
+    A = D @ (I + S) + np.diag(zr) @ np.linalg.solve(D.T, I - S)
+    rhs = np.zeros(len(zr), complex)
+    rhs[t] = 2 * np.sqrt(zr[t])
+    return dict(zip(keys, np.linalg.solve(A, rhs)))
 
 
 def _interp_known_tets(fld, x, y, z, mapping) -> None:
@@ -2304,7 +2731,9 @@ def _save_pass_results(out: Path, fa: list[float], Ss: list, z0, passes: list, m
         ports = store.read_json("ports.json", []) or []
         S = np.array(Ss)
         S, z = postprocess_ports(np.asarray(fa, float), S, z0, ports)
-        store.save_sparams("LastAdaptive", np.asarray(fa, float), S, z, ports)
+        gamma, zo = port_data(fa)
+        store.save_sparams("LastAdaptive", np.asarray(fa, float), S, z, ports, gamma=gamma, zo=zo,
+                           terminals=TERMINALS.info() if TERMINALS is not None else None)
         store.write_json("convergence.json", {"passes": passes, "converged": False, "max_delta_s": max_ds,
                                               "frequencies": list(fa), "running": True})
     except Exception as e:  # noqa: BLE001
@@ -2312,16 +2741,28 @@ def _save_pass_results(out: Path, fa: list[float], Ss: list, z0, passes: list, m
 
 
 def kernel_tag() -> str:
-    """Versions the compiled numba kernels depend on (a new EMerge or numba compiles them again). The
-    Hertzon version is part of it: an update rewrites the source files, which makes numba's disk cache of
-    Hertzon's kernels stale on Windows, so the setup's warm-up compiles them again after every update."""
-    from importlib.metadata import version
-    from .. import __version__
+    """Versions the compiled numba kernels depend on: a new EMerge (version and the wheel or commit it was
+    installed from), numba, Python or Hertzon kernels (kernels_version.txt) compiles them again. The Hertzon
+    version is not part of it: an update that changes none of these keeps EMerge's kernels, which take
+    minutes to compile. Hertzon's own few kernels are compiled again quickly on the first solve (the
+    update replaces their files and numba's cache next to them), which needs neither warm-up nor a note."""
+    from importlib.metadata import distribution, version
     try:
-        return (f"emerge {version('emerge')}, numba {version('numba')}, python {sys.version.split()[0]}, "
-                f"hertzon kernels {KERNELS_VERSION}, hertzon {__version__}")
+        return (f"emerge {version('emerge')}{_emerge_source(distribution('emerge'))}, numba {version('numba')}, "
+                f"python {sys.version.split()[0]}, hertzon kernels {KERNELS_VERSION}")
     except Exception:  # noqa: BLE001
         return "1"
+
+
+def _emerge_source(dist) -> str:
+    """Where pip installed EMerge from (direct_url.json: git commit or wheel URL), empty for an editable or
+    plain installation: EMerge built from another commit can keep its version number, its source changes."""
+    try:
+        d = json.loads(dist.read_text("direct_url.json") or "{}")
+    except (OSError, ValueError):
+        return ""
+    src = (d.get("vcs_info") or {}).get("commit_id") or d.get("url", "")
+    return f" from {src}" if src and not d.get("dir_info", {}).get("editable") else ""
 
 
 def _kernels_version() -> str:
@@ -2403,6 +2844,7 @@ def solver_threads(setup) -> int:
 
 
 SOLVER_THREADS = 0      # cores of this solve (solver_threads), set when the model is built
+KEEP_SOLVER = False     # sweeps with SPARTA: run_sweep keeps the solver state between batches (run_sweeps)
 _PAR_NOTE: list = []
 
 
@@ -2543,13 +2985,30 @@ def solve_at(m, freqs, on_solved=None, **kw):
             _SOLVED_CB.remove(on_solved)
 
 
+def fresh_port_modes(m) -> None:
+    """Ports with several modes: their modes are solved once for each solve (at the mean frequency of a
+    sweep, at the frequency of an adaptive pass), so all frequencies of a solve use the same mode basis.
+    (EMerge before the hertzon branch of 26 October 2026 also added the modes of a repeated modal analysis at
+    a frequency to the ones it already had; one analysis per solve avoided that as well.)"""
+    try:
+        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+        for bc in m.mw.bc.oftype(ModalPort):
+            if len(bc.port_modes) > 1:
+                bc.clear_modes()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _solve_at(m, freqs, **kw):
     from . import mt_pardiso
+    fresh_port_modes(m)
     try:
         n0 = int(m.mw.data.scalar.n)
     except Exception:  # noqa: BLE001
         n0 = 0
     m.mw.set_frequency(freqs if len(freqs) > 1 else freqs[0])
+    if KEEP_SOLVER:
+        kw = dict(kw, _reset_solvers=False)
     if kw.get("parallel"):
         # several frequencies at once, each with PARDISO on its share of the cores (mt_pardiso);
         # without it EMerge would use SuperLU in the worker threads
@@ -2583,15 +3042,39 @@ def _solve_at(m, freqs, **kw):
     S = np.array([np.asarray(e.Sp) for e in entries])
     z0 = np.asarray(entries[0].Z0) if entries and entries[0].Z0 is not None else np.array([50.0])
     for e, fk in zip(entries, f):
-        try:
-            if e.beta is not None:
-                BETA[float(fk)] = np.asarray(e.beta, complex).ravel()
-        except Exception:  # noqa: BLE001
-            pass
+        _record_port_data(e, fk)
+    if TERMINALS is not None and len(entries):
+        S, z0 = TERMINALS.transform(f, S, list(entries[0]._portnumbers), DEEMBED), TERMINALS.zref
     return f, S, z0, data
 
 
 BETA: dict[float, np.ndarray] = {}     # solved frequency -> propagation constant per port
+PORT_RECORDS: dict[float, tuple[np.ndarray, np.ndarray]] = {}    # solved frequency -> (gamma, Zo) per port mode
+TERMINALS = None                       # terminals.Terminals of a Terminal design (set by the Bridge)
+MULTI_TERMINAL_PORTS = False           # a port with several signal conductors is in the model (set by the Bridge)
+DEEMBED: dict[int, float] = {}         # port number -> de-embedding distance (terminal designs)
+
+
+def _record_port_data(entry, freq: float) -> None:
+    """Propagation constant and port impedance of every port mode of one solved frequency."""
+    try:
+        if entry.beta is not None:
+            beta = np.asarray(entry.beta, complex).ravel()
+            BETA[float(freq)] = beta
+            z = np.asarray(entry.Z0, complex).ravel() if entry.Z0 is not None else np.full(len(beta), np.nan)
+            PORT_RECORDS[float(freq)] = (1j * beta, z)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+
+def port_data(freq) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Propagation constant gamma (per port mode) and characteristic impedance Zo (per port, or per terminal
+    in a terminal design) at the frequencies freq, interpolated between the solved frequencies."""
+    from .terminals import interp_records
+    if TERMINALS is not None:
+        return interp_records(TERMINALS.records, freq)
+    return interp_records(PORT_RECORDS, freq)
 
 
 def port_beta(freq: np.ndarray, nports: int) -> np.ndarray:
@@ -2612,11 +3095,14 @@ def port_beta(freq: np.ndarray, nports: int) -> np.ndarray:
 
 
 def postprocess_ports(freq, S, z0, port_map: list) -> tuple[np.ndarray, np.ndarray]:
-    """Wave-port de-embedding and renormalization (port post-processing)."""
+    """Wave-port de-embedding and renormalization (port post-processing). Terminal S-parameters are
+    de-embedded and referred to the terminal impedances when they are made (terminals.Terminals)."""
     S = np.array(S, complex)
+    if TERMINALS is not None:
+        return S, np.asarray(z0, complex).ravel()
     n = S.shape[1]
     z0v = np.resize(np.asarray(z0, complex).ravel(), n)
-    ports = sorted(port_map, key=lambda q: q.get("number", 0))[:n]
+    ports = port_entries(port_map)[:n]
     dist = np.array([float(q.get("deembed") or 0.0) for q in ports] + [0.0] * (n - len(ports)))
     if np.any(dist != 0):
         beta = port_beta(np.asarray(freq, float), n)
@@ -2676,6 +3162,9 @@ def _install_log_sink() -> None:
     loading = {"Starting mesh generation phase.": None,
                "Calling GMSH mesher": "Loading the {} into EMerge (no gmsh meshing)",
                "GMSH Meshing complete!": None}
+    # a port with several signal conductors has no single conductor pair, so EMerge finds no voltage line for
+    # its modes; the terminal impedances come from the line voltages of every conductor (terminals.py)
+    no_pair = ("PEC islands without a terminal definition", "Skipping characteristic impedance calculation.")
 
     def sink(message):
         rec = message.record
@@ -2685,6 +3174,8 @@ def _install_log_sink() -> None:
             if loading[msg] is None:
                 return
             msg = loading[msg].format(LR.LOADING[-1])
+        if MULTI_TERMINAL_PORTS and any(x in msg for x in no_pair):
+            return
         if lvl in ("warning", "error", "critical"):
             emit("log", level="warning" if lvl == "warning" else "error", msg=msg)
         elif lvl == "info":

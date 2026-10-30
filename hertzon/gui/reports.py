@@ -24,13 +24,14 @@ from ..solver.ffquant import monostatic_rcs, farfield_quantities, antenna_parame
 from ..solver.ffquant import ANTENNA_QUANTITIES, ANTENNA_POWER, ANTENNA_PASSES, antenna_series, antenna_pass_series
 from ..solver.ffquant import RCS_PASSES, rcs_pass_series
 from ..solver.expressions import (network, split_trace, output_variables, _FUNCS, _ast_eval,  # noqa: F401
-                                  eval_expr, eval_trace)
+                                  eval_expr, eval_trace, with_pairs)
 
 ANTENNA_KINDS = ("Antenna Parameters", "Antenna Parameters Table")
 
 ETA0 = 376.730313668
 FUNCS = ["dB", "mag", "ang_deg", "ang_rad", "re", "im", "dB10"]
-CATEGORIES = ["S Parameter", "Y Parameter", "Z Parameter", "VSWR", "Gamma", "Group Delay"]
+CATEGORIES = ["S Parameter", "Y Parameter", "Z Parameter", "VSWR", "Gamma", "Group Delay", "Port Zo",
+              "Propagation Constant"]
 FF_QUANTITIES = ["GainTotal", "RealizedGainTotal", "DirTotal", "GainTheta", "GainPhi", "GainLHCP", "GainRHCP",
                  "DirLHCP", "DirRHCP", "rETotal", "rETheta", "rEPhi", "rELHCP", "rERHCP", "AxialRatioValue",
                  "BistaticRCSTotal", "BistaticRCSTheta", "BistaticRCSPhi"]
@@ -60,7 +61,7 @@ NF_QUANTITIES = ["NearETotal", "NearEX", "NearEY", "NearEZ", "NearHTotal", "Near
 
 
 # units of the report quantities (linear); dB of them is "dB", of an area "dBsm"
-_QTY_UNITS = {"S": "", "Y": "S", "Z": "Ω", "VSWR": "", "Gamma": "", "Freq": "Hz", "F": "Hz",
+_QTY_UNITS = {"S": "", "Y": "S", "Z": "Ω", "VSWR": "", "Zo": "Ω", "Gamma": "1/m", "Freq": "Hz", "F": "Hz",
               "RadiatedPower": "W", "AcceptedPower": "W", "IncidentPower": "W", "MaxU": "W/sr",
               "ThetaAtMax": "deg", "PhiAtMax": "deg"}
 _PREFIX_UNITS = (("rE", "V"), ("NearE", "V/m"), ("NearH", "A/m"), ("BistaticRCS", "m²"), ("MonostaticRCS", "m²"))
@@ -114,7 +115,7 @@ def trace_unit(doc, trace: str) -> str | None:
             return None
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             fn, args = node.func.id, node.args
-            if fn in ("S", "Y", "Z", "VSWR"):
+            if fn in ("S", "Y", "Z", "VSWR", "Zo", "Gamma"):
                 return _QTY_UNITS[fn]
             if fn == "GroupDelay":
                 return "s"
@@ -129,7 +130,7 @@ def trace_unit(doc, trace: str) -> str | None:
                 return "deg"
             if fn in ("ang_rad", "phase", "angle"):
                 return "rad"
-            if fn in ("mag", "abs", "re", "im", "real", "imag", "conj"):
+            if fn in ("mag", "abs", "re", "im", "real", "imag", "conj", "x", "y", "z", "rho", "phi", "r", "theta"):
                 return inner
         return None
     return unit(tree)
@@ -202,8 +203,11 @@ def adaptive_pass_data(st: ResultStore, sol: str) -> dict | None:
     last = st.sparams("LastAdaptive")
     z0 = last["z0"] if last is not None else np.array([50.0])
     x = np.array([p["pass"] for p in passes], float)
-    return {"freq": x, "S": np.array(S), "z0": z0, "solved": x, "ports": last["ports"] if last is not None else [],
-            "xaxis": "Pass", "adaptive_freq": fa[k]}
+    out = {"freq": x, "S": np.array(S), "z0": z0, "solved": x, "ports": last["ports"] if last is not None else [],
+           "xaxis": "Pass", "adaptive_freq": fa[k]}
+    if last is not None and last.get("terminals"):
+        out["terminals"] = last["terminals"]
+    return out
 
 
 def antenna_solution_list(doc) -> list[str]:
@@ -345,8 +349,8 @@ def load_solution(doc, solution: str, root=None) -> tuple[ResultStore, str, dict
     setup, _, sol = [x.strip() for x in solution.partition(":")]
     st = ResultStore(result_dir(doc, setup) if root is None else root / _safe(setup))
     if sol.startswith("AdaptivePasses"):
-        return st, sol, adaptive_pass_data(st, sol)
-    return st, sol, st.sparams(sol)
+        return st, sol, with_pairs(adaptive_pass_data(st, sol), doc.design)
+    return st, sol, with_pairs(st.sparams(sol), doc.design)
 
 
 def x_axis(data: dict) -> tuple[np.ndarray, str, float]:
@@ -354,6 +358,24 @@ def x_axis(data: dict) -> tuple[np.ndarray, str, float]:
     if data.get("xaxis") == "Pass":
         return data["freq"], "Pass", 1.0
     return data["freq"] / 1e9, "Freq [GHz]", 1e-9
+
+
+def flat_ylim(ax, ys: list, rel: float = 1e-9) -> None:
+    """y range of curves that are constant up to rounding (the Zo of a TEM port over a sweep): +-1 % around
+    the value, not an autoscale onto the last digits that draws the rounding noise as a random curve."""
+    v = np.concatenate([np.ravel(np.asarray(y, float)) for y in ys]) if ys else np.zeros(0)
+    v = v[np.isfinite(v)]
+    if not len(v):
+        return
+    lo, hi = float(v.min()), float(v.max())
+    mid = 0.5 * (lo + hi)
+    if hi - lo > rel * max(abs(lo), abs(hi)):
+        return
+    half = 0.01 * abs(mid) or 1.0
+    ax.set_ylim(mid - half, mid + half)
+    fmt = ax.yaxis.get_major_formatter()
+    if hasattr(fmt, "set_useOffset"):
+        fmt.set_useOffset(False)
 
 
 def apply_func(func: str, v: np.ndarray) -> np.ndarray:
@@ -573,9 +595,9 @@ class ReportWindow(QWidget):
             self.cut_val = QLineEdit(report.props.get("cut_value", "0"))
             self.cut.currentTextChanged.connect(lambda *_: self._save_props())
             self.cut_val.editingFinished.connect(self._save_props)
-            form.addRow("Constant:", self.cut)
-            form.addRow("Value (deg):", self.cut_val)
-            if report.kind == "Radiation Pattern":
+            if report.kind == "Radiation Pattern":   # the 2D cut; the 3D polar plot shows the whole sphere
+                form.addRow("Constant:", self.cut)
+                form.addRow("Value (deg):", self.cut_val)
                 self.ff_plot = QComboBox()
                 self.ff_plot.addItems(["Polar", "Rectangular"])
                 self.ff_plot.setCurrentText(report.props.get("plot", "Polar"))
@@ -643,6 +665,11 @@ class ReportWindow(QWidget):
         form.addRow("Quantity:", self.qty)
         form.addRow("Function:", self.func)
         ll.addLayout(form)
+        # what the numbers in S(i,j), Zo(i) ... are: the ports, or the terminals of a terminal solution
+        self.numbering = QLabel()
+        self.numbering.setWordWrap(True)
+        self.numbering.setVisible(False)
+        ll.addWidget(self.numbering)
         if report.kind not in ("Radiation Pattern", "3D Polar Plot"):
             er = QHBoxLayout()
             self.expr = QLineEdit()
@@ -763,26 +790,100 @@ class ReportWindow(QWidget):
         self.changed.emit()
         self.refresh()
 
+    def _s_labels(self) -> list[tuple[str, str]]:
+        try:
+            from ..solver.results import s_labels
+            st, _, _ = load_solution(self.doc, self.sol.currentText())
+            return s_labels(st)
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _show_numbering(self, cat: str) -> None:
+        """The names behind the numbers (Terminals: 1 = P1_TraceP, ...) under the quantity, and as tool tips of
+        the quantities."""
+        rows = [] if cat in ("Equations", "Propagation Constant") else self._s_labels()
+        names = {str(i + 1): n for i, (n, _) in enumerate(rows)}
+        term = bool(rows) and rows[0][1] == "Terminal"
+        self.numbering.setVisible(len(rows) > 1)
+        self.numbering.setText(("Terminals: " if term else "Ports: ")
+                               + ", ".join(f"{i} = {n}" for i, n in names.items()))
+        for k in range(self.qty.count()):
+            idx = re.findall(r"[(,]\s*(\w+)", self.qty.itemText(k))
+            tip = ", ".join(f"{i} = {names[i]}" for i in dict.fromkeys(idx) if i in names)
+            if tip:
+                self.qty.setItemData(k, tip, Qt.ToolTipRole)
+
     def _fill_qty(self, *_):
         if self.report.kind in ("Radiation Pattern", "3D Polar Plot", "Near Field Line") + ANTENNA_KINDS \
                 or self.report.kind.startswith("Monostatic RCS"):
             return
         self.qty.clear()
+        try:
+            self._fill_qty_items()
+        finally:
+            if getattr(self, "numbering", None) is not None:
+                self._show_numbering(self.cat.currentText())
+
+    def _fill_qty_items(self) -> None:
         n = self._ports()
         cat = self.cat.currentText()
         if cat == "Equations":
             from .calc_bridge import value_names
             self.qty.addItems(value_names(self.doc, fields=is_fields_report(self.doc, self.report)))
             self.func.setCurrentText("<none>")       # values in their own unit (W, V, J, ...)
-        elif cat == "VSWR":
-            self.qty.addItems([f"VSWR({i})" for i in range(1, n + 1)])
-        elif cat == "Gamma":
-            self.qty.addItems([f"S({i},{i})" for i in range(1, n + 1)])
-        elif cat == "Group Delay":
-            self.qty.addItems([f"GroupDelay(S({i},{j}))" for i in range(1, n + 1) for j in range(1, n + 1)])
-        else:
-            letter = cat[0]
-            self.qty.addItems([f"{letter}({i},{j})" for i in range(1, n + 1) for j in range(1, n + 1)])
+            return
+        if cat in ("Port Zo", "Propagation Constant"):
+            key, fn = ("zo", "Zo") if cat == "Port Zo" else ("gamma", "Gamma")
+            k = self._port_quantity_count(key)
+            self.qty.addItems([f"{fn}({i})" for i in range(1, k + 1)])
+            return
+        # with differential pairs: first the mixed-mode quantities, then the single-ended ones
+        rows = self._row_names(n)
+        for mm in ([self._mixed_ports(n)] if self._mixed_ports(n) else []) + [rows]:
+            if cat == "VSWR":
+                self.qty.addItems([f"VSWR({i})" for i in mm])
+            elif cat == "Gamma":
+                self.qty.addItems([f"S({i},{i})" for i in mm])
+            elif cat == "Group Delay":
+                self.qty.addItems([f"GroupDelay(S({i},{j}))" for i in mm for j in mm])
+            else:
+                letter = cat[0]
+                self.qty.addItems([f"{letter}({i},{j})" for i in mm for j in mm])
+
+    def _mixed_ports(self, n: int) -> list:
+        """With differential pairs, the port indices of the mixed-mode quantities: the Diff/Comm modes and the
+        terminals that are in no pair; without pairs an empty list."""
+        from ..solver.expressions import diff_pairs
+        pairs = diff_pairs(self.doc.design)
+        if not pairs:
+            return []
+        used = {int(q["pos"]) for q in pairs} | {int(q["neg"]) for q in pairs}
+        return ([f"Diff{k + 1}" for k in range(len(pairs))] + [f"Comm{k + 1}" for k in range(len(pairs))]
+                + [r for i, r in enumerate(self._row_names(n), 1) if i not in used])
+
+    def _row_names(self, n: int) -> list:
+        """The rows of S as the quantities name them: terminal or port-mode names (S(P1_M1,P1_M2)), or the
+        numbers when no port has several modes or terminals."""
+        try:
+            from ..solver.results import row_names
+            _, _, data = load_solution(self.doc, self.sol.currentText())
+            if data is not None:
+                names = row_names(data.get("ports") or [], data.get("terminals"))
+                if len(names) == n:
+                    return names
+        except Exception:  # noqa: BLE001
+            pass
+        return [str(i) for i in range(1, n + 1)]
+
+    def _port_quantity_count(self, key: str) -> int:
+        """Number of port impedances (one per port or terminal) or propagation constants (one per mode)."""
+        try:
+            _, _, data = load_solution(self.doc, self.sol.currentText())
+            if data is not None and key in data:
+                return int(np.asarray(data[key]).shape[1])
+        except Exception:  # noqa: BLE001
+            pass
+        return self._ports()
 
     def _apply(self) -> None:
         expr = self._expr()
@@ -1319,17 +1420,80 @@ class ReportWindow(QWidget):
         QApplication.clipboard().setImage(self.canvas.grab().toImage())
         self.info.setText("Plot copied to the clipboard")
 
-    def _columns(self):
+    def _export_curves(self) -> tuple[str, list[tuple[str, np.ndarray, np.ndarray]]]:
+        """(x label, [(column name, x, y)]): exactly the curves of the report as drawn, in the units of
+        its axes (GHz, deg, ...), for Copy Data and Export."""
+        p = self.report.props
+        kind = self.report.kind
+        if kind == "3D Polar Plot":
+            raise RuntimeError("A 3D polar plot has no curves to export; export a Radiation Pattern cut "
+                               "or the plot as PNG")
+        if kind == "Radiation Pattern":
+            q = self._ff()
+            other = "Theta" if p.get("cut", "Phi") == "Phi" else "Phi"
+            curves = []
+            for tr in self.report.traces:
+                if ff_trace(tr)[1] in q:
+                    ang, y = self._ff_cut(q, tr)
+                    curves.append((with_unit(self.doc, tr), np.degrees(ang), y))
+            return (p.get("xlabel") if self._ff_rect() else None) or f"{other} [deg]", curves
+        if kind.startswith("Monostatic RCS"):
+            f, xl, _, cols, _ = self._rcs_series()
+            return ((p.get("xlabel") if kind != "Monostatic RCS Table" else None) or xl,
+                    [(tr + (" [dBsm]" if tr.startswith(("dB10", "dBsm")) else " [m²]"), f, y) for tr, y in cols])
+        if kind == "Near Field Line":
+            x, xl, cols, _ = self._near_series()
+            return xl, [(with_unit(self.doc, tr), x, y) for tr, y in cols]
         _, _, data = self._data()
-        xs, xlabel, _ = x_axis(data)
-        return xs, xlabel, self._family_columns()
+        xlabel = x_axis(data)[1]
+        variations = self._variations()
+        curves = []
+        if kind == "Smith Chart":
+            for tr, suffix, root in [(t, s, r) for t in self.report.traces for s, r in variations]:
+                m = re.match(r"^\s*(?:\w+\()?S\((\d+),(\d+)\)\)?\s*$", tr)
+                if not m:
+                    continue
+                d = data if root is None else self._sol_data(None, root)
+                g = d["S"][:, int(m.group(1)) - 1, int(m.group(2)) - 1]
+                xs = x_axis(d)[0]
+                name = f"S({m.group(1)},{m.group(2)})" + suffix
+                curves += [(f"re({name})", xs, g.real), (f"im({name})", xs, g.imag)]
+            return xlabel, curves
+        for tr in self.report.traces:
+            for suffix, root in variations:
+                xs, y = self._trace_xy(tr, root)
+                curves.append((with_unit(self.doc, tr) + suffix, xs, y))
+        if kind not in ("Data Table", "Antenna Parameters Table"):
+            xlabel = p.get("xlabel") or xlabel
+        return xlabel, curves
+
+    def _export_rows(self) -> tuple[list[str], list[list[float]]]:
+        """Header and rows of the exported data: one x column when all curves share their x values,
+        an x column per curve otherwise (each curve is written with the points it is drawn with)."""
+        xlabel, curves = self._export_curves()
+        if not curves:
+            raise RuntimeError("The report has no traces with data to export")
+        x0 = curves[0][1]
+        if all(len(c[1]) == len(x0) and np.allclose(c[1], x0, equal_nan=True) for c in curves):
+            cols = [x0] + [c[2] for c in curves]
+            header = [xlabel] + [c[0] for c in curves]
+        else:
+            cols = [a for c in curves for a in (c[1], c[2])]
+            header = [h for c in curves for h in (f"{xlabel} ({c[0]})", c[0])]
+        n = max(len(c) for c in cols)
+        rows = [[float(np.real(c[r])) if r < len(c) else np.nan for c in cols] for r in range(n)]
+        return header, rows
 
     def copy_data(self) -> None:
-        xs, xlabel, cols = self._columns()
-        lines = ["\t".join([xlabel] + [c[0] for c in cols])]
-        for r in range(len(xs)):
-            lines.append("\t".join([f"{xs[r]:.10g}"] + [f"{c[1][r]:.10g}" if r < len(c[1]) else "" for c in cols]))
+        try:
+            header, rows = self._export_rows()
+        except Exception as e:  # noqa: BLE001
+            self.info.setText(f"<span style='color:#c0392b'>Copy Data: {e}</span>")
+            return
+        lines = ["\t".join(header)]
+        lines += ["\t".join("" if np.isnan(v) else f"{v:.10g}" for v in r) for r in rows]
         QApplication.clipboard().setText("\n".join(lines))
+        self.info.setText(f"{len(rows)} rows of {len(header)} columns copied to the clipboard")
         self.info.setText("Data copied to the clipboard (tab separated)")
 
     def save_template(self) -> None:
@@ -1368,22 +1532,23 @@ class ReportWindow(QWidget):
         data = self._sol_data(sol, root)
         xs, _, _ = x_axis(data)
         v = eval_expr(data, expr, self._outvars())
-        return xs, (np.real(v) if np.iscomplexobj(v) else v.astype(float))
+        return xs, (np.abs(v) if np.iscomplexobj(v) else v.astype(float))
 
     def _field_trace(self, expr: str, sol: str | None, root=None):
         """A trace with values of the Fields Calculator: each named value at every frequency with saved
         fields (S, Y, Z of the trace are taken at those frequencies)."""
-        from .calc_bridge import field_names_in, over_frequency
+        from .calc_bridge import field_names_in, over_frequency, vector_parts
         cache = self.__dict__.setdefault("_cache", {})
         key = sol or self.sol.currentText()
         st, _, data = load_solution(self.doc, key, root)
         port = int(self.report.props.get("port", "1") or 1)
         names = dict(_FUNCS)
         f = None
-        for n in field_names_in(self.doc.design, expr):
-            ck = ("field", n, key, root, port)
+        expr, parts = vector_parts(self.doc, expr)          # mag(Spp), x(Spp): computed by the calculator
+        for n, src in [(n, n) for n in field_names_in(self.doc.design, expr)] + list(parts.items()):
+            ck = ("field", src, key, root, port)
             if ck not in cache:
-                cache[ck] = over_frequency(self.doc, n, key, port, store=st if root is not None else None)
+                cache[ck] = over_frequency(self.doc, src, key, port, store=st if root is not None else None)
             f, names[n] = cache[ck]
         names.update({"Freq": f, "pi": np.pi, "j": 1j})
         if data is not None and re.search(r"\b(S|Y|Z|VSWR)\s*\(", expr):
@@ -1393,7 +1558,7 @@ class ReportWindow(QWidget):
             for k in ("S", "Y", "Z", "VSWR"):
                 names[k] = (lambda k=k: lambda *a: eval_expr(sub, f"{k}({','.join(map(str, a))})"))()
         v = np.asarray(_ast_eval(expr, names)) * np.ones(len(f))
-        return f / 1e9, (np.real(v) if np.iscomplexobj(v) else v.astype(float))
+        return f / 1e9, (np.abs(v) if np.iscomplexobj(v) else v.astype(float))
 
     def _sol_data(self, sol: str | None, root=None):
         cache = self.__dict__.setdefault("_cache", {})
@@ -1587,6 +1752,10 @@ class ReportWindow(QWidget):
         if passes:
             from matplotlib.ticker import MaxNLocator
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        if self.report.props.get("ylog") != "True":
+            for a in (ax, ax2):
+                if a is not None:
+                    flat_ylim(a, [c[2] for c in curves if c[3] is a])
         self._apply_axes(ax, ax2)
         ax.set_xlabel(p.get("xlabel") or xlabel)
         y1 = [t for t in self.report.traces if not self._style(t).get("y2")]
@@ -1687,7 +1856,8 @@ class ReportWindow(QWidget):
                           (f"{len(f)} adaptive passes at {d['adaptive_freq'] / 1e9:.6g} GHz" if passes
                            else f"{len(f)} frequencies") + ". Double-click: marker. Right-click: markers, axes.")
 
-    def _draw_near(self) -> None:
+    def _near_series(self):
+        """(distance, x label, [(trace, values)], near field) of the Near Field Line traces."""
         ev = self.doc.evaluator()
         p = self.report.props
         p1 = ev.point(p.get("start", "0,0,0"))
@@ -1696,18 +1866,25 @@ class ReportWindow(QWidget):
         nf = near_field_line(self.doc, self.sol.currentText(), p1, p2, n)
         from ..model.expr import LENGTH_UNITS
         s = LENGTH_UNITS.get(self.doc.design.units, 1e-3)
-        x = nf["distance"] / s
-        self.fig.clear()
-        ax = self.fig.add_subplot(111)
+        cols = []
         for tr in self.report.traces:
             m = re.match(r"(\w+)\((\w+)\)", tr)
             if not m or m.group(2) not in nf:
                 continue
             func, name = m.groups()
             v = nf[name]
-            y = apply_func("dB" if func == "dB" else func, v) if func != "mag" else np.abs(v)
+            cols.append((tr, apply_func("dB" if func == "dB" else func, v) if func != "mag" else np.abs(v)))
+        return nf["distance"] / s, f"Distance along line [{self.doc.design.units}]", cols, nf
+
+    def _draw_near(self) -> None:
+        p = self.report.props
+        x, xl, cols, nf = self._near_series()
+        n = len(x)
+        self.fig.clear()
+        ax = self.fig.add_subplot(111)
+        for tr, y in cols:
             ax.plot(x, y, label=tr)
-        ax.set_xlabel(f"Distance along line [{self.doc.design.units}]")
+        ax.set_xlabel(xl)
         ax.set_ylabel(self.report.props.get("ylabel") or self._units_label(self.report.traces))
         ax.grid(True, alpha=0.4)
         ax.legend(loc="best", fontsize=8)
@@ -1902,11 +2079,17 @@ class ReportWindow(QWidget):
                                               "CSV (*.csv);;Touchstone (*.s*p);;PNG image (*.png)")
         if not path:
             return
+        try:
+            self.export_to(path)
+        except Exception as e:  # noqa: BLE001
+            self.info.setText(f"<span style='color:#c0392b'>Export failed: {e}</span>")
+
+    def export_to(self, path: str) -> None:
         if path.endswith(".png") and self.fig is not None:
             self.fig.savefig(path, dpi=150)
             return
-        st, sol, data = self._data()
         if ".s" in path[-5:]:
+            st, sol, data = self._data()
             if "S" not in data:
                 self.info.setText("Touchstone needs S-parameters; export the antenna parameters as CSV")
                 return
@@ -1916,8 +2099,7 @@ class ReportWindow(QWidget):
                 return
             st.write_touchstone(sol, data["freq"], data["S"], data["z0"], path)
             return
-        fc = self._family_columns()
-        arr = np.column_stack([data["freq"]] + [c[1] for c in fc])
-        xh = "Pass" if data.get("xaxis") == "Pass" else "Freq [Hz]"
-        np.savetxt(path, arr, delimiter=",", header=",".join([xh] + [with_unit(self.doc, c[0]) for c in fc]),
-                   comments="")
+        header, rows = self._export_rows()
+        np.savetxt(path, np.array(rows, float).reshape(len(rows), len(header)), delimiter=",", fmt="%.10g",
+                   header=",".join(f'"{h}"' if "," in h else h for h in header), comments="")
+        self.info.setText(f"Exported {len(rows)} rows to {path}")

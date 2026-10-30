@@ -607,3 +607,36 @@ def test_open_library_imports_ticked_equations():
     assert win.des.field_funcs == ["emax(G) = max(G, |E|)"]
     win.doc.dirty = False
     win.close()
+
+
+def test_vector_value_in_a_fields_report(monkeypatch):
+    """A vector value (an integral of a vector field) goes into Fields reports as its magnitude and components."""
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    from hertzon.gui import calc_bridge as CB
+    from hertzon.gui import reports as R
+    from hertzon.gui.doc import Document
+    from hertzon.model.design import FieldExpression, Project, Report
+    doc = Document(Project())
+    d = doc.design
+    d.add_object("CreateBox", "Box", Position="0,0,0", XSize="1", YSize="1", ZSize="1")
+    doc.rebuild()
+    d.field_exprs += [FieldExpression("Spp", "int_surf(Box, E × H)"), FieldExpression("Pin", "flux(Box, re(S))")]
+    assert CB.value_names(doc, fields=True) == ["mag(Spp)", "x(Spp)", "y(Spp)", "z(Spp)", "Pin"]
+    assert CB.vector_parts(doc, "2*mag(Spp) + x( Spp )") == ("2*_part0 + _part1", {"_part0": "mag(Spp)",
+                                                                                   "_part1": "x( Spp )"})
+    assert R.trace_unit(doc, "mag(Spp)") == R.trace_unit(doc, "x(Spp)") == "W"
+    r = Report("R", "Rectangular", "Setup1 : LastAdaptive", ["mag(Spp)"], {"fields": "1"})
+    assert R.is_fields_report(doc, r)
+    seen = []
+
+    def over(doc_, src, *a, **k):
+        seen.append(src)
+        return np.array([2.45e9]), np.array([{"mag(Spp)": 3.0, "x(Spp)": 1 + 2j}[src.replace(" ", "")]])
+    monkeypatch.setattr(CB, "over_frequency", over)
+    monkeypatch.setattr(R, "load_solution", lambda *a, **k: (None, None, None))
+    w = R.ReportWindow(doc, r)
+    x, y = w._field_trace("mag(Spp) + x(Spp)", None)
+    # complex without a function: drawn as its magnitude, like S(1,1) (#136)
+    assert seen == ["mag(Spp)", "x(Spp)"] and list(x) == [2.45] and y == pytest.approx([abs(4 + 2j)])
+    assert CB.uses_fields(doc, ["mag(Spp)"])          # Add to Report of a vector value: a Fields report

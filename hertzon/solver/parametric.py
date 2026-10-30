@@ -375,7 +375,8 @@ class ParametricRun:
                 data = ResultStore(folder / _safe(setup)).sparams(sol)
                 if data is None:
                     raise RuntimeError(f"no solution '{c.get('solution')}'")
-                vals[name] = calc_value(c, data, self.ev, self.outvars)
+                from .expressions import with_pairs
+                vals[name] = calc_value(c, with_pairs(data, self.des), self.ev, self.outvars)
             except Exception as ex:  # noqa: BLE001
                 vals[name] = None
                 log(f"{variation_label(row['variables'])}: {name}: {ex}", "warning")

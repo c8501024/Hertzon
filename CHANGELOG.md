@@ -16,6 +16,146 @@ the GitHub release notes.
 - **Showcase project**: the coax-fed monopole has its inner conductor, 50 ohm, an annular port and a far
   field with its PML.
 
+## 0.2.7 (2026-10-30)
+
+### Added
+- **SPARTA as matrix solver.** A setup's *Matrix solver* (and the default in Tools > Options) now offers
+  *SPARTA (GPU)* and *SPARTA (CPU)*: the sparse direct solver of EMerge's author, which factors the matrix on
+  the graphics card (Metal on Apple silicon, Vulkan on AMD and NVIDIA under Windows and Linux, single
+  precision) or on the processor (double precision). SPARTA is optional (AGPL-3.0): *Install SPARTA* in
+  Tools > Options > HPC and Analysis installs its release wheel into Hertzon's Python environment. Without a
+  usable GPU, SPARTA (GPU) factorizes on the CPU and says so in the log; periodic cells use its LU, as their
+  matrix is not symmetric. SPARTA's CPU solver uses MKL (installed with PARDISO) instead of its OpenBLAS,
+  which crashed the solver with 64 threads, and keeps its symbolic analysis for all frequencies of the sweeps
+  on the final mesh (it was repeated for every batch of an interpolating sweep). With SPARTA the frequencies of a sweep are solved one after another, and the Fast
+  sweep keeps PARDISO. *PARDISO + SPARTA sweep (CPU/GPU)* solves the adaptive passes with PARDISO (every pass
+  is a new mesh, where SPARTA's analysis is slow) and the sweeps on the final mesh with SPARTA.
+- **Solver comparison in the benchmark**: `python -m hertzon.solver.benchmark ... --solvers "PARDISO,SPARTA (CPU)"`
+  solves the setup with each solver and then the sweeps of every further solver on the first solver's final
+  mesh, with the sweep time and the largest S-parameter difference to the first solver. In Tools > Solver
+  Benchmark this is the *Solver Comparison* tab: check the solvers (PARDISO, SPARTA (CPU) and SPARTA (GPU)
+  by default), solve with all cores, and compare the time per phase, the sweeps on the same mesh, the peak
+  memory and the S-parameter difference; a run that could not use its solver (SPARTA not installed, no
+  usable GPU) is marked. *Make Fastest the Default Solver* sets the default for new setups.
+- **Rename a report** (#130): right click a report in the project tree > Rename... gives the report and its
+  open tab a new name; a name that another report already has is refused.
+
+### Fixed
+- **First click on an object no longer hangs for seconds.** The Properties of the clicked object list every
+  material, and the first time this read the EMerge material library, whose import (with scipy) took several
+  seconds on a cold start. The library is now read in the background as soon as the window is open.
+- **3D polar plot** (#129) no longer shows the *Constant* and *Value (deg)* fields of the 2D radiation
+  pattern cut; the 3D plot shows the whole sphere, and the fields had no effect on it.
+- **Port Zo over a sweep** (#125): the Zo of a TEM port is the same at every frequency up to rounding
+  (1e-12 ohm), and a report of it alone autoscaled onto those last digits, so the flat line looked like
+  random data. A curve that is constant up to rounding is now drawn in a range of +-1 % around its value,
+  without an axis offset; set Y min/max in the report to choose another range.
+- **Export Data and Copy Data of a report** (#136) write the curves as the report draws them: the x values
+  in the units of the axis (GHz, the angle of a far-field cut in deg, the distance of a near-field line), one
+  x column per curve when the curves have different x values, and quoted column names. Far-field cuts and
+  sweeps with fields gave an empty file or none; a failed export now says why in the report's info line. A
+  complex trace without a function (`S(1,1)`, `Zo(1)`) is drawn and exported as its magnitude, not its real
+  part.
+- **Curved elements next to a radiation boundary or lumped port.** A curved surface that touched a radiation
+  boundary, a lumped port or an impedance face was meshed flat, and so was every curved surface connected to
+  it: a cone or post standing on the air box lost all its curved elements (the mesh plot showed the facets).
+  Now only the edges on such a face stay straight; only a wave port still keeps the curved surfaces connected
+  to it flat. (EMerge `78a7003`, FennisRobert/EMerge#91.)
+
+## 0.2.6 (2026-10-28)
+
+### Fixed
+- **Update without "Set up the Python environment"**: when that component of the installer was switched off
+  for an update (or failed), the new program ran on the packages of the old version (for example the previous EMerge)
+  and showed "First start detected" until its first solve, because the setup never compiled the kernels.
+  The installer now marks the Python environment as outdated, so Hertzon.exe updates it and compiles the
+  kernels at the next start, as the installer's message already promised.
+- **Solver kernels are compiled again only when they change**: a new EMerge (also another build with the same
+  version number), numba, Python or a change of Hertzon's own kernels. An update that keeps all of them no
+  longer runs the warm-up in the setup and shows no "First start detected" note; Hertzon's own few kernels
+  are compiled quickly during the first solve.
+- **Vector values in reports**: an equation that is a vector value, e.g. the integral `int_surf(Patch, E × H)`,
+  was offered nowhere. Fields reports now list its magnitude and components (`mag(Spp)`, `x(Spp)`, ...),
+  and Add to Report on the equation makes a Fields report of its magnitude. The calculator says that an
+  integral is a value, not a field plot, and that the integrand without the integral is the field to plot.
+
+## 0.2.5 (2026-10-27)
+
+### Added
+- **Periodic unit cells and Floquet ports** are now solved. Primary / Secondary boundaries tie every
+  Secondary face to the Primary face it is a translated copy of (one lattice vector away) and make the model
+  a unit cell of an infinite array. The phase between them comes from the new *Scan angle theta / phi* of the
+  Secondary boundary, or from the phase delay (*Phase delay: Input Phase Delay*), which is converted to the
+  scan angles at the solution frequency. Floquet ports on faces normal to z excite and absorb the plane
+  waves TE00 and, with two modes, TM00 in the scan direction; S-parameters have one row per mode
+  (Matrix Data lists them as `FP1:TE00`, `FP1:TM00`, ...). Checked against the exact transmission through a
+  dielectric slab at normal and oblique incidence. Limits: higher Floquet modes, a Floquet port in a
+  dielectric, and TM00 at oblique incidence (absorbed with the TE00 propagation constant) are not available.
+  Periodic models are solved with PARDISO (EMerge `9ef0053` solves the non-symmetric system of a periodic
+  cell correctly); with an EMerge whose PARDISO interface solves the transposed system Hertzon falls back to
+  SuperLU.
+- **Example `examples/FSS_UnitCell.hzn`** (File > Open Example): a cross dipole frequency selective surface
+  as a periodic unit cell with Floquet ports below and above. The showcase's unit cell design is solved now.
+- **Terminal solution**: a design of solution type Terminal is now solved as terminals instead of modes.
+  Each lumped port is one terminal; a wave port gets one terminal per signal conductor touching its face,
+  with the largest conductor (or the one named in the port's new *Reference conductor*, Terminals tab) as
+  reference. The terminal S-parameters refer to 50 ohm, or to the renormalization impedance when
+  Renormalize is on. The solver log names the terminals of every port. A wave port with one signal
+  conductor gives exactly the renormalized result of the modal port. A wave port with several signal
+  conductors absorbs each of its modes with the mode's own propagation constant, so the even and odd mode of
+  coupled lines (differential microstrip pairs) leave the model without spurious reflection.
+- **Differential pairs** (Simulation > Excitations > Diff. Pairs, or right click Excitations): pairs of
+  terminals with the reference impedances of the differential and common mode (default twice and half the
+  terminal reference). Reports offer the mixed-mode quantities `S(Diff1,Diff1)`, `S(Diff2,Diff1)`,
+  `S(Comm1,Diff1)`, `Z(...)`, `Y(...)` and `VSWR(Diff1)` next to the single-ended ones, also in output
+  variables, optimization goals and parametric calculations. Changing the pairs needs no new solve.
+- **Port impedance and propagation constant as report quantities**: `Zo(i)` (ohm, per port or terminal) and
+  `Gamma(i)` (1/m, per port mode; `re(Gamma(1))` is the attenuation, `im(Gamma(1))` the phase constant),
+  categories *Port Zo* and *Propagation Constant*. Stored over frequency for every new solution.
+- **Port Field Display**: right click a wave port > Port Field Display: Mode k shows the mode field on the
+  port face (magnitude and arrows) with its Zo and Gamma; Hide Port Field removes it.
+- **Example `examples/DifferentialPair.hzn`** (File > Open Example): a 100 ohm edge-coupled microstrip pair
+  with the terminal solution, differential pairs and reports of the mixed-mode S-parameters, the line
+  impedances and the propagation constants; tutorial section 9 walks through it.
+- **Named rows of S**: with terminals or ports of several modes, the report quantities name the rows,
+  `S(P1_TraceP,P1_TraceN)` for terminals and `S(P1_M1,P1_M2)` for port modes (Floquet ports
+  `S(FP1_TE00,FP1_TM00)`); the numbers keep working. The report dialog and the data table list which
+  terminal, port or mode each number is.
+- **Edit Sources per terminal**: a terminal design with a port of several terminals stores its fields per
+  terminal (1 W incident on the terminal, the others terminated in their reference impedance), and Edit
+  Sources lists the terminals. A differential pair is driven with 0.5 W at 0° and 180° on its two terminals,
+  so field plots, animations and far fields show the differential or the common mode.
+- **Solve ports only** (setup option): solves only the port modes of the wave ports at the solution and
+  sweep frequencies (Zo, Gamma, port fields) without the 3D solution, to check ports quickly.
+
+### Fixed
+- Hertzon now requires gmsh 4.15 or newer. With gmsh 4.13 or 4.14 one failed mesh generation (for example
+  on faces of an imported CAD model) left every later display and solver mesh of the session empty, so
+  ports and boundaries of the next model had no faces.
+- **Field plots of the Poynting vector** no longer turn with the plot phase. `S = 1/2 E x H*` is a time
+  average; the plot showed `Re{S e^(j phase)}`, so at other phases and in phase animations the arrows showed
+  the reactive power, and a real expression such as `re(S)` reversed its direction every half period. Real
+  expressions and expressions with `S` now show the same picture at every phase: the real part of `S`, the
+  active power flow.
+- **First click in the 3D view no longer hangs.** Right after the start, the first hover or click in the 3D
+  view stalled while the graphics driver built the shaders of the highlight styles (half transparent faces,
+  wide lines, vertex spheres). They are now drawn once, unseen, when the window opens.
+- **Rotate, Sweep Around Axis and Duplicate Around Axis** now use the working coordinate system (for example
+  an object or face coordinate system) instead of always the global one. The dialogs have a *Coordinate
+  system* field, preset to the working CS; Axis and Center are given in it.
+- Terminal solution, wave port with several signal conductors and mode type Auto: the port only accepted
+  TEM modes, and on coupled microstrip the odd quasi-TEM mode (a small axial field at high frequency) was
+  rejected, so the solve stopped with a division by zero. Auto now accepts every mode type; the log no
+  longer reports the missing conductor pair of such ports, whose impedances come from the terminals.
+- Wave ports with several modes: EMerge added the modes of a repeated modal analysis at one frequency to the
+  modes it already had (a sweep analyses its mean frequency and then every frequency), so a port with
+  several modes could mix the modes of two analyses. Hertzon now solves the modes of such ports once per
+  solve, and EMerge replaces the modes of a repeated analysis (EMerge `debe7ba`).
+- Wave ports with several modes of the same propagation constant (several conductors in one homogeneous
+  dielectric): EMerge returned these modes in any basis, often two almost equal modes, so the port could not
+  represent all fields and the S-parameters of a lossless model were not lossless (|S^H S − I| up to 0.54 on
+  two wires in a box). EMerge `debe7ba` makes them real and orthogonal; the same model now gives 1e-6.
+
 ## 0.2.4 (2026-10-26)
 
 ### Added

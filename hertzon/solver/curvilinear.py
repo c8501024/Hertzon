@@ -13,7 +13,7 @@ import os
 
 import numpy as np
 from emerge._emerge.physics.microwave.assembly.curvilinear import (  # noqa: F401
-    _PAIRS, _grads, curved_data, curved_volume, exclude_tags)
+    _PAIRS, _grads, curved_data, curved_data_bcs, curved_volume, exclude_tags)
 
 CTX: dict = {"enabled": True}
 

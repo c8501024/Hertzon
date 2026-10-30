@@ -108,8 +108,9 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    Conductivity, Impedance, Lumped RLC, Radiation, PML, Symmetry) and **Excitations** (Wave Port,
    Lumped Port, Incident Plane Wave). With Symmetry boundaries a half or quarter model is enough for the
    far field, which includes the mirror images; a port cut by the plane is still referred to the
-   impedance of the half port ([BACKLOG.md](BACKLOG.md)). Primary / Secondary (periodic) boundaries can
-   be assigned but are not passed to the solver yet, so Floquet ports have no periodic cell to work in.
+   impedance of the half port ([BACKLOG.md](BACKLOG.md)). Primary / Secondary (periodic) boundaries make
+   the model a unit cell of an infinite array, with the scan angle on the Secondary boundaries; Floquet
+   ports above and below the cell excite and absorb the plane waves TE00 and TM00.
    The **Lumped Elements** tab inserts chip resistors, inductors and capacitors (0201 to 1206 and RF
    series of Coilcraft and Murata) with a click on the board: pads, element sheet and Lumped RLC boundary
    with an ideal value, typical ESL/ESR or a Touchstone file of the vendor ([docs/LUMPED_ELEMENTS.md](docs/LUMPED_ELEMENTS.md)).
@@ -164,14 +165,16 @@ reports and field plots ready: after **Analyze All** (F5) double-click a report,
 | `examples/DroneRCS.hzn` | RCS of an imported drone STL model (`Delta_Composites_Demo_3_Layers/`) at 1 GHz, plane wave, 3D RCS pattern |
 | `examples/Coax.hzn` | 20 mm, 50 Ω PTFE coax with TEM wave ports, sweep 1-10 GHz, Vector E across and Mag E along the line on cut planes ([tutorial](docs/TUTORIAL.md#2-coaxial-cable-with-wave-ports)) |
 | `examples/Dipole.hzn` | Half-wave dipole for 1 GHz with a lumped port, **Auto Open**, gain, impedance and antenna parameters; second design: the **half model with a Symmetry boundary** (Perfect H), whose far field includes the mirror image ([tutorial](docs/TUTORIAL.md#3-half-wave-dipole)) |
+| `examples/DifferentialPair.hzn` | 100 Ω edge-coupled microstrip pair on RO4350B with the **terminal solution**: one wave port per end with a terminal per trace (even and odd mode each absorbed with its own propagation constant), **differential pairs** and the mixed-mode S-parameters `S(Diff1,Diff1)`, `S(Comm1,Diff1)`, sweep 1-12 GHz ([tutorial](docs/TUTORIAL.md#9-a-differential-pair-with-the-terminal-solution)) |
+| `examples/FSS_UnitCell.hzn` | Frequency selective surface: a cross dipole on RO3003 as the **periodic unit cell** of an infinite array (Primary / Secondary boundaries, scan angle `scan_theta`), **Floquet ports** below and above with TE00 and TM00, transmission and reflection 6-18 GHz |
 | `examples/GerberTestBoard.hzn` | Two-layer board with copper shapes, cut-outs, a via (grouped with its pad) and holes: the test case of **File > Export > Gerber** ([docs](docs/GERBER_EXPORT.md)) |
 | `examples/SphereRCS.hzn` | RCS of a 100 mm PEC sphere at 1 GHz, plane wave, **Auto Open**, bistatic and monostatic RCS reports, checked against the Mie series ([tutorial](docs/TUTORIAL.md#4-radar-cross-section-of-a-sphere)) |
-| `examples/Showcase_AllFeatures.hzn` | Test project that uses nearly every feature in six designs: patch array (all report types, field overlays, Fields Calculator, optimization, parametric sweeps, three setups, all sweep types, all mesh operations, coordinate systems), half-model iris filter (Symmetry, wave ports with modes, de-embedding and renormalization), eigenmode cavity, a geometry zoo with every create command and operation under a plane wave (RCS), a terminal coax monopole with PML and a periodic unit cell (Floquet port, not solved yet). Built by `python examples/make_showcase.py` |
+| `examples/Showcase_AllFeatures.hzn` | Test project that uses nearly every feature in six designs: patch array (all report types, field overlays, Fields Calculator, optimization, parametric sweeps, three setups, all sweep types, all mesh operations, coordinate systems), half-model iris filter (Symmetry, wave ports with modes, de-embedding and renormalization), eigenmode cavity, a geometry zoo with every create command and operation under a plane wave (RCS), a terminal coax monopole with PML and a periodic unit cell (grounded cross with a Floquet port, reflection phase). Built by `python examples/make_showcase.py` |
 
 `examples/benchmark/` holds the validation and timing cases (patch antenna, waveguide post against a reference,
 sphere RCS against the Mie series, scaling from small to large models) with their scripts.
-`python examples/make_examples.py` builds the first versions of four of them (waveguide, microstrip, patch,
-hairpin) from code; the shipped files were finished in Hertzon.
+`python examples/make_examples.py` builds the first versions of five of them (waveguide, microstrip, patch,
+hairpin, differential pair) from code; the shipped files were finished in Hertzon.
 
 ## Manufacturing data (Gerber)
 

@@ -815,12 +815,24 @@ class OptionsDialog(QDialog):
         self.workers.setRange(1, max(1, ncpu))
         self.workers.setValue(int(s.value("hpc/sweep_workers", 2)))
         self.solver = QComboBox()
-        self.solver.addItems(["Auto", "PARDISO", "MUMPS", "UMFPACK", "SuperLU"])
+        self.solver.addItems(list(schema.SOLVERS))
         self.solver.setCurrentText(s.value("hpc/default_solver", "Auto"))
         f.addRow("Number of cores", self.all_cores)
         f.addRow("", self.cores)
         f.addRow("Parallel sweep processes", self.workers)
         f.addRow("Default matrix solver (new setups)", self.solver)
+        self.sparta_state = QLabel()
+        self.sparta_install = QPushButton()
+        self.sparta_install.setToolTip("Installs the GPU/CPU sparse direct solver SPARTA (AGPL-3.0) of EMerge's\n"
+                                       "author from its GitHub release into Hertzon's Python environment.\n"
+                                       "Select it as 'SPARTA (GPU)' or 'SPARTA (CPU)' in a setup's Options.")
+        self.sparta_install.clicked.connect(self._install_sparta)
+        self._sparta_proc = None
+        row = QHBoxLayout()
+        row.addWidget(self.sparta_state, 1)
+        row.addWidget(self.sparta_install)
+        f.addRow("SPARTA solver", row)
+        self._sparta_status()
         f.addRow(QLabel("Cores are used by the matrix solver, meshing and field post-processing.\n"
                         "A value in a setup's 'Solver threads' overrides this for that setup."))
         tabs.addTab(hpc, "HPC and Analysis")
@@ -860,6 +872,42 @@ class OptionsDialog(QDialog):
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
 
+    def _sparta_status(self, note: str = "") -> None:
+        from ..solver import sparta_setup
+        v = sparta_setup.installed_version()
+        self.sparta_state.setText(note or (f"SPARTA {v} installed" if v else "Not installed"))
+        self.sparta_install.setText("Update SPARTA" if v and v != sparta_setup.VERSION else
+                                    "Reinstall SPARTA" if v else "Install SPARTA")
+
+    def _install_sparta(self) -> None:
+        """pip installs the SPARTA release wheel in a QProcess; the next solve uses it."""
+        from PySide6.QtCore import QProcess
+        from ..solver import sparta_setup
+        args = sparta_setup.install_args()
+        p = QProcess(self.win)        # keeps running when the dialog is closed
+        p.setProcessChannelMode(QProcess.MergedChannels)
+        out: list[bytes] = []
+        p.readyReadStandardOutput.connect(lambda: out.append(bytes(p.readAllStandardOutput())))
+
+        def done(code, _status):
+            text = b"".join(out).decode("utf-8", "replace").strip()
+            if code == 0:
+                self.win.msgs.add("info", f"SPARTA {sparta_setup.installed_version() or ''} installed; "
+                                          "select it as the matrix solver of a setup")
+            else:
+                self.win.msgs.add("error", f"Installing SPARTA failed: {text[-2000:]}")
+            try:
+                self._sparta_proc = None
+                self.sparta_install.setEnabled(True)
+                self._sparta_status("" if code == 0 else "Installation failed (see Message Manager)")
+            except RuntimeError:      # the dialog is gone
+                pass
+        p.finished.connect(done)
+        self.sparta_install.setEnabled(False)
+        self.sparta_state.setText("Installing ...")
+        self._sparta_proc = p
+        p.start(args[0], args[1:])
+
     def apply(self) -> None:
         s, w = self.win.settings, self.win
         s.setValue("hpc/cores", 0 if self.all_cores.isChecked() else self.cores.value())
@@ -880,7 +928,7 @@ class EditSourcesDialog(QDialog):
     """Edit Sources: magnitude and phase of every excitation for post processing, and for an
     incident wave the field that is shown (Total, Scattered or Incident)."""
 
-    def __init__(self, parent, design, on_apply=None):
+    def __init__(self, parent, design, on_apply=None, names: list[str] | None = None):
         super().__init__(parent)
         from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QComboBox, QDoubleSpinBox, QLabel, QHBoxLayout
         from ..model import sources as SRC
@@ -888,7 +936,8 @@ class EditSourcesDialog(QDialog):
         self.setWindowTitle("Edit Sources")
         self.resize(560, 320)
         lay = QVBoxLayout(self)
-        cur = SRC.get(design) or SRC.defaults(design)
+        # names: the terminals of a solved terminal design (its fields are stored per terminal)
+        cur = SRC.get(design, names) or SRC.defaults(design, names)
         kinds = {e.name: e.kind for e in design.excitations}
         self.names = list(cur)
         t = QTableWidget(len(self.names), 5)
@@ -897,7 +946,8 @@ class EditSourcesDialog(QDialog):
         self.mag, self.ph = {}, {}
         for r, n in enumerate(self.names):
             pw = kinds.get(n) == "Incident Plane Wave"
-            for c, txt in ((0, n), (1, "Incident Wave" if pw else "Port"), (3, "V/m" if pw else "W")):
+            for c, txt in ((0, n), (1, "Incident Wave" if pw else "Terminal" if names else "Port"),
+                           (3, "V/m" if pw else "W")):
                 it = QTableWidgetItem(txt)
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                 t.setItem(r, c, it)
@@ -924,7 +974,10 @@ class EditSourcesDialog(QDialog):
             row.addStretch(1)
             lay.addLayout(row)
         lay.addWidget(QLabel("Field plots and animations use these sources; no new solve is needed. "
-                             "Port fields are for 1 W incident power, scaled by sqrt(P)."))
+                             "Port fields are for 1 W incident power, scaled by sqrt(P)."
+                             + ("\nTerminals: the other terminals are terminated in their reference "
+                                "impedance. Differential mode with 1 W: 0.5 W on the positive terminal "
+                                "at 0 deg and 0.5 W on the negative terminal at 180 deg." if names else "")))
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Apply | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)

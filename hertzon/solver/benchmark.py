@@ -2,12 +2,18 @@
 on this computer.
 
 python -m hertzon.solver.benchmark PROJECT DESIGN SETUP OUTDIR [--cores 1,2,4] [--workers 1,2,4]
+                                   [--solvers "PARDISO,SPARTA (CPU),SPARTA (GPU)"]
 
 The setup is solved once per core count (1 core first), each time in a fresh solver process with
 HERTZON_CORES set, as the GUI does. With --workers the sweeps are then solved again with that many
 parallel sweep processes on the adaptive mesh of the fastest run (the fewest cores within 2 %). Every
 run is in OUTDIR/runs/<name>; the times per phase are in OUTDIR/benchmark.json. A file OUTDIR/ABORT
 stops it.
+
+With --solvers every core count is solved with each matrix solver (the setup's own when not given).
+Each solver refines its own mesh, so the sweeps of every further solver are then also solved on the
+final mesh of the first solver's run with the most cores: the same matrices, so the sweep times and
+the largest difference of the S-parameters to the first solver compare the solvers alone.
 """
 from __future__ import annotations
 
@@ -68,11 +74,35 @@ def run_summary(folder: Path) -> dict:
             "passes": len(passes), "tets": int(conv.get("final_tets") or (passes[-1]["tets"] if passes else 0)),
             "pass_times": [float(p.get("time", 0.0)) for p in passes],
             "memory_mb": max((float(p.get("memory", 0.0)) for p in prof), default=0.0),
-            "converged": bool(conv.get("converged", False))}
+            "converged": bool(conv.get("converged", False)), "notes": solver_notes(folder)}
+
+
+def solver_notes(folder: Path) -> list[str]:
+    """The run's warnings about its matrix solver (not installed, no usable GPU): a solver comparison that
+    silently measured another solver would mislead."""
+    tag = "@@HZN "
+    out = []
+    try:
+        lines = (folder / "solver.log").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        if not line.startswith(tag):
+            continue
+        try:
+            msg = json.loads(line[len(tag):])
+        except ValueError:
+            continue
+        text = str(msg.get("msg", ""))
+        if msg.get("type") == "log" and msg.get("level") == "warning" and text.startswith("Solver ") \
+                and text not in out:
+            out.append(text)
+    return out
 
 
 class Benchmark:
-    def __init__(self, project: str, design: str, setup: str, out: Path, cores: list[int], workers: list[int]):
+    def __init__(self, project: str, design: str, setup: str, out: Path, cores: list[int], workers: list[int],
+                 solvers: list[str] | None = None):
         self.out = out
         self.src = Project.load(project)
         self.design, self.setup = design, setup
@@ -80,6 +110,7 @@ class Benchmark:
         self.sweeps = [s.name for s in st.sweeps if s.props.get("Enabled", "True") == "True"]
         self.cores = sorted({max(1, int(c)) for c in cores})
         self.workers = sorted({max(1, int(w)) for w in workers})
+        self.solvers = list(dict.fromkeys(solvers or []))      # [] : the setup's own solver
         self.t0 = time.time()
         self.result = {"project": str(project), "design": design, "setup": setup, "machine": machine(),
                        "started": time.time(), "runs": []}
@@ -87,13 +118,15 @@ class Benchmark:
     def aborted(self) -> bool:
         return (self.out / "ABORT").exists()
 
-    def _project(self, name: str, parallel_sweeps: bool = False) -> Path:
+    def _project(self, name: str, parallel_sweeps: bool = False, solver: str = "") -> Path:
         p = self.src.clone()
         d = p.design(self.design)
         d.reports, d.field_plots, d.optimetrics, d.parametrics = [], [], [], []
         for st in d.setups:
             st.props["Threads"] = "0"                # the cores come from HERTZON_CORES
             st.props["SaveFields"] = "False"
+            if solver:
+                st.props["Solver"] = solver
             for sw in st.sweeps:
                 sw.props["SaveFields"] = "False"
                 if parallel_sweeps:
@@ -104,6 +137,7 @@ class Benchmark:
 
     def _env(self, cores: int, workers: int, only_sweep: str = "") -> dict:
         env = dict(os.environ)
+        env.pop("HERTZON_SOLVER", None)
         env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
@@ -144,24 +178,60 @@ class Benchmark:
             log("Compiling the solver kernels first, so that no run includes it")
             from .warmup import run as warmup
             warmup(lambda s: None)
-        n = len(self.cores) + (len(self.workers) if self.sweeps else 0)
+        solvers = self.solvers or [""]
+        n = len(self.cores) * len(solvers) + (len(self.workers) if self.sweeps else 0) \
+            + ((len(solvers) - 1) if self.sweeps else 0)
         log(f"Benchmark {self.design} : {self.setup}: cores {', '.join(map(str, self.cores))}"
+            + (f"; solvers {', '.join(solvers)}" if self.solvers else "")
             + (f"; parallel sweep processes {', '.join(map(str, self.workers))}" if self.workers and self.sweeps else ""))
-        path = self._project("case")
         k = 0
         runs = self.out / "runs"
-        for c in self.cores:
-            k += 1
-            folder = runs / f"cores_{c}"
-            shutil.rmtree(folder, ignore_errors=True)
-            folder.mkdir(parents=True)
-            if not self._solve(path, folder, self._env(c, 1), f"{c} core(s)", k, n):
-                return self._stop()
-            row = {"kind": "cores", "cores": c, "workers": 1, **run_summary(folder)}
-            self.result["runs"].append(row)
-            self._write()
-            log(f"{c} core(s): {row['total']:.1f} s (passes {row['adaptive']:.1f} s, sweep {row['sweep']:.1f} s), "
-                f"{row['passes']} passes, {row['tets']} tetrahedra")
+        for sv in solvers:
+            path = self._project(f"case_{_safe(sv)}" if sv else "case", solver=sv)
+            for c in self.cores:
+                k += 1
+                folder = runs / (f"{_safe(sv)}_cores_{c}" if sv else f"cores_{c}")
+                shutil.rmtree(folder, ignore_errors=True)
+                folder.mkdir(parents=True)
+                label = f"{sv}, {c} core(s)" if sv else f"{c} core(s)"
+                if not self._solve(path, folder, self._env(c, 1), label, k, n):
+                    return self._stop()
+                row = {"kind": "cores", "cores": c, "workers": 1, **run_summary(folder)}
+                if sv:
+                    row["solver"] = sv
+                self.result["runs"].append(row)
+                self._write()
+                log(f"{label}: {row['total']:.1f} s (passes {row['adaptive']:.1f} s, sweep {row['sweep']:.1f} s), "
+                    f"{row['passes']} passes, {row['tets']} tetrahedra")
+        if len(solvers) > 1 and self.sweeps:
+            # the sweeps of every further solver on the first solver's final mesh: the same matrices
+            ref = runs / f"{_safe(solvers[0])}_cores_{self.cores[-1]}"
+            for sv in solvers[1:]:
+                k += 1
+                folder = runs / f"{_safe(sv)}_on_{_safe(solvers[0])}_mesh"
+                shutil.rmtree(folder, ignore_errors=True)
+                shutil.copytree(ref, folder)
+                # the first solver's project, so that its adaptive solution is reused; the solver from the
+                # environment
+                path = self.out / f"case_{_safe(solvers[0])}.hzn"
+                total = 0.0
+                for sw in self.sweeps:
+                    for f in folder.glob(f"sparams_{_safe(sw)}.npz"):
+                        f.unlink()
+                    t = time.time()
+                    if not self._solve(path, folder, dict(self._env(self.cores[-1], 1, sw), HERTZON_SOLVER=sv),
+                                       f"{sv}: sweep on the mesh of {solvers[0]}", k, n):
+                        return self._stop()
+                    prof = ResultStore(folder).read_json("profile.json", []) or []
+                    total += sum(float(p["elapsed"]) for p in prof if p["task"].startswith("Sweep ")) or \
+                        (time.time() - t)
+                diff = {sw: s_difference(ref, folder, sw) for sw in self.sweeps}
+                row = {"kind": "same_mesh", "solver": sv, "reference": solvers[0], "cores": self.cores[-1],
+                       "sweep": total, "ds_max": diff}
+                self.result["runs"].append(row)
+                self._write()
+                log(f"{sv} on the mesh of {solvers[0]}: sweep {total:.1f} s, largest |dS| "
+                    + ", ".join(f"{sw} {d:.2e}" for sw, d in diff.items()))
         if self.workers and self.sweeps:
             # the fewest cores that are as fast as the fastest run (within 2 %): on a computer with
             # hyperthreading the physical ones, so that the parallel frequencies do not share cores
@@ -203,6 +273,21 @@ class Benchmark:
         return False
 
 
+def s_difference(ref: Path, folder: Path, sweep: str) -> float:
+    """Largest |S - S_ref| over the frequencies and port pairs both runs of a sweep solved."""
+    import numpy as np
+    a, b = ResultStore(ref).sparams(sweep), ResultStore(folder).sparams(sweep)
+    if not a or not b:
+        return float("nan")
+    fa, fb = np.asarray(a["freq"], float), np.asarray(b["freq"], float)
+    common = np.intersect1d(np.round(fa, 3), np.round(fb, 3))
+    if not len(common):
+        return float("nan")
+    ia = [int(np.argmin(abs(fa - f))) for f in common]
+    ib = [int(np.argmin(abs(fb - f))) for f in common]
+    return float(np.max(np.abs(np.asarray(a["S"])[ia] - np.asarray(b["S"])[ib])))
+
+
 def emit(kind: str, **data) -> None:
     from .optimize import emit as _emit
     _emit(kind, **data)
@@ -224,7 +309,7 @@ def main() -> int:
             pass
     args = sys.argv[1:]
     opts = {}
-    for key in ("--cores", "--workers"):
+    for key in ("--cores", "--workers", "--solvers"):
         if key in args:
             i = args.index(key)
             opts[key] = args[i + 1]
@@ -238,7 +323,8 @@ def main() -> int:
         ResultStore(out).write_json("status.json", {"state": "running", "started": time.time()})
         cores = _ints(opts.get("--cores", "")) or default_cores()
         workers = _ints(opts.get("--workers", ""))
-        return 0 if Benchmark(args[0], args[1], args[2], out, cores, workers).run() else 3
+        solvers = [x.strip() for x in opts.get("--solvers", "").split(",") if x.strip()]
+        return 0 if Benchmark(args[0], args[1], args[2], out, cores, workers, solvers).run() else 3
     except Exception as ex:  # noqa: BLE001
         emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")
         emit("traceback", text=traceback.format_exc())

@@ -593,6 +593,101 @@ def test_radiation_pattern_of_a_sweep_frequency_and_rectangular(tmp_path):
     assert w.mtable.isVisibleTo(w) and w.mtable.rowCount() == 1
 
 
+def _csv(path):
+    import csv
+    with open(path) as fh:
+        rows = list(csv.reader(fh))
+    return rows[0], np.array(rows[1:], float)
+
+
+def test_export_data_writes_the_curves_as_drawn(tmp_path):
+    """Export Data (#136): the CSV holds the x values and traces as the report draws them (GHz, deg), for
+    S parameters, a far-field cut and a complex trace without a function (its magnitude); errors go to
+    the info line instead of leaving an empty or no file."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from hertzon.gui.doc import Document, result_dir
+    from hertzon.gui.reports import ReportWindow
+    from hertzon.model.design import Report
+    from hertzon.solver.results import ResultStore
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    proj = Project.load(EX / "PatchAntenna.hzn")
+    proj.save(tmp_path / "p.hzn")
+    doc = Document(proj)
+    st = ResultStore(result_dir(doc, "Setup1"))
+    ports = [{"name": "1", "number": 1, "kind": "Lumped Port"}]
+    st.write_json("ports.json", ports)
+    f = np.array([1e9, 1.5e9, 2e9])
+    S = np.array([0.5, 0.1j, -0.25], complex).reshape(3, 1, 1)
+    st.save_sparams("Sweep", f, S, np.array([50.0]), ports)
+    w = ReportWindow(doc, Report("XY", "Rectangular Plot", "Setup1 : Sweep", ["dB(S(1,1))", "S(1,1)"]))
+    w.export_to(str(tmp_path / "s.csv"))
+    head, a = _csv(tmp_path / "s.csv")
+    assert head[0] == "Freq [GHz]" and head[1].startswith("dB(S(1,1))") and len(head) == 3
+    assert a[:, 0] == pytest.approx([1, 1.5, 2])
+    assert a[:, 1] == pytest.approx(20 * np.log10([0.5, 0.1, 0.25]))
+    assert a[:, 2] == pytest.approx([0.5, 0.1, 0.25])                  # no function: |S11|, as plotted
+    line = next(ln for ln in w.fig.axes[0].get_lines() if ln.get_label() == "S(1,1)")
+    assert line.get_ydata() == pytest.approx(a[:, 2])
+    # a far-field cut over the angle, polar plot or not
+    n = 40
+    rng = np.random.default_rng(1)
+    E = rng.normal(size=(3, n)) + 1j * rng.normal(size=(3, n))
+    st.save_npz("huygens_Sweep.npz", vis=rng.normal(size=(3, n)) * 0.01, wns=rng.normal(size=(3, n)) * 1e-4,
+                stamp=np.array([1]), freq_0=np.array([1e9]), E_0_1=E, H_0_1=E / 377, Prad_0_1=np.array([0.5]))
+    w = ReportWindow(doc, Report("RP", "Radiation Pattern", "Setup1 : Sweep", ["dB(GainTotal)"]))
+    w.export_to(str(tmp_path / "ff.csv"))
+    head, a = _csv(tmp_path / "ff.csv")
+    x, y = w._trace_xy("dB(GainTotal)")
+    assert head == ["Theta [deg]", "dB(GainTotal) [dB]"]
+    assert a[:, 0] == pytest.approx(x) and a[:, 1] == pytest.approx(y)
+    # nothing to export: the reason is shown, no file is written
+    w = ReportWindow(doc, Report("3D", "3D Polar Plot", "Setup1 : Sweep", ["dB(GainTotal)"]))
+    from PySide6.QtWidgets import QFileDialog
+    import unittest.mock as um
+    with um.patch.object(QFileDialog, "getSaveFileName", return_value=(str(tmp_path / "x.csv"), "")):
+        w.export()
+    assert "Export failed" in w.info.text() and not (tmp_path / "x.csv").exists()
+
+
+def test_port_zo_of_a_sweep_is_drawn_and_exported(tmp_path):
+    """Zo of a TEM port over a sweep (#125) is constant up to rounding: the plot shows the flat line around
+    its value (not the rounding noise zoomed to full height), and Export Data writes it per frequency."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from hertzon.gui.doc import Document, result_dir
+    from hertzon.gui.reports import ReportWindow
+    from hertzon.model.design import Report
+    from hertzon.solver.results import ResultStore
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    proj = Project.load(EX / "Coax.hzn")
+    proj.save(tmp_path / "c.hzn")
+    doc = Document(proj)
+    st = ResultStore(result_dir(doc, "Setup1"))
+    ports = [{"name": "1", "number": 1, "kind": "Wave Port"}, {"name": "2", "number": 2, "kind": "Wave Port"}]
+    st.write_json("ports.json", ports)
+    f = np.array([1e9, 3e9, 5e9, 7e9, 9e9])
+    zo = np.array([[50.52429357, 50.64805841]] * 5, complex) + np.array([0, 6.6e-11, 6.4e-11, 6.4e-11, 6.3e-11])[:, None]
+    S = np.zeros((5, 2, 2), complex)
+    st.save_sparams("Sweep", f, S, np.array([50.0, 50.0]), ports, gamma=np.ones((5, 2), complex), zo=zo)
+    w = ReportWindow(doc, Report("Zo", "Rectangular Plot", "Setup1 : Sweep", ["Zo(1)"]))
+    assert "color:#c0392b" not in w.info.text(), w.info.text()
+    lo, hi = w.fig.axes[0].get_ylim()
+    assert lo == pytest.approx(50.52429357 * 0.99) and hi == pytest.approx(50.52429357 * 1.01)
+    w.export_to(str(tmp_path / "zo.csv"))
+    head, a = _csv(tmp_path / "zo.csv")
+    assert head[0] == "Freq [GHz]" and head[1].startswith("Zo(1)")
+    assert a[:, 0] == pytest.approx([1, 3, 5, 7, 9]) and a[:, 1] == pytest.approx(np.abs(zo[:, 0]))
+    # a Zo that changes over frequency keeps the autoscale
+    zo[:, 0] = np.linspace(400, 500, 5)
+    st.save_sparams("Sweep", f, S, np.array([50.0, 50.0]), ports, gamma=np.ones((5, 2), complex), zo=zo)
+    w.refresh()
+    lo, hi = w.fig.axes[0].get_ylim()
+    assert lo < 401 and hi > 499 and hi - lo < 200
+
+
 def test_beamwidth_and_side_lobes():
     from hertzon.gui.reports import beamwidth
     x = np.linspace(-180, 180, 361)                       # Phi cut over the full circle
@@ -692,6 +787,43 @@ def test_center_point_arc_drawing():
     assert np.allclose(np.linalg.norm(P[:-1], axis=1), 1) and np.allclose(P[-1], [0, -2, 0])
 
 
+def test_view_warm_up_draws_the_highlight_styles_unseen():
+    """Start: every hover and selection style is drawn once into the back buffer, so the first click in the
+    3D view does not wait for the graphics driver. Nothing of it stays in the view."""
+    import types
+    import pyvista as pv
+    from hertzon.gui import viewer as Vw
+    names = ("warm_up", "_make_actors", "_plain_actor", "_add_highlight_mesh", "_drop_actor")
+    View = type("View", (), {k: Vw.ModelerView.__dict__[k] for k in names})
+    v = View()
+    v.plotter = pv.Plotter(off_screen=True, window_size=(200, 150))
+    v.doc = types.SimpleNamespace(selection_mode="object")
+    v.highlight_actors = []
+    v.request_render = lambda: None
+    ren, rw = v.plotter.renderer, v.plotter.render_window
+    n_actors, n_cullers = ren.GetActors().GetNumberOfItems(), ren.GetCullers().GetNumberOfItems()
+    drawn = []
+    rw.AddObserver("EndEvent", lambda *a: drawn.append(ren.GetActors().GetNumberOfItems()))
+    v.warm_up()
+    assert drawn and drawn[0] > n_actors + 10              # the styles were drawn ...
+    assert ren.GetActors().GetNumberOfItems() == n_actors  # ... and are gone again
+    assert ren.GetCullers().GetNumberOfItems() == n_cullers and rw.GetSwapBuffers()
+    assert v.highlight_actors == []
+    v.warm_up()                                            # once per view
+    assert len(drawn) == 1
+    v.plotter.close()
+
+
+def test_material_library_preload_fills_the_cache(monkeypatch):
+    """Start: the EMerge material library is read in the background, so the first click on an object (the
+    Properties list every material) does not wait for the emsutil import."""
+    from hertzon.gui import app
+    from hertzon.model import materials
+    monkeypatch.setattr(materials, "_EMERGE_CACHE", None)
+    app._material_library()
+    assert materials._EMERGE_CACHE is not None
+
+
 def test_first_start_note(monkeypatch):
     """Solver kernels not compiled yet: the main window says so in the Message Manager and the status bar."""
     import types
@@ -707,6 +839,35 @@ def test_first_start_note(monkeypatch):
     MainWindow._first_start_note(win)
     assert msgs[0][0] == "warning" and "First start detected" in msgs[0][1]
     assert "compiles the solver kernels" in status[0]
+
+
+def test_kernel_tag_ignores_hertzon_version(monkeypatch):
+    """An update that keeps EMerge, numba and Hertzon's kernels does not compile again: the Hertzon version is
+    not in the tag, the source EMerge was installed from is (a new commit can keep the version number)."""
+    import importlib.metadata as md
+    import json
+    import hertzon
+    from hertzon.solver import bridge
+
+    class Dist:
+        def __init__(self, direct):
+            self.direct = direct
+
+        def read_text(self, name):
+            return json.dumps(self.direct) if name == "direct_url.json" and self.direct is not None else None
+    dist = Dist({"url": "https://example.org/emerge-9ef0053/emerge.whl", "archive_info": {}})
+    monkeypatch.setattr(md, "version", lambda name: {"emerge": "3.0.0b5", "numba": "0.68.0"}[name])
+    monkeypatch.setattr(md, "distribution", lambda name: dist)
+    tag = bridge.kernel_tag()
+    assert "emerge-9ef0053" in tag and "numba 0.68.0" in tag and f"hertzon kernels {bridge.KERNELS_VERSION}" in tag
+    monkeypatch.setattr(hertzon, "__version__", "99.0.0")
+    assert bridge.kernel_tag() == tag
+    dist.direct = {"url": "https://github.com/x/EMerge", "vcs_info": {"vcs": "git", "commit_id": "abc123"}}
+    assert "from abc123" in bridge.kernel_tag()
+    dist.direct = {"url": "file:///src/EMerge", "dir_info": {"editable": True}}
+    assert "from" not in bridge.kernel_tag().split(",")[0]
+    dist.direct = None
+    assert bridge.kernel_tag().startswith("emerge 3.0.0b5, numba")
 
 
 def test_solid_overlaps_and_resolve():
@@ -822,6 +983,57 @@ def test_split_in_object_and_face_coordinate_systems():
     # custom plane: Base and Normal are local to the CS (local x = global y)
     assert _split_box(fcs, Plane="Custom", Base="0.5,0,0", Normal="1,0,0", Keep="Positive") == \
         pytest.approx([0, 1.5, 50, 4, 2, 52], abs=1e-3)
+
+
+def _rotated_box(kind="Rotate", cs=None, **rot):
+    """Box 0..4 x 0..2 x 0..2 (mm) rotated or swept about an axis; returns the design and the bounding box in mm."""
+    p = Project()
+    d = p.designs[0]
+    d.add_object("CreateBox", Position="0,0,0", XSize="4", YSize="2", ZSize="2")
+    if cs is not None:
+        d.coord_systems.append(cs)
+        rot["CoordinateSystem"] = cs.name
+    d.obj("Box1").history.append(Command.new(kind, **rot))
+    K.ensure_gmsh("test_rotate")
+    ctx = K.build_design(d, d.evaluator(p))
+    assert "Box1" not in ctx.errors, ctx.errors.get("Box1")
+    return d, p, np.asarray(K._bbox(ctx.built["Box1"])) * 1e3
+
+
+def test_rotate_and_sweep_around_axis_in_object_and_face_coordinate_systems():
+    from hertzon.model import objframe
+    from hertzon.model.design import CoordSys
+    # global: 90deg about z through the origin
+    _, _, bb = _rotated_box(Axis="Z", Angle="90deg")
+    assert bb == pytest.approx([-2, 0, 0, 0, 4, 2], abs=1e-3)
+    # object CS at the box centre: the box turns in place
+    ocs = CoordSys("ObjectCS1", "Object", "Global")
+    ocs.props.update(Origin="2,1,1", Object="Box1")
+    d, p, bb = _rotated_box(cs=ocs, Axis="Z", Angle="90deg")
+    assert bb == pytest.approx([1, -1, 0, 3, 3, 2], abs=1e-3)
+    # the object frame (integration lines) follows the same rotation
+    M = objframe.object_matrix(d, d.obj("Box1"), d.evaluator(p))
+    assert M[:3, :3] @ [0.004, 0, 0] + M[:3, 3] == pytest.approx([0.003, 0.003, 0], abs=1e-9)
+    # face CS on the face x=4 (local x = global y, local z = global x): local Z is the global x axis
+    fcs = CoordSys("FaceCS1", "Face", "Global")
+    fcs.props.update(Mode="Axis/Position", Origin="4,1,1", XAxis="0,1,0", YPoint="0,0,1", Face="Box1:1")
+    _, _, bb = _rotated_box(cs=fcs, Axis="Z", Angle="90deg")
+    assert bb == pytest.approx([0, 0, 0, 4, 2, 2], abs=1e-3)     # turned in place about its own long axis
+    _, _, bb = _rotated_box(cs=fcs, Axis="X", Angle="180deg")    # local X = global y through (4, 1, 1)
+    assert bb == pytest.approx([4, 0, 0, 8, 2, 2], abs=1e-3)
+    # Sweep Around Axis: a sheet x 0..1, y 0..1 at z=0 revolved about the object CS z axis at x=3
+    q = Project()
+    e = q.designs[0]
+    e.add_object("CreateRectangle", Position="0,0,0", Axis="Z", Width="1", Height="1")
+    cs = CoordSys("RelativeCS1", "Relative", "Global")
+    cs.props.update(Origin="3,0,0", XAxis="0,1,0", YPoint="0,0,1")    # local z = global x
+    e.coord_systems.append(cs)
+    e.obj("Rectangle1").history.append(Command.new("SweepAroundAxis", Axis="Z", Angle="90deg",
+                                                    CoordinateSystem="RelativeCS1"))
+    ctx = K.build_design(e, e.evaluator(q))
+    assert "Rectangle1" not in ctx.errors, ctx.errors.get("Rectangle1")
+    # revolved about the global x axis: y/z sweep a quarter disc of radius 1, x stays 0..1
+    assert np.asarray(K._bbox(ctx.built["Rectangle1"])) * 1e3 == pytest.approx([0, 0, 0, 1, 1, 1], abs=1e-3)
 
 
 def test_assign_material_only_for_solids(monkeypatch):
@@ -1221,6 +1433,55 @@ def test_helix_wire_leaves_no_loose_faces(nseg):
     assert all(len(gmsh.model.getAdjacencies(2, s)[0]) for _, s in gmsh.model.getEntities(2))
     assert len(gmsh.model.getEntities(1)) == len({abs(t) for _, t in gmsh.model.getBoundary(
         gmsh.model.getEntities(2), combined=False, oriented=False)})
+
+
+def test_3d_polar_plot_has_no_cut_fields():
+    """The 3D polar plot shows the whole sphere: no Constant / Value of a 2D cut (#129). The Radiation
+    Pattern keeps them."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QFormLayout
+    from hertzon.gui.doc import Document
+    from hertzon.gui.reports import ReportWindow
+    from hertzon.model.design import Report
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    doc = Document(Project.load(EX / "PatchAntenna.hzn"))
+
+    def labels(kind):
+        w = ReportWindow(doc, Report("P", kind, "Setup1 : LastAdaptive", ["dB(GainTotal)"]))
+        form = next(f for f in w.findChildren(QFormLayout) if f.rowCount() > 2)
+        return [form.itemAt(i, QFormLayout.LabelRole).widget().text() for i in range(form.rowCount())
+                if form.itemAt(i, QFormLayout.LabelRole) is not None]
+    assert "Constant:" not in labels("3D Polar Plot") and "Value (deg):" not in labels("3D Polar Plot")
+    assert {"Constant:", "Value (deg):"} <= set(labels("Radiation Pattern"))
+
+
+def test_rename_report(monkeypatch):
+    """Project tree > report > Rename...: the report and its open tab get the new name; a name that is
+    taken is refused (#130)."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    from hertzon.gui import main_window as mw
+    from hertzon.model.design import Report
+    win = mw.MainWindow(Project())
+    win.des.reports += [Report("XY Plot 1", "Rectangular Plot", "Setup1 : LastAdaptive"),
+                        Report("XY Plot 2", "Rectangular Plot", "Setup1 : LastAdaptive")]
+    win.open_report("XY Plot 1")
+    tab = win.report_tabs["XY Plot 1"]
+    monkeypatch.setattr(mw.QInputDialog, "getText", staticmethod(lambda *a, **k: ("  Return Loss ", True)))
+    win.rename_report("XY Plot 1")
+    assert [r.name for r in win.des.reports] == ["Return Loss", "XY Plot 2"]
+    assert win.report_tabs == {"Return Loss": tab} and win.tabs.tabText(win.tabs.indexOf(tab)) == "Return Loss"
+    assert win.doc.dirty
+    warned = []
+    monkeypatch.setattr(mw.QMessageBox, "warning", staticmethod(lambda *a, **k: warned.append(a[2])))
+    monkeypatch.setattr(mw.QInputDialog, "getText", staticmethod(lambda *a, **k: ("XY Plot 2", True)))
+    win.rename_report("Return Loss")
+    assert [r.name for r in win.des.reports] == ["Return Loss", "XY Plot 2"] and warned
+    win.doc.dirty = False
+    win.close()
 
 
 def test_thin_wires_get_a_coarse_display_mesh():

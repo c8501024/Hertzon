@@ -102,11 +102,18 @@ HELP: dict[str, str] = {
     "Type": "Symmetry type: Perfect E (tangential E = 0) or Perfect H (tangential H = 0).",
     "ImpedanceMultiplier": "Factor for port impedances when a symmetry plane cuts a port (2 for one plane). "
                            "Not applied by the solver yet: a port cut by the plane is referred to the half port.",
-    "UVector": "In-plane U direction of the periodic boundary. Primary / Secondary boundaries are not passed "
-               "to the solver yet; it skips them with a warning.",
-    "Primary": "Primary boundary this secondary boundary is linked to. Primary / Secondary boundaries are not "
-               "passed to the solver yet; it skips them with a warning.",
-    "PhaseDelay": "Phase difference between primary and secondary boundary (scan angle).",
+    "UVector": "In-plane U direction of the periodic boundary (origin;point). The solver links each Secondary "
+               "face to the Primary face it is a translated copy of; rotated periodicity is not supported.",
+    "Primary": "Primary boundary this secondary boundary is linked to. Its faces have to be the Primary faces "
+               "moved by one lattice vector.",
+    "PhaseMode": "How the phase between primary and secondary boundary is given: by the scan angles of the "
+                 "incident wave (the phase follows the frequency) or as a fixed phase delay (converted to scan "
+                 "angles at the solution frequency, which are kept over the sweep).",
+    "ScanTheta": "Scan angle theta of the incident wave, from the +z axis. The same for all Secondary "
+                 "boundaries and the Floquet ports of the cell.",
+    "ScanPhi": "Scan angle phi of the incident wave, from the +x axis in the xy plane.",
+    "PhaseDelay": "Phase difference between primary and secondary boundary: the field on the secondary is the "
+                  "field on the primary times exp(-j delay).",
     # ---- excitations --------------------------------------------------------------------------
     "PortNumber": "Port index used in S(i,j).",
     "NumberOfModes": "Number of port modes / eigenmodes to compute.",
@@ -117,7 +124,8 @@ HELP: dict[str, str] = {
     "Deembed": "Shift the port reference plane.",
     "DeembedDistance": "De-embedding distance; positive values move the reference plane into the port.",
     "Impedance": "Port reference impedance (Ohm).",
-    "Permittivity": "Relative permittivity used for the Floquet modes.",
+    "Permittivity": "Relative permittivity of the medium at the Floquet port. EMerge's Floquet port assumes free "
+                    "space (1): put the port in air or vacuum.",
     "Theta": "Incidence angle theta.",
     "Phi": "Incidence angle phi.",
     "Polarization": "Polarization of the incident plane wave.",
@@ -146,12 +154,18 @@ HELP: dict[str, str] = {
     "MinimumConvergedPasses": "Number of consecutive converged passes required.",
     "BasisOrder": "Order of basis functions: Zero Order (6 per tetrahedron), First Order (20, "
                   "default), Second Order (higher order for strong field gradients).",
-    "Solver": "Sparse matrix solver (Auto selects the fastest available direct solver).",
+    "Solver": "Sparse matrix solver (Auto selects the fastest available direct solver). SPARTA (GPU) factors "
+              "the matrix on the graphics card (Metal on Apple silicon, Vulkan on AMD and NVIDIA) in single "
+              "precision, SPARTA (CPU) on the processor in double precision; both need SPARTA installed "
+              "(Tools > Options > Install SPARTA). 'PARDISO + SPARTA sweep' solves the adaptive passes with PARDISO "
+              "(every pass is a new mesh, where SPARTA's analysis is slow) and the sweeps with SPARTA. Without a usable GPU, SPARTA (GPU) factorizes on the CPU. "
+              "With SPARTA the frequencies of a sweep are solved one after another, and the Fast sweep keeps "
+              "PARDISO.",
     "ErrorInclusion": "Share of the estimated error that selects elements for refinement (%).",
     "RefinementRatio": "Size reduction of refined elements.",
     "GrowthRate": "Mesh grading away from refined regions.",
     "EnforceRefinementPercent": "Adjust the refinement until the target percentage is reached.",
-    "CurvedElements": "Tetrahedra at curved metal and material surfaces (cylinders, spheres, splines) get curved edges that follow the true geometry instead of flat facets. Removes the faceting error, so round posts, rods and dielectric resonators converge with far fewer elements. Applies to PEC, finite-conductivity metal, symmetry and material surfaces. Surfaces that touch a port, and impedance, lumped and thin-conductor faces, stay flat. Faceted primitives (NumberOfSegments/NumberOfVertices > 0) are flat by definition. Switch off only to compare with the plain flat-faceted mesh.",
+    "CurvedElements": "Tetrahedra at curved metal and material surfaces (cylinders, spheres, splines) get curved edges that follow the true geometry instead of flat facets. Removes the faceting error, so round posts, rods and dielectric resonators converge with far fewer elements. Applies to PEC, finite-conductivity metal, symmetry and material surfaces, also where they meet a radiation boundary or a lumped port. Curved surfaces connected to a wave port stay flat, so the line behind the port matches the port mode; radiation, impedance, lumped and thin-conductor faces themselves stay flat. Faceted primitives (NumberOfSegments/NumberOfVertices > 0) are flat by definition. Switch off only to compare with the plain flat-faceted mesh.",
     "RefinementMethod": "hzAURA (EMerge), the default: EMerge's local refinement, the worst elements are bisected along their longest edge and the new elements are improved by flips and smoothing; where a new node on a curved surface cannot be moved onto it that way, the elements around it are re-meshed (Delaunay cavity) so the surface stays exact; old nodes never move (nested meshes, no gmsh run per pass). Local (Delaunay): local, the mesh is refined in place by local Delaunay point insertion around the worst elements; everything else stays exactly the same (nested meshes, no re-meshing noise, no gmsh run per pass). Remesh (slow): re-mesh the whole model each pass with gmsh. Remesh (stable, experimental): re-mesh, but every region keeps its current element size and only the worst elements are halved (nearly nested meshes, smoother convergence; test option).",
     "SaveFields": "Store fields for field plots (needs disk space). In a sweep (Discrete or Fast): the fields at "
                   "every frequency, needed for far fields, gain patterns and antenna parameters over frequency; "
@@ -181,7 +195,8 @@ HELP: dict[str, str] = {
     "RestrictElements": "Limit the number of elements this operation may create; the length is enlarged if needed (Restrict the number of elements).",
     "MaxElements": "Maximum number of elements created by this mesh operation.",
     # ---- design settings ----------------------------------------------------------------------
-    "SolutionType": "Modal (S-parameters by modes), Terminal or Eigenmode.",
+    "SolutionType": "Modal (S-parameters by port modes), Terminal (S-parameters by terminals: one per lumped "
+                    "port and one per signal conductor of a wave port, with differential pairs) or Eigenmode.",
     "AutoOpen": "Automatically add an air region with a radiation boundary around the model.",
     "AutoOpenBoundary": "Boundary type of the automatic open region. With an incident plane wave the radiation boundary is "
                         "always used (the incident wave enters through it).",

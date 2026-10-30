@@ -1,4 +1,5 @@
-"""Report expressions on S-parameter data: S(i,j), Y, Z, VSWR, GroupDelay, dB(), output variables.
+"""Report expressions on S-parameter data: S(i,j), Y, Z, VSWR, GroupDelay, Zo, Gamma, dB(), output variables;
+differential and common modes of differential pairs (S(Diff1,Diff1), S(Comm1,Diff1), ...).
 
 Used by the report windows and by the optimizer process (no Qt here)."""
 from __future__ import annotations
@@ -25,6 +26,55 @@ def network(data: dict, cat: str) -> np.ndarray:
             out[k] = Z if cat == "Z Parameter" else np.linalg.inv(Z)
         return out
     return S
+
+
+class _MixedPort:
+    """A differential or common mode in a report expression: S(Diff1,Diff1), S(Comm1,Diff1), VSWR(Diff2)."""
+
+    def __init__(self, kind: str, k: int):
+        self.kind, self.k = kind, k
+
+
+def diff_pairs(design) -> list[dict]:
+    """Differential pairs of a design (terminal numbers from 1; reference impedances as expressions)."""
+    import json
+    try:
+        pairs = json.loads(design.settings.get("DifferentialPairs", "") or "[]") if design is not None else []
+    except (ValueError, TypeError):
+        return []
+    return [q for q in pairs if isinstance(q, dict) and "pos" in q and "neg" in q]
+
+
+def with_pairs(data: dict | None, design) -> dict | None:
+    """The solution data with the design's differential pairs (for Diff/Comm quantities)."""
+    if data is not None:
+        data["diffpairs"] = diff_pairs(design)
+    return data
+
+
+def _ohm(v, default: float) -> float:
+    from ..model.expr import Evaluator
+    try:
+        return float(np.real(Evaluator({}).value(str(v)))) if str(v).strip() else default
+    except Exception:  # noqa: BLE001
+        return default
+
+
+def mixed_data(data: dict) -> tuple[np.ndarray, np.ndarray, list]:
+    """Mixed-mode S-parameters of the solution's differential pairs: (S_mm, references, labels)."""
+    from .terminals import mixed_mode
+    pairs = data.get("diffpairs") or []
+    if not pairs:
+        raise ValueError("No differential pairs defined (Simulation > Differential Pairs)")
+    S = data["S"]
+    n = S.shape[1]
+    z0 = np.real(np.ravel(data["z0"]))
+    if z0.size < n:
+        z0 = np.full(n, z0[0] if z0.size else 50.0)
+    idx = [(int(q["pos"]) - 1, int(q["neg"]) - 1) for q in pairs]
+    zd = [_ohm(q.get("zdiff", ""), 2 * z0[a]) for q, (a, _) in zip(pairs, idx)]
+    zc = [_ohm(q.get("zcomm", ""), z0[a] / 2) for q, (a, _) in zip(pairs, idx)]
+    return mixed_mode(S, z0, idx, zd, zc)
 
 
 def split_trace(trace: str) -> tuple[str, str | None]:
@@ -96,8 +146,31 @@ def eval_expr(data: dict, expr: str, outvars: dict[str, str] | None = None, _dep
             cache[cat] = network(data, cat)
         return cache[cat]
 
+    def mixed(cat):
+        if "mm" not in cache:
+            cache["mm"] = mixed_data(data)
+        S_mm, refs, labels = cache["mm"]
+        if (cat, "mm") not in cache:
+            from .terminals import z_from_s
+            if cat == "S Parameter":
+                cache[cat, "mm"] = S_mm
+            else:
+                Z = z_from_s(S_mm, refs)
+                cache[cat, "mm"] = Z if cat == "Z Parameter" else np.linalg.inv(Z)
+        return cache[cat, "mm"], labels
+
+    def mixed_index(i, labels) -> int:
+        key = (i.kind, i.k) if isinstance(i, _MixedPort) else ("T", int(i) - 1)
+        if key not in labels:
+            raise ValueError(f"Terminal {int(i)} is part of a differential pair; use Diff/Comm"
+                             if key[0] == "T" else "Differential pair out of range")
+        return labels.index(key)
+
     def par(cat):
         def g(i, jj):
+            if isinstance(i, _MixedPort) or isinstance(jj, _MixedPort):
+                M, labels = mixed(cat)
+                return M[:, mixed_index(i, labels), mixed_index(jj, labels)]
             M = mat(cat)
             i, jj = int(i) - 1, int(jj) - 1
             if not (0 <= i < M.shape[1] and 0 <= jj < M.shape[2]):
@@ -106,15 +179,35 @@ def eval_expr(data: dict, expr: str, outvars: dict[str, str] | None = None, _dep
         return g
 
     def vswr(i):
-        g = np.abs(data["S"][:, int(i) - 1, int(i) - 1])
+        g = np.abs(par("S Parameter")(i, i))
         return (1 + g) / np.maximum(1 - g, 1e-12)
+
+    def port_qty(key, what):
+        def g(i):
+            if key not in data:
+                raise ValueError(f"No {what} in this solution (solve again)")
+            A = np.asarray(data[key])
+            i = int(i) - 1
+            if not 0 <= i < A.shape[1]:
+                raise ValueError("Port index out of range")
+            return A[:, i]
+        return g
 
     def gd(v):
         return -np.gradient(np.unwrap(np.angle(v)), 2 * np.pi * f)
 
     names = dict(_FUNCS)
     names.update({"S": par("S Parameter"), "Y": par("Y Parameter"), "Z": par("Z Parameter"), "VSWR": vswr,
-                  "GroupDelay": gd, "Freq": f, "F": f, "pi": np.pi, "j": 1j, "e": np.e})
+                  "GroupDelay": gd, "Freq": f, "F": f, "pi": np.pi, "j": 1j, "e": np.e,
+                  "Zo": port_qty("zo", "port impedance"), "Gamma": port_qty("gamma", "propagation constant")})
+    from .results import row_names
+    # the rows of S by name: S(P1_TraceP,P1_TraceN), S(P1_M1,P1_M2) (the numbers stay valid)
+    for i, n in enumerate(row_names(data.get("ports") or [], data.get("terminals"))):
+        if not n.isdigit() and n not in names:
+            names[n] = i + 1
+    for k in range(len(data.get("diffpairs") or [])):
+        names[f"Diff{k + 1}"] = _MixedPort("Diff", k)
+        names[f"Comm{k + 1}"] = _MixedPort("Comm", k)
     if "antenna" in data:
         names.update(data["antenna"])
         names["Pass"] = f

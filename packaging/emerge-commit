@@ -1,3 +1,3 @@
 # EMerge commit Hertzon is built on (normally the head of EMerge's hertzon branch). Changing it builds the
 # wheels (.github/workflows/emerge-wheels.yml); then point the emerge entries of pyproject.toml at them.
-55ebd4d259fa7080f801ed38f2e1eae668e4bceb
+78a7003c1cc324ab36bcd28a8bdd736cf67b8a56

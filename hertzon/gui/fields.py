@@ -217,8 +217,8 @@ def source_vector(doc, st, fields: dict, grid, which: str, fi: int, port: int) -
     sqrt(P) exp(j phase); an incident plane wave scaled to its V/m and shown as total, scattered
     or incident field."""
     from ..model import sources as SRC, planewave
-    srcs = SRC.get(doc.design)
-    pmap = st.read_json("ports.json", []) or []
+    pmap = st.read_json("field_sources.json", None) or st.read_json("ports.json", []) or []
+    srcs = SRC.get(doc.design, SRC.field_names(st))
     pw = next((p for p in pmap if p.get("kind") == "Incident Plane Wave"), None)
     key = f"{which}_{fi}_{port}"
     if pw is not None:
@@ -961,13 +961,16 @@ def prepare_overlay(doc, view, quantity: str, solution: str, freq_index: int = 0
         from ..post.calc import lang as L
         vals, cinfo, _ = field_values_at_grid(doc, calc, solution, freq_index, port)
         jsurf, vector, unit = False, cinfo.vec, L.unit_label(cinfo)
+        # a real expression ignores the phase, and so does a time average (the Poynting vector S = 1/2 E x H*):
+        # it shows its real part, the active power, at every phase instead of turning with e^(j phase)
+        static = not cinfo.cx or "tavg" in cinfo.conv
         if cinfo.vec:
             vec = vals
         else:
-            # a scalar keeps its sign: the colour shows Re{v e^(j phase)}, a real expression ignores the phase
+            # a scalar keeps its sign: the colour shows Re{v e^(j phase)}
             vec = np.zeros((len(vals), 3), complex)
             vec[:, 0] = vals
-            signed, static = True, not cinfo.cx
+            signed = True
     else:
         jsurf = "Jsurf" in quantity
         vector = quantity.startswith("Vector")
