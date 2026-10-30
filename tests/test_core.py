@@ -1482,3 +1482,25 @@ def test_rename_report(monkeypatch):
     assert [r.name for r in win.des.reports] == ["Return Loss", "XY Plot 2"] and warned
     win.doc.dirty = False
     win.close()
+
+
+def test_thin_wires_get_a_coarse_display_mesh():
+    """The curvature sizing of the display mesh is isotropic: on a thin wire its radius would also set the size
+    along the whole length (a 0.65 mm monopole of 71 mm had 53 000 triangles, a bondwire 30 000). Thin tubes get
+    the coarser sizing of swept pipes; a stout cylinder keeps the full one."""
+    from hertzon.kernel import occ as K
+    p = Project()
+    d = p.designs[0]
+    d.units = "mm"
+    d.add_object("CreateCylinder", name="Wire", CenterPosition="0,0,0", Axis="Z", Radius="0.65", Height="71")
+    d.add_object("CreateBondwire", name="Bond", StartPosition="10,0,0", EndPosition="22,0,0", H1="3",
+                 H2="0.5", Diameter="0.5", Type="JEDEC 5-Point")
+    d.add_object("CreateCylinder", name="Can", CenterPosition="40,0,0", Axis="Z", Radius="10", Height="20")
+    K.ensure_gmsh("test_core")
+    t = K.tessellate(K.build_design(d, d.evaluator(p)))
+    assert len(t["Wire"].tris) < 6000
+    assert len(t["Bond"].tris) < 6000
+    # the stout cylinder keeps its round outline: about 36 segments per turn
+    rim = np.asarray(t["Can"].points)
+    top = rim[np.isclose(rim[:, 2], 0.02)]
+    assert len(np.unique(np.round(top, 7), axis=0)) >= 30

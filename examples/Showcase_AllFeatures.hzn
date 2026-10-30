@@ -3718,7 +3718,7 @@
    "variables": {
     "Lm": "c0/f_mono/4*0.95",
     "rw": "0.065cm",
-    "ro": "0.15cm",
+    "ro": "rw*exp(50ohm*sqrt(2.1)/60ohm)",
     "Lc": "1cm",
     "Rg": "8cm"
    },
@@ -3729,10 +3729,10 @@
       {
        "kind": "CreateCylinder",
        "props": {
-        "CenterPosition": "0,0,0",
+        "CenterPosition": "0,0,-Lc",
         "Axis": "Z",
         "Radius": "rw",
-        "Height": "Lm",
+        "Height": "Lc+Lm",
         "NumberOfSegments": "0"
        },
        "suppressed": false
@@ -3820,50 +3820,16 @@
         "NumberOfSegments": "0"
        },
        "suppressed": false
-      },
-      {
-       "kind": "Subtract",
-       "props": {
-        "Tools": "CoaxInner",
-        "KeepOriginals": "False"
-       },
-       "suppressed": false
       }
      ],
      "material": "Teflon (tm)",
      "solve_inside": true,
      "model": true,
      "color": "#f0f0f0",
-     "transparency": 0.0,
+     "transparency": 0.5,
      "wireframe": false,
      "visible": true,
      "consumed_by": null,
-     "group": "",
-     "orientation": "Global"
-    },
-    {
-     "name": "CoaxInner",
-     "history": [
-      {
-       "kind": "CreateCylinder",
-       "props": {
-        "CenterPosition": "0,0,-Lc",
-        "Axis": "Z",
-        "Radius": "rw",
-        "Height": "Lc",
-        "NumberOfSegments": "0"
-       },
-       "suppressed": false
-      }
-     ],
-     "material": "vacuum",
-     "solve_inside": true,
-     "model": true,
-     "color": "#e6f2ff",
-     "transparency": 0.0,
-     "wireframe": false,
-     "visible": true,
-     "consumed_by": "CoaxDielectric",
      "group": "",
      "orientation": "Global"
     },
@@ -3879,6 +3845,14 @@
         "NumberOfSegments": "0"
        },
        "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "CoaxPortPin",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
       }
      ],
      "material": "vacuum",
@@ -3889,6 +3863,31 @@
      "wireframe": false,
      "visible": true,
      "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "CoaxPortPin",
+     "history": [
+      {
+       "kind": "CreateCircle",
+       "props": {
+        "CenterPosition": "0,0,-Lc",
+        "Axis": "Z",
+        "Radius": "rw",
+        "NumberOfSegments": "0"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "CoaxPort",
      "group": "",
      "orientation": "Global"
     },
@@ -3933,15 +3932,27 @@
      "enabled": true
     },
     {
-     "name": "CoaxOuterInner",
+     "name": "CoaxOuterWall",
      "kind": "Perfect E",
      "props": {
       "InfGroundPlane": "False"
      },
-     "faces": [],
-     "objects": [
-      "CoaxDielectric"
+     "faces": [
+      {
+       "obj": "CoaxDielectric",
+       "face": 0,
+       "sig": [
+        -1.3010426069826053e-18,
+        -1.0943507557137252e-19,
+        -0.005,
+        0.9762887750006045,
+        -0.21610211970511334,
+        -0.01265312873465995,
+        0.00013663238145564797
+       ]
+      }
      ],
+     "objects": [],
      "edges": [],
      "enabled": true
     },
@@ -3949,8 +3960,8 @@
      "name": "PML_Air",
      "kind": "PML",
      "props": {
-      "Thickness": "",
-      "Layers": "6",
+      "Thickness": "5cm",
+      "Layers": "3",
       "Exponent": "2",
       "MaxAttenuation": "8"
      },
@@ -4191,7 +4202,7 @@
    "optimetrics": [],
    "parametrics": [],
    "working_cs": "Global",
-   "notes": "Terminal solution type, units cm: a quarter-wave monopole fed by a coaxial line with a wave port under a circular ground disc; explicit air region with PML on its faces, a Perfect E infinite ground plane, Length Based On Edges mesh refinement and a far-field sphere."
+   "notes": "Terminal solution type, units cm: a quarter-wave monopole fed through the ground disc by a 50 ohm PTFE coax (the inner conductor continues as the monopole, the outer wall is a Perfect E face) with an annular wave port; explicit air box with PML on its five open faces, a Perfect E infinite ground plane, Length Based On Edges mesh refinement and a far-field sphere."
   },
   {
    "name": "F_UnitCell_Periodic",

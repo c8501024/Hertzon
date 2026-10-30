@@ -54,7 +54,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Lumped RLC (parallel or series RLC, Touchstone component) | Lumped RLC | `LumpedElement` with Z(f) | ✔ |
 | SMD components between two traces (0201 to 1206, vendor series, pads, optional 3D terminations, Touchstone parts) | Lumped Elements tab | `LumpedElement` | ✔ |
 | Radiation (first order) | Radiation | `AbsorbingBoundary` | ✔ (second order ◐) |
-| PML | PML (on region faces) and Auto Open | `pmlbox` | ✔ |
+| PML | PML (on region faces) and Auto Open | `pmlbox` | ✔ (far field also with a PML on region faces) |
 | Symmetry (Perfect E / Perfect H) | Symmetry | `PEC` / `PMC` | ✔ far field with mirror images at planes parallel to XY, YZ or ZX (impedance multiplier ✖) |
 | Periodic (Primary / Secondary) | Primary / Secondary | `Periodic` (periodic cell) | ✔ translated face pairs, scan angles or a phase delay (converted to scan angles at the solution frequency); rotated periodicity ✖ |
 | Layered Impedance | — | — | ✖ |

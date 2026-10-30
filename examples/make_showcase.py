@@ -613,32 +613,36 @@ def design_geometry_zoo(p: Project) -> Design:
 def design_monopole(p: Project) -> Design:
     d = Design("E_CoaxMonopole_PML")
     d.units = "cm"
-    d.notes = ("Terminal solution type, units cm: a quarter-wave monopole fed by a coaxial line with a wave port "
-               "under a circular ground disc; explicit air region with PML on its faces, a Perfect E infinite "
+    d.notes = ("Terminal solution type, units cm: a quarter-wave monopole fed through the ground disc by a 50 ohm "
+               "PTFE coax (the inner conductor continues as the monopole, the outer wall is a Perfect E face) "
+               "with an annular wave port; explicit air box with PML on its five open faces, a Perfect E infinite "
                "ground plane, Length Based On Edges mesh refinement and a far-field sphere.")
     d.settings["SolutionType"] = "Terminal"
-    d.variables.update({"Lm": "c0/f_mono/4*0.95", "rw": "0.065cm", "ro": "0.15cm", "Lc": "1cm", "Rg": "8cm"})
+    d.variables.update({"Lm": "c0/f_mono/4*0.95", "rw": "0.065cm", "ro": "rw*exp(50ohm*sqrt(2.1)/60ohm)",
+                        "Lc": "1cm", "Rg": "8cm"})
     p.variables.setdefault("f_mono", "1GHz")
-    d.add_object("CreateCylinder", name="Monopole", material="copper", CenterPosition="0,0,0", Axis="Z",
-                 Radius="rw", Height="Lm")
+    # inner conductor and monopole in one piece, from the port up to the tip
+    d.add_object("CreateCylinder", name="Monopole", material="copper", CenterPosition="0,0,-Lc", Axis="Z",
+                 Radius="rw", Height="Lc+Lm")
     gnd = d.add_object("CreateCircle", name="GroundDisc", CenterPosition="0,0,0", Axis="Z", Radius="Rg")
     hole = d.add_object("CreateCircle", name="GroundHole", CenterPosition="0,0,0", Axis="Z", Radius="ro")
     consume(d, gnd, "Subtract", hole)
     coax = d.add_object("CreateCylinder", name="CoaxDielectric", material="Teflon (tm)",
                         CenterPosition="0,0,-Lc", Axis="Z", Radius="ro", Height="Lc")
-    inner = d.add_object("CreateCylinder", name="CoaxInner", CenterPosition="0,0,-Lc", Axis="Z", Radius="rw",
-                         Height="Lc")
-    consume(d, coax, "Subtract", inner)
+    coax.transparency = 0.5
     port = d.add_object("CreateCircle", name="CoaxPort", CenterPosition="0,0,-Lc", Axis="Z", Radius="ro")
+    pin = d.add_object("CreateCircle", name="CoaxPortPin", CenterPosition="0,0,-Lc", Axis="Z", Radius="rw")
+    consume(d, port, "Subtract", pin)
     air = d.add_object("CreateBox", name="Air", material="air", Position="-Rg-2cm,-Rg-2cm,0",
                        XSize="2*Rg+4cm", YSize="2*Rg+4cm", ZSize="Lm+6cm")
     air.transparency = 0.9
     boundary(d, "Perfect E", "GroundPlane", objects=["GroundDisc"], InfGroundPlane="True")
-    boundary(d, "Perfect E", "CoaxOuterInner", objects=["CoaxDielectric"])
     excitation(d, "Wave Port", "Feed", objects=[port.name], PortNumber=1, ModeType="TEM")
     b = Built(p, d)
     outer = b.faces("Air", lambda c, n: c[2] > 1e-6)     # all faces of the air box above the ground plane
-    boundary(d, "PML", "PML_Air", faces=outer, Thickness="", Layers=6, Exponent=2, MaxAttenuation=8)
+    wall = b.faces("CoaxDielectric", lambda c, n: abs(n[2]) < 0.5)    # the round outer wall
+    boundary(d, "Perfect E", "CoaxOuterWall", faces=wall)
+    boundary(d, "PML", "PML_Air", faces=outer, Thickness="5cm", Layers=3, Exponent=2, MaxAttenuation=8)
     mesh_op(d, "Length Based On Edges", "Mesh_MonopoleEdges", edges=[FaceRef("Monopole", 0), FaceRef("Monopole", 2)],
             MaxLength="0.3cm")
     s = setup(d, "Setup1", Frequency="f_mono", MaximumPasses=8, MaximumDeltaS=0.02)
