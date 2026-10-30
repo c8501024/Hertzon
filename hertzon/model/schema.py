@@ -28,6 +28,9 @@ class Prop:
 
 
 AXES = ("X", "Y", "Z")
+# matrix solvers of a setup; the SPARTA ones need the optional sparta-solver package (solver/sparta_setup.py)
+SOLVERS = ("Auto", "PARDISO", "SPARTA (GPU)", "SPARTA (CPU)", "PARDISO + SPARTA sweep (CPU)",
+           "PARDISO + SPARTA sweep (GPU)", "MUMPS", "UMFPACK", "SuperLU")
 
 
 def P(name, type_, default="", label="", choices=(), tab="General", help="", visible_if=None, enabled_if=None):
@@ -313,8 +316,7 @@ SETUP: list[Prop] = [
            "strong field gradients; Hertzon uses the complete quadratic space (30 functions). "
            "'Mixed Order' (order chosen per element) is not available in the EMerge solver."),
     P("CurvedElements", "bool", "True", label="Curved elements on curved surfaces", tab="Options"),
-    P("Solver", "choice", "Auto", label="Matrix solver", tab="Options",
-      choices=("Auto", "PARDISO", "MUMPS", "UMFPACK", "SuperLU")),
+    P("Solver", "choice", "Auto", label="Matrix solver", tab="Options", choices=SOLVERS),
     # Advanced
     P("ErrorInclusion", "float", "50", label="Error field inclusion (%)", tab="Advanced"),
     P("RefinementRatio", "float", "0.6", label="Element size ratio of refined elements", tab="Advanced"),

@@ -4167,6 +4167,25 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(w, name)
         self.tabs.setCurrentWidget(w)
 
+    def rename_report(self, name: str) -> None:
+        new, ok = QInputDialog.getText(self, "Rename Report", "Name:", text=name)
+        new = new.strip()
+        if not ok or not new or new == name:
+            return
+        if any(r.name == new for r in self.des.reports):
+            QMessageBox.warning(self, "Rename Report", f"A report named '{new}' already exists.")
+            return
+        next(x for x in self.des.reports if x.name == name).name = new
+        w = self.report_tabs.pop(name, None)
+        if w is not None:                           # the open tab keeps its plot, with the new name
+            self.report_tabs[new] = w
+            self.tabs.setTabText(self.tabs.indexOf(w), new)
+            w.refresh()
+        if getattr(self, "_auto_report", None) == name:
+            self._auto_report = new
+        self.doc.dirty = True
+        self.doc.changed.emit("results")
+
     def _close_tab(self, idx: int) -> None:
         w = self.tabs.widget(idx)
         for k, v in list(self.report_tabs.items()):
@@ -5028,6 +5047,7 @@ class MainWindow(QMainWindow):
             m.addAction("Delete", self._delete_project_items)
         elif kind == "report":
             m.addAction("Open", lambda: self.open_report(data[1]))
+            m.addAction("Rename...", lambda: self.rename_report(data[1]))
             m.addAction("Delete", self._delete_project_items)
         elif kind == "equation":
             from .calc_bridge import expression_kinds

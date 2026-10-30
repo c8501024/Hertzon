@@ -38,6 +38,8 @@ def main() -> int:
     if len(sys.argv) != 5:
         print("usage: python -m hertzon.solver.run PROJECT DESIGN SETUP OUTDIR", file=sys.stderr)
         return 2
+    from . import sparta_setup
+    sparta_setup.prefer_mkl()          # before EMerge imports SPARTA
     from . import bridge
     bridge.HARD_EXIT = True
     return bridge.run(*sys.argv[1:5])

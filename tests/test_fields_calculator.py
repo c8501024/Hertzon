@@ -637,5 +637,6 @@ def test_vector_value_in_a_fields_report(monkeypatch):
     monkeypatch.setattr(R, "load_solution", lambda *a, **k: (None, None, None))
     w = R.ReportWindow(doc, r)
     x, y = w._field_trace("mag(Spp) + x(Spp)", None)
-    assert seen == ["mag(Spp)", "x(Spp)"] and list(x) == [2.45] and y == pytest.approx([4.0])
+    # complex without a function: drawn as its magnitude, like S(1,1) (#136)
+    assert seen == ["mag(Spp)", "x(Spp)"] and list(x) == [2.45] and y == pytest.approx([abs(4 + 2j)])
     assert CB.uses_fields(doc, ["mag(Spp)"])          # Add to Report of a vector value: a Fields report

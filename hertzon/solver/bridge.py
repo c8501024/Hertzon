@@ -26,6 +26,7 @@ from ..model.materials import EMERGE_DISPERSION, is_conductor
 from ..model import schema
 from ..kernel import occ as K
 from . import facematch
+from . import sparta_setup
 from .results import ResultStore, port_entries
 from .emerge_compat import amr as _amr
 
@@ -152,6 +153,8 @@ class Bridge:
     touchstone_elements: list = field(default_factory=list)     # (boundary name, ComponentImpedance)
     cell: object = None                             # EMerge periodic cell of the Primary / Secondary pairs
     scan: tuple = (0.0, 0.0)                        # scan angles theta, phi of the periodic cell (degrees)
+    sparta: bool = False                            # the matrix solver is SPARTA (set_sparta)
+    sweep_solver: str = ""                          # SPARTA choice for the sweeps only (set_solver)
 
     def __post_init__(self):
         self.ev = self.design.evaluator(self.project)
@@ -227,6 +230,8 @@ class Bridge:
             numba.set_num_threads(min(threads, numba.config.NUMBA_NUM_THREADS))
         except Exception:  # noqa: BLE001
             pass
+        # SPARTA's thread pool (rayon) reads this when the first solve starts it
+        os.environ["RAYON_NUM_THREADS"] = str(threads)
         info(f"Using {threads} core(s)")
         self.probe()
         self.build_model()
@@ -1136,8 +1141,14 @@ class Bridge:
             pass
 
     def set_solver(self) -> None:
-        name = self.setup.props.get("Solver", "Auto")
+        # HERTZON_SOLVER: the benchmark's solver comparison on one mesh (the setup's key stays the same)
+        name = os.environ.get("HERTZON_SOLVER") or self.setup.props.get("Solver", "Auto")
         em = self.em
+        if name in sparta_setup.SWEEP_ONLY:
+            # PARDISO for the adaptive passes (a new mesh every pass, where SPARTA's analysis is slow),
+            # SPARTA for the sweeps on the final mesh (run_sweeps)
+            self.sweep_solver = sparta_setup.SWEEP_ONLY[name]
+            name = "PARDISO"
         if self.cell is not None and name in ("Auto", "PARDISO"):
             from .periodic import pardiso_transposes
             if pardiso_transposes():
@@ -1148,11 +1159,34 @@ class Bridge:
                 name = "SuperLU"
         if name == "Auto":
             return
+        if sparta_setup.is_sparta(name):
+            self.set_sparta(name)
+            return
         try:
             self.m.set_solver({"PARDISO": em.EMSolver.PARDISO, "MUMPS": em.EMSolver.MUMPS,
                                "UMFPACK": em.EMSolver.UMFPACK, "SuperLU": em.EMSolver.SUPERLU}[name])
         except Exception as ex:  # noqa: BLE001
             warn(f"Solver {name} not available ({ex}); using automatic choice")
+
+    def set_sparta(self, name: str) -> None:
+        """SPARTA on the GPU or the CPU (sparta_setup). Not installed: EMerge's automatic choice."""
+        em = self.em
+        from emerge._emerge import solver as S
+        if not S._SPARTA_AVAILABLE:
+            warn(f"Solver {name}: SPARTA is not installed (Tools > Options > Install SPARTA); "
+                 "using automatic choice")
+            return
+        try:
+            solver = self.m.set_solver(em.EMSolver.SPARTA)
+            # a periodic cell's matrix is not symmetric: LU instead of LDL^T
+            mode = sparta_setup.configure(solver, sparta_setup.MODES[name], symmetric=self.cell is None)
+        except Exception as ex:  # noqa: BLE001
+            warn(f"Solver {name} not available ({ex}); using automatic choice")
+            return
+        self.sparta = True
+        info(f"Matrix solver: {sparta_setup.describe()}; factorization on the {mode}")
+        if mode != sparta_setup.MODES[name]:
+            warn(f"Solver {name}: no GPU usable by SPARTA in this process; factorizing on the CPU")
 
     # ----------------------------------------------------------------------------------------
     def run_adaptive(self) -> None:
@@ -1521,7 +1555,7 @@ class Bridge:
             from . import curvilinear as CV
             if not CV.enabled():
                 return {}
-            cd = CV.curved_data(self.m.mesh, CV.exclude_tags(self.m.mw.bc.boundary_conditions))
+            cd = CV.curved_data_bcs(self.m.mesh, self.m.mw.bc.boundary_conditions)
             if cd is None:
                 return {}
             return {"curv_tets": np.asarray(cd[0], np.int32), "curv_disp": np.asarray(cd[1], np.float64)}
@@ -1763,6 +1797,24 @@ class Bridge:
                 warn(f"Far field '{sph.name}' failed: {ex}")
 
     def run_sweeps(self) -> None:
+        """All enabled sweeps on the final mesh. SPARTA keeps its symbolic analysis from one batch of
+        frequencies to the next (an interpolating sweep solves in batches, and the analysis costs two to three
+        factorizations); EMerge's own adaptive sweep does the same with _reset_solvers=False."""
+        global KEEP_SOLVER
+        if self.sweep_solver and not self.sparta:
+            self.set_sparta(self.sweep_solver)
+        KEEP_SOLVER = self.sparta
+        try:
+            self._run_sweeps()
+        finally:
+            KEEP_SOLVER = False
+            if self.sparta:
+                try:
+                    self.m.mw.solveroutine.reset()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _run_sweeps(self) -> None:
         m, ev = self.m, self.ev
         sweeps = [s for s in self.setup.sweeps if s.props.get("Enabled", "True") == "True"]
         self.factor_memory()
@@ -1780,6 +1832,11 @@ class Bridge:
                     warn(f"{nm}: sweep '{sw.name}' goes beyond the Touchstone data ({z.f[0] / 1e9:g} to "
                          f"{z.f[-1] / 1e9:g} GHz); outside it the nearest data point is used")
             par = p.get("Parallel") == "True"
+            if par and self.sparta:
+                # EMerge's sweep worker threads only take solvers that release the GIL, so they would not
+                # use SPARTA; SPARTA itself uses all cores (CPU) or the GPU on one frequency at a time
+                info(f"Sweep '{sw.name}': SPARTA solves the frequencies one after another")
+                par = False
             nw = max(1, int(os.environ.get("HERTZON_SWEEP_WORKERS", "2") or 2))
             prog = SweepProgress(sw.name, 65 + 30 * i / max(1, len(sweeps)), 30 / max(1, len(sweeps)))
             kind = p.get("SweepType", "Interpolating")
@@ -2782,6 +2839,7 @@ def solver_threads(setup) -> int:
 
 
 SOLVER_THREADS = 0      # cores of this solve (solver_threads), set when the model is built
+KEEP_SOLVER = False     # sweeps with SPARTA: run_sweep keeps the solver state between batches (run_sweeps)
 _PAR_NOTE: list = []
 
 
@@ -2944,6 +3002,8 @@ def _solve_at(m, freqs, **kw):
     except Exception:  # noqa: BLE001
         n0 = 0
     m.mw.set_frequency(freqs if len(freqs) > 1 else freqs[0])
+    if KEEP_SOLVER:
+        kw = dict(kw, _reset_solvers=False)
     if kw.get("parallel"):
         # several frequencies at once, each with PARDISO on its share of the cores (mt_pardiso);
         # without it EMerge would use SuperLU in the worker threads

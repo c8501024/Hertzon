@@ -3,6 +3,52 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.2.7 (2026-10-30)
+
+### Added
+- **SPARTA as matrix solver.** A setup's *Matrix solver* (and the default in Tools > Options) now offers
+  *SPARTA (GPU)* and *SPARTA (CPU)*: the sparse direct solver of EMerge's author, which factors the matrix on
+  the graphics card (Metal on Apple silicon, Vulkan on AMD and NVIDIA under Windows and Linux, single
+  precision) or on the processor (double precision). SPARTA is optional (AGPL-3.0): *Install SPARTA* in
+  Tools > Options > HPC and Analysis installs its release wheel into Hertzon's Python environment. Without a
+  usable GPU, SPARTA (GPU) factorizes on the CPU and says so in the log; periodic cells use its LU, as their
+  matrix is not symmetric. SPARTA's CPU solver uses MKL (installed with PARDISO) instead of its OpenBLAS,
+  which crashed the solver with 64 threads, and keeps its symbolic analysis for all frequencies of the sweeps
+  on the final mesh (it was repeated for every batch of an interpolating sweep). With SPARTA the frequencies of a sweep are solved one after another, and the Fast
+  sweep keeps PARDISO. *PARDISO + SPARTA sweep (CPU/GPU)* solves the adaptive passes with PARDISO (every pass
+  is a new mesh, where SPARTA's analysis is slow) and the sweeps on the final mesh with SPARTA.
+- **Solver comparison in the benchmark**: `python -m hertzon.solver.benchmark ... --solvers "PARDISO,SPARTA (CPU)"`
+  solves the setup with each solver and then the sweeps of every further solver on the first solver's final
+  mesh, with the sweep time and the largest S-parameter difference to the first solver. In Tools > Solver
+  Benchmark this is the *Solver Comparison* tab: check the solvers (PARDISO, SPARTA (CPU) and SPARTA (GPU)
+  by default), solve with all cores, and compare the time per phase, the sweeps on the same mesh, the peak
+  memory and the S-parameter difference; a run that could not use its solver (SPARTA not installed, no
+  usable GPU) is marked. *Make Fastest the Default Solver* sets the default for new setups.
+- **Rename a report** (#130): right click a report in the project tree > Rename... gives the report and its
+  open tab a new name; a name that another report already has is refused.
+
+### Fixed
+- **First click on an object no longer hangs for seconds.** The Properties of the clicked object list every
+  material, and the first time this read the EMerge material library, whose import (with scipy) took several
+  seconds on a cold start. The library is now read in the background as soon as the window is open.
+- **3D polar plot** (#129) no longer shows the *Constant* and *Value (deg)* fields of the 2D radiation
+  pattern cut; the 3D plot shows the whole sphere, and the fields had no effect on it.
+- **Port Zo over a sweep** (#125): the Zo of a TEM port is the same at every frequency up to rounding
+  (1e-12 ohm), and a report of it alone autoscaled onto those last digits, so the flat line looked like
+  random data. A curve that is constant up to rounding is now drawn in a range of +-1 % around its value,
+  without an axis offset; set Y min/max in the report to choose another range.
+- **Export Data and Copy Data of a report** (#136) write the curves as the report draws them: the x values
+  in the units of the axis (GHz, the angle of a far-field cut in deg, the distance of a near-field line), one
+  x column per curve when the curves have different x values, and quoted column names. Far-field cuts and
+  sweeps with fields gave an empty file or none; a failed export now says why in the report's info line. A
+  complex trace without a function (`S(1,1)`, `Zo(1)`) is drawn and exported as its magnitude, not its real
+  part.
+- **Curved elements next to a radiation boundary or lumped port.** A curved surface that touched a radiation
+  boundary, a lumped port or an impedance face was meshed flat, and so was every curved surface connected to
+  it: a cone or post standing on the air box lost all its curved elements (the mesh plot showed the facets).
+  Now only the edges on such a face stay straight; only a wave port still keeps the curved surfaces connected
+  to it flat. (EMerge `78a7003`, FennisRobert/EMerge#91.)
+
 ## 0.2.6 (2026-10-28)
 
 ### Fixed

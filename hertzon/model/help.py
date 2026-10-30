@@ -154,12 +154,18 @@ HELP: dict[str, str] = {
     "MinimumConvergedPasses": "Number of consecutive converged passes required.",
     "BasisOrder": "Order of basis functions: Zero Order (6 per tetrahedron), First Order (20, "
                   "default), Second Order (higher order for strong field gradients).",
-    "Solver": "Sparse matrix solver (Auto selects the fastest available direct solver).",
+    "Solver": "Sparse matrix solver (Auto selects the fastest available direct solver). SPARTA (GPU) factors "
+              "the matrix on the graphics card (Metal on Apple silicon, Vulkan on AMD and NVIDIA) in single "
+              "precision, SPARTA (CPU) on the processor in double precision; both need SPARTA installed "
+              "(Tools > Options > Install SPARTA). 'PARDISO + SPARTA sweep' solves the adaptive passes with PARDISO "
+              "(every pass is a new mesh, where SPARTA's analysis is slow) and the sweeps with SPARTA. Without a usable GPU, SPARTA (GPU) factorizes on the CPU. "
+              "With SPARTA the frequencies of a sweep are solved one after another, and the Fast sweep keeps "
+              "PARDISO.",
     "ErrorInclusion": "Share of the estimated error that selects elements for refinement (%).",
     "RefinementRatio": "Size reduction of refined elements.",
     "GrowthRate": "Mesh grading away from refined regions.",
     "EnforceRefinementPercent": "Adjust the refinement until the target percentage is reached.",
-    "CurvedElements": "Tetrahedra at curved metal and material surfaces (cylinders, spheres, splines) get curved edges that follow the true geometry instead of flat facets. Removes the faceting error, so round posts, rods and dielectric resonators converge with far fewer elements. Applies to PEC, finite-conductivity metal, symmetry and material surfaces. Surfaces that touch a port, and impedance, lumped and thin-conductor faces, stay flat. Faceted primitives (NumberOfSegments/NumberOfVertices > 0) are flat by definition. Switch off only to compare with the plain flat-faceted mesh.",
+    "CurvedElements": "Tetrahedra at curved metal and material surfaces (cylinders, spheres, splines) get curved edges that follow the true geometry instead of flat facets. Removes the faceting error, so round posts, rods and dielectric resonators converge with far fewer elements. Applies to PEC, finite-conductivity metal, symmetry and material surfaces, also where they meet a radiation boundary or a lumped port. Curved surfaces connected to a wave port stay flat, so the line behind the port matches the port mode; radiation, impedance, lumped and thin-conductor faces themselves stay flat. Faceted primitives (NumberOfSegments/NumberOfVertices > 0) are flat by definition. Switch off only to compare with the plain flat-faceted mesh.",
     "RefinementMethod": "hzAURA (EMerge), the default: EMerge's local refinement, the worst elements are bisected along their longest edge and the new elements are improved by flips and smoothing; where a new node on a curved surface cannot be moved onto it that way, the elements around it are re-meshed (Delaunay cavity) so the surface stays exact; old nodes never move (nested meshes, no gmsh run per pass). Local (Delaunay): local, the mesh is refined in place by local Delaunay point insertion around the worst elements; everything else stays exactly the same (nested meshes, no re-meshing noise, no gmsh run per pass). Remesh (slow): re-mesh the whole model each pass with gmsh. Remesh (stable, experimental): re-mesh, but every region keeps its current element size and only the worst elements are halved (nearly nested meshes, smoother convergence; test option).",
     "SaveFields": "Store fields for field plots (needs disk space). In a sweep (Discrete or Fast): the fields at "
                   "every frequency, needed for far fields, gain patterns and antenna parameters over frequency; "
