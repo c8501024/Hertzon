@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.2.7 (2026-10-30)
 
 ### Added
 - **SPARTA as matrix solver.** A setup's *Matrix solver* (and the default in Tools > Options) now offers
@@ -24,8 +24,15 @@ the GitHub release notes.
   by default), solve with all cores, and compare the time per phase, the sweeps on the same mesh, the peak
   memory and the S-parameter difference; a run that could not use its solver (SPARTA not installed, no
   usable GPU) is marked. *Make Fastest the Default Solver* sets the default for new setups.
+- **Rename a report** (#130): right click a report in the project tree > Rename... gives the report and its
+  open tab a new name; a name that another report already has is refused.
 
 ### Fixed
+- **First click on an object no longer hangs for seconds.** The Properties of the clicked object list every
+  material, and the first time this read the EMerge material library, whose import (with scipy) took several
+  seconds on a cold start. The library is now read in the background as soon as the window is open.
+- **3D polar plot** (#129) no longer shows the *Constant* and *Value (deg)* fields of the 2D radiation
+  pattern cut; the 3D plot shows the whole sphere, and the fields had no effect on it.
 - **Port Zo over a sweep** (#125): the Zo of a TEM port is the same at every frequency up to rounding
   (1e-12 ohm), and a report of it alone autoscaled onto those last digits, so the flat line looked like
   random data. A curve that is constant up to rounding is now drawn in a range of +-1 % around its value,
@@ -45,9 +52,6 @@ the GitHub release notes.
 ## 0.2.6 (2026-10-28)
 
 ### Fixed
-- **First click on an object no longer hangs for seconds.** The Properties of the clicked object list every
-  material, and the first time this read the EMerge material library, whose import (with scipy) took several
-  seconds on a cold start. The library is now read in the background as soon as the window is open.
 - **Update without "Set up the Python environment"**: when that component of the installer was switched off
   for an update (or failed), the new program ran on the packages of the old version (for example the previous EMerge)
   and showed "First start detected" until its first solve, because the setup never compiled the kernels.
