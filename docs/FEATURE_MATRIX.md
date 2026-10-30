@@ -89,10 +89,12 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Minimum Number of Passes, Minimum Converged Passes | ✔ |
 | Percent Refinement per pass | ✔ (enforced, adaptive error-driven refinement) |
 | Mesh refinement method | ✔ hzAURA (EMerge, default), Local (Delaunay, hzmesh), Remesh (slow), Remesh (stable, experimental); see [MESHER.md](MESHER.md) |
-| Curved elements on curved surfaces | ✔ (EMerge, default on) |
+| Curved elements on curved surfaces | ✔ (EMerge, default on; also next to radiation boundaries and lumped ports, surfaces connected to a wave port stay flat) |
 | Maximum Refinement (tets) | ✔ |
 | Basis function order | ✔ Zero Order (6), First Order (20, default), Second Order (complete quadratic, 30); no Mixed Order |
-| Solver: Auto / Direct (PARDISO, MUMPS, UMFPACK, SuperLU) | ✔ |
+| Solver: Auto / Direct (PARDISO, MUMPS, UMFPACK, SuperLU) | ✔ (Auto: PARDISO for large problems) |
+| Solver: SPARTA (GPU / CPU), PARDISO + SPARTA sweep | ✔ optional, Tools > Options > Install SPARTA; sweeps with SPARTA solve one frequency at a time |
+| Solver benchmark: core scaling and solver comparison on the same mesh | ✔ Tools > Solver Benchmark |
 | Save fields | ✔ |
 | Eigenmode setup (min frequency, number of modes) | ✔ |
 
@@ -111,13 +113,13 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Function | In Hertzon | Status |
 |---|---|---|
 | Solution Data: Profile, Convergence (table + plot), Matrix Data S/Y/Z (mag/phase, dB, re/im), Mesh Statistics | ✔ |
-| Rectangular plot, Smith chart, Data table, markers | ✔ |
+| Rectangular plot, Smith chart, Data table, markers | ✔ (rename a report from the project tree) |
 | Expressions `dB(S(1,1))`, `VSWR`, `GroupDelay`, `Z`, `Y`, `Zo`, `Gamma`, mixed-mode `S(Diff1,Comm1)`, `ang_deg`, `re`, `im` | ✔ (also as named equations, e.g. `RL = -dB(S(1,1))`, category Equations) |
 | Units on report axes, data tables, CSV export and colour bars | ✔ |
 | Radiation: Infinite Sphere, 2D pattern cuts, 3D polar plot, Gain / Directivity / Realized gain, Eθ/Eφ, markers, beamwidth and side lobes | ✔ (half and quarter models with Symmetry boundaries are mirrored) |
 | Field overlays on faces, objects and cut planes: Mag, Complex Mag and Vector of E, H, Jsurf and J (volume current sigma E), phase animation | ✔ (with nothing selected, the faces or objects are picked in the 3D view) |
 | Volume field plots (scalar field through a solid as coloured dots) | ✔ Plot on "(selection, inside solids)" |
-| Export Touchstone, CSV, images | ✔ |
+| Export Touchstone, CSV, images | ✔ (CSV and Copy Data hold the curves as drawn, in the units of the axes) |
 | Export Gerber X2 (copper layers, profile) and Excellon (PTH / NPTH), File > Export > Gerber ([details](GERBER_EXPORT.md)) | ✔ |
 | Optimization: conjugate gradient (projected Polak-Ribiere+), goals on report expressions, error-area or worst-case cost, filter mask, parallel gradient evaluations | ✔ |
 | Parametric sweep | ✔ Optimization > Add Parametric; solved variations can be shown again without solving |
