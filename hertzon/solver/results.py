@@ -222,3 +222,36 @@ def _json_default(o):
     if isinstance(o, complex):
         return [o.real, o.imag]
     return str(o)
+
+
+def deembed_renormalize(S: np.ndarray, z0, ports: list, beta) -> tuple[np.ndarray, np.ndarray]:
+    """Wave-port de-embedding (beta: propagation constant per frequency and port, or None without
+    de-embedding) and renormalization of the S-matrices (frequency x n x n) of the port rows `ports`
+    (port_entries). Returns (S, reference impedance per row)."""
+    n = S.shape[1]
+    z0v = np.resize(np.asarray(z0, complex).ravel(), n)
+    dist = np.array([float(q.get("deembed") or 0.0) for q in ports] + [0.0] * (n - len(ports)))
+    if np.any(dist != 0) and beta is not None:
+        ph = np.exp(1j * np.asarray(beta) * dist[None, :])
+        S = S * ph[:, :, None] * ph[:, None, :]
+    zref = []
+    for i in range(n):
+        r = ports[i].get("renorm_ohm") if i < len(ports) else None
+        zref.append(complex(r) if r is not None else z0v[i])
+    zref = np.array(zref)
+    if np.allclose(zref, z0v):
+        return S, z0v
+    return renormalize(S, z0v, zref), zref
+
+
+def renormalize(S: np.ndarray, z0v: np.ndarray, zref: np.ndarray) -> np.ndarray:
+    """S-matrices (frequency x n x n) referred to the port impedances z0v, referred to zref instead."""
+    n = S.shape[1]
+    I = np.eye(n)
+    sq0, sqr = np.diag(np.sqrt(z0v)), np.diag(1 / np.sqrt(zref))
+    out = np.empty_like(S)
+    for k in range(len(S)):
+        Z = sq0 @ (I + S[k]) @ np.linalg.inv(I - S[k]) @ sq0
+        Zn = sqr @ Z @ sqr
+        out[k] = (Zn - I) @ np.linalg.inv(Zn + I)
+    return out

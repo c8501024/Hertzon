@@ -27,7 +27,7 @@ from ..model import schema
 from ..kernel import occ as K
 from . import facematch
 from . import sparta_setup
-from .results import ResultStore, port_entries
+from .results import ResultStore, port_entries, deembed_renormalize
 from .emerge_compat import amr as _amr
 
 C0 = 299792458.0
@@ -185,7 +185,8 @@ class Bridge:
             (self.out / "ABORT").unlink(missing_ok=True)     # left over from an aborted earlier run
         except OSError:
             pass
-        self.store.write_json("status.json", {"state": "running", "started": time.time()})
+        if not os.environ.get("HERTZON_TUNING"):    # a tuning run leaves the solution of the setup as it is
+            self.store.write_json("status.json", {"state": "running", "started": time.time()})
         if _first_run():
             note = "First start detected: compiling the solver kernels (once, a few minutes)"
             info(note)
@@ -196,6 +197,10 @@ class Bridge:
         with em.Simulation(f"hertzon_{os.getpid()}", save_file=False) as m:
             info(f"Solver start: EMerge simulation ready in {time.time() - t:.1f} s")
             self.prepare(m)
+            tune = os.environ.get("HERTZON_TUNING", "")
+            if tune:
+                self.run_tuning(json.loads(tune))
+                return
             only = os.environ.get("HERTZON_ONLY_SWEEP", "")
             if only:
                 self.solve_one_sweep(only)
@@ -1412,6 +1417,37 @@ class Bridge:
         self.store.write_json("status.json", {"state": "done", "finished": time.time(),
                                               "elapsed": time.time() - self.t0, **getattr(self, "keys", {})})
         emit("progress", value=100, text=f"Sweep '{name}' complete")
+        emit("done", elapsed=time.time() - self.t0)
+        hard_exit()
+
+    def run_tuning(self, spec: dict) -> None:
+        """Derivative tuning model of a sweep (hertzon.solver.tuning) on the converged adaptive mesh.
+        spec: {"sweep": name, "variables": [names], "points": count}."""
+        from . import tuning
+        fa = adaptive_frequencies(self.setup, self.ev)
+        resume = load_amr_state(self.out, self.keys["model_key"], fa)
+        if not resume or not (len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura")):
+            raise RuntimeError("No adaptive solution to reuse; analyze the setup first")
+        restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
+        info(f"Reusing the adaptive mesh: {self.m.mesh.n_tets} tetrahedra")
+        self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
+        name = spec.get("sweep", "")
+        sw = next((s for s in self.setup.sweeps if s.name == name), None)
+        if sw is None:
+            raise RuntimeError(f"Sweep '{name}' not found")
+        freqs = tuning.tuning_frequencies(sw.props, self.ev, int(spec.get("points", 51)))
+        variables = list(spec.get("variables", []))
+        info(f"Derivative tuning of {', '.join(variables)} at {len(freqs)} frequencies of '{name}'")
+
+        def progress(k, n):
+            emit("progress", value=15 + 83 * k / n, text=f"Tuning '{name}': {k} of {n} frequencies")
+
+        tmp = tuning.tuning_path(self.out, name).with_suffix(".tmp.npz")
+        meta = tuning.build(self, variables, freqs, tmp, log=info, progress=progress)
+        os.replace(tmp, tuning.tuning_path(self.out, name))
+        for v, (lo, hi), u in zip(meta["variables"], meta["ranges"], meta["units"]):
+            info(f"Tuning range of {v}: {lo:+.4g} to {hi:+.4g} {u}")
+        emit("progress", value=100, text=f"Tuning '{name}' complete")
         emit("done", elapsed=time.time() - self.t0)
         hard_exit()
 
@@ -3101,28 +3137,9 @@ def postprocess_ports(freq, S, z0, port_map: list) -> tuple[np.ndarray, np.ndarr
     if TERMINALS is not None:
         return S, np.asarray(z0, complex).ravel()
     n = S.shape[1]
-    z0v = np.resize(np.asarray(z0, complex).ravel(), n)
     ports = port_entries(port_map)[:n]
-    dist = np.array([float(q.get("deembed") or 0.0) for q in ports] + [0.0] * (n - len(ports)))
-    if np.any(dist != 0):
-        beta = port_beta(np.asarray(freq, float), n)
-        ph = np.exp(1j * beta * dist[None, :])
-        S = S * ph[:, :, None] * ph[:, None, :]
-    zref = []
-    for i in range(n):
-        r = ports[i].get("renorm_ohm") if i < len(ports) else None
-        zref.append(complex(r) if r is not None else z0v[i])
-    zref = np.array(zref)
-    if np.allclose(zref, z0v):
-        return S, z0v
-    I = np.eye(n)
-    sq0, sqr = np.diag(np.sqrt(z0v)), np.diag(1 / np.sqrt(zref))
-    out = np.empty_like(S)
-    for k in range(len(S)):
-        Z = sq0 @ (I + S[k]) @ np.linalg.inv(I - S[k]) @ sq0
-        Zn = sqr @ Z @ sqr
-        out[k] = (Zn - I) @ np.linalg.inv(Zn + I)
-    return out, zref
+    beta = port_beta(np.asarray(freq, float), n) if any(q.get("deembed") for q in ports) else None
+    return deembed_renormalize(S, z0, ports, beta)
 
 
 def _z0(grid) -> np.ndarray:
@@ -3193,9 +3210,10 @@ def run(project_path: str, design: str, setup: str, out_dir: str) -> int:
     except Exception as ex:  # noqa: BLE001
         emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")
         emit("traceback", text=traceback.format_exc())
-        try:
-            ResultStore(Path(out_dir)).write_json("status.json", {"state": "failed", "error": str(ex)})
-        except Exception:  # noqa: BLE001
-            pass
+        if not os.environ.get("HERTZON_TUNING"):
+            try:
+                ResultStore(Path(out_dir)).write_json("status.json", {"state": "failed", "error": str(ex)})
+            except Exception:  # noqa: BLE001
+                pass
         emit("failed", error=str(ex))
         return 1

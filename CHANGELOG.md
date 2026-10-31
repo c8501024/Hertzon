@@ -3,6 +3,22 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Derivative tuning with sliders.** Results > Tuning (also Optimization > Derivative Tuning and the right
+  click on a sweep) computes, once, how the S-parameters of a sweep depend on chosen design variables, on
+  the converged adaptive mesh of the setup. Then sliders move the variables and the plot follows live, with
+  the solved response dashed as reference; *Apply to Design* sets the variables to the slider values. The
+  mesh is morphed instead of remeshed (the nodes follow the faces that move), the derivatives of the FEM
+  matrix come from assemblies on slightly morphed meshes, and one factorization per frequency gives the
+  solution and its derivatives, which span a small reduced model. Resonances therefore shift with the
+  sliders instead of being smeared. At the solved values the response is exactly the solved one; on a
+  microstrip stub the notch moved 0.3 GHz per millimetre of stub length, within 0.01 of exact solves on
+  the morphed mesh over +-2 mm. Each slider is limited to the range in which no tetrahedron shrinks below
+  30 % of its volume. Plane faces may change shape, curved faces may move; ports and the outer boundary
+  must stay in place. Not yet for terminal designs.
+
 ## 0.2.8 (2026-10-30)
 
 ### Fixed
