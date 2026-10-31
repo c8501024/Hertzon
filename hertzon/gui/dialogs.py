@@ -858,12 +858,43 @@ class OptionsDialog(QDialog):
         row.addWidget(self.remote_test)
         row.addWidget(self.remote_state, 1)
         f.addRow("", row)
-        hint = QLabel("On the other computer, with Hertzon installed, run <code>hertzon-serve</code> "
-                      "(or <code>python -m hertzon.remote serve</code>). It prints the computer's address and the "
-                      "token. <code>hertzon-serve autostart on</code> starts it with each login.<br>"
-                      "The connection is meant for the local network; the token is sent unencrypted.")
+        hint = QLabel("Enter the address and token that Hertzon shows on the other computer under "
+                      "<i>Share this computer</i> below.")
         hint.setWordWrap(True)
         f.addRow(hint)
+
+        from PySide6.QtWidgets import QApplication
+        share = QGroupBox("Share this computer: let other Hertzon installations solve here")
+        g = QFormLayout(share)
+        self.share_state = QLabel()
+        self.share_state.setWordWrap(True)
+        self.share_state.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.share_btn = QPushButton()
+        self.share_btn.clicked.connect(self._toggle_share)
+        row = QHBoxLayout()
+        row.addWidget(self.share_state, 1)
+        row.addWidget(self.share_btn)
+        g.addRow(row)
+        self.share_addr = QLabel()
+        self.share_addr.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.share_token = QLineEdit()
+        self.share_token.setReadOnly(True)
+        copy = QPushButton("Copy")
+        copy.clicked.connect(lambda: QApplication.clipboard().setText(self.share_token.text()))
+        trow = QHBoxLayout()
+        trow.addWidget(self.share_token, 1)
+        trow.addWidget(copy)
+        g.addRow("Computer", self.share_addr)
+        g.addRow("Token", trow)
+        self.share_auto = QCheckBox("Start the service at login (also without Hertzon open)")
+        g.addRow("", self.share_auto)
+        note = QLabel("The service keeps running when Hertzon is closed. The connection is meant for the "
+                      "local network; the token is sent unencrypted. Windows may ask once whether Python "
+                      "may accept connections: allow it for private networks.")
+        note.setWordWrap(True)
+        g.addRow(note)
+        f.addRow(share)
+        self._share_status()
         tabs.addTab(rem, "Remote")
 
         mod = QWidget()
@@ -937,6 +968,40 @@ class OptionsDialog(QDialog):
         self._sparta_proc = p
         p.start(args[0], args[1:])
 
+    def _share_status(self, info: dict | None = None, checked: bool = False) -> None:
+        from ..remote import local
+        from ..remote.__main__ import autostart_enabled
+        if not checked:
+            info = local.status()
+        self._share_running = info is not None
+        self.share_state.setText(f"Running: Hertzon {info.get('hertzon')}, {info.get('cores')} cores"
+                                 + (", solving" if info.get("busy") else "") if info else "Not running")
+        self.share_btn.setText("Stop Service" if info else "Start Service")
+        self.share_addr.setText("  or  ".join(local.share_addresses()))
+        self.share_token.setText(local.token())
+        if not hasattr(self, "_share_auto0"):
+            self._share_auto0 = autostart_enabled()
+            self.share_auto.setChecked(self._share_auto0)
+
+    def _toggle_share(self) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QApplication
+        from ..remote import local
+        QApplication.setOverrideCursor(_Qt.WaitCursor)
+        try:
+            if self._share_running:
+                local.stop()
+                info = local.status()
+            else:
+                info = local.start()
+                if info is None:
+                    self.share_state.setText("The service did not start; see service.log in "
+                                             f"{local.default_workdir()}")
+                    return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._share_status(info, checked=True)
+
     def _test_remote(self) -> None:
         from PySide6.QtCore import Qt as _Qt
         from PySide6.QtWidgets import QApplication
@@ -964,6 +1029,12 @@ class OptionsDialog(QDialog):
         s.setValue("remote/enabled", self.remote_on.isChecked())
         s.setValue("remote/address", self.remote_addr.text().strip())
         s.setValue("remote/token", self.remote_token.text().strip())
+        if self.share_auto.isChecked() != self._share_auto0:
+            import contextlib
+            import io
+            from ..remote.__main__ import autostart
+            with contextlib.redirect_stdout(io.StringIO()):
+                autostart(self.share_auto.isChecked(), [])
         s.setValue("modeler/default_units", self.units.currentText())
         w._toggle_edit_new(self.edit_new.isChecked())
         w.a_editnew.setChecked(self.edit_new.isChecked())

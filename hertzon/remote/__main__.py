@@ -26,6 +26,10 @@ def _startup_file() -> Path:
     return Path.home() / ".config" / "systemd" / "user" / "hertzon-remote.service"
 
 
+def autostart_enabled() -> bool:
+    return _startup_file().is_file()
+
+
 def autostart(on: bool, args: list[str]) -> int:
     f = _startup_file()
     if not on:
@@ -38,9 +42,12 @@ def autostart(on: bool, args: list[str]) -> int:
     py = sys.executable
     extra = " ".join(args)
     if os.name == "nt":
-        f.write_text(f'@echo off\r\nstart "{AUTOSTART_NAME}" /min "{py}" -m hertzon.remote serve {extra}\r\n',
+        pyw = Path(py).with_name("pythonw.exe")
+        py = str(pyw) if pyw.exists() else py           # no console window
+        root = Path(__file__).resolve().parents[2]
+        f.write_text(f'@echo off\r\ncd /d "{root}"\r\nstart "" "{py}" -m hertzon.remote serve {extra}\r\n',
                      encoding="utf-8")
-        print(f"The service now starts minimized at login ({f}).")
+        print(f"The service now starts in the background at login ({f}).")
     else:
         root = Path(__file__).resolve().parents[2]
         f.write_text("[Unit]\nDescription=Hertzon remote service\nAfter=network-online.target\n\n"

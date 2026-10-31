@@ -12,6 +12,7 @@ API (JSON unless noted):
     POST   /api/jobs                         body: job archive (zip), header X-Hertzon-Job: job JSON -> {id}
     GET    /api/jobs/<id>/events?since=N     solver lines from N on (waits up to 15 s for new ones), state
     POST   /api/jobs/<id>/abort
+    POST   /api/shutdown                     stop the service (running jobs are aborted)
     GET    /api/jobs/<id>/files              files of the job's results folder
     GET    /api/jobs/<id>/file?path=P        one file of the results folder (bytes)
     DELETE /api/jobs/<id>                    remove the job and its folder
@@ -293,7 +294,10 @@ class Service:
     def stop(self) -> None:
         with self.cond:
             self.stopping = True
+            active = [j for j in self.jobs.values() if j.state in ("queued", "running")]
             self.cond.notify_all()
+        for job in active:
+            self.abort(job)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -398,6 +402,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if parts == ["api", "jobs"]:
                 return self._submit()
+            if parts == ["api", "shutdown"]:          # Tools > Options > Remote: Stop Service
+                self._drain()
+                self._send(200, {"stopping": True})
+                self.service.stop()
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                return
             if len(parts) == 4 and parts[:2] == ["api", "jobs"] and parts[3] == "abort":
                 self._drain()
                 job = self._job(parts[2])

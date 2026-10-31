@@ -167,3 +167,16 @@ def test_bad_job_rejected(service, tmp_path):
         host.submit(archive, {"kind": "shell", "project": proj.name, "out": rel})
     with pytest.raises(RemoteError):
         host.submit(archive, {"kind": "run", "project": proj.name, "out": "../../x"})
+
+
+def test_shutdown(service, tmp_path):
+    svc, host = service
+    proj, out = make_project(tmp_path)
+    jid, _ = run_job(host, proj, out, design="slow")
+    assert host.shutdown()["stopping"]
+    deadline = time.time() + 20
+    while svc.jobs[jid].state in ("queued", "running") and time.time() < deadline:
+        time.sleep(0.05)
+    assert svc.jobs[jid].state == "aborted"            # a stopped service leaves no solver running
+    with pytest.raises(RemoteError):
+        host.info()

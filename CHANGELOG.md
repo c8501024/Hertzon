@@ -7,8 +7,8 @@ the GitHub release notes.
 
 ### Added
 - **Solving on another computer.** A computer in the local network with Hertzon installed runs the remote
-  service (`hertzon-serve`, optionally started at login with `hertzon-serve autostart on`); Tools > Options
-  > Remote points the GUI at it with its address and token. *Analyze* then uploads the project and the
+  service, started in Tools > Options > Remote > Share this computer (optionally at every login) or with
+  `hertzon-serve`; on the laptop the same tab points the GUI at it with its address and token. *Analyze* then uploads the project and the
   setup's results folder, shows progress, adaptive passes and the log live, can abort, and mirrors the
   results folder back (small files first), so reports and field plots work as after a local solve. Also
   for parametric and optimization runs. Several users can share one service; jobs run one after the other.

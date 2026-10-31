@@ -8,26 +8,17 @@ field plots and exports work exactly as after a local solve.
 ## On the computer that solves
 
 1. Install Hertzon as usual (same version as on your laptop).
-2. Start the service in a terminal of Hertzon's Python environment:
+2. Tools > Options > Remote > *Share this computer*: press **Start Service**. Hertzon shows the address
+   other computers enter (`simstation02:47820`) and the token, with a Copy button. The service runs in the
+   background and keeps running when Hertzon is closed; **Stop Service** ends it. Tick *Start the service at
+   login* to have it running after every login, also without opening Hertzon.
 
-   ```
-   hertzon-serve
-   ```
-
-   (or `python -m hertzon.remote serve`). It prints the computer's address and a token:
-
-   ```
-   Hertzon 0.2.8 remote service, 64 cores, work folder C:\Users\me\.hertzon\remote
-   Address for Tools > Options > Remote: simstation02:47820  or  192.168.1.20:47820
-   Token: 3q2k...
-   ```
-
-3. Optional: `hertzon-serve autostart on` starts the service with each login (Windows: Startup folder;
-   Linux: writes a systemd user service and prints the two commands that enable it).
-
-Options: `--cores N` (default: all cores), `--sweep-workers N` (default 2), `--port` (default 47820),
-`--workdir`. `hertzon-serve token` prints the token again. Windows asks once whether the service may accept
-connections from the network; allow it for private networks.
+Without the GUI (for example on a Linux server): run `hertzon-serve` (or `python -m hertzon.remote serve`)
+in Hertzon's Python environment; it prints address and token. Options: `--cores N` (default: all cores),
+`--sweep-workers N` (default 2), `--port` (default 47820), `--workdir`. `hertzon-serve token` prints the
+token again, `hertzon-serve autostart on` starts it at login (Linux: writes a systemd user service and
+prints the commands that enable it). Windows asks once whether Python may accept connections from the
+network; allow it for private networks.
 
 ## On your laptop
 
