@@ -618,8 +618,9 @@ def _functionals(asm, mw, freq, W, NF, ids, mats, powers, V, steps, ports_move) 
 
 def band_models(asm: Assembly, freqs: np.ndarray, V: list[np.ndarray], steps: list[float], log=None,
                 ports_move: bool = False, tol: float = 1e-4, progress=None, abort=None,
-                on_frequency=None) -> list[dict]:
-    """Reduced models of all frequencies on one band basis (BandModel)."""
+                on_frequency=None) -> tuple[list[dict], dict, tuple]:
+    """Reduced models of all frequencies on one band basis (BandModel): (frequency models, the frequency
+    independent band terms, (the basis W, its solve dofs))."""
     log = log or (lambda s: None)
     t = time.time()
     bm = BandModel(asm, V, steps, float(np.mean(freqs)), log=log)
@@ -640,7 +641,56 @@ def band_models(asm: Assembly, freqs: np.ndarray, V: list[np.ndarray], steps: li
         if progress is not None:
             progress(k + 1, len(freqs))
     asm.restore()
+    for key in {key for fm in out for key in fm}:     # the same terms at every frequency
+        like = next(fm[key] for fm in out if key in fm)
+        for fm in out:
+            fm.setdefault(key, np.zeros_like(like))
+    # the frequency independent parts (E - k0^2 B): the model can be evaluated between its frequencies
+    # with only the boundary terms interpolated (TuningModel)
+    n = len(V)
+    band = {}
+    for name, T in (("E", ER), ("B", BR)):
+        band[f"band_{name}0"] = T[0]
+        band[f"band_{name}i"] = np.array(T[1]).reshape(n, *T[0].shape)
+        band[f"band_{name}ii"] = np.array(T[2]).reshape(n, *T[0].shape)
+        band[f"band_{name}ij"] = np.array(T[3]).reshape(len(T[3]), *T[0].shape)
+    return out, band, (W, bm.ids)
+
+
+def farfield_basis(bridge, W: np.ndarray, ids: np.ndarray, f_ref: float) -> dict:
+    """The fields of the basis vectors on the far field surface of bridge (nominal mesh): E_j and the curl
+    term C_j with H_j = C_j / (-j 2 pi f), both independent of the frequency. The tuned surface fields are
+    then sums over the reduced solution, and the far field follows with the Stratton-Chu integral as for a
+    solved field. The surface stays where it is in the nominal mesh (the open boundary is away from what
+    the variables move). Empty without an open boundary."""
+    surf = bridge.huygens_surface()
+    if surf is None:
+        return {}
+    mw = bridge.m.mw
+    basis = mw.basis
+    vis = np.asarray(surf["vis"], np.float64)
+    mapping = np.asarray(basis.interpolate_index(*vis), np.int64)
+    if (mapping < 0).any():
+        return {}
+    _, ur, _, _ = mw.assembler._assemble_materials(mw.mat_assy, basis, f_ref)
+    c = 1.0 / (MU0 * np.squeeze(np.asarray(ur)[0, 0, :]))
+    k = W.shape[1]
+    E = np.empty((k, 3, vis.shape[1]), np.complex64)
+    C = np.empty_like(E)
+    full = np.zeros(basis.n_field, np.complex128)
+    for j in range(k):
+        full[:] = 0
+        full[ids] = W[:, j]
+        E[j] = np.array(basis.interpolate(full, *vis, mapping, usenan=False))
+        C[j] = np.array(basis.interpolate_curl(full, *vis, c, mapping, usenan=False))
+    out = {"ff_vis": vis, "ff_wns": np.asarray(surf["wns"], np.float64), "ff_E": E, "ff_C": C}
+    for key in ("sym_kind", "sym_axis", "sym_pos"):
+        if key in surf:
+            out[f"ff_{key}"] = surf[key]
     return out
+
+
+MU0 = 1.25663706212e-6
 
 
 # ------------------------------------------------------------------------------------------------
@@ -656,36 +706,93 @@ def _taylor(fm: dict, key: str, dp: np.ndarray) -> np.ndarray:
     v = fm[key]
     if f"{key}_i" not in fm:
         return v
+    st = fm.get("_stacked", False)
     v = v.astype(np.complex128, copy=True)
     for i, d in enumerate(dp):
         if d:
-            v += d * fm[f"{key}_i"][i] + 0.5 * d * d * fm[f"{key}_ii"][i]
+            v += d * _term(fm[f"{key}_i"], i, st) + 0.5 * d * d * _term(fm[f"{key}_ii"], i, st)
     for k, (i, j) in enumerate(pairs(len(dp))):
         if dp[i] and dp[j]:
-            v += dp[i] * dp[j] * fm[f"{key}_ij"][k]
+            v += dp[i] * dp[j] * _term(fm[f"{key}_ij"], k, st)
     return v
 
 
 def evaluate_freq(fm: dict, dp: np.ndarray, caps: tuple[bool, bool] = (True, True)) -> np.ndarray:
-    """Raw S-matrix (ports x ports) of one frequency model at the variable offsets dp."""
+    """Raw S-matrix (ports x ports) of one frequency model at the variable offsets dp. A stacked model
+    (_stack: every term with a leading frequency axis) gives all frequencies at once (frequency x ports x
+    ports)."""
+    return _solve(fm, dp, caps)[1]
+
+
+def _solve(fm: dict, dp: np.ndarray, caps: tuple[bool, bool] = (True, True)) -> tuple[np.ndarray, np.ndarray]:
+    """(Y, S) of evaluate_freq: Y the reduced solutions (basis x ports, one column per excited port)."""
+    st = fm.get("_stacked", False)
+    dp = np.asarray(dp, float)
     A = fm["A0"].copy()
     for i, d in enumerate(dp):
         if d:
-            A += d * fm["Ai"][i] + 0.5 * d * d * fm["Aii"][i]
+            A += d * _term(fm["Ai"], i, st) + 0.5 * d * d * _term(fm["Aii"], i, st)
     for k, (i, j) in enumerate(pairs(len(dp))):
         if dp[i] and dp[j]:
-            A += dp[i] * dp[j] * fm["Aij"][k]
+            A += dp[i] * dp[j] * _term(fm["Aij"], k, st)
     Y = np.linalg.solve(A, _taylor(fm, "b", dp))
-    n = len(fm["c0"])
-    S = _taylor(fm, "Lp", dp) @ Y
-    S[np.diag_indices(n)] = np.einsum("ik,ki->i", _taylor(fm, "La", dp), Y) + _taylor(fm, "c0", dp)
+    Lp, La, c0 = _taylor(fm, "Lp", dp), _taylor(fm, "La", dp), _taylor(fm, "c0", dp)
+    n = c0.shape[-1]
+    S = Lp @ Y
+    idx = np.arange(n)
+    S[..., idx, idx] = np.einsum("...ik,...ki->...i", La, Y) + c0
     col, single = caps
     if col:
-        for j in range(n):
-            S[:, j] /= max(1.0, float(np.sum(np.abs(S[:, j]) ** 2)))
+        S /= np.maximum(1.0, np.sum(np.abs(S) ** 2, axis=-2, keepdims=True))
     if single:
         S /= np.maximum(1.0, np.abs(S))
-    return S
+    return Y, S
+
+
+def _term(arr: np.ndarray, i: int, stacked: bool) -> np.ndarray:
+    return arr[:, i] if stacked else arr[i]
+
+
+def _stack(fms: list[dict]) -> dict | None:
+    """The frequency models as one dict with a leading frequency axis (None if their shapes differ, as in
+    a model reduced per frequency)."""
+    if not fms:
+        return None
+    keys = set(fms[0])
+    if any(set(fm) != keys or any(fm[k].shape != fms[0][k].shape for k in keys) for fm in fms):
+        return None
+    out = {k: np.stack([fm[k] for fm in fms]) for k in keys}
+    out["_stacked"] = True
+    return out
+
+
+_MATRIX_TERMS = (("A0", "0"), ("Ai", "i"), ("Aii", "ii"), ("Aij", "ij"))
+
+
+def _band_on_grid(st: dict, band: dict, freq: np.ndarray, grid: np.ndarray) -> dict:
+    """A band model at the grid frequencies: the volume part E - k0^2 B exactly, the boundary terms, the
+    excitations and the port functionals (smooth in frequency; the resonances come from the solve)
+    interpolated with cubic splines between the model frequencies."""
+    from scipy.interpolate import CubicSpline
+    c = 299792458.0
+    k0 = 2 * np.pi * np.asarray(freq, float) / c
+    kg = 2 * np.pi * np.asarray(grid, float) / c
+    out = {"_stacked": True}
+
+    def vol(suffix, kk):
+        return band["E" + suffix][None] - (kk ** 2).reshape((-1,) + (1,) * band["E" + suffix].ndim) * \
+            band["B" + suffix][None]
+
+    for key, val in st.items():
+        if key == "_stacked":
+            continue
+        suffix = dict(_MATRIX_TERMS).get(key)
+        if suffix is not None:
+            R = val - vol(suffix, k0)
+            out[key] = vol(suffix, kg) + CubicSpline(freq, R, axis=0)(grid)
+        else:
+            out[key] = CubicSpline(freq, val, axis=0)(grid)
+    return out
 
 
 # ------------------------------------------------------------------------------------------------
@@ -790,12 +897,21 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
         if z0 is None:
             z0 = np.array([complex(p.portZ0(k0) or 50.0) for p, _, _ in pm])
 
+    band_data: dict = {}
     try:
         fms = None
         if band and nfreq > 1:
             try:
-                fms = band_models(asm, freqs, V, steps, log=log, ports_move=ports_move, progress=progress,
-                                  abort=abort, on_frequency=port_data)
+                fms, band_data, (W, ids) = band_models(asm, freqs, V, steps, log=log, ports_move=ports_move,
+                                                       progress=progress, abort=abort, on_frequency=port_data)
+                t = time.time()
+                try:
+                    band_data.update(farfield_basis(bridge, W, ids, fc))
+                except Exception as e:  # noqa: BLE001
+                    log(f"No far field in the tuning model: {e}")
+                if "ff_E" in band_data:
+                    log(f"Far field surface: {band_data['ff_vis'].shape[1]} points ({time.time() - t:.1f} s)")
+                del W
             except NotAffine as e:
                 log(f"No band model ({e}): every frequency is reduced on its own")
                 beta.clear()
@@ -829,7 +945,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
         "created": time.time(),
     }
     np.savez_compressed(path, freq=np.asarray(freqs, float), beta=np.array(beta), z0=z0, nominal=nominal,
-                        meta=np.array(json.dumps(meta)), **data)
+                        meta=np.array(json.dumps(meta)), **data, **band_data)
     return meta
 
 
@@ -847,6 +963,12 @@ class TuningModel:
             for k in range(len(self.freq)):
                 pre = f"f{k}_"
                 self.fms.append({name[len(pre):]: z[name] for name in z.files if name.startswith(pre)})
+            band = {name[5:]: z[name] for name in z.files if name.startswith("band_")}
+            ff = {name[3:]: z[name] for name in z.files if name.startswith("ff_")}
+        self.ff = ff if "E" in ff else None
+        if self.ff is not None:         # stored in single precision, summed in double
+            self.ff["E"] = self.ff["E"].astype(np.complex128)
+            self.ff["C"] = self.ff["C"].astype(np.complex128)
         self.variables = self.meta["variables"]
         self.ranges = np.array(self.meta["ranges"], float)
         self.caps = tuple(self.meta.get("caps", (True, True)))
@@ -856,9 +978,20 @@ class TuningModel:
         grid = self.meta.get("grid")
         self.grid = np.asarray(grid, float) if grid else None
         self.freq_out = self.grid if self.grid is not None else self.freq
+        self.stack = _stack(self.fms)
+        # a band model on a sweep grid: evaluated at the grid frequencies directly (no fit of the curve)
+        self.stack_out = None
+        if self.grid is not None and band and len(self.freq) >= 4 and self.stack is not None:
+            self.stack_out = _band_on_grid(self.stack, band, self.freq, self.grid)
+        self._nominal = None
+        self._ffcache: dict = {}
 
-    def raw(self, dp) -> np.ndarray:
+    def raw(self, dp, out: bool = False) -> np.ndarray:
+        """Raw S at the model frequencies (out: at freq_out when the model evaluates there directly)."""
         dp = np.asarray(dp, float)
+        st = self.stack_out if out and self.stack_out is not None else self.stack
+        if st is not None:
+            return evaluate_freq(st, dp, self.caps)
         return np.array([evaluate_freq(fm, dp, self.caps) for fm in self.fms])
 
     def sparams(self, dp) -> tuple[np.ndarray, np.ndarray]:
@@ -866,10 +999,14 @@ class TuningModel:
         post-processing (de-embedding, renormalization) as a solved sweep. A model of the solved points of
         an interpolating sweep is interpolated over the sweep frequencies as the sweep does."""
         from .results import deembed_renormalize, fit_sparams
-        S = self.raw(dp)
         beta = self.beta
+        if self.stack_out is not None:
+            S = self.raw(dp, out=True)
+        else:
+            S = self.raw(dp)
         if self.grid is not None:
-            S = fit_sparams(self.freq, S)(self.grid)
+            if self.stack_out is None:
+                S = fit_sparams(self.freq, S)(self.grid)
             beta = np.array([np.interp(self.grid, self.freq, b.real) + 1j * np.interp(self.grid, self.freq, b.imag)
                              for b in np.asarray(self.beta).T]).T
         ports = self.meta.get("ports") or []
@@ -891,4 +1028,63 @@ class TuningModel:
         return deembed_renormalize(S, self.z0, ports, beta)
 
     def nominal(self) -> tuple[np.ndarray, np.ndarray]:
-        return self.sparams(np.zeros(len(self.variables)))
+        if self._nominal is None:
+            self._nominal = self.sparams(np.zeros(len(self.variables)))
+        return self._nominal
+
+    def sparams_at(self, k: int, dp) -> np.ndarray:
+        """S (ports x ports) at model frequency k and the offsets dp, post-processed as sparams."""
+        from .results import deembed_renormalize
+        S = evaluate_freq(self.fms[k], np.asarray(dp, float), self.caps)[None]
+        ports = self.meta.get("ports") or []
+        beta = self.beta[[k]] if any(q.get("deembed") for q in ports) else None
+        return deembed_renormalize(S, self.z0, ports, beta)[0][0]
+
+    def surface_fields(self, k: int, port: int, dp, Y=None) -> tuple[np.ndarray, np.ndarray]:
+        """(E, H) (3 x points) on the far field surface at model frequency k for port index `port` excited
+        (1 W incident, as a solved field) at the offsets dp (Y: the reduced solutions there, if known)."""
+        if Y is None:
+            Y, _ = _solve(self.fms[k], np.asarray(dp, float), self.caps)
+        y = Y[:, port]
+        E = np.tensordot(y, self.ff["E"], axes=1)
+        H = np.tensordot(y, self.ff["C"], axes=1) / (-1j * 2 * np.pi * float(self.freq[k]))
+        return E, H
+
+    def _basis_farfield(self, k: int, theta: np.ndarray, phi: np.ndarray) -> np.ndarray:
+        """Far fields of the basis vectors (basis x 3 x directions) on the grid theta x phi at model frequency
+        k, with the mirror images and the scaling to 1 W into the full structure: the far field is linear in
+        the reduced solution, so a slider move only sums them (cached per frequency and grid)."""
+        from .farfield_post import mirrored, stratton_chu_multi, symmetry_planes
+        key = (k, np.asarray(theta, float).tobytes(), np.asarray(phi, float).tobytes())
+        cache = self._ffcache
+        if key not in cache:
+            f = float(self.freq[k])
+            Es = list(self.ff["E"])
+            Hs = list(self.ff["C"] / (-1j * 2 * np.pi * f))
+            planes = symmetry_planes(self.ff)
+            v2, w2, Ein, Hin = mirrored(self.ff["vis"], self.ff["wns"], Es, Hs, planes)
+            T, P = np.meshgrid(theta, phi, indexing="ij")
+            Fs = stratton_chu_multi(Ein, Hin, v2, w2, T.ravel(), P.ravel(), 2 * np.pi * f / 299792458.0)
+            if len(cache) > 8:
+                cache.clear()
+            cache[key] = np.array(Fs) * (0.5 ** len(planes)) ** 0.5
+        return cache[key]
+
+    def antenna(self, k: int, port: int, dp, theta: np.ndarray, phi: np.ndarray) -> dict:
+        """Far field quantities (ffquant.farfield_quantities: realized gain, gain, efficiency ...) on the
+        grid theta x phi at model frequency k, port index `port` excited with 1 W, at the offsets dp. As for a
+        solved far field: the radiated power from the surface fields, the accepted power 1 - sum |S_i,port|^2,
+        the mirror images at the symmetry planes and the scaling to 1 W into the full structure."""
+        from .ffquant import farfield_quantities
+        if self.ff is None:
+            raise ValueError("the tuning model has no far field (no open boundary)")
+        Y, _ = _solve(self.fms[k], np.asarray(dp, float), self.caps)
+        y = Y[:, port]
+        E, H = self.surface_fields(k, port, dp, Y)
+        prad = float(np.real(np.sum(0.5 * np.cross(E.T, np.conj(H).T).T * self.ff["wns"])))
+        T, _ = np.meshgrid(theta, phi, indexing="ij")
+        Ef = np.tensordot(y, self._basis_farfield(k, theta, phi), axes=1)
+        S = self.sparams_at(k, dp)
+        ff = {"theta": np.asarray(theta, float), "phi": np.asarray(phi, float),
+              "E_0_0": Ef.reshape((3,) + T.shape), "Prad_0_0": np.array([prad])}
+        return farfield_quantities(ff, 0, 0, None, pacc=float(1.0 - np.sum(np.abs(S[:, port]) ** 2)))

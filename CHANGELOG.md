@@ -28,6 +28,14 @@ the GitHub release notes.
     matrices are assembled once, and only a few frequencies are factorized (chosen where the residual is
     largest); every other frequency is solved in that basis. Patch antenna, two variables, 51
     frequencies: 85 s instead of 204 s, the same response within 3e-6.
+  - The sliders move smoothly: a band model is evaluated directly at the sweep frequencies (the volume
+    part exactly, only the boundary terms interpolated) instead of fitting the tuned curve at every
+    move, all frequencies are solved in one batch, and a slider move only redraws the tuned curves
+    (about 6 ms instead of up to seconds with an interpolating sweep).
+  - Antenna parameters follow the sliders: X axis "Pattern (realized gain)" shows the realized gain on
+    the cuts phi = 0 and 90 deg at the picked frequency, solved and tuned, with the radiation and total
+    efficiency. The model keeps the fields of its basis on the far field surface, so a slider move costs
+    about 2 ms; at the solved design it reproduces the solved far field exactly.
 
 ## 0.2.8 (2026-10-30)
 
