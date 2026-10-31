@@ -110,7 +110,7 @@ class Job:
 
 
 class Service:
-    def __init__(self, workdir: Path, token: str, cores: int = 0, sweep_workers: int = 2,
+    def __init__(self, workdir: Path, token: str, cores: int = 0, sweep_workers: int = 0,
                  command=None):
         self.workdir = Path(workdir)
         self.jobs_dir = self.workdir / "jobs"
@@ -577,7 +577,7 @@ def addresses() -> list[str]:
     return found
 
 
-def serve(host: str = "0.0.0.0", port: int = DEFAULT_PORT, cores: int = 0, sweep_workers: int = 2,
+def serve(host: str = "0.0.0.0", port: int = DEFAULT_PORT, cores: int = 0, sweep_workers: int = 0,
           workdir: Path | None = None) -> int:
     from .. import __version__
     workdir = Path(workdir) if workdir else default_workdir()
