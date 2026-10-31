@@ -1433,6 +1433,7 @@ class Bridge:
         self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
         name = spec.get("sweep", "")
         variables = list(spec.get("variables", []))
+        grid = None
         if name == tuning.ADAPTIVE:
             freqs = np.unique(np.asarray(fa, float))
             info(f"Derivative tuning of {', '.join(variables)} at the solution frequency")
@@ -1441,13 +1442,22 @@ class Bridge:
             if sw is None:
                 raise RuntimeError(f"Sweep '{name}' not found")
             freqs = tuning.tuning_frequencies(sw.props, self.ev, int(spec.get("points", 51)))
-            info(f"Derivative tuning of {', '.join(variables)} at {len(freqs)} frequencies of '{name}'")
+            if sw.props.get("SweepType", "Interpolating") == "Interpolating" and len(freqs) > 1:
+                # the frequencies the interpolating sweep solved; the tuned curve is interpolated over the
+                # sweep frequencies as the sweep interpolates its solutions
+                saved = self.store.sparams(name) or {}
+                solved = np.unique(np.asarray(saved.get("solved", []), float))
+                if 3 <= len(solved) <= tuning.MAX_POINTS and len(saved.get("freq", [])) > len(solved):
+                    grid = np.asarray(saved["freq"], float)
+                    freqs = solved
+            info(f"Derivative tuning of {', '.join(variables)} at {len(freqs)} frequencies of '{name}'"
+                 + (f" (the solved frequencies, interpolated over {len(grid)})" if grid is not None else ""))
 
         def progress(k, n):
             emit("progress", value=15 + 83 * k / n, text=f"Tuning '{name}': {k} of {n} frequencies")
 
         tmp = tuning.tuning_path(self.out, name).with_suffix(".tmp.npz")
-        meta = tuning.build(self, variables, freqs, tmp, log=info, progress=progress)
+        meta = tuning.build(self, variables, freqs, tmp, log=info, progress=progress, grid=grid)
         os.replace(tmp, tuning.tuning_path(self.out, name))
         for v, (lo, hi), u in zip(meta["variables"], meta["ranges"], meta["units"]):
             info(f"Tuning range of {v}: {lo:+.4g} to {hi:+.4g} {u}")
@@ -3154,20 +3164,8 @@ def _z0(grid) -> np.ndarray:
 
 
 def _fit(SparamModel, ff: np.ndarray, SS: np.ndarray):
-    n = SS.shape[1]
-    # pole count bounded by the information in the samples (filterbench): many poles fitted to a handful of
-    # samples overfit, the validation points miss and the sweep solves far more frequencies than needed.
-    # No fixed limit of ten: a wide band with many resonances or long lines (phase turns) needs more poles
-    poles = min(100, max(2, len(ff) // 2))
-    models = [[SparamModel(ff, SS[:, i, j], n_poles=poles, _warn=False) for j in range(n)] for i in range(n)]
-
-    def call(f):
-        out = np.zeros((len(f), n, n), complex)
-        for i in range(n):
-            for j in range(n):
-                out[:, i, j] = models[i][j](f)
-        return out
-    return call
+    from .results import fit_sparams
+    return fit_sparams(ff, SS)
 
 
 # --------------------------------------------------------------------------------------------

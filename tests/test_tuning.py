@@ -134,11 +134,9 @@ def test_tuning_model_matches_exact_solves_on_the_morphed_mesh(tmp_path):
         assert np.abs(model.raw([0.0]) - S_ref).max() < 1e-9   # the solved response, exactly
         # exact solve on the mesh morphed by +0.5 mm
         faces = {"Ls": MO.face_velocities(p, d, "Ls", TU.variable_step(d.variables["Ls"]))}
-        fixed = set(m.mesh.exterior_face_tags)
-        for port, _, _ in m.mw.bc.iter_port_modes():
-            fixed.update(port.tags)
+        fixed, slide = TU.morph_constraints(m)
         diag = float(np.linalg.norm(np.ptp(m.mesh.nodes, axis=1)))
-        V = MO.velocity_fields(m.mesh, faces, fixed, 1e-6 * diag)["Ls"]
+        V = MO.velocity_fields(m.mesh, faces, fixed, 1e-6 * diag, slide_ftags=slide)["Ls"]
         asm = TU.Assembly(m)
         S_tuned = model.raw([0.5])
         Sv, _ = model.sweep_variable(1, 0, [0.0, 0.5], [0.0])  # the response against Ls at one frequency
@@ -158,3 +156,47 @@ def test_tuning_model_matches_exact_solves_on_the_morphed_mesh(tmp_path):
             assert np.abs(S_tuned[k] - S).max() < 0.01
             assert np.abs(S_tuned[k] - S_ref[k]).max() > 0.05        # and the stub length matters
         asm.restore()
+
+
+def test_substrate_height_stretches_the_lumped_port(tmp_path):
+    """The substrate height of the patch antenna moves the substrate faces on the outer boundary (they
+    slide along it) and stretches the lumped port across the substrate: the tuned response matches an
+    exact solve on the morphed mesh with the stretched port."""
+    em = pytest.importorskip("emerge")
+    from hertzon.model.design import Project
+    from hertzon.solver import bridge as B
+    from hertzon.solver.fast_sweep import _Factor
+    from emerge._emerge.mth.csc_submatrix import csc_submatrix
+    p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "PatchAntenna.hzn")
+    d = p.designs[0]
+    st = d.setups[0]
+    st.props.update(LambdaRefinement="False", CurvedElements="False")
+    b = B.Bridge(p, d, st, tmp_path)
+    fk = 2.45e9
+    with em.Simulation("tuning_patch", save_file=False) as m:
+        b.prepare(m)
+        b.port_map = b.store.read_json("ports.json", None) or getattr(b, "port_map", [])
+        _, S_ref, _, _ = B.solve_at(m, [fk])
+        path = tmp_path / "tuning_h.npz"
+        TU.build(b, ["h"], np.array([fk]), path)
+        model = TU.TuningModel(path)
+        assert np.abs(model.raw([0.0]) - S_ref).max() < 1e-9
+        faces = {"h": MO.face_velocities(p, d, "h", TU.variable_step(d.variables["h"]))}
+        fixed, slide = TU.morph_constraints(m)
+        diag = float(np.linalg.norm(np.ptp(m.mesh.nodes, axis=1)))
+        V = MO.velocity_fields(m.mesh, faces, fixed, 1e-6 * diag, slide_ftags=slide)["h"]
+        asm = TU.Assembly(m)
+        port = asm.lumped.items[0]["bc"]
+        m.mw._compute_modes(fk)
+        A, bb, ids, mats = asm.system(fk, asm.X0 + 0.2 * V)
+        assert abs(port.height - 1.8e-3) < 1e-9                  # the port grew with the substrate
+        x = _Factor(csc_submatrix(A, ids).tocsr()).solve(bb[ids])
+        y = np.linalg.norm(x, axis=0)
+        m.mw.frequencies = [fk]
+        _, La, c0 = TU.s_functionals(m.mw, fk, x / y, A.shape[0], ids, mats, m.mw._check_port_powers())
+        S = La[0, 0] * y[0] + c0[0]
+        asm.restore()
+        assert abs(port.height - 1.6e-3) < 1e-9
+        S_tuned = model.raw([0.2])[0, 0, 0]
+        assert abs(S_tuned - S) < 3e-3
+        assert abs(S_tuned - S_ref[0, 0, 0]) > 0.03           # and the height matters

@@ -16,8 +16,14 @@ the GitHub release notes.
   sliders instead of being smeared. At the solved values the response is exactly the solved one; on a
   microstrip stub the notch moved 0.3 GHz per millimetre of stub length, within 0.01 of exact solves on
   the morphed mesh over +-2 mm. Each slider is limited to the range in which no tetrahedron shrinks below
-  30 % of its volume. Plane faces may change shape, curved faces may move; ports and the outer boundary
-  must stay in place. Not yet for terminal designs.
+  30 % of its volume. Plane faces may change shape, curved faces may move. Not yet for terminal designs.
+  - The response can also be plotted against one variable over its range at one frequency (X axis), and a
+    setup without a sweep is tuned at its solution frequency.
+  - Faces may slide along plane parts of the outer boundary, and lumped ports and lumped RLC elements
+    stretch with the mesh (width, height, integration lines and excitation follow), so a substrate height
+    can be tuned with a lumped port across it. Wave ports stay in place.
+  - An analyzed interpolating sweep is tuned at the frequencies it solved, and the tuned curve is
+    interpolated over the sweep frequencies the same way, instead of at a fixed number of points.
 
 ## 0.2.8 (2026-10-30)
 
