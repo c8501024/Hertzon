@@ -8,7 +8,6 @@ without a sweep is tuned at its solution frequency).
 """
 from __future__ import annotations
 
-import html
 from pathlib import Path
 
 import numpy as np
@@ -103,17 +102,6 @@ class TuningDialog(QDialog):
         self.traces.setSelectionMode(QAbstractItemView.NoSelection)
         tl.addWidget(self.traces)
         ll.addWidget(tr, 1)
-        gb = QGroupBox("Goals")
-        gl = QVBoxLayout(gb)
-        self.goalset = QComboBox()
-        self.goalset.setToolTip("Goals of an optimization: drawn as masks in the plot, with their margin at the "
-                                "slider values (the optimizer works on the same goals)")
-        self.goal_text = QLabel("")
-        self.goal_text.setWordWrap(True)
-        self.goal_text.setTextFormat(Qt.RichText)
-        gl.addWidget(self.goalset)
-        gl.addWidget(self.goal_text)
-        ll.addWidget(gb)
         self.warn = QLabel("")
         self.warn.setWordWrap(True)
         self.warn.setStyleSheet("color: #b36b00;")
@@ -153,7 +141,6 @@ class TuningDialog(QDialog):
         self.xaxis.currentIndexChanged.connect(lambda *_: self._xaxis_changed())
         self.fpick.currentIndexChanged.connect(lambda *_: self.plot())
         self.traces.itemChanged.connect(lambda *_: self.plot())
-        self.goalset.currentIndexChanged.connect(lambda *_: self.plot())
         self.b_compute.clicked.connect(self.compute)
         self.b_reset.clicked.connect(self.reset)
         self.b_apply.clicked.connect(self.apply)
@@ -238,7 +225,6 @@ class TuningDialog(QDialog):
         self._build_sliders()
         self._fill_traces()
         self._fill_axes()
-        self._fill_goals()
         self.plot()
 
     def _checked(self) -> list[str]:
@@ -444,9 +430,8 @@ class TuningDialog(QDialog):
         sel = [(self.traces.item(k).data(Qt.UserRole), self.traces.item(k).text())
                for k in range(self.traces.count()) if self.traces.item(k).checkState() == Qt.Checked]
         sig = (id(m), self.xaxis.currentData(), self.quantity.currentText(), tuple(t for _, t in sel),
-               self.fpick.currentIndex(), self.goalset.currentIndex())
+               self.fpick.currentIndex())
         self._warn(dp)
-        self._show_margins(m, dp)
         mode = self.xaxis.currentData()
         if m is not None and mode in (None, PATTERN) and sig == self._sig and self._fast_update(m, dp, sel):
             return
@@ -492,13 +477,9 @@ class TuningDialog(QDialog):
             line, = self.ax.plot(f, self._y(S[:, i, j]), "-", color=c, lw=1.8, label=f"{lab} tuned",
                                  animated=True)
             self._dyn.append(line)
-        marks = self._masks(sel)
-        for lo, hi, value, cond in marks:
-            self._draw_mask(lo / 1e9, hi / 1e9, value, cond)
         # the y range with some room, so that the tuned curves can move without a full redraw
         self.ax.relim()
-        ys = [self._y(S0[:, i, j]) for (i, j), _ in sel] + [self._y(S[:, i, j]) for (i, j), _ in sel] + \
-            [np.array([v]) for _, _, v, _ in marks]
+        ys = [self._y(S0[:, i, j]) for (i, j), _ in sel] + [self._y(S[:, i, j]) for (i, j), _ in sel]
         if ys:
             lo, hi = float(min(np.nanmin(y) for y in ys)), float(max(np.nanmax(y) for y in ys))
             pad = 0.15 * max(hi - lo, 1e-6)
@@ -520,10 +501,6 @@ class TuningDialog(QDialog):
             self.ax.plot(x, self._y(S[:-1, i, j]), "-", color=c, lw=1.8, label=lab)
             self.ax.plot([v0 + dp[v]], self._y(S[-1:, i, j]), "o", color=c, ms=7)
             self.ax.plot([v0], self._y(S0[k:k + 1, i, j]), "o", mfc="none", mec=c, ms=8, mew=1.5)
-        fk = float(m.freq[k])
-        for glo, ghi, value, cond in self._masks(sel):
-            if glo - 1e-6 * fk <= fk <= ghi + 1e-6 * fk:
-                self._draw_mask(x[0], x[-1], value, cond)
         for a, b in ((lo, WARN_FRACTION * lo), (WARN_FRACTION * hi, hi)):
             if a != b:
                 self.ax.axvspan(v0 + min(a, b), v0 + max(a, b), color="#b36b00", alpha=0.07, lw=0)
@@ -534,95 +511,6 @@ class TuningDialog(QDialog):
                   for n, r in enumerate(self.rows) if n != v]
         self.ax.set_title(f"{m.freq[k] / 1e9:.6g} GHz" + (f"   ({', '.join(others)})" if others else "")
                           + "   ● slider  ○ solved", fontsize=9)
-
-    # ---- goals ----------------------------------------------------------------------------------
-    def _fill_goals(self) -> None:
-        """The optimizations with goals; preselected: the one on this setup and sweep."""
-        keep = self.goalset.currentText()
-        des = self.win.des
-        self.goalset.blockSignals(True)
-        self.goalset.clear()
-        self.goalset.addItem("(none)", None)
-        want = f"{self.setup.currentText()} : {self.sweep_name()}"
-        pick = 0
-        for i, op in enumerate(getattr(des, "optimetrics", []) or []):
-            if not any(str(g.get("calc", "")).strip() for g in op.goals):
-                continue
-            self.goalset.addItem(op.name, i)
-            if op.name == keep or (not keep and pick == 0 and op.solution.replace(" ", "") == want.replace(" ", "")):
-                pick = self.goalset.count() - 1
-        self.goalset.setCurrentIndex(pick)
-        self.goalset.blockSignals(False)
-        self._goal_env = None
-
-    def _goals(self) -> list[dict]:
-        i = self.goalset.currentData()
-        ops = getattr(self.win.des, "optimetrics", []) or []
-        if i is None or i >= len(ops):
-            return []
-        return [g for g in ops[i].goals if str(g.get("calc", "")).strip()]
-
-    def _env(self):
-        """(evaluator, output variables) of the design for the goals."""
-        if getattr(self, "_goal_env", None) is None:
-            from ..solver.expressions import output_variables
-            des = self.win.des
-            self._goal_env = (des.evaluator(None), output_variables(des))
-        return self._goal_env
-
-    def _show_margins(self, m, dp) -> None:
-        """The margin of every goal at the slider values (green: met, red: violated)."""
-        goals = self._goals()
-        if m is None or not goals:
-            self.goal_text.setText("" if m is None else "No goals: define them in an optimization.")
-            return
-        from ..solver.expressions import with_pairs
-        from ..solver.optimetrics import goal_margins
-        S, z = m.sparams(dp)
-        data = with_pairs({"freq": m.freq_out, "S": S, "z0": z, "ports": m.meta.get("ports") or []}, self.win.des)
-        ev, outvars = self._env()
-        lines = []
-        for r in goal_margins(goals, data, ev, outvars):
-            g = r["goal"]
-            stop = g.get("stop") or g["start"]
-            span = f"{g['start']}" if str(stop) == str(g["start"]) else f"{g['start']} … {stop}"
-            what = html.escape(f"{g['calc']} {g.get('cond', '<=')} {g.get('value', 0)} ({span})")
-            if "error" in r:
-                lines.append(f"<span style='color:#777'>{what}: {html.escape(r['error'])}</span>")
-            elif r["margin"] >= 0:
-                lines.append(f"<span style='color:#1a7f37'>&#10003; {what}: {r['margin']:.3g} margin</span>")
-            else:
-                lines.append(f"<span style='color:#c62828'>&#10007; {what}: violated by {-r['margin']:.3g}</span>")
-        self.goal_text.setText("<br>".join(lines))
-
-    def _masks(self, sel: list) -> list[tuple[float, float, float, str]]:
-        """Goals drawn as masks: those on a plotted trace in dB, as (low Hz, high Hz, value, condition)."""
-        goals = self._goals()
-        if not goals or self.quantity.currentText() != "dB":
-            return []
-        exprs = {f"dB(S({i + 1},{j + 1}))" for (i, j), _ in sel} | {f"dB(S({j + 1},{i + 1}))" for (i, j), _ in sel}
-        from ..solver.optimetrics import goal_range
-        ev, _ = self._env()
-        out = []
-        for g in goals:
-            cond = g.get("cond", "<=")
-            if str(g["calc"]).replace(" ", "") not in exprs or cond not in ("<=", ">=", "="):
-                continue
-            try:
-                lo, hi = goal_range(g, ev)
-                out.append((lo, hi, float(g.get("value", 0)), cond))
-            except Exception:  # noqa: BLE001
-                continue
-        return out
-
-    def _draw_mask(self, x0: float, x1: float, value: float, cond: str) -> None:
-        """A goal line from x0 to x1, the forbidden side shaded."""
-        self.ax.plot([x0, x1], [value, value], "-", color="#c62828", lw=2.2, alpha=0.8, solid_capstyle="butt")
-        if cond in ("<=", ">="):
-            far = 1e6 if cond == "<=" else -1e6
-            keep = self.ax.dataLim.frozen()             # the shading does not count for the y range
-            self.ax.fill_between([x0, x1], value, value + far, color="#c62828", alpha=0.06, lw=0)
-            self.ax.dataLim.set_points(keep.get_points())
 
     # ---- antenna parameters ---------------------------------------------------------------------
     def _excited(self, sel: list) -> int:
