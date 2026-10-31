@@ -788,6 +788,8 @@ class SnapModeDialog(QDialog):
 
 class OptionsDialog(QDialog):
     """Tools > Options: HPC and analysis, modeler and general settings (stored per user)."""
+    from PySide6.QtCore import Signal as _Signal
+    remoteInfo = _Signal(object)          # info dict of the remote computer, or the error text
 
     def __init__(self, win, parent=None):
         super().__init__(parent)
@@ -817,6 +819,11 @@ class OptionsDialog(QDialog):
         self.solver = QComboBox()
         self.solver.addItems(list(schema.SOLVERS))
         self.solver.setCurrentText(s.value("hpc/default_solver", "Auto"))
+        self.hpc_remote = QLabel()
+        self.hpc_remote.setWordWrap(True)
+        self.hpc_remote.setStyleSheet("QLabel { background: palette(alternate-base); padding: 6px; "
+                                      "border: 1px solid palette(mid); border-radius: 3px; }")
+        f.addRow(self.hpc_remote)
         f.addRow("Number of cores", self.all_cores)
         f.addRow("", self.cores)
         f.addRow("Parallel sweep processes", self.workers)
@@ -834,8 +841,86 @@ class OptionsDialog(QDialog):
         f.addRow("SPARTA solver", row)
         self._sparta_status()
         f.addRow(QLabel("Cores are used by the matrix solver, meshing and field post-processing.\n"
-                        "A value in a setup's 'Solver threads' overrides this for that setup."))
+                        "A value in a setup's 'Solver threads' overrides this for that setup.\n"
+                        "Analyses other computers send here (Remote) use these settings of this computer."))
         tabs.addTab(hpc, "HPC and Analysis")
+
+        rem = QWidget()
+        f = QFormLayout(rem)
+        self.remote_on = QCheckBox("Solve on a remote computer")
+        self.remote_on.setToolTip("Analyses go to the Hertzon remote service on another computer; results come\n"
+                                  "back into this project's results folder. Off: solve on this computer.")
+        self.remote_on.setChecked(s.value("remote/enabled", False, type=bool))
+        self.remote_addr = QLineEdit(s.value("remote/address", ""))
+        self.remote_addr.setPlaceholderText("simstation02 or 192.168.1.20:47820")
+        self.remote_token = QLineEdit(s.value("remote/token", ""))
+        self.remote_token.setEchoMode(QLineEdit.Password)
+        self.remote_find = QPushButton("Find in Network ...")
+        self.remote_find.setToolTip("Looks for computers in the local network that share themselves "
+                                    "(Share this computer below)\nand connects with the pairing code shown there")
+        self.remote_find.clicked.connect(self._find_remote)
+        self.remote_test = QPushButton("Test Connection")
+        self.remote_state = QLabel()
+        self.remote_state.setWordWrap(True)
+        self.remote_test.clicked.connect(self._test_remote)
+        self._remote_info = None
+        self.remoteInfo.connect(self._hpc_remote_state)
+        self.remote_on.toggled.connect(lambda on: self._hpc_remote_state() if not on else self._ask_remote())
+        f.addRow("", self.remote_on)
+        crow = QHBoxLayout()
+        crow.addWidget(self.remote_addr, 1)
+        crow.addWidget(self.remote_find)
+        f.addRow("Computer", crow)
+        f.addRow("Token", self.remote_token)
+        row = QHBoxLayout()
+        row.addWidget(self.remote_test)
+        row.addWidget(self.remote_state, 1)
+        f.addRow("", row)
+        hint = QLabel("<i>Find in Network</i> lists the computers that share themselves (<i>Share this "
+                      "computer</i> below, on the other computer) and connects with the six-digit pairing code "
+                      "shown there. Address and token can also be entered by hand.")
+        hint.setWordWrap(True)
+        f.addRow(hint)
+
+        from PySide6.QtWidgets import QApplication
+        share = QGroupBox("Share this computer: let other Hertzon installations solve here")
+        g = QFormLayout(share)
+        self.share_state = QLabel()
+        self.share_state.setWordWrap(True)
+        self.share_state.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.share_btn = QPushButton()
+        self.share_btn.clicked.connect(self._toggle_share)
+        row = QHBoxLayout()
+        row.addWidget(self.share_state, 1)
+        row.addWidget(self.share_btn)
+        g.addRow(row)
+        self.share_addr = QLabel()
+        self.share_addr.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.share_token = QLineEdit()
+        self.share_token.setReadOnly(True)
+        copy = QPushButton("Copy")
+        copy.clicked.connect(lambda: QApplication.clipboard().setText(self.share_token.text()))
+        trow = QHBoxLayout()
+        trow.addWidget(self.share_token, 1)
+        trow.addWidget(copy)
+        self.share_code = QLabel()
+        self.share_code.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.share_code.setToolTip("Enter this code on the other computer after Find in Network; it changes "
+                                   "with each start of the service")
+        g.addRow("Computer", self.share_addr)
+        g.addRow("Pairing code", self.share_code)
+        g.addRow("Token", trow)
+        self.share_auto = QCheckBox("Start the service at login (also without Hertzon open)")
+        g.addRow("", self.share_auto)
+        note = QLabel("The service keeps running when Hertzon is closed. The connection is meant for the "
+                      "local network; the token is sent unencrypted. Windows may ask once whether Python "
+                      "may accept connections: allow it for private networks.")
+        note.setWordWrap(True)
+        g.addRow(note)
+        f.addRow(share)
+        self._share_status()
+        tabs.addTab(rem, "Remote")
+        self._ask_remote() if self.remote_on.isChecked() else self._hpc_remote_state()
 
         mod = QWidget()
         f = QFormLayout(mod)
@@ -908,11 +993,171 @@ class OptionsDialog(QDialog):
         self._sparta_proc = p
         p.start(args[0], args[1:])
 
+    def _share_status(self, info: dict | None = None, checked: bool = False) -> None:
+        from ..remote import local
+        from ..remote.__main__ import autostart_enabled
+        if not checked:
+            info = local.status()
+        self._share_running = info is not None
+        self.share_state.setText(f"Running: Hertzon {info.get('hertzon')}, {info.get('cores')} cores"
+                                 + (", solving" if info.get("busy") else "") if info else "Not running")
+        self.share_btn.setText("Stop Service" if info else "Start Service")
+        self.share_addr.setText("  or  ".join(local.share_addresses()))
+        self.share_token.setText(local.token())
+        code = local.pairing_code() if info else ""
+        self.share_code.setText(f"<b style='font-size:14pt; letter-spacing:3px'>{code[:3]} {code[3:]}</b>"
+                                if code else "(shown while the service runs)")
+        if not hasattr(self, "_share_auto0"):
+            self._share_auto0 = autostart_enabled()
+            self.share_auto.setChecked(self._share_auto0)
+
+    def _toggle_share(self) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QApplication
+        from ..remote import local
+        QApplication.setOverrideCursor(_Qt.WaitCursor)
+        try:
+            if self._share_running:
+                local.stop()
+                info = local.status()
+            else:
+                info = local.start()
+                if info is None:
+                    self.share_state.setText("The service did not start; see service.log in "
+                                             f"{local.default_workdir()}")
+                    return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._share_status(info, checked=True)
+
+    def _find_remote(self) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QApplication, QInputDialog
+        from ..remote.client import RemoteError, discover, pair
+        QApplication.setOverrideCursor(_Qt.WaitCursor)
+        try:
+            found = discover()
+        finally:
+            QApplication.restoreOverrideCursor()
+        try:
+            from ..remote import local
+            own = local.status()
+        except Exception:  # noqa: BLE001
+            own = None
+        if own:                                       # this computer itself is no remote computer for us
+            found = [f for f in found if f.get("host") != own.get("host")]
+        if not found:
+            self.remote_state.setText("No computer in the network shares itself. On the other computer: "
+                                      "Tools > Options > Remote > Start Service.")
+            return
+        names = [f"{f.get('host')}  ({f['address']}, Hertzon {f.get('hertzon')}, {f.get('cores')} cores"
+                 + (", busy)" if f.get("busy") else ")") for f in found]
+        name, ok = QInputDialog.getItem(self, "Find in Network", "Computer:", names, 0, False)
+        if not ok:
+            return
+        sel = found[names.index(name)]
+        code, ok = QInputDialog.getText(self, "Pairing Code",
+                                        f"Pairing code shown on {sel.get('host')}\n(Tools > Options > Remote):")
+        if not ok or not code.strip():
+            return
+        try:
+            tok = pair(sel["address"], code.replace(" ", ""))
+        except RemoteError as ex:
+            self.remote_state.setText(str(ex))
+            return
+        self.remote_addr.setText(f"{sel.get('host')}:{sel['address'].rsplit(':', 1)[1]}")
+        self.remote_token.setText(tok)
+        self.remote_on.setChecked(True)
+        self._test_remote()
+        if self.remote_state.text().startswith("Connected"):
+            return
+        self.remote_addr.setText(sel["address"])          # the name does not resolve here: use the address
+        self._test_remote()
+
+    def _ask_remote(self) -> None:
+        """Fetch the HPC settings of the remote computer in the background (shown on the HPC tab)."""
+        import threading
+        from ..remote.client import RemoteError, RemoteHost
+        self._hpc_remote_state()
+        addr, tok = self.remote_addr.text(), self.remote_token.text()
+        if not addr.strip():
+            return
+
+        def ask():
+            try:
+                info = RemoteHost(addr, tok, timeout=5).info()
+            except RemoteError as ex:
+                info = str(ex)
+            try:
+                self.remoteInfo.emit(info)
+            except RuntimeError:                       # the dialog is closed meanwhile
+                pass
+        threading.Thread(target=ask, daemon=True).start()
+
+    def _hpc_remote_state(self, info=None) -> None:
+        """HPC tab: when analyses run on a remote computer, its own Options decide cores and sweep processes;
+        the fields here are greyed out and the note shows the remote computer's values."""
+        if info is not None:
+            self._remote_info = info
+        on = self.remote_on.isChecked() and bool(self.remote_addr.text().strip())
+        for w in (self.all_cores, self.workers):
+            w.setEnabled(not on)
+        self.cores.setEnabled(not on and not self.all_cores.isChecked())
+        self.hpc_remote.setVisible(on)
+        if not on:
+            return
+        addr = self.remote_addr.text().strip()
+        info = self._remote_info
+        if isinstance(info, dict):
+            cores, cpus = info.get("cores"), info.get("cpus")
+            used = f"all {cores} cores" if cores and cores == cpus else f"{cores} cores" + (f" of {cpus}" if cpus else "")
+            sw = info.get("sweep_workers")
+            values = f"<b>{used}</b>" + (f", <b>{sw} parallel sweep processes</b>" if sw else "")
+            where = f"<b>{info.get('host') or addr}</b>"
+        elif isinstance(info, str):
+            where, values = f"<b>{addr}</b>", f"not reachable now ({info})"
+        else:
+            where, values = f"<b>{addr}</b>", "asking ..."
+        self.hpc_remote.setText(
+            f"\u24d8 Analyses run on {where} (Remote tab). Its own Tools &gt; Options apply there: {values}. "
+            "A setup's <i>Solver threads</i> and matrix solver travel with the project and still apply.<br>"
+            "The fields below are for analyses on this computer; untick <i>Solve on a remote computer</i> to "
+            "change them.")
+
+    def _test_remote(self) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QApplication
+        from .. import __version__
+        from ..remote.client import RemoteError, RemoteHost
+        QApplication.setOverrideCursor(_Qt.WaitCursor)
+        try:
+            info = RemoteHost(self.remote_addr.text(), self.remote_token.text(), timeout=10).info()
+        except RemoteError as ex:
+            self.remote_state.setText(str(ex))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._hpc_remote_state(info)
+        text = (f"Connected: {info.get('host')}, Hertzon {info.get('hertzon')}, {info.get('cores')} cores"
+                + (", busy" if info.get("busy") else "") + (f", {info['queued']} queued" if info.get("queued") else ""))
+        if info.get("hertzon") != __version__:
+            text += f". This computer runs {__version__}; install the same version on both."
+        self.remote_state.setText(text)
+
     def apply(self) -> None:
         s, w = self.win.settings, self.win
         s.setValue("hpc/cores", 0 if self.all_cores.isChecked() else self.cores.value())
         s.setValue("hpc/sweep_workers", self.workers.value())
         s.setValue("hpc/default_solver", self.solver.currentText())
+        s.setValue("remote/enabled", self.remote_on.isChecked())
+        s.setValue("remote/address", self.remote_addr.text().strip())
+        s.setValue("remote/token", self.remote_token.text().strip())
+        if self.share_auto.isChecked() != self._share_auto0:
+            import contextlib
+            import io
+            from ..remote.__main__ import autostart
+            with contextlib.redirect_stdout(io.StringIO()):
+                autostart(self.share_auto.isChecked(), [])
         s.setValue("modeler/default_units", self.units.currentText())
         w._toggle_edit_new(self.edit_new.isChecked())
         w.a_editnew.setChecked(self.edit_new.isChecked())

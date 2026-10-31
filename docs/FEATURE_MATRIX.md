@@ -123,6 +123,9 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Export Gerber X2 (copper layers, profile) and Excellon (PTH / NPTH), File > Export > Gerber ([details](GERBER_EXPORT.md)) | ✔ |
 | Optimization: conjugate gradient (projected Polak-Ribiere+), goals on report expressions, error-area or worst-case cost, filter mask, parallel gradient evaluations | ✔ |
 | Parametric sweep | ✔ Optimization > Add Parametric; solved variations can be shown again without solving |
+| Derivative tuning: sliders for design variables, S-parameters follow live (morphed mesh, matrix derivatives, reduced model) | ✔ Results > Tuning; plane faces may change shape, curved faces may move, ports stay ([TUNING.md](TUNING.md)) |
+| Tuned radiation patterns (2D, 3D) and antenna parameters in the reports | ✔ needs fields on the far field surface (Save fields over a sweep) |
+| Plot against a tuned variable (X axis) in rectangular plots, tables and antenna parameter reports | ✔ |
 | Filter design toolkit: Tools > Filter Design > Tapped Hairpin (N = 2 to 9 resonators, design frequency, hfsynpy microstrip synthesis, parametrized geometry, setup, sweep and conjugate gradient optimization on the filter mask) | ✔ |
 | Antenna design toolkit: Tools > Antenna Design > Rectangular Patch (frequency and substrate in; transmission line model, inset feed, setup, sweep, far-field sphere and optimization of length and inset on the return loss) | ✔ |
 | Fields calculator: named equations of E, H, J, Js, S and the network data (S, Y, Z, VSWR), typeset formula editor, units | ✔ Results > Calculator (Equations tab); integrals over lines, faces, volumes and cut planes, flux, circulation, max/min/avg, point values, curl, div, grad, cylindrical and spherical components, on the solver's elements; library of loss, energy, Q, voltage, current and power; import/export ([tutorial](TUTORIAL.md#8-your-own-quantities-with-equations)) |

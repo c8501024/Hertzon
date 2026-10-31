@@ -3,6 +3,111 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.2.9 (2026-10-31)
+
+### Added
+- **Solving on another computer (experimental).** For now only with another computer in the local
+  network; a full solution, also for servers and cloud machines, is in progress. A computer in the local network with Hertzon installed runs the remote
+  service, started in Tools > Options > Remote > Share this computer (optionally at every login) or with
+  `hertzon-serve`. On the laptop, *Find in Network* in the same tab lists the shared computers and connects
+  with the six-digit pairing code shown on them; *Solve on* in the status bar switches between this
+  computer and the remote one. The solving computer's Progress window lists the analyses sent to it. *Analyze* then uploads the project and the
+  setup's results folder, shows progress, adaptive passes and the log live, can abort, and mirrors the
+  results folder back, so reports and field plots work as after a local solve. S-parameters and
+  convergence are there as soon as the solver ends; large sweep field files follow in the background. Also
+  for parametric and optimization runs. Several users can share one service; jobs run one after the other.
+  See docs/REMOTE.md.
+- **Derivative tuning with sliders.** Results > Tuning (also Optimization > Derivative Tuning and the right
+  click on a sweep) computes, once, how the S-parameters of a sweep depend on chosen design variables, on
+  the converged adaptive mesh of the setup. Then sliders in a dock panel move the variables and every open
+  report on that solution follows live (rectangular plots, Smith charts, data tables and radiation
+  patterns, with all their quantities, markers and exports): the tuned curve solid, labelled with the
+  slider values, over the solved one dashed. *Apply to Design* sets the variables to the slider values. The
+  mesh is morphed instead of remeshed (the nodes follow the faces that move), the derivatives of the FEM
+  matrix come from assemblies on slightly morphed meshes, and one factorization per frequency gives the
+  solution and its derivatives, which span a small reduced model. Resonances therefore shift with the
+  sliders instead of being smeared. At the solved values the response is exactly the solved one; on a
+  microstrip stub the notch moved 0.3 GHz per millimetre of stub length, within 0.01 of exact solves on
+  the morphed mesh over +-2 mm. Each slider is limited to the range in which no tetrahedron shrinks below
+  30 % of its volume. Plane faces may change shape, curved faces may move. Not yet for terminal designs.
+  - A setup without a sweep is tuned at its solution frequency.
+  - Disabled sweeps are greyed out in the tuning panel, and Compute Derivatives asks to analyze first when
+    the chosen sweep has no solution yet (its tuned curves could not be shown in any report).
+  - An open report offers the variables of a new tuning model on its X axis at once (no new report needed).
+  - Documentation: [docs/TUNING.md](docs/TUNING.md) explains the workflow, the method, the accuracy and the
+    limits; tutorial section 10 tunes the patch length and inset of the patch antenna.
+  - Faces may slide along plane parts of the outer boundary, and lumped ports and lumped RLC elements
+    stretch with the mesh (width, height, integration lines and excitation follow), so a substrate height
+    can be tuned with a lumped port across it. Wave ports stay in place.
+  - An analyzed interpolating sweep is tuned at the frequencies it solved, and the tuned curve is
+    interpolated over the sweep frequencies the same way, instead of at a fixed number of points.
+  - Computing the derivatives of a band is faster: one reduced basis serves all frequencies, the volume
+    matrices are assembled once, and only a few frequencies are factorized (chosen where the residual is
+    largest); every other frequency is solved in that basis. Patch antenna, two variables, 51
+    frequencies: 85 s instead of 204 s, the same response within 3e-6.
+  - The sliders move smoothly: a band model is evaluated directly at the sweep frequencies (the volume
+    part exactly, only the boundary terms interpolated) instead of fitting the tuned curve at every
+    move, and all frequencies are solved in one batch.
+  - Radiation patterns follow the sliders (gain, realized gain, directivity ... at the report frequency):
+    the model keeps the fields of its basis on the far field surface, so a slider move only sums their
+    far fields; at the solved design it reproduces the solved far field exactly.
+  - Antenna Parameters reports and tables follow the sliders too (peak realized gain, radiation
+    efficiency ... over the sweep frequencies of a sweep with saved fields). The far fields of the basis are
+    computed once per frequency, with progress; after that a slider move takes a fraction of a second.
+  - Patterns and antenna parameters also follow the sliders for a setup without a sweep (or a sweep
+    without a band model): every frequency keeps the far field basis of its own reduced model. Earlier
+    such tuning models had no far field, so these reports did not change. A pattern or antenna report on
+    another solution of the tuned setup (e.g. LastAdaptive while a sweep is tuned) follows too, and the
+    3D polar plot shows the tuned pattern. When a report cannot show a tuned curve, its info line says why
+    (no far field in the model, or a frequency the model does not have).
+  - Plot against a design variable: Rectangular plots and data tables of a solution with a tuning model
+    have an *X axis* choice, Frequency or one of the tuned variables over its tuning range at one frequency
+    (*At*), with the other variables at their slider values. Dashed line: the solved value, solid line: the
+    slider value, shaded: the outer part of the range with lower accuracy. Works without the slider panel
+    open, from the stored tuning model.
+    Antenna Parameters reports and tables have it too (e.g. peak realized gain over the patch length).
+- **Goal preview in Setup Optimization.** The Goals tab draws every goal as a mask over the current
+  solution (each calculation as a curve, each goal as a line over its range in the colour of its
+  calculation, the forbidden side shaded) and shows its margin in a new Margin column: positive = reserve
+  (green), negative = violated (red). It follows the table while you edit.
+- **Antenna parameters as optimization goals.** A goal can use PeakRealizedGain, PeakGain,
+  RadiationEfficiency, FrontToBackRatio and the other antenna parameters (dB() is 10 log10 for gains),
+  directly or through an output variable. They are evaluated over the frequencies with saved fields:
+  LastAdaptive, or a sweep with Save fields on; the first far field setup gives the directions. Without
+  saved fields the goal says what to turn on, and an optimization with antenna goals checks this before
+  it starts.
+- **Result files described**: [docs/RESULT_FILES.md](docs/RESULT_FILES.md) explains the per-tetrahedron
+  layout of `fields_*.npz`, the far field files and their sampling, the states in `status.json`, and that
+  gain, directivity and realized gain are linear ratios (`dB(...)` gives dBi). The files carry this too:
+  `fields_*.npz` has a `layout` entry, `farfield_*.npz` a `sampling` entry with the angular grid.
+
+- **Solver Comparison with parallel frequencies.** Tools > Solver Benchmark > Solver Comparison can also
+  solve the sweeps with 2, 4, ... frequencies at a time, for every checked solver, on the reference's final
+  mesh (as the Core Scaling tab does for one solver). The table and the chart show each run, and the advice
+  names the fastest combination of solver and parallel frequencies. A run that solved fewer frequencies at
+  a time than asked (SPARTA solves them one after another for now, or the memory allowed fewer) says so in
+  the Note column.
+
+### Fixed
+- **Solver Comparison on the same mesh was unfair to the other solvers**: the reference solver's sweep time
+  came from its full run, the others' from a fresh process that only solved the sweep and paid the solver
+  start (for SPARTA on the GPU the device start and its analysis) inside the sweep. Now every solver,
+  the reference too, solves the sweeps there in a fresh process. SPARTA on the GPU starts the GPU while the
+  boundaries are set up, with the time in the log and in the Note column; it is still part of every
+  analysis and of the times. New columns show the direct and reduced solutions of each sweep: an
+  interpolating sweep solves directly only where its reduced basis is not accurate enough, so single
+  precision can make it solve more frequencies, which the advice now points out.
+- **Mesh operations that miss their target** now say so: Length Based On Edges with only objects or faces
+  assigned (no edges) warns in the solver log and in Validation Check instead of "no edges could be
+  located"; an operation whose objects are not part of the solve, or whose selection is empty, is reported
+  as not applied (it was logged as applied). Objects of a boundary or excitation that are not part of the
+  solve warn like missing faces.
+- **NaN in the error estimate** no longer ends the analysis after a pass: the tetrahedra concerned are named
+  with their material and left out of that refinement; if no tetrahedron has a finite error, the adaptive
+  analysis stops with the pass it has.
+- **A killed or crashed solve no longer stays "running"**: `status.json` records the solver process, and a
+  run whose process is gone shows as aborted (in the project tree, the solution data and over MCP).
+
 ## 0.2.8 (2026-10-30)
 
 ### Fixed

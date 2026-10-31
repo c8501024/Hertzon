@@ -145,15 +145,7 @@ class ResultStore:
 
     # ---- reading --------------------------------------------------------------------------------
     def read_json(self, name: str, default=None):
-        p = self.folder / name
-        if not p.exists():
-            return default
-        for _ in range(5):   # the solver may be replacing the file right now (Windows: sharing violation)
-            try:
-                return json.loads(p.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                time.sleep(0.05)
-        return default
+        return _read_json(self.folder / name, default)
 
     def solutions(self) -> list[str]:
         out = []
@@ -200,6 +192,69 @@ class ResultStore:
                 time.sleep(0.1)
 
 
+def _read_json(p: Path, default=None):
+    if not p.exists():
+        return default
+    for _ in range(5):   # the solver may be replacing the file right now (Windows: sharing violation)
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            time.sleep(0.05)
+    return default
+
+
+def running_status() -> dict:
+    """status.json of a run that starts now: with the solver's process id and host, so that a reader can
+    tell a run that is still going from one whose process ended without finishing (killed, crashed,
+    interrupted): see run_status."""
+    import os
+    import socket
+    return {"state": "running", "started": time.time(), "pid": os.getpid(), "host": socket.gethostname()}
+
+
+def _process_alive(pid: int) -> bool:
+    import os
+    try:
+        import psutil
+        return psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except ImportError:
+        pass
+    except Exception:  # noqa: BLE001  (gone between the two calls, no access ...)
+        return False
+    if os.name == "nt":
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)        # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+        k32.CloseHandle(h)
+        return bool(ok) and code.value == 259          # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def run_status(folder: Path, default: dict | None = None) -> dict:
+    """status.json of a result folder. A run left 'running' by a solver process that no longer exists on this
+    computer is reported as 'aborted' (with "stale": true): the process was killed or crashed before it could
+    write its final state."""
+    d = _read_json(Path(folder) / "status.json", None)
+    if not isinstance(d, dict):
+        return dict(default or {})
+    if d.get("state") == "running" and d.get("pid"):
+        import socket
+        if d.get("host") in (None, socket.gethostname()) and not _process_alive(int(d["pid"])):
+            d = {**d, "state": "aborted", "stale": True,
+                 "error": "the solver process ended without finishing (killed, crashed or interrupted)"}
+    return d
+
+
 def _replace(src: Path, dst: Path) -> None:
     """Atomic replace; retried because a reader may hold the target open on Windows."""
     for i in range(20):
@@ -222,3 +277,56 @@ def _json_default(o):
     if isinstance(o, complex):
         return [o.real, o.imag]
     return str(o)
+
+
+def fit_sparams(ff: np.ndarray, SS: np.ndarray):
+    """Rational (vector fitting) model of S-matrices SS (frequency x n x n) at the frequencies ff, as the
+    interpolating sweep fits its solutions; returns f -> S(f)."""
+    from emerge._emerge.physics.microwave.adaptive_freq import SparamModel
+    n = SS.shape[1]
+    # pole count bounded by the information in the samples (filterbench): many poles fitted to a handful of
+    # samples overfit, the validation points miss and the sweep solves far more frequencies than needed.
+    # No fixed limit of ten: a wide band with many resonances or long lines (phase turns) needs more poles
+    poles = min(100, max(2, len(ff) // 2))
+    models = [[SparamModel(ff, SS[:, i, j], n_poles=poles, _warn=False) for j in range(n)] for i in range(n)]
+
+    def call(f):
+        out = np.zeros((len(f), n, n), complex)
+        for i in range(n):
+            for j in range(n):
+                out[:, i, j] = models[i][j](f)
+        return out
+    return call
+
+
+def deembed_renormalize(S: np.ndarray, z0, ports: list, beta) -> tuple[np.ndarray, np.ndarray]:
+    """Wave-port de-embedding (beta: propagation constant per frequency and port, or None without
+    de-embedding) and renormalization of the S-matrices (frequency x n x n) of the port rows `ports`
+    (port_entries). Returns (S, reference impedance per row)."""
+    n = S.shape[1]
+    z0v = np.resize(np.asarray(z0, complex).ravel(), n)
+    dist = np.array([float(q.get("deembed") or 0.0) for q in ports] + [0.0] * (n - len(ports)))
+    if np.any(dist != 0) and beta is not None:
+        ph = np.exp(1j * np.asarray(beta) * dist[None, :])
+        S = S * ph[:, :, None] * ph[:, None, :]
+    zref = []
+    for i in range(n):
+        r = ports[i].get("renorm_ohm") if i < len(ports) else None
+        zref.append(complex(r) if r is not None else z0v[i])
+    zref = np.array(zref)
+    if np.allclose(zref, z0v):
+        return S, z0v
+    return renormalize(S, z0v, zref), zref
+
+
+def renormalize(S: np.ndarray, z0v: np.ndarray, zref: np.ndarray) -> np.ndarray:
+    """S-matrices (frequency x n x n) referred to the port impedances z0v, referred to zref instead."""
+    n = S.shape[1]
+    I = np.eye(n)
+    sq0, sqr = np.diag(np.sqrt(z0v)), np.diag(1 / np.sqrt(zref))
+    out = np.empty_like(S)
+    for k in range(len(S)):
+        Z = sq0 @ (I + S[k]) @ np.linalg.inv(I - S[k]) @ sq0
+        Zn = sqr @ Z @ sqr
+        out[k] = (Zn - I) @ np.linalg.inv(Zn + I)
+    return out

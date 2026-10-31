@@ -27,7 +27,7 @@ from ..model import schema
 from ..kernel import occ as K
 from . import facematch
 from . import sparta_setup
-from .results import ResultStore, port_entries
+from .results import ResultStore, port_entries, deembed_renormalize, running_status
 from .emerge_compat import amr as _amr
 
 C0 = 299792458.0
@@ -185,7 +185,8 @@ class Bridge:
             (self.out / "ABORT").unlink(missing_ok=True)     # left over from an aborted earlier run
         except OSError:
             pass
-        self.store.write_json("status.json", {"state": "running", "started": time.time()})
+        if not os.environ.get("HERTZON_TUNING"):    # a tuning run leaves the solution of the setup as it is
+            self.store.write_json("status.json", running_status())
         if _first_run():
             note = "First start detected: compiling the solver kernels (once, a few minutes)"
             info(note)
@@ -196,6 +197,10 @@ class Bridge:
         with em.Simulation(f"hertzon_{os.getpid()}", save_file=False) as m:
             info(f"Solver start: EMerge simulation ready in {time.time() - t:.1f} s")
             self.prepare(m)
+            tune = os.environ.get("HERTZON_TUNING", "")
+            if tune:
+                self.run_tuning(json.loads(tune))
+                return
             only = os.environ.get("HERTZON_ONLY_SWEEP", "")
             if only:
                 self.solve_one_sweep(only)
@@ -555,6 +560,7 @@ class Bridge:
         for oname in a.objects:
             g = self.geos.get(oname)
             if g is None:
+                warn(f"{a.name}: object '{oname}' is not part of the solve")
                 continue
             t = self.tess.get(oname)
             tags += list(g.selection.tags) if (t and t.dim == 2) else list(g.boundary().tags)
@@ -1050,21 +1056,34 @@ class Bridge:
             restrict = p.get("RestrictElements") == "True"
             nmax = max(1, int(float(p.get("MaxElements", "1000") or 1000)))
             if op.kind == "Length Based Inside Selection":
+                applied = 0
                 for o in op.objects + [f.obj for f in op.faces]:
                     g = self.geos.get(o)
                     t = self.tess.get(o)
                     if g is None:
+                        warn(f"{op.name}: object '{o}' is not part of the solve")
                         continue
+                    applied += 1
                     s_o = size
                     if restrict and t is not None:
                         # regular tetrahedron volume ~ s^3/8.5: enlarge s so that at most nmax elements fit
                         vol = float(np.prod(np.ptp(np.asarray(t.points), axis=0)))
                         s_o = max(size, (8.5 * vol / nmax) ** (1 / 3))
                     mesher.set_domain_size(g, s_o)
+                if not applied:
+                    warn(f"{op.name}: none of its objects is part of the solve; mesh operation not applied")
+                    continue
             elif op.kind == "Length Based On Edges":
+                if not op.edges:
+                    # objects or faces assigned to an edge operation select no edge: say so instead of
+                    # reporting edges that could not be located
+                    warn(f"{op.name}: Length Based On Edges has no edges assigned"
+                         + (" (only objects or faces)" if op.objects or op.faces else "")
+                         + "; mesh operation not applied. Assign edges, or use Length Based On Selection.")
+                    continue
                 curves = self._match_edges(op)
                 if not curves:
-                    warn(f"{op.name}: no edges could be located in the solver model")
+                    warn(f"{op.name}: no edges could be located in the solver model; mesh operation not applied")
                     continue
                 if restrict:
                     total = sum(L for _, L in curves)
@@ -1076,8 +1095,10 @@ class Bridge:
                     import gmsh
                     area = sum(gmsh.model.occ.getMass(2, t) for t in tags)
                     size = max(size, (4 * area / (np.sqrt(3) * nmax)) ** 0.5)
-                if tags:
-                    mesher.set_face_size(sel, size)
+                if not tags:
+                    warn(f"{op.name}: empty selection; mesh operation not applied")
+                    continue
+                mesher.set_face_size(sel, size)
             info(f"Mesh operation '{op.name}' applied")
 
     def _match_edges(self, op) -> list[tuple[int, float]]:
@@ -1192,6 +1213,11 @@ class Bridge:
         info(f"Matrix solver: {sparta_setup.describe()}; factorization on the {mode}")
         if mode != sparta_setup.MODES[name]:
             warn(f"Solver {name}: no GPU usable by SPARTA in this process; factorizing on the CPU")
+        elif mode == "GPU":
+            try:
+                info(f"SPARTA: GPU started in {sparta_setup.warm_up(mode, self.cell is None):.1f} s")
+            except Exception as ex:  # noqa: BLE001
+                info(f"SPARTA: GPU warm-up failed ({ex})")
 
     # ----------------------------------------------------------------------------------------
     def run_adaptive(self) -> None:
@@ -1339,7 +1365,9 @@ class Bridge:
                 fl.set_field_vector()
                 err, lengths = fl._solution_quality(pec)
                 errors.append(err)
-            error = np.max(errors, axis=0)
+            error = finite_error(np.max(errors, axis=0), fields[0] if fields else None, step)
+            if error is None:
+                break
             last_n = m.mesh.n_tets
             ids = select_refinement_indices(error, incl)[::-1]
             included = np.zeros(m.mesh.n_tets, dtype=np.bool_)
@@ -1412,6 +1440,51 @@ class Bridge:
         self.store.write_json("status.json", {"state": "done", "finished": time.time(),
                                               "elapsed": time.time() - self.t0, **getattr(self, "keys", {})})
         emit("progress", value=100, text=f"Sweep '{name}' complete")
+        emit("done", elapsed=time.time() - self.t0)
+        hard_exit()
+
+    def run_tuning(self, spec: dict) -> None:
+        """Derivative tuning model of a sweep (hertzon.solver.tuning) on the converged adaptive mesh.
+        spec: {"sweep": name, "variables": [names], "points": count}."""
+        from . import tuning
+        fa = adaptive_frequencies(self.setup, self.ev)
+        resume = load_amr_state(self.out, self.keys["model_key"], fa)
+        if not resume or not (len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura")):
+            raise RuntimeError("No adaptive solution to reuse; analyze the setup first")
+        restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
+        info(f"Reusing the adaptive mesh: {self.m.mesh.n_tets} tetrahedra")
+        self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
+        name = spec.get("sweep", "")
+        variables = list(spec.get("variables", []))
+        grid = None
+        if name == tuning.ADAPTIVE:
+            freqs = np.unique(np.asarray(fa, float))
+            info(f"Derivative tuning of {', '.join(variables)} at the solution frequency")
+        else:
+            sw = next((s for s in self.setup.sweeps if s.name == name), None)
+            if sw is None:
+                raise RuntimeError(f"Sweep '{name}' not found")
+            freqs = tuning.tuning_frequencies(sw.props, self.ev, int(spec.get("points", 51)))
+            if sw.props.get("SweepType", "Interpolating") == "Interpolating" and len(freqs) > 1:
+                # the frequencies the interpolating sweep solved; the tuned curve is interpolated over the
+                # sweep frequencies as the sweep interpolates its solutions
+                saved = self.store.sparams(name) or {}
+                solved = np.unique(np.asarray(saved.get("solved", []), float))
+                if 3 <= len(solved) <= tuning.MAX_POINTS and len(saved.get("freq", [])) > len(solved):
+                    grid = np.asarray(saved["freq"], float)
+                    freqs = solved
+            info(f"Derivative tuning of {', '.join(variables)} at {len(freqs)} frequencies of '{name}'"
+                 + (f" (the solved frequencies, interpolated over {len(grid)})" if grid is not None else ""))
+
+        def progress(k, n):
+            emit("progress", value=15 + 83 * k / n, text=f"Tuning '{name}': {k} of {n} frequencies")
+
+        tmp = tuning.tuning_path(self.out, name).with_suffix(".tmp.npz")
+        meta = tuning.build(self, variables, freqs, tmp, log=info, progress=progress, grid=grid)
+        os.replace(tmp, tuning.tuning_path(self.out, name))
+        for v, (lo, hi), u in zip(meta["variables"], meta["ranges"], meta["units"]):
+            info(f"Tuning range of {v}: {lo:+.4g} to {hi:+.4g} {u}")
+        emit("progress", value=100, text=f"Tuning '{name}' complete")
         emit("done", elapsed=time.time() - self.t0)
         hard_exit()
 
@@ -1629,7 +1702,8 @@ class Bridge:
         P = C.transpose(0, 2, 1).reshape(3, -1)                  # tet-major
         x, y, z = P[0], P[1], P[2]
         mapping = np.repeat(np.arange(nt, dtype=np.int64), npt)
-        out = {"tet4" if npt == 4 else "tet10": np.array([1])}
+        from .lazy_fields import field_layout
+        out = {"tet4" if npt == 4 else "tet10": np.array([1]), "layout": field_layout(npt)}
         # curved tetrahedra: the plots put the midpoints on the curved edges; the solution lives on the
         # straight reference tet, so map E and H to the curved element (covariant Piola transform)
         if cm:
@@ -1684,11 +1758,11 @@ class Bridge:
             pass
         info("Fields saved")
 
-    def save_huygens(self, fields: list, label: str) -> bool:
-        """E/H on the open boundary for post-processed far fields (infinite spheres can be
-        added or edited after the solve without analyzing again)."""
+    def huygens_surface(self) -> dict | None:
+        """The surface of the far field integral: points vis (3, N), weighted normals wns (3, N) and the
+        symmetry planes the far field is mirrored at; None without an open boundary."""
         if self.open_faces is None:
-            return False
+            return None
         m = self.m
         if getattr(self, "ff_bounds", None) is not None:
             b = np.array(self.ff_bounds, np.float64)
@@ -1710,13 +1784,23 @@ class Bridge:
                     np.add.at(wns.T, t2e[j], (nrm * ar / 3).T)
             except Exception as ex:  # noqa: BLE001
                 warn(f"Far field surface not available: {ex}")
-                return False
-        out = {"vis": vis, "wns": wns, "stamp": np.array([time.time_ns()])}
+                return None
+        out = {"vis": vis, "wns": wns}
         planes = self.symmetry_planes()
         if planes:
             out["sym_kind"] = np.array([p[0] for p in planes])
             out["sym_axis"] = np.array([p[1] for p in planes], np.int64)
             out["sym_pos"] = np.array([p[2] for p in planes], np.float64)
+        return out
+
+    def save_huygens(self, fields: list, label: str) -> bool:
+        """E/H on the open boundary for post-processed far fields (infinite spheres can be
+        added or edited after the solve without analyzing again)."""
+        surf = self.huygens_surface()
+        if surf is None:
+            return False
+        vis, wns = surf["vis"], surf["wns"]
+        out = dict(surf, stamp=np.array([time.time_ns()]))
         pw = self.plane_wave()
         if pw is not None:
             out["E0"] = np.array([abs(self.ev.value(pw.props.get("EMagnitude", "1") or "1"))])
@@ -2184,8 +2268,10 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         for i in range(len(fa)):
             err, lengths = fields[i]._solution_quality(solve_ids)
             errors[:, i] = err
-        error = errors.max(axis=1)
+        error = finite_error(errors.max(axis=1), fields[0] if fields else None, step)
         info(f"Pass {step}: error estimate {time.time() - t_err:.2f} s ({m.mesh.n_tets} tetrahedra)")
+        if error is None:
+            break
         emit("progress", value=12 + 40 * (step - 0.4) / maxp, text=f"Pass {step}: refining the mesh")
         t_ref = time.time()
         ids = select_refinement_indices(error, incl)[::-1]
@@ -2262,6 +2348,48 @@ def _save_amr_state(out: Path, key: str, amr, ratio: float, passes: list, fa, m=
         os.replace(tmp, out / AMR_STATE)
     except Exception as e:  # noqa: BLE001
         warn(f"Could not store the adaptive mesh state: {e}")
+
+
+def _material_of_tet(field, t: int) -> str:
+    """'er = ..., ur = ...' of tetrahedron t: one value when the material is isotropic, else the diagonal."""
+    def one(a):
+        if a is None:
+            return "?"
+        a = np.asarray(a)
+        M = a[:, :, t] if a.ndim == 3 else np.eye(3) * a[t]
+        d = np.diag(M)
+        if np.allclose(M, np.diag(d)) and np.allclose(d, d[0]):
+            return f"{complex(d[0]):.4g}"
+        return "[" + ", ".join(f"{complex(x):.4g}" for x in d) + "]"
+    return f"er = {one(getattr(field, '_der', None))}, ur = {one(getattr(field, '_dur', None))}"
+
+
+def finite_error(error: np.ndarray, field=None, step: int = 0) -> np.ndarray | None:
+    """The error estimate with NaN/inf entries set to 0, so those tetrahedra are left out of the
+    refinement instead of ending the analysis. Says which tetrahedra (and their materials) were affected;
+    None when no tetrahedron has a finite error: then the refinement cannot go on."""
+    error = np.asarray(error, float)
+    bad = ~np.isfinite(error)
+    if not bad.any():
+        return error
+    ids = np.flatnonzero(bad)
+    if bad.all():
+        warn(f"Pass {step}: the error estimate is not finite (NaN) in all {len(error)} tetrahedra "
+             f"(tet 0: {_material_of_tet(field, 0) if field is not None else '?'}); the mesh cannot be refined, "
+             "the adaptive analysis stops with this pass.")
+        return None
+    shown = []
+    for t in ids[:3]:
+        try:
+            shown.append(f"tet {int(t)} ({_material_of_tet(field, int(t))})" if field is not None else f"tet {int(t)}")
+        except Exception:  # noqa: BLE001
+            shown.append(f"tet {int(t)}")
+    warn(f"Pass {step}: the error estimate is not finite (NaN) in {len(ids)} of {len(error)} tetrahedra: "
+         + ", ".join(shown) + (", ..." if len(ids) > 3 else "")
+         + ". These tetrahedra are left out of this refinement.")
+    out = error.copy()
+    out[bad] = 0.0
+    return out
 
 
 def _refine_local(m, props, coords, sizes, ratio: float, growth: float, pct: float, error=None,
@@ -3101,28 +3229,9 @@ def postprocess_ports(freq, S, z0, port_map: list) -> tuple[np.ndarray, np.ndarr
     if TERMINALS is not None:
         return S, np.asarray(z0, complex).ravel()
     n = S.shape[1]
-    z0v = np.resize(np.asarray(z0, complex).ravel(), n)
     ports = port_entries(port_map)[:n]
-    dist = np.array([float(q.get("deembed") or 0.0) for q in ports] + [0.0] * (n - len(ports)))
-    if np.any(dist != 0):
-        beta = port_beta(np.asarray(freq, float), n)
-        ph = np.exp(1j * beta * dist[None, :])
-        S = S * ph[:, :, None] * ph[:, None, :]
-    zref = []
-    for i in range(n):
-        r = ports[i].get("renorm_ohm") if i < len(ports) else None
-        zref.append(complex(r) if r is not None else z0v[i])
-    zref = np.array(zref)
-    if np.allclose(zref, z0v):
-        return S, z0v
-    I = np.eye(n)
-    sq0, sqr = np.diag(np.sqrt(z0v)), np.diag(1 / np.sqrt(zref))
-    out = np.empty_like(S)
-    for k in range(len(S)):
-        Z = sq0 @ (I + S[k]) @ np.linalg.inv(I - S[k]) @ sq0
-        Zn = sqr @ Z @ sqr
-        out[k] = (Zn - I) @ np.linalg.inv(Zn + I)
-    return out, zref
+    beta = port_beta(np.asarray(freq, float), n) if any(q.get("deembed") for q in ports) else None
+    return deembed_renormalize(S, z0, ports, beta)
 
 
 def _z0(grid) -> np.ndarray:
@@ -3133,20 +3242,8 @@ def _z0(grid) -> np.ndarray:
 
 
 def _fit(SparamModel, ff: np.ndarray, SS: np.ndarray):
-    n = SS.shape[1]
-    # pole count bounded by the information in the samples (filterbench): many poles fitted to a handful of
-    # samples overfit, the validation points miss and the sweep solves far more frequencies than needed.
-    # No fixed limit of ten: a wide band with many resonances or long lines (phase turns) needs more poles
-    poles = min(100, max(2, len(ff) // 2))
-    models = [[SparamModel(ff, SS[:, i, j], n_poles=poles, _warn=False) for j in range(n)] for i in range(n)]
-
-    def call(f):
-        out = np.zeros((len(f), n, n), complex)
-        for i in range(n):
-            for j in range(n):
-                out[:, i, j] = models[i][j](f)
-        return out
-    return call
+    from .results import fit_sparams
+    return fit_sparams(ff, SS)
 
 
 # --------------------------------------------------------------------------------------------
@@ -3190,12 +3287,22 @@ def run(project_path: str, design: str, setup: str, out_dir: str) -> int:
         st = des.setup(setup)
         Bridge(proj, des, st, Path(out_dir)).run()
         return 0
+    except KeyboardInterrupt:
+        # Ctrl+C in a console (while Python code runs): not a failure, but not running any more
+        emit("log", level="warning", msg="Analysis interrupted")
+        if not os.environ.get("HERTZON_TUNING"):
+            try:
+                ResultStore(Path(out_dir)).write_json("status.json", {"state": "aborted", "finished": time.time()})
+            except Exception:  # noqa: BLE001
+                pass
+        return 130
     except Exception as ex:  # noqa: BLE001
         emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")
         emit("traceback", text=traceback.format_exc())
-        try:
-            ResultStore(Path(out_dir)).write_json("status.json", {"state": "failed", "error": str(ex)})
-        except Exception:  # noqa: BLE001
-            pass
+        if not os.environ.get("HERTZON_TUNING"):
+            try:
+                ResultStore(Path(out_dir)).write_json("status.json", {"state": "failed", "error": str(ex)})
+            except Exception:  # noqa: BLE001
+                pass
         emit("failed", error=str(ex))
         return 1

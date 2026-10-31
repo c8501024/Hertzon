@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hertzon"
-version = "0.2.8"
+version = "0.2.9"
 description = "3D full-wave FEM simulator with an adaptive-meshing workflow, built on EMerge"
 readme = "README.md"
 license = {text = "GPL-2.0-or-later"}
@@ -37,6 +37,7 @@ test = ["pytest", "gerbonara", "pygerber", "pillow"]   # Gerber export is read b
 [project.scripts]
 hertzon = "hertzon.gui.app:main"
 hertzon-mcp = "hertzon.mcp.__main__:main"
+hertzon-serve = "hertzon.remote.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["hertzon*"]

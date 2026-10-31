@@ -61,6 +61,9 @@ def rcs_pass_series(st, sphere: str, k: int = 0) -> dict[str, np.ndarray] | None
 
 def farfield_quantities(ff: dict, port: int = 1, k: int = 0, s11: complex | None = None, pin: float = 1.0,
                         pacc: float | None = None) -> dict[str, np.ndarray]:
+    """Far field quantities over the sphere grid (n_theta, n_phi). Gain, directivity and realized gain are
+    linear power ratios (a half-wave dipole: DirTotal 1.64 = 2.15 dBi), rE* field magnitudes in V; see
+    docs/RESULT_FILES.md."""
     E = ff[f"E_{k}_{port}"]                # (3, T, P) cartesian
     th, ph = ff["theta"], ff["phi"]
     T, P = np.meshgrid(th, ph, indexing="ij")

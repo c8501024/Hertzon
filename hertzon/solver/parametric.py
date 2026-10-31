@@ -24,7 +24,7 @@ import numpy as np
 
 from ..model.design import Project
 from .optimetrics import split_value, in_unit, fmt_value
-from .results import ResultStore, results_dir, _safe
+from .results import ResultStore, results_dir, _safe, running_status
 
 SHORT = {"Linear step": "LIN", "Linear count": "LINC", "Decade count": "DEC", "Octave count": "OCT",
          "Exponential count": "EXP"}
@@ -504,7 +504,7 @@ def main() -> int:
     out = Path(sys.argv[4])
     out.mkdir(parents=True, exist_ok=True)
     try:
-        ResultStore(out).write_json("status.json", {"state": "running", "started": time.time()})
+        ResultStore(out).write_json("status.json", running_status())
         return 0 if ParametricRun(sys.argv[1], sys.argv[2], sys.argv[3], out).run() else 3
     except Exception as ex:  # noqa: BLE001
         emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")

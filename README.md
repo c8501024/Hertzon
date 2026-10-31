@@ -132,9 +132,15 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    typeset formula editor, shown in reports, **Fields reports** and field plots
    ([tutorial](docs/TUTORIAL.md#8-your-own-quantities-with-equations)).
    **Optimization** (conjugate gradient on report goals) and **Parametric** sweeps of design variables.
+   **Derivative tuning**: sliders for design variables, and S-parameters, patterns and antenna parameters
+   follow live in the reports from one solve ([how it works](docs/TUNING.md),
+   [tutorial](docs/TUTORIAL.md#10-tune-a-patch-antenna-with-sliders)).
 
 See [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md) for an overview of what is implemented and
 what is still missing.
+
+See [docs/TUNING.md](docs/TUNING.md) for derivative tuning: the workflow, the method (morphed mesh, matrix
+derivatives, reduced model), its accuracy and limits.
 
 See [docs/MESHER.md](docs/MESHER.md) for how the adaptive mesh refinement works: hzAURA (EMerge's AURA, the
 default), Hertzon's local Delaunay mesher hzmesh, curved elements and benchmark results.
@@ -190,8 +196,11 @@ region, ports, radiation boundaries) are left out. See [docs/GERBER_EXPORT.md](d
   model (geometry, materials, boundaries, ports, initial mesh) and runs the setup, or stops after
   meshing with `--prepare-only` so you can continue in plain EMerge.
 * Solve without the GUI: `python -m hertzon.solver.run Project.hzn DesignName Setup1 out_folder`.
+* Solve on another computer in your network (experimental; servers and cloud machines are in progress):
+  run `hertzon-serve` there and enter it in Tools > Options > Remote. See [docs/REMOTE.md](docs/REMOTE.md).
 * Project files (`.hzn`) are plain JSON; results go to `<project>.hznresults/<design>/<setup>/`
-  (`sparams_*.npz`, Touchstone `*.sNp`, `fields_*.npz`, `farfield_*.npz`, `convergence.json`).
+  (`sparams_*.npz`, Touchstone `*.sNp`, `fields_*.npz`, `farfield_*.npz`, `convergence.json`); their layout,
+  units and status values are in [docs/RESULT_FILES.md](docs/RESULT_FILES.md).
 
 ## AI assistants (MCP)
 

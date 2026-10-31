@@ -161,6 +161,12 @@ class MainWindow(QMainWindow):
         sb = self.statusBar()
         self.hint = QLabel("Ready")
         sb.addWidget(self.hint, 1)
+        self.solve_on = QComboBox()
+        self.solve_on.setToolTip("Where analyses run: this computer or a remote computer in the network\n"
+                                 "(Tools > Options > Remote)")
+        self.solve_on.activated.connect(self._solve_on_chosen)
+        sb.addPermanentWidget(QLabel("Solve on:"))
+        sb.addPermanentWidget(self.solve_on)
         self.coord_mode = QComboBox()
         self.coord_mode.addItems(["Absolute", "Relative"])
         self.coord_sys = QComboBox()
@@ -441,6 +447,7 @@ class MainWindow(QMainWindow):
         om = m.addMenu("Optimization")
         om.addAction("Add Parametric...", self.add_parametric)
         om.addAction("Add Optimization...", self.add_optimization)
+        om.addAction("Derivative Tuning...", lambda: self.derivative_tuning())
         m.addSeparator()
         m.addAction("Design Properties...", lambda: self.edit_variables(False))
 
@@ -796,6 +803,8 @@ class MainWindow(QMainWindow):
         rm.aboutToShow.connect(lambda rm=rm: self._fill_report_menu(rm))
         g = pg.group("Solution Data")
         g.large("Solution Data", "soldata", lambda: self.solution_data())
+        g.large("Tuning", "variables", lambda: self.derivative_tuning(),
+                tip="Derivative Tuning: move design variables with sliders and see the S-parameters follow live")
         g.large("Touchstone", "export", lambda: self.export_touchstone())
         g = pg.group("Fields")
         g.large("Mag E", "field", lambda: self.plot_fields("Mag_E"))
@@ -845,6 +854,7 @@ class MainWindow(QMainWindow):
         self.solver.message.connect(self.msgs.add)
         self.solver.progress.connect(self.progress.update_progress)
         self.solver.finished.connect(self._solve_finished)
+        self.solver.filesArrived.connect(lambda k: (self._pass_data(k, {}), self._refresh_reports()))
         self.solver.passUpdate.connect(self._pass_finished)
         self.solver.passData.connect(self._pass_data)
         self.solver.started.connect(lambda k: self.project_tree.rebuild())
@@ -1307,9 +1317,41 @@ class MainWindow(QMainWindow):
         self.edit_new_primitives = v
         self.settings.setValue("edit_new_primitives", v)
 
-    def options(self) -> None:
+    def _fill_solve_on(self) -> None:
+        """Status bar: This computer / the remote computer / Set up ..."""
+        box = getattr(self, "solve_on", None)
+        if box is None:
+            return
+        addr = str(self.settings.value("remote/address", "") or "")
+        box.blockSignals(True)
+        box.clear()
+        box.addItem("This computer")
+        if addr:
+            box.addItem(addr)
+        box.addItem("Remote computer ..." if not addr else "Other remote computer ...")
+        box.setCurrentIndex(1 if addr and self.solver.remote is not None else 0)
+        box.blockSignals(False)
+
+    def _solve_on_chosen(self, i: int) -> None:
+        addr = str(self.settings.value("remote/address", "") or "")
+        if i == self.solve_on.count() - 1:          # set up a remote computer
+            self.options(tab="Remote")
+            self._fill_solve_on()
+            return
+        self.settings.setValue("remote/enabled", i == 1 and bool(addr))
+        self.apply_hpc_settings()
+        self.msgs.add("info", f"Analyses run on {addr}" if self.solver.remote is not None else
+                      "Analyses run on this computer")
+
+    def options(self, tab: str = "") -> None:
         from .dialogs import OptionsDialog
         dlg = OptionsDialog(self, self)
+        if tab:
+            from PySide6.QtWidgets import QTabWidget
+            tabs = dlg.findChild(QTabWidget)
+            for k in range(tabs.count()):
+                if tabs.tabText(k) == tab:
+                    tabs.setCurrentIndex(k)
         if dlg.exec() == QDialog.Accepted:
             dlg.apply()
             self.msgs.add("info", "Options saved")
@@ -1423,6 +1465,17 @@ class MainWindow(QMainWindow):
     def apply_hpc_settings(self) -> None:
         self.solver.cores = int(self.settings.value("hpc/cores", 0))
         self.solver.sweep_workers = int(self.settings.value("hpc/sweep_workers", 2))
+        try:                    # the remote service of this computer uses the same HPC settings
+            from ..remote import local
+            local.write_hpc(self.solver.cores, self.solver.sweep_workers)
+        except Exception:  # noqa: BLE001
+            pass
+        self.solver.remote = None
+        addr = str(self.settings.value("remote/address", "") or "")
+        if self.settings.value("remote/enabled", False, type=bool) and addr:
+            from ..remote.client import RemoteHost
+            self.solver.remote = RemoteHost(addr, str(self.settings.value("remote/token", "") or ""))
+        self._fill_solve_on()
 
     def _restore_settings(self) -> None:
         s = self.settings
@@ -3711,6 +3764,45 @@ class MainWindow(QMainWindow):
         self.solver.submit(Job(self.doc.project.path, self.des.name, setup, sweep=sweep))
         self.project_tree.rebuild()
 
+    def derivative_tuning(self, setup: str | None = None, sweep: str | None = None) -> None:
+        """Optimization > Derivative Tuning: a dock with sliders for design variables; the reports on the
+        tuned solution draw the tuned curves live."""
+        from .tuning import TuningPanel, tuning_state
+        if not self.doc.project.path:
+            QMessageBox.information(self, "Derivative Tuning", "Save and analyze the project first.")
+            return
+        dock = getattr(self, "_tuning_dock", None)
+        if dock is None:
+            panel = TuningPanel(self, setup, sweep)
+            dock = self._tuning_dock = self._dock("Derivative Tuning", panel, Qt.RightDockWidgetArea)
+
+            def shown(visible: bool) -> None:
+                if not visible and dock.isHidden():          # closed: the reports show the solved design
+                    tuning_state(self.doc).set_model(None, "")
+                elif visible and tuning_state(self.doc).model is None:
+                    panel.load()
+            dock.visibilityChanged.connect(shown)
+        else:
+            dock.widget().select(setup, sweep)
+        dock.show()
+        dock.raise_()
+
+    def compute_tuning(self, setup: str, sweep: str, variables: list[str], points: int) -> str:
+        """Queue the tuning model of a sweep (reuses the adaptive mesh); returns the job key, '' if not."""
+        from .trees import solution_state
+        if solution_state(self.doc, setup) != "done":
+            QMessageBox.information(self, "Derivative Tuning",
+                                    "Analyze the setup first (with the current design); the derivatives are "
+                                    "computed on its adaptive mesh.")
+            return ""
+        if not self.doc.project.path or self.doc.dirty:
+            if not self.file_save():
+                return ""
+        job = Job(self.doc.project.path, self.des.name, setup,
+                  tuning=json.dumps({"sweep": sweep, "variables": variables, "points": int(points)}))
+        self.solver.submit(job)
+        return job.key
+
     def analyze(self, setups: list[str], mesh_only: bool = False) -> None:
         if not setups:
             QMessageBox.information(self, "Analyze", "No enabled solution setup.")
@@ -4984,6 +5076,7 @@ class MainWindow(QMainWindow):
                 elif self.des.setups:
                     m.addAction("Solution Data...", lambda: self.solution_data(self.des.setups[0].name))
                 m.addAction("Export S-Parameters (Touchstone)...", self.export_touchstone)
+                m.addAction("Derivative Tuning...", lambda: self.derivative_tuning())
                 m.addSeparator()
                 m.addAction("Clean Up Solutions...", self.clean_up_solutions)
             elif g == "Equations":
@@ -5032,6 +5125,7 @@ class MainWindow(QMainWindow):
             m.addAction("Analyze", lambda: self.analyze([data[1]]))
             m.addAction("Generate Mesh", lambda: self.generate_mesh([data[1]]))
             m.addAction("Solution Data...", lambda: self.solution_data(data[1]))
+            m.addAction("Derivative Tuning...", lambda: self.derivative_tuning(data[1], "LastAdaptive"))
             m.addAction("Clean Up Solutions...", lambda: self.clean_up_solutions([data[1]]))
             m.addAction("Copy", lambda: self._copy_setup(data[1]))
             m.addAction("Delete", self._delete_project_items)
@@ -5042,6 +5136,7 @@ class MainWindow(QMainWindow):
                         lambda: self.export_touchstone(f"{data[1]} : {data[2]}"))
             m.addAction("Analyze", lambda: self.analyze_sweep(data[1], data[2]))
             m.addAction("Analyze (setup)", lambda: self.analyze([data[1]]))
+            m.addAction("Derivative Tuning...", lambda: self.derivative_tuning(data[1], data[2]))
             on = self._sweep(data[1], data[2]).props.get("Enabled", "True") == "True"
             m.addAction("Disable" if on else "Enable", lambda: self._toggle_sweep(data[1], data[2]))
             m.addAction("Delete", self._delete_project_items)
