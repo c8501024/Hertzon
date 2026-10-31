@@ -8,8 +8,10 @@ the GitHub release notes.
 ### Added
 - **Derivative tuning with sliders.** Results > Tuning (also Optimization > Derivative Tuning and the right
   click on a sweep) computes, once, how the S-parameters of a sweep depend on chosen design variables, on
-  the converged adaptive mesh of the setup. Then sliders move the variables and the plot follows live, with
-  the solved response dashed as reference; *Apply to Design* sets the variables to the slider values. The
+  the converged adaptive mesh of the setup. Then sliders in a dock panel move the variables and every open
+  report on that solution follows live (rectangular plots, Smith charts, data tables and radiation
+  patterns, with all their quantities, markers and exports): the tuned curve solid, labelled with the
+  slider values, over the solved one dashed. *Apply to Design* sets the variables to the slider values. The
   mesh is morphed instead of remeshed (the nodes follow the faces that move), the derivatives of the FEM
   matrix come from assemblies on slightly morphed meshes, and one factorization per frequency gives the
   solution and its derivatives, which span a small reduced model. Resonances therefore shift with the
@@ -17,8 +19,7 @@ the GitHub release notes.
   microstrip stub the notch moved 0.3 GHz per millimetre of stub length, within 0.01 of exact solves on
   the morphed mesh over +-2 mm. Each slider is limited to the range in which no tetrahedron shrinks below
   30 % of its volume. Plane faces may change shape, curved faces may move. Not yet for terminal designs.
-  - The response can also be plotted against one variable over its range at one frequency (X axis), and a
-    setup without a sweep is tuned at its solution frequency.
+  - A setup without a sweep is tuned at its solution frequency.
   - Faces may slide along plane parts of the outer boundary, and lumped ports and lumped RLC elements
     stretch with the mesh (width, height, integration lines and excitation follow), so a substrate height
     can be tuned with a lumped port across it. Wave ports stay in place.
@@ -30,12 +31,10 @@ the GitHub release notes.
     frequencies: 85 s instead of 204 s, the same response within 3e-6.
   - The sliders move smoothly: a band model is evaluated directly at the sweep frequencies (the volume
     part exactly, only the boundary terms interpolated) instead of fitting the tuned curve at every
-    move, all frequencies are solved in one batch, and a slider move only redraws the tuned curves
-    (about 6 ms instead of up to seconds with an interpolating sweep).
-  - Antenna parameters follow the sliders: X axis "Pattern (realized gain)" shows the realized gain on
-    the cuts phi = 0 and 90 deg at the picked frequency, solved and tuned, with the radiation and total
-    efficiency. The model keeps the fields of its basis on the far field surface, so a slider move costs
-    about 2 ms; at the solved design it reproduces the solved far field exactly.
+    move, and all frequencies are solved in one batch.
+  - Radiation patterns follow the sliders (gain, realized gain, directivity ... at the report frequency):
+    the model keeps the fields of its basis on the far field surface, so a slider move only sums their
+    far fields; at the solved design it reproduces the solved far field exactly.
 - **Goal preview in Setup Optimization.** The Goals tab draws every goal as a mask over the current
   solution (each calculation as a curve, each goal as a line over its range in the colour of its
   calculation, the forbidden side shaded) and shows its margin in a new Margin column: positive = reserve

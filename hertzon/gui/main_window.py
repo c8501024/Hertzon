@@ -3715,15 +3715,27 @@ class MainWindow(QMainWindow):
         self.project_tree.rebuild()
 
     def derivative_tuning(self, setup: str | None = None, sweep: str | None = None) -> None:
-        """Optimization > Derivative Tuning: sliders for design variables, live S-parameters."""
-        from .tuning import TuningDialog
+        """Optimization > Derivative Tuning: a dock with sliders for design variables; the reports on the
+        tuned solution draw the tuned curves live."""
+        from .tuning import TuningPanel, tuning_state
         if not self.doc.project.path:
             QMessageBox.information(self, "Derivative Tuning", "Save and analyze the project first.")
             return
-        dlg = TuningDialog(self, setup, sweep)
-        dlg.setModal(False)
-        dlg.setAttribute(Qt.WA_DeleteOnClose)
-        dlg.show()
+        dock = getattr(self, "_tuning_dock", None)
+        if dock is None:
+            panel = TuningPanel(self, setup, sweep)
+            dock = self._tuning_dock = self._dock("Derivative Tuning", panel, Qt.RightDockWidgetArea)
+
+            def shown(visible: bool) -> None:
+                if not visible and dock.isHidden():          # closed: the reports show the solved design
+                    tuning_state(self.doc).set_model(None, "")
+                elif visible and tuning_state(self.doc).model is None:
+                    panel.load()
+            dock.visibilityChanged.connect(shown)
+        else:
+            dock.widget().select(setup, sweep)
+        dock.show()
+        dock.raise_()
 
     def compute_tuning(self, setup: str, sweep: str, variables: list[str], points: int) -> str:
         """Queue the tuning model of a sweep (reuses the adaptive mesh); returns the job key, '' if not."""
