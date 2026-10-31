@@ -4,6 +4,7 @@ locally) and mirrors the final results back. Runs the network part in a backgrou
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 from pathlib import Path
@@ -29,6 +30,7 @@ class RemoteRun(QObject):
         super().__init__(parent)
         self.host, self.kind, self.project, self.design, self.name = host, kind, project, design, name
         self.out, self.env = Path(out), env
+        self.label = ""                    # the job's key, shown in the progress window of the solving computer
         self.jid = ""
         self._abort = threading.Event()
         self._thread = threading.Thread(target=self._run, name="hertzon-remote-job", daemon=True)
@@ -80,7 +82,8 @@ class RemoteRun(QObject):
         archive, rel = prepare(Path(self.project), self.out)
         try:
             meta = {"kind": self.kind, "project": Path(self.project).name, "design": self.design,
-                    "name": self.name, "out": rel, "env": self.env}
+                    "name": self.name, "out": rel, "env": self.env, "label": self.label,
+                    "client": socket.gethostname()}
             self.jid = host.submit(archive, meta)["id"]
         finally:
             archive.unlink(missing_ok=True)

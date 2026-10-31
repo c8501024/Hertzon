@@ -97,6 +97,9 @@ class RemoteHost:
     def abort(self, jid: str) -> dict:
         return self._json("POST", f"/api/jobs/{jid}/abort", data=b"")
 
+    def jobs(self) -> list[dict]:
+        return self._json("GET", "/api/jobs").get("jobs", [])
+
     def shutdown(self) -> dict:
         return self._json("POST", "/api/shutdown", data=b"")
 

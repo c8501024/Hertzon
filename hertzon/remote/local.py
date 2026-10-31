@@ -22,6 +22,22 @@ def local_host(timeout: float = 1.5) -> RemoteHost:
     return RemoteHost(f"127.0.0.1:{DEFAULT_PORT}", token(), timeout=timeout)
 
 
+def hosted_jobs() -> list[dict] | None:
+    """Analyses other computers sent to the service on this computer (queued or running); None when no
+    service runs here. Never creates a token: without one no service has run on this computer yet."""
+    if not (default_workdir() / "token").is_file():
+        return None
+    try:
+        jobs = RemoteHost(f"127.0.0.1:{DEFAULT_PORT}", token(), timeout=2).jobs()
+    except RemoteError:
+        return None
+    return [j for j in jobs if j.get("state") in ("queued", "running")]
+
+
+def abort_hosted(jid: str) -> None:
+    local_host(timeout=5).abort(jid)
+
+
 def status() -> dict | None:
     """The info of the service running on this computer, None when none answers."""
     try:

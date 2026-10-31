@@ -206,3 +206,21 @@ def test_file_gone_during_sync(service, tmp_path):
     assert (out / "sparams_Sweep.npz").exists() and not (out / "convergence.json").exists()
     m.sync(final=True)
     assert not (out / "convergence.json").exists()
+
+
+def test_jobs_list_shows_sender_and_progress(service, tmp_path):
+    """The progress window of the solving computer lists the analyses other computers sent to it."""
+    svc, host = service
+    proj, out = make_project(tmp_path)
+    archive, rel = prepare(proj, out)
+    jid = host.submit(archive, {"kind": "run", "project": proj.name, "design": "slow", "name": "Setup1",
+                                "out": rel, "label": "Antenna - HFDesign - Setup1", "client": "LAPTOP"})["id"]
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        job = next(j for j in host.jobs() if j["id"] == jid)
+        if job["progress"] > 0:
+            break
+        time.sleep(0.05)
+    assert job["label"] == "Antenna - HFDesign - Setup1" and job["client"] == "LAPTOP"
+    assert job["state"] == "running" and job["progress"] == 10 and job["text"] == "Adaptive pass 1"
+    host.abort(jid)

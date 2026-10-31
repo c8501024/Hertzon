@@ -194,6 +194,7 @@ class SolveManager(QObject):
         env = {"HERTZON_MESH_ONLY": "1" if job.mesh_only else "0", "HERTZON_ONLY_SWEEP": job.sweep,
                "HERTZON_TUNING": job.tuning}
         r = RemoteRun(self.remote, kind, job.project_path, job.design, name, out, env, self)
+        r.label = job.key
         r.line.connect(self._handle_line)
         r.note.connect(lambda level, text, key=job.key: self.message.emit(level, f"{key}: {text}"))
         r.status.connect(lambda v, text, key=job.key: self.progress.emit(key, v, text))

@@ -32,7 +32,9 @@ analysis to that computer:
 - *Abort* stops the solver on the other computer;
 - the results folder is mirrored back, small files (S-parameters, convergence) first, then the fields.
 
-Several users can share one service; their analyses run one after the other. Untick the option to solve
+Several users can share one service; their analyses run one after the other. On the solving computer, the Progress window
+lists the analyses other computers sent to it (who sent them, progress); select one and press Abort to stop
+it. Untick the option to solve
 locally again.
 
 ## Notes

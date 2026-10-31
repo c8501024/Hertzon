@@ -41,6 +41,7 @@ from . import DEFAULT_PORT, PROTOCOL
 from .protocol import JOB_ENV, KINDS, file_list, local_target, safe_rel, unpack
 
 ROOT = Path(__file__).resolve().parents[2]
+TAG = "@@HZN "                   # solver lines for the GUI (hertzon.solver.bridge.emit)
 WAIT = 15.0                      # longest wait of an events request for new lines (s)
 KEEP_DAYS = 7                    # job folders the GUI did not delete are removed after this many days
 MAX_LINES = 200_000              # solver lines kept per job (older ones are dropped, the count goes on)
@@ -86,6 +87,10 @@ class Job:
     proc: subprocess.Popen | None = None
     created: float = field(default_factory=time.time)
     uploaded: dict = field(default_factory=dict)   # results files as uploaded: path -> mtime
+    label: str = ""              # the analysis as the sending GUI names it
+    client: str = ""             # computer name of the sending GUI
+    progress: float = 0.0        # last progress line of the solver
+    text: str = ""
 
     def files(self) -> list[dict]:
         """The results folder; files the solver has not touched since the upload are marked."""
@@ -100,7 +105,8 @@ class Job:
 
     def summary(self) -> dict:
         return {"id": self.id, "state": self.state, "code": self.code, "kind": self.kind,
-                "project": self.project, "design": self.design, "name": self.name}
+                "project": self.project, "design": self.design, "name": self.name, "label": self.label,
+                "client": self.client, "progress": self.progress, "text": self.text, "created": self.created}
 
 
 class Service:
@@ -144,6 +150,8 @@ class Service:
             raise ValueError("the job archive holds no project file")
         job = Job(jid, kind, project.name, str(meta.get("design", "")), str(meta.get("name", "")), out.as_posix(),
                   env, folder)
+        job.label = str(meta.get("label", ""))[:200]
+        job.client = str(meta.get("client", ""))[:100]
         job.out_dir.mkdir(parents=True, exist_ok=True)
         (job.out_dir / "ABORT").unlink(missing_ok=True)
         job.uploaded = {e["path"]: e["mtime"] for e in file_list(job.out_dir)}
@@ -251,6 +259,12 @@ class Service:
             self._run(job)
 
     def _add_line(self, job: Job, line: str) -> None:
+        if line.startswith(TAG) and '"progress"' in line:
+            try:
+                msg = json.loads(line[len(TAG):])
+                job.progress, job.text = float(msg.get("value", 0)), str(msg.get("text", ""))
+            except (ValueError, AttributeError):
+                pass
         with self.cond:
             job.lines.append(line)
             if len(job.lines) > MAX_LINES:
