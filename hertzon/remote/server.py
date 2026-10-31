@@ -116,8 +116,7 @@ class Service:
         self.jobs_dir = self.workdir / "jobs"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.token = token
-        self.cores = cores if cores > 0 else (os.cpu_count() or 1)
-        self.sweep_workers = sweep_workers
+        self._cores, self._workers = cores, sweep_workers      # 0: Tools > Options of this computer (hpc.json)
         self.command = command or self.solver_command
         self.port = DEFAULT_PORT
         self.jobs: dict[str, Job] = {}
@@ -240,16 +239,34 @@ class Service:
         return [sys.executable, "-m", KINDS[job.kind], str(job.folder / job.project), job.design, job.name,
                 str(job.out_dir)]
 
+    def _hpc(self) -> dict:
+        """The HPC settings of Tools > Options on this computer (the GUI writes them to hpc.json), so the
+        solving computer's own cores and sweep processes are used, whoever sends the analysis."""
+        try:
+            return json.loads((self.workdir / "hpc.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    @property
+    def cores(self) -> int:
+        n = self._cores or int(self._hpc().get("cores", 0) or 0)
+        return n if n > 0 else (os.cpu_count() or 1)
+
+    @property
+    def sweep_workers(self) -> int:
+        return self._workers or int(self._hpc().get("sweep_workers", 0) or 0) or 2
+
     def solver_env(self, job: Job) -> dict:
         env = dict(os.environ)
         env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
         env.update({"PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
-        env["HERTZON_CORES"] = str(self.cores)
+        cores = self.cores
+        env["HERTZON_CORES"] = str(cores)
         env["HERTZON_SWEEP_WORKERS"] = str(self.sweep_workers)
         for k in JOB_ENV:
             env[k] = job.env.get(k, "0" if k == "HERTZON_MESH_ONLY" else "")
         for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS"):
-            env[var] = str(self.cores)
+            env[var] = str(cores)
         return env
 
     def _work(self) -> None:

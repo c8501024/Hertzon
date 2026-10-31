@@ -18,6 +18,18 @@ def token() -> str:
     return load_token(default_workdir())
 
 
+def write_hpc(cores: int, sweep_workers: int) -> None:
+    """Tools > Options > HPC of this computer, for the analyses other computers send here."""
+    import json
+    workdir = default_workdir()
+    try:
+        workdir.mkdir(parents=True, exist_ok=True)
+        (workdir / "hpc.json").write_text(json.dumps({"cores": cores, "sweep_workers": sweep_workers}),
+                                          encoding="utf-8")
+    except OSError:
+        pass
+
+
 def pairing_code() -> str:
     """The pairing code of the running service (it changes with each start of the service)."""
     try:

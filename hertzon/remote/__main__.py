@@ -65,8 +65,10 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("serve", help="run the service")
     s.add_argument("--host", default="0.0.0.0", help="interface to listen on (default: all)")
     s.add_argument("--port", type=int, default=DEFAULT_PORT)
-    s.add_argument("--cores", type=int, default=0, help="cores per solve (default: all)")
-    s.add_argument("--sweep-workers", type=int, default=2)
+    s.add_argument("--cores", type=int, default=0,
+                   help="cores per solve (default: Tools > Options > HPC of this computer, else all)")
+    s.add_argument("--sweep-workers", type=int, default=0,
+                   help="parallel sweep processes (default: Tools > Options > HPC of this computer, else 2)")
     s.add_argument("--workdir", type=Path, default=None, help=f"work folder (default: {default_workdir()})")
     t = sub.add_parser("token", help="print the token")
     t.add_argument("--workdir", type=Path, default=None)

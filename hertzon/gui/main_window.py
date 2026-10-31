@@ -1465,6 +1465,11 @@ class MainWindow(QMainWindow):
     def apply_hpc_settings(self) -> None:
         self.solver.cores = int(self.settings.value("hpc/cores", 0))
         self.solver.sweep_workers = int(self.settings.value("hpc/sweep_workers", 2))
+        try:                    # the remote service of this computer uses the same HPC settings
+            from ..remote import local
+            local.write_hpc(self.solver.cores, self.solver.sweep_workers)
+        except Exception:  # noqa: BLE001
+            pass
         self.solver.remote = None
         addr = str(self.settings.value("remote/address", "") or "")
         if self.settings.value("remote/enabled", False, type=bool) and addr:

@@ -14,8 +14,8 @@ field plots and exports work exactly as after a local solve.
    login* to have it running after every login, also without opening Hertzon.
 
 Without the GUI (for example on a Linux server): run `hertzon-serve` (or `python -m hertzon.remote serve`)
-in Hertzon's Python environment; it prints address and token. Options: `--cores N` (default: all cores),
-`--sweep-workers N` (default 2), `--port` (default 47820), `--workdir`. `hertzon-serve token` prints the
+in Hertzon's Python environment; it prints address and token. Options: `--cores N`, `--sweep-workers N`
+(default: Tools > Options > HPC of that computer, else all cores and 2), `--port` (default 47820), `--workdir`. `hertzon-serve token` prints the
 token again, `hertzon-serve autostart on` starts it at login (Linux: writes a systemd user service and
 prints the commands that enable it). Windows asks once whether Python may accept connections from the
 network; allow it for private networks.
@@ -42,6 +42,10 @@ Progress window lists the analyses other computers sent to it (who sent them, pr
 press Abort to stop it.
 
 ## Notes
+
+- Cores and parallel sweep processes are those of the **solving** computer: Tools > Options > HPC and
+  Analysis there (also what its Solver Benchmark recommends). What travels with the project stays as it is:
+  a setup's own *Solver threads* and its matrix solver.
 
 - The connection is plain HTTP with a token and meant for a local network. Across the internet use an SSH
   tunnel (`ssh -L 47820:localhost:47820 user@host`, then enter `localhost` as the computer).

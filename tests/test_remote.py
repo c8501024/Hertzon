@@ -270,3 +270,18 @@ def test_discovery_and_pairing(service):
             pair(host.address, "000000" if svc.pairing != "000000" else "111111")
     with pytest.raises(RemoteError, match="too many"):
         pair(host.address, svc.pairing)                  # locked, even with the right code
+
+
+def test_hpc_settings_of_the_solving_computer(tmp_path):
+    """Cores and sweep processes come from the solving computer (its Options, hpc.json), not the sender."""
+    svc = Service(tmp_path / "w", "t")
+    try:
+        assert svc.sweep_workers == 2 and svc.cores >= 1
+        (tmp_path / "w" / "hpc.json").write_text('{"cores": 3, "sweep_workers": 4}')
+        assert svc.cores == 3 and svc.sweep_workers == 4
+        assert svc.info()["cores"] == 3
+        fixed = Service(tmp_path / "w", "t", cores=5)          # --cores on the command line wins
+        assert fixed.cores == 5
+        fixed.stop()
+    finally:
+        svc.stop()

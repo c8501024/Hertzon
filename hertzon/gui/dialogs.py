@@ -834,7 +834,8 @@ class OptionsDialog(QDialog):
         f.addRow("SPARTA solver", row)
         self._sparta_status()
         f.addRow(QLabel("Cores are used by the matrix solver, meshing and field post-processing.\n"
-                        "A value in a setup's 'Solver threads' overrides this for that setup."))
+                        "A value in a setup's 'Solver threads' overrides this for that setup.\n"
+                        "Analyses other computers send here (Remote) use these settings of this computer."))
         tabs.addTab(hpc, "HPC and Analysis")
 
         rem = QWidget()
