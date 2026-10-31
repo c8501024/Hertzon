@@ -640,7 +640,20 @@ def band_models(asm: Assembly, freqs: np.ndarray, V: list[np.ndarray], steps: li
         if progress is not None:
             progress(k + 1, len(freqs))
     asm.restore()
-    return out
+    for key in {key for fm in out for key in fm}:     # the same terms at every frequency
+        like = next(fm[key] for fm in out if key in fm)
+        for fm in out:
+            fm.setdefault(key, np.zeros_like(like))
+    # the frequency independent parts (E - k0^2 B): the model can be evaluated between its frequencies
+    # with only the boundary terms interpolated (TuningModel)
+    n = len(V)
+    band = {}
+    for name, T in (("E", ER), ("B", BR)):
+        band[f"band_{name}0"] = T[0]
+        band[f"band_{name}i"] = np.array(T[1]).reshape(n, *T[0].shape)
+        band[f"band_{name}ii"] = np.array(T[2]).reshape(n, *T[0].shape)
+        band[f"band_{name}ij"] = np.array(T[3]).reshape(len(T[3]), *T[0].shape)
+    return out, band
 
 
 # ------------------------------------------------------------------------------------------------
@@ -656,36 +669,88 @@ def _taylor(fm: dict, key: str, dp: np.ndarray) -> np.ndarray:
     v = fm[key]
     if f"{key}_i" not in fm:
         return v
+    st = fm.get("_stacked", False)
     v = v.astype(np.complex128, copy=True)
     for i, d in enumerate(dp):
         if d:
-            v += d * fm[f"{key}_i"][i] + 0.5 * d * d * fm[f"{key}_ii"][i]
+            v += d * _term(fm[f"{key}_i"], i, st) + 0.5 * d * d * _term(fm[f"{key}_ii"], i, st)
     for k, (i, j) in enumerate(pairs(len(dp))):
         if dp[i] and dp[j]:
-            v += dp[i] * dp[j] * fm[f"{key}_ij"][k]
+            v += dp[i] * dp[j] * _term(fm[f"{key}_ij"], k, st)
     return v
 
 
 def evaluate_freq(fm: dict, dp: np.ndarray, caps: tuple[bool, bool] = (True, True)) -> np.ndarray:
-    """Raw S-matrix (ports x ports) of one frequency model at the variable offsets dp."""
+    """Raw S-matrix (ports x ports) of one frequency model at the variable offsets dp. A stacked model
+    (_stack: every term with a leading frequency axis) gives all frequencies at once (frequency x ports x
+    ports)."""
+    st = fm.get("_stacked", False)
+    dp = np.asarray(dp, float)
     A = fm["A0"].copy()
     for i, d in enumerate(dp):
         if d:
-            A += d * fm["Ai"][i] + 0.5 * d * d * fm["Aii"][i]
+            A += d * _term(fm["Ai"], i, st) + 0.5 * d * d * _term(fm["Aii"], i, st)
     for k, (i, j) in enumerate(pairs(len(dp))):
         if dp[i] and dp[j]:
-            A += dp[i] * dp[j] * fm["Aij"][k]
+            A += dp[i] * dp[j] * _term(fm["Aij"], k, st)
     Y = np.linalg.solve(A, _taylor(fm, "b", dp))
-    n = len(fm["c0"])
-    S = _taylor(fm, "Lp", dp) @ Y
-    S[np.diag_indices(n)] = np.einsum("ik,ki->i", _taylor(fm, "La", dp), Y) + _taylor(fm, "c0", dp)
+    Lp, La, c0 = _taylor(fm, "Lp", dp), _taylor(fm, "La", dp), _taylor(fm, "c0", dp)
+    n = c0.shape[-1]
+    S = Lp @ Y
+    idx = np.arange(n)
+    S[..., idx, idx] = np.einsum("...ik,...ki->...i", La, Y) + c0
     col, single = caps
     if col:
-        for j in range(n):
-            S[:, j] /= max(1.0, float(np.sum(np.abs(S[:, j]) ** 2)))
+        S /= np.maximum(1.0, np.sum(np.abs(S) ** 2, axis=-2, keepdims=True))
     if single:
         S /= np.maximum(1.0, np.abs(S))
     return S
+
+
+def _term(arr: np.ndarray, i: int, stacked: bool) -> np.ndarray:
+    return arr[:, i] if stacked else arr[i]
+
+
+def _stack(fms: list[dict]) -> dict | None:
+    """The frequency models as one dict with a leading frequency axis (None if their shapes differ, as in
+    a model reduced per frequency)."""
+    if not fms:
+        return None
+    keys = set(fms[0])
+    if any(set(fm) != keys or any(fm[k].shape != fms[0][k].shape for k in keys) for fm in fms):
+        return None
+    out = {k: np.stack([fm[k] for fm in fms]) for k in keys}
+    out["_stacked"] = True
+    return out
+
+
+_MATRIX_TERMS = (("A0", "0"), ("Ai", "i"), ("Aii", "ii"), ("Aij", "ij"))
+
+
+def _band_on_grid(st: dict, band: dict, freq: np.ndarray, grid: np.ndarray) -> dict:
+    """A band model at the grid frequencies: the volume part E - k0^2 B exactly, the boundary terms, the
+    excitations and the port functionals (smooth in frequency; the resonances come from the solve)
+    interpolated with cubic splines between the model frequencies."""
+    from scipy.interpolate import CubicSpline
+    c = 299792458.0
+    k0 = 2 * np.pi * np.asarray(freq, float) / c
+    kg = 2 * np.pi * np.asarray(grid, float) / c
+    out = {"_stacked": True}
+
+    def vol(suffix, kk):
+        return band["E" + suffix][None] - (kk ** 2).reshape((-1,) + (1,) * band["E" + suffix].ndim) * \
+            band["B" + suffix][None]
+
+    for key, val in st.items():
+        if key == "_stacked":
+            continue
+        suffix = dict(_MATRIX_TERMS).get(key)
+        if suffix is not None:
+            R = val - vol(suffix, k0)
+            out[key] = vol(suffix, kg) + CubicSpline(freq, R, axis=0)(grid)
+        else:
+            out[key] = CubicSpline(freq, val, axis=0)(grid)
+    return out
 
 
 # ------------------------------------------------------------------------------------------------
@@ -790,11 +855,12 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
         if z0 is None:
             z0 = np.array([complex(p.portZ0(k0) or 50.0) for p, _, _ in pm])
 
+    band_data: dict = {}
     try:
         fms = None
         if band and nfreq > 1:
             try:
-                fms = band_models(asm, freqs, V, steps, log=log, ports_move=ports_move, progress=progress,
+                fms, band_data = band_models(asm, freqs, V, steps, log=log, ports_move=ports_move, progress=progress,
                                   abort=abort, on_frequency=port_data)
             except NotAffine as e:
                 log(f"No band model ({e}): every frequency is reduced on its own")
@@ -829,7 +895,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
         "created": time.time(),
     }
     np.savez_compressed(path, freq=np.asarray(freqs, float), beta=np.array(beta), z0=z0, nominal=nominal,
-                        meta=np.array(json.dumps(meta)), **data)
+                        meta=np.array(json.dumps(meta)), **data, **band_data)
     return meta
 
 
@@ -847,6 +913,7 @@ class TuningModel:
             for k in range(len(self.freq)):
                 pre = f"f{k}_"
                 self.fms.append({name[len(pre):]: z[name] for name in z.files if name.startswith(pre)})
+            band = {name[5:]: z[name] for name in z.files if name.startswith("band_")}
         self.variables = self.meta["variables"]
         self.ranges = np.array(self.meta["ranges"], float)
         self.caps = tuple(self.meta.get("caps", (True, True)))
@@ -856,9 +923,19 @@ class TuningModel:
         grid = self.meta.get("grid")
         self.grid = np.asarray(grid, float) if grid else None
         self.freq_out = self.grid if self.grid is not None else self.freq
+        self.stack = _stack(self.fms)
+        # a band model on a sweep grid: evaluated at the grid frequencies directly (no fit of the curve)
+        self.stack_out = None
+        if self.grid is not None and band and len(self.freq) >= 4 and self.stack is not None:
+            self.stack_out = _band_on_grid(self.stack, band, self.freq, self.grid)
+        self._nominal = None
 
-    def raw(self, dp) -> np.ndarray:
+    def raw(self, dp, out: bool = False) -> np.ndarray:
+        """Raw S at the model frequencies (out: at freq_out when the model evaluates there directly)."""
         dp = np.asarray(dp, float)
+        st = self.stack_out if out and self.stack_out is not None else self.stack
+        if st is not None:
+            return evaluate_freq(st, dp, self.caps)
         return np.array([evaluate_freq(fm, dp, self.caps) for fm in self.fms])
 
     def sparams(self, dp) -> tuple[np.ndarray, np.ndarray]:
@@ -866,10 +943,14 @@ class TuningModel:
         post-processing (de-embedding, renormalization) as a solved sweep. A model of the solved points of
         an interpolating sweep is interpolated over the sweep frequencies as the sweep does."""
         from .results import deembed_renormalize, fit_sparams
-        S = self.raw(dp)
         beta = self.beta
+        if self.stack_out is not None:
+            S = self.raw(dp, out=True)
+        else:
+            S = self.raw(dp)
         if self.grid is not None:
-            S = fit_sparams(self.freq, S)(self.grid)
+            if self.stack_out is None:
+                S = fit_sparams(self.freq, S)(self.grid)
             beta = np.array([np.interp(self.grid, self.freq, b.real) + 1j * np.interp(self.grid, self.freq, b.imag)
                              for b in np.asarray(self.beta).T]).T
         ports = self.meta.get("ports") or []
@@ -891,4 +972,6 @@ class TuningModel:
         return deembed_renormalize(S, self.z0, ports, beta)
 
     def nominal(self) -> tuple[np.ndarray, np.ndarray]:
-        return self.sparams(np.zeros(len(self.variables)))
+        if self._nominal is None:
+            self._nominal = self.sparams(np.zeros(len(self.variables)))
+        return self._nominal

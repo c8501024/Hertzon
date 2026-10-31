@@ -216,7 +216,11 @@ def test_band_model_matches_the_model_of_every_frequency(tmp_path):
         B.solve_at(m, [3.4e9])
         TU.build(b, ["Ls"], freqs, tmp_path / "band.npz")
         TU.build(b, ["Ls"], freqs, tmp_path / "each.npz", band=False)
+        TU.build(b, ["Ls"], freqs[::2], tmp_path / "grid.npz", grid=freqs)     # as for an interpolating sweep
     band, each = TU.TuningModel(tmp_path / "band.npz"), TU.TuningModel(tmp_path / "each.npz")
+    grid = TU.TuningModel(tmp_path / "grid.npz")
+    assert grid.stack_out is not None                                      # evaluated on the grid, no fit
     for dp in ([0.0], [0.7], [-0.7]):
         assert np.abs(band.raw(dp) - each.raw(dp)).max() < 1e-4
+        assert np.abs(grid.sparams(dp)[0] - each.sparams(dp)[0]).max() < 1e-3
     assert np.abs(each.raw([0.7]) - each.raw([0.0])).max() > 0.05

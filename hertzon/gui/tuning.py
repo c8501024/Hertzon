@@ -146,6 +146,8 @@ class TuningDialog(QDialog):
         self._timer.setSingleShot(True)
         self._timer.setInterval(15)
         self._timer.timeout.connect(self.plot)
+        self._sig, self._dyn, self._bg = None, [], None
+        self.canvas.mpl_connect("draw_event", self._on_draw)
         self.resize(1100, 680)
         self.load()
 
@@ -382,17 +384,49 @@ class TuningDialog(QDialog):
             return np.abs(s)
         return np.degrees(np.angle(s))
 
+    def _on_draw(self, _event) -> None:
+        """After a full draw: keep the background without the tuned curves, then draw them on it (slider
+        moves only redraw the curves: blitting)."""
+        self._bg = self.canvas.copy_from_bbox(self.ax.bbox)
+        for line in self._dyn:
+            self.ax.draw_artist(line)
+        self.canvas.blit(self.ax.bbox)
+
+    def _fast_update(self, m, dp: np.ndarray, sel: list) -> bool:
+        """New tuned curves on the same axes, if they fit into the current y range."""
+        if self._bg is None or len(self._dyn) != len(sel):
+            return False
+        S, _ = m.sparams(dp)
+        ys = [self._y(S[:, i, j]) for (i, j), _ in sel]
+        lo, hi = self.ax.get_ylim()
+        if any(np.nanmin(y) < lo or np.nanmax(y) > hi for y in ys if len(y)):
+            return False
+        self.canvas.restore_region(self._bg)
+        for line, y in zip(self._dyn, ys):
+            line.set_ydata(y)
+            self.ax.draw_artist(line)
+        self.canvas.blit(self.ax.bbox)
+        return True
+
     def plot(self) -> None:
-        self.ax.clear()
         m = self.model
+        dp = self.offsets() if m is not None else None
+        sel = [(self.traces.item(k).data(Qt.UserRole), self.traces.item(k).text())
+               for k in range(self.traces.count()) if self.traces.item(k).checkState() == Qt.Checked]
+        sig = (id(m), self.xaxis.currentData(), self.quantity.currentText(), tuple(t for _, t in sel),
+               self.fpick.currentIndex())
+        self._warn(dp)
+        if m is not None and self.xaxis.currentData() is None and sig == self._sig and self._fast_update(m, dp, sel):
+            return
+        self._sig = sig
+        self._dyn = []
+        self._bg = None
+        self.ax.clear()
         if m is None:
             self.ax.text(0.5, 0.5, "No tuning model", ha="center", va="center", transform=self.ax.transAxes,
                          color="#777")
             self.canvas.draw_idle()
             return
-        dp = self.offsets()
-        sel = [(self.traces.item(k).data(Qt.UserRole), self.traces.item(k).text())
-               for k in range(self.traces.count()) if self.traces.item(k).checkState() == Qt.Checked]
         if self.xaxis.currentData() is None:
             self._plot_frequency(m, dp, sel)
         else:
@@ -402,6 +436,11 @@ class TuningDialog(QDialog):
         if sel:
             self.ax.legend(loc="best", fontsize=8)
         self.canvas.draw_idle()
+
+    def _warn(self, dp) -> None:
+        if dp is None:
+            self.warn.setText("")
+            return
         far = [r["name"] for r, d in zip(self.rows, dp)
                if (d > 0 and r["hi"] > 0 and d > WARN_FRACTION * r["hi"])
                or (d < 0 and r["lo"] < 0 and d < WARN_FRACTION * r["lo"])]
@@ -415,7 +454,16 @@ class TuningDialog(QDialog):
         for k, ((i, j), lab) in enumerate(sel):
             c = f"C{k % 10}"
             self.ax.plot(f, self._y(S0[:, i, j]), "--", color=c, alpha=0.5, lw=1.2, label=f"{lab} solved")
-            self.ax.plot(f, self._y(S[:, i, j]), "-", color=c, lw=1.8, label=f"{lab} tuned")
+            line, = self.ax.plot(f, self._y(S[:, i, j]), "-", color=c, lw=1.8, label=f"{lab} tuned",
+                                 animated=True)
+            self._dyn.append(line)
+        # the y range with some room, so that the tuned curves can move without a full redraw
+        self.ax.relim()
+        ys = [self._y(S0[:, i, j]) for (i, j), _ in sel] + [self._y(S[:, i, j]) for (i, j), _ in sel]
+        if ys:
+            lo, hi = float(min(np.nanmin(y) for y in ys)), float(max(np.nanmax(y) for y in ys))
+            pad = 0.15 * max(hi - lo, 1e-6)
+            self.ax.set_ylim(lo - pad, hi + pad)
         self.ax.set_xlabel("Frequency [GHz]")
 
     def _plot_variable(self, m, dp: np.ndarray, sel: list, v: int) -> None:

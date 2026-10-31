@@ -28,6 +28,10 @@ the GitHub release notes.
     matrices are assembled once, and only a few frequencies are factorized (chosen where the residual is
     largest); every other frequency is solved in that basis. Patch antenna, two variables, 51
     frequencies: 85 s instead of 204 s, the same response within 3e-6.
+  - The sliders move smoothly: a band model is evaluated directly at the sweep frequencies (the volume
+    part exactly, only the boundary terms interpolated) instead of fitting the tuned curve at every
+    move, all frequencies are solved in one batch, and a slider move only redraws the tuned curves
+    (about 6 ms instead of up to seconds with an interpolating sweep).
 
 ## 0.2.8 (2026-10-30)
 
