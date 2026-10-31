@@ -10,8 +10,11 @@ gives the motion of the CAD boundary per unit of the variable (its velocity). Th
   boundary segment, so neighbouring faces agree on their common edges); a curved face may only translate;
 - a node on a face that stays where it is may slide within that face (in the plane, or along an edge of
   it), so the mesh next to a moving edge stretches over the whole face instead of one element layer;
-- nodes on ports, on the outer boundary of the solution region and on curved faces that do not move
-  stay where they are;
+- nodes on a plane part of the outer boundary of the solution region slide within it (along its edges,
+  fixed at its corners), so a face meeting the boundary may move along it (a substrate that fills the
+  region changes its height); motion through the outer boundary is not possible;
+- nodes on ports, on curved parts of the outer boundary and on curved faces that do not move stay where
+  they are;
 - all other nodes (inside the volumes) follow a smooth extension of the boundary motion: a vector Laplace
   problem on the tetrahedra, stiffened in small elements (weight 1/volume) so that the fine mesh near
   conductors moves almost rigidly and the large elements absorb the deformation.
@@ -326,14 +329,25 @@ class NodeClass:
     on_face: dict                     # face key -> node indices on it (planar probe faces)
 
 
-def classify(mesh, faces: list[Face], fixed_ftags: set, tol: float):
-    """Which nodes lie on which object face; nodes on fixed faces (ports, outer boundary) and nodes on no
-    plane object face (but on a mesh face) are fixed."""
+def _mesh_plane(P: np.ndarray, tol: float) -> np.ndarray | None:
+    """Unit normal of the plane through the points P (n, 3), None if they are not in one plane."""
+    c = P.mean(axis=0)
+    _, sv, vt = np.linalg.svd(P - c, full_matrices=False)
+    if len(sv) < 3 or np.abs((P - c) @ vt[2]).max() > tol:
+        return None
+    return vt[2]
+
+
+def classify(mesh, faces: list[Face], fixed_ftags: set, tol: float, slide_ftags: set = frozenset()):
+    """Which nodes lie on which object face; nodes on fixed faces (ports) and nodes on no plane object
+    face (but on a mesh face) are fixed. Nodes on a plane face of slide_ftags (outer boundary) slide in
+    its plane: wall maps them to the plane normals (a curved one fixes them)."""
     nodes = mesh.nodes
     N = nodes.shape[1]
     tris = mesh.tris
     fixed = np.zeros(N, bool)
     on_face: dict = {}
+    wall: dict = {}
     surf_nodes = set()
     for ftag, tri_ids in mesh.ftag_to_tri.items():
         tri_ids = np.asarray(tri_ids, int)
@@ -344,6 +358,17 @@ def classify(mesh, faces: list[Face], fixed_ftags: set, tol: float):
         if ftag in fixed_ftags:
             fixed[nid] = True
             continue
+        on_wall = False
+        if ftag in slide_ftags:
+            n = _mesh_plane(nodes[:, nid].T, tol)
+            if n is None:
+                fixed[nid] = True
+                continue
+            for i in nid:
+                ns = wall.setdefault(int(i), [])
+                if all(abs(abs(float(n @ q)) - 1) > 1e-6 for q in ns):
+                    ns.append(n)
+            on_wall = True
         C = nodes[:, tris[:, tri_ids[: min(len(tri_ids), 5)]]].mean(axis=1).T     # a few triangle centroids
         lo, hi = nodes[:, nid].min(axis=1), nodes[:, nid].max(axis=1)
         matched = False
@@ -360,21 +385,22 @@ def classify(mesh, faces: list[Face], fixed_ftags: set, tol: float):
                 pass
             on_face.setdefault((f.obj, f.index), set()).update(nid.tolist())
             matched = True
-        if not matched:
+        if not matched and not on_wall:
             fixed[nid] = True
     on_face = {k: np.array(sorted(v), int) for k, v in on_face.items()}
-    return fixed, on_face, np.array(sorted(surf_nodes), int)
+    return fixed, on_face, np.array(sorted(surf_nodes), int), wall
 
 
 def velocity_fields(mesh, faces_per_var: dict[str, list[Face]], fixed_ftags: set, tol: float,
-                    log=None) -> dict[str, np.ndarray]:
-    """Velocity field (3, N) of the mesh nodes for every variable."""
+                    log=None, slide_ftags: set = frozenset()) -> dict[str, np.ndarray]:
+    """Velocity field (3, N) of the mesh nodes for every variable. Nodes on fixed_ftags stay, nodes on
+    slide_ftags (outer boundary) may only move within it."""
     import scipy.sparse as sp
     from scipy.sparse.linalg import spsolve
     nodes = mesh.nodes
     N = nodes.shape[1]
     any_faces = next(iter(faces_per_var.values()))
-    fixed0, on_face, _ = classify(mesh, any_faces, fixed_ftags, tol)
+    fixed0, on_face, _, wall = classify(mesh, any_faces, fixed_ftags, tol, slide_ftags)
     # Dirichlet values per variable; nodes on a moving face of any variable are fixed for all
     moving_nodes = np.zeros(N, bool)
     d0 = {v: np.zeros((N, 3)) for v in faces_per_var}
@@ -393,8 +419,12 @@ def velocity_fields(mesh, faces_per_var: dict[str, list[Face]], fixed_ftags: set
                     raise MorphError(f"variable '{var}' deforms the curved face {f.index + 1} of '{f.obj}'; "
                                      "only plane faces may change shape (curved faces may move)")
                 vel = np.repeat(vv[:1], len(nid), axis=0)
-            if fixed0[nid].any() and np.abs(vel[fixed0[nid]]).max() > 1e-9:
-                raise MorphError(f"variable '{var}' moves '{f.obj}' at a port or at the outer boundary")
+            vmax = max(float(np.abs(vel).max()), 1e-30)
+            if fixed0[nid].any() and np.abs(vel[fixed0[nid]]).max() > 1e-6 * vmax:
+                raise MorphError(f"variable '{var}' moves '{f.obj}' at a wave port or a curved outer boundary (only lumped ports can stretch)")
+            for i, v in zip(nid, vel):
+                if any(abs(float(q @ v)) > 1e-6 * vmax for q in wall.get(int(i), ())):
+                    raise MorphError(f"variable '{var}' moves '{f.obj}' through the outer boundary")
             d0[var][nid] += vel
             count[var][nid] += 1
             moving_nodes[nid] = True
@@ -402,7 +432,7 @@ def velocity_fields(mesh, faces_per_var: dict[str, list[Face]], fixed_ftags: set
         c = count[var]
         d0[var][c > 0] /= c[c > 0][:, None]
     # sliding constraints from the faces that do not move (same for all variables: union of moving faces)
-    normals: dict[int, list] = {}
+    normals: dict[int, list] = {i: list(ns) for i, ns in wall.items()}
     for f in any_faces:
         nid = on_face.get((f.obj, f.index))
         if nid is None or not len(nid):

@@ -45,8 +45,9 @@ class TuningDialog(QDialog):
         self.points = QSpinBox()
         self.points.setRange(5, 201)
         self.points.setValue(51)
-        self.points.setToolTip("Frequencies of the tuning model (a discrete sweep uses its own points). Every "
-                               "point costs one matrix factorization.")
+        self.points.setToolTip("Frequencies of the tuning model of a fast sweep, or of a sweep not solved yet. "
+                               "A discrete sweep uses its own points, an analyzed interpolating sweep the "
+                               "frequencies it solved. Every point costs one matrix factorization.")
         self.vars = QListWidget()
         self.vars.setSelectionMode(QAbstractItemView.NoSelection)
         self.vars.setMaximumHeight(110)
@@ -209,6 +210,8 @@ class TuningDialog(QDialog):
             note = ("  The design or setup changed since; the model shows the analyzed design."
                     if state == "outdated" else "")
             at = (f"{len(m.freq)} frequencies" if len(m.freq) > 1 else f"{m.freq[0] / 1e9:.6g} GHz")
+            if m.grid is not None:
+                at += f" (the solved points, interpolated over {len(m.grid)})"
             self.info.setText(f"Tuning model of {', '.join(m.variables)} at {at} "
                               f"({m.meta.get('tets', 0)} tetrahedra).{note}")
             self._fill_vars(m.variables)
@@ -408,7 +411,7 @@ class TuningDialog(QDialog):
     def _plot_frequency(self, m, dp: np.ndarray, sel: list) -> None:
         S0, _ = m.nominal()
         S, _ = m.sparams(dp)
-        f = m.freq / 1e9
+        f = m.freq_out / 1e9
         for k, ((i, j), lab) in enumerate(sel):
             c = f"C{k % 10}"
             self.ax.plot(f, self._y(S0[:, i, j]), "--", color=c, alpha=0.5, lw=1.2, label=f"{lab} solved")

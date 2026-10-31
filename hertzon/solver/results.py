@@ -224,6 +224,26 @@ def _json_default(o):
     return str(o)
 
 
+def fit_sparams(ff: np.ndarray, SS: np.ndarray):
+    """Rational (vector fitting) model of S-matrices SS (frequency x n x n) at the frequencies ff, as the
+    interpolating sweep fits its solutions; returns f -> S(f)."""
+    from emerge._emerge.physics.microwave.adaptive_freq import SparamModel
+    n = SS.shape[1]
+    # pole count bounded by the information in the samples (filterbench): many poles fitted to a handful of
+    # samples overfit, the validation points miss and the sweep solves far more frequencies than needed.
+    # No fixed limit of ten: a wide band with many resonances or long lines (phase turns) needs more poles
+    poles = min(100, max(2, len(ff) // 2))
+    models = [[SparamModel(ff, SS[:, i, j], n_poles=poles, _warn=False) for j in range(n)] for i in range(n)]
+
+    def call(f):
+        out = np.zeros((len(f), n, n), complex)
+        for i in range(n):
+            for j in range(n):
+                out[:, i, j] = models[i][j](f)
+        return out
+    return call
+
+
 def deembed_renormalize(S: np.ndarray, z0, ports: list, beta) -> tuple[np.ndarray, np.ndarray]:
     """Wave-port de-embedding (beta: propagation constant per frequency and port, or None without
     de-embedding) and renormalization of the S-matrices (frequency x n x n) of the port rows `ports`

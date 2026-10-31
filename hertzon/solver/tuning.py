@@ -49,6 +49,53 @@ def set_nodes(mesh, X: np.ndarray) -> None:
     mesh.areas = np.linalg.norm(np.cross((n[:, tr[1]] - n[:, tr[0]]).T, (n[:, tr[2]] - n[:, tr[0]]).T), axis=1) / 2
 
 
+def _lumped_classes():
+    from emerge._emerge.physics.microwave.bcs.port_bcs import LumpedPort
+    from emerge._emerge.physics.microwave.bcs.boundary_conditions import LumpedElement
+    return LumpedPort, LumpedElement
+
+
+class LumpedGeometry:
+    """Width, height and voltage integration lines of the lumped ports and lumped RLC elements follow the
+    morphed mesh: their sheets stretch with the variables (a port across a substrate whose height is
+    tuned), and the sheet impedance and the excitation depend on that size."""
+
+    def __init__(self, mw, X0: np.ndarray):
+        LumpedPort, LumpedElement = _lumped_classes()
+        self.mw = mw
+        self.items = []
+        for bc in mw.bc.boundary_conditions:
+            if not isinstance(bc, (LumpedPort, LumpedElement)):
+                continue
+            nid = np.unique(np.asarray(mw.mesh.get_nodes(bc.tags), int))
+            if len(nid) < 3:
+                continue
+            P = X0[:, nid].T
+            _, _, vt = np.linalg.svd(P - P.mean(axis=0), full_matrices=False)
+            if isinstance(bc, LumpedPort):
+                d = np.asarray(bc.Vdirection.np, float)
+            else:                           # the in-plane axis whose extent is the height
+                d = min(vt[:2], key=lambda a: abs(np.ptp(P @ a) - bc.height))
+            d = d / np.linalg.norm(d)
+            w = np.cross(vt[2], d)
+            w /= max(np.linalg.norm(w), 1e-300)
+            self.items.append({"bc": bc, "nid": nid, "d": d, "w": w, "w0": bc.width, "h0": bc.height,
+                               "ed": np.ptp(P @ d), "ew": np.ptp(P @ w), "port": isinstance(bc, LumpedPort)})
+
+    def apply(self, X: np.ndarray) -> None:
+        from emerge._emerge.coord import Line
+        for it in self.items:
+            bc, P = it["bc"], X[:, it["nid"]].T
+            bc.height = it["h0"] * np.ptp(P @ it["d"]) / it["ed"]
+            bc.width = it["w0"] * np.ptp(P @ it["w"]) / it["ew"] if it["ew"] > 0 else it["w0"]
+            if it["port"]:
+                # integration lines from the nodes on the low side of the sheet along the field direction,
+                # as EMerge defines them (with a tolerance, so the morphed nodes keep their lines)
+                t = P @ it["d"]
+                low = P[t <= t.min() + 1e-6 * bc.height]
+                bc.voltage_integration_line = [Line.from_points(a, a + it["d"] * bc.height, 21) for a in low]
+
+
 class Assembly:
     """FEM systems of the EMerge model m at given node positions (the nominal mesh is restored after).
 
@@ -64,6 +111,7 @@ class Assembly:
         self._at = None                 # key of the node positions in the mesh (None: nominal)
         self._systems: dict = {}        # state key -> EMerge SystemPattern of that state
         self.keep_states = keep_states
+        self.lumped = LumpedGeometry(m.mw, self.X0)
 
     _ANON = ("anonymous",)
 
@@ -74,6 +122,7 @@ class Assembly:
         if self.keep_states and asy._system is not None and self._at != self._ANON:
             self._systems[self._at] = asy._system
         set_nodes(self.mesh, self.X0 if X is None else X)
+        self.lumped.apply(self.mesh.nodes)
         asy.reset_cache()
         if self.keep_states and key != self._ANON:
             asy._system = self._systems.pop(key, None)
@@ -166,17 +215,24 @@ def _orth(cols: list[np.ndarray], tol: float = 1e-10) -> np.ndarray:
     return np.column_stack(V)
 
 
-def reduce_system(A0, b, Ai: list, Aii: list, Aij: dict, factor) -> tuple[dict, np.ndarray]:
-    """Reduced model of A(dp) x = b with A(dp) = A0 + sum dp_i Ai + 1/2 sum dp_i^2 Aii + sum_{i<j} dp_i dp_j
-    Aij: the basis W of the solution and its first and second derivatives at dp = 0 (one factorization of
-    A0, factor(A0).solve), and the matrix terms projected onto it. Returns (terms, W)."""
+def reduce_system(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list | None = None,
+                  bii: list | None = None, bij: dict | None = None) -> tuple[dict, np.ndarray]:
+    """Reduced model of A(dp) x = b(dp) with A(dp) = A0 + sum dp_i Ai + 1/2 sum dp_i^2 Aii + sum_{i<j} dp_i
+    dp_j Aij (and b(dp) alike, when the excitation moves with the variables: bi, bii, bij): the basis W of
+    the solution and its first and second derivatives at dp = 0 (one factorization of A0,
+    factor(A0).solve), and the terms projected onto it. Returns (terms, W)."""
     n = len(Ai)
+    zero = np.zeros_like(b)
+    bi = bi if bi is not None else [zero] * n
+    bii = bii if bii is not None else [zero] * n
+    bij = bij if bij is not None else {key: zero for key in Aij}
     fac = factor(A0)
     try:
         x0 = fac.solve(b)
-        xi = [fac.solve(-(Ai[i] @ x0)) for i in range(n)]
-        xii = [fac.solve(-(Aii[i] @ x0 + 2 * (Ai[i] @ xi[i]))) for i in range(n)]
-        xij = {(i, j): fac.solve(-(Aij[(i, j)] @ x0 + Ai[i] @ xi[j] + Ai[j] @ xi[i])) for (i, j) in Aij}
+        xi = [fac.solve(bi[i] - Ai[i] @ x0) for i in range(n)]
+        xii = [fac.solve(bii[i] - (Aii[i] @ x0 + 2 * (Ai[i] @ xi[i]))) for i in range(n)]
+        xij = {(i, j): fac.solve(bij[(i, j)] - (Aij[(i, j)] @ x0 + Ai[i] @ xi[j] + Ai[j] @ xi[i]))
+               for (i, j) in Aij}
     finally:
         if hasattr(fac, "close"):
             fac.close()
@@ -193,12 +249,22 @@ def reduce_system(A0, b, Ai: list, Aii: list, Aij: dict, factor) -> tuple[dict, 
         "Aii": np.array([proj(M) for M in Aii]).reshape(n, k, k),
         "Aij": np.array([proj(Aij[key]) for key in sorted(Aij)]).reshape(len(Aij), k, k),
     }
+    if any(np.any(v) for v in list(bi) + list(bii) + list(bij.values())):
+        m = b.shape[1]
+        out["b_i"] = np.array([W.T @ v for v in bi]).reshape(n, k, m)
+        out["b_ii"] = np.array([W.T @ v for v in bii]).reshape(n, k, m)
+        out["b_ij"] = np.array([W.T @ bij[key] for key in sorted(Aij)]).reshape(len(Aij), k, m)
     return out, W
 
 
-def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list[float], log=None) -> dict:
+FUNCTIONAL_STEP = 50            # finite difference step of the port functionals, in matrix steps
+
+
+def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list[float], log=None,
+                    ports_move: bool = False) -> dict:
     """Reduced model of one frequency (see the module docstring). V: velocity fields (3, N) per variable,
-    steps: finite difference step of every variable (in its unit)."""
+    steps: finite difference step of every variable (in its unit); ports_move: lumped ports stretch with
+    the variables, so their S functionals change too."""
     from .fast_sweep import _Factor
     from emerge._emerge.mth.csc_submatrix import csc_submatrix as submatrix
     mw = asm.mw
@@ -216,32 +282,56 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
     A0 = submatrix(A, ids).tocsr()
     bs = np.asarray(b[ids], dtype=np.complex128)
 
+    def X_of(c: dict):
+        return asm.X0 + sum(ci * steps[i] * V[i] for i, ci in c.items())
+
     def at(c: dict):
-        X = asm.X0 + sum(ci * steps[i] * V[i] for i, ci in c.items())
-        Ac, bc, idc, _ = asm.system(freq, X, key=tuple(sorted(c.items())))
+        Ac, bc, idc, _ = asm.system(freq, X_of(c), key=tuple(sorted(c.items())))
         if not np.array_equal(idc, ids):
             raise MO.MorphError("the morphed mesh changes the unknowns of the solve")
-        return submatrix(Ac, ids).tocsr()
+        return submatrix(Ac, ids).tocsr(), np.asarray(bc[ids], dtype=np.complex128)
 
+    states = [{i: +1} for i in range(n)] + [{i: -1} for i in range(n)] + \
+        [{i: +1, j: +1} for i, j in pairs(n)]
     t = time.time()
-    Ai, Aii, Ap = [], [], []
+    Ai, Aii, bi, bii, Ap, bp = [], [], [], [], [], []
     for i in range(n):
-        ap, am = at({i: +1}), at({i: -1})
+        (ap, bpi), (am, bmi) = at({i: +1}), at({i: -1})
         Ai.append((ap - am) / (2 * steps[i]))
         Aii.append((ap - 2 * A0 + am) / steps[i] ** 2)
+        bi.append((bpi - bmi) / (2 * steps[i]))
+        bii.append((bpi - 2 * bs + bmi) / steps[i] ** 2)
         Ap.append(ap)
-    Aij = {}
-    for i in range(n):
-        for j in range(i + 1, n):
-            apij = at({i: +1, j: +1})
-            Aij[(i, j)] = (apij - Ap[i] - Ap[j] + A0) / (steps[i] * steps[j])
+        bp.append(bpi)
+    Aij, bij = {}, {}
+    for i, j in pairs(n):
+        apij, bpij = at({i: +1, j: +1})
+        Aij[(i, j)] = (apij - Ap[i] - Ap[j] + A0) / (steps[i] * steps[j])
+        bij[(i, j)] = (bpij - bp[i] - bp[j] + bs) / (steps[i] * steps[j])
     asm.restore()
     t_asm = time.time() - t
     t = time.time()
-    out, W = reduce_system(A0, bs, Ai, Aii, Aij, _Factor)
+    out, W = reduce_system(A0, bs, Ai, Aii, Aij, _Factor, bi, bii, bij)
     t_fac = time.time() - t
-    Lp, La, c0 = s_functionals(mw, freq, W, NF, ids, mats, powers)
-    out.update(Lp=Lp, La=La, c0=c0)
+    # the S functionals of the ports on the basis; with stretching lumped ports also their derivatives
+    # (a larger step: they need no matrix, and their round-off would dominate the second differences)
+    F0 = s_functionals(mw, freq, W, NF, ids, mats, powers)
+    out.update(Lp=F0[0], La=F0[1], c0=F0[2])
+    if ports_move and n:
+        hs = [FUNCTIONAL_STEP * s_ for s_ in steps]
+        Fs = {}
+        for c in states:
+            asm._move(asm.X0 + sum(ci * hs[i] * V[i] for i, ci in c.items()), asm._ANON)
+            Fs[tuple(sorted(c.items()))] = s_functionals(mw, freq, W, NF, ids, mats, powers)
+        asm.restore()
+        for q, name in enumerate(("Lp", "La", "c0")):
+            f0 = F0[q]
+            fp = [Fs[((i, +1),)][q] for i in range(n)]
+            fm_ = [Fs[((i, -1),)][q] for i in range(n)]
+            out[f"{name}_i"] = np.array([(fp[i] - fm_[i]) / (2 * hs[i]) for i in range(n)])
+            out[f"{name}_ii"] = np.array([(fp[i] - 2 * f0 + fm_[i]) / hs[i] ** 2 for i in range(n)])
+            dx = [(Fs[((i, +1), (j, +1))][q] - fp[i] - fp[j] + f0) / (hs[i] * hs[j]) for i, j in pairs(n)]
+            out[f"{name}_ij"] = np.array(dx).reshape((len(dx),) + f0.shape)
     if log is not None:
         log(f"{freq / 1e9:.6g} GHz: basis {W.shape[1]}, assembly {t_asm:.1f} s, solves {t_fac:.1f} s")
     return out
@@ -254,6 +344,22 @@ def pairs(n: int) -> list[tuple[int, int]]:
     return [(i, j) for i in range(n) for j in range(i + 1, n)]
 
 
+def _taylor(fm: dict, key: str, dp: np.ndarray) -> np.ndarray:
+    """Term `key` of a frequency model at the offsets dp: constant, or quadratic in dp when the model has
+    its derivatives (key_i, key_ii, key_ij)."""
+    v = fm[key]
+    if f"{key}_i" not in fm:
+        return v
+    v = v.astype(np.complex128, copy=True)
+    for i, d in enumerate(dp):
+        if d:
+            v += d * fm[f"{key}_i"][i] + 0.5 * d * d * fm[f"{key}_ii"][i]
+    for k, (i, j) in enumerate(pairs(len(dp))):
+        if dp[i] and dp[j]:
+            v += dp[i] * dp[j] * fm[f"{key}_ij"][k]
+    return v
+
+
 def evaluate_freq(fm: dict, dp: np.ndarray, caps: tuple[bool, bool] = (True, True)) -> np.ndarray:
     """Raw S-matrix (ports x ports) of one frequency model at the variable offsets dp."""
     A = fm["A0"].copy()
@@ -263,10 +369,10 @@ def evaluate_freq(fm: dict, dp: np.ndarray, caps: tuple[bool, bool] = (True, Tru
     for k, (i, j) in enumerate(pairs(len(dp))):
         if dp[i] and dp[j]:
             A += dp[i] * dp[j] * fm["Aij"][k]
-    Y = np.linalg.solve(A, fm["b"])
+    Y = np.linalg.solve(A, _taylor(fm, "b", dp))
     n = len(fm["c0"])
-    S = fm["Lp"] @ Y
-    S[np.diag_indices(n)] = np.einsum("ik,ki->i", fm["La"], Y) + fm["c0"]
+    S = _taylor(fm, "Lp", dp) @ Y
+    S[np.diag_indices(n)] = np.einsum("ik,ki->i", _taylor(fm, "La", dp), Y) + _taylor(fm, "c0", dp)
     col, single = caps
     if col:
         for j in range(n):
@@ -300,6 +406,18 @@ def tuning_frequencies(props: dict, ev, points: int) -> np.ndarray:
     return np.linspace(fr.min(), fr.max(), n) if len(fr) > 1 else fr
 
 
+def morph_constraints(m) -> tuple[set, set]:
+    """(fixed, sliding) face tags of the morphing: wave and Floquet ports stay where they are (their modes
+    belong to the port face as solved), nodes on the outer boundary may slide within it (a substrate
+    filling the region may change its height). Lumped ports stretch with the mesh (LumpedGeometry)."""
+    LumpedPort, _ = _lumped_classes()
+    fixed = set()
+    for port, _, _ in m.mw.bc.iter_port_modes():
+        if not isinstance(port, LumpedPort):
+            fixed.update(port.tags)
+    return fixed, set(m.mesh.exterior_face_tags) - fixed
+
+
 def variable_step(text: str) -> float:
     """Finite difference step of the CAD build for a variable value (in its unit)."""
     sv = MO.split_value(text)
@@ -308,9 +426,11 @@ def variable_step(text: str) -> float:
     return max(abs(sv[0]), 1.0) * 1e-4
 
 
-def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None, progress=None) -> dict:
+def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None, progress=None,
+          grid=None) -> dict:
     """Tuning model of the EMerge model of bridge (prepared, final adaptive mesh) for the design
-    variables, saved to path."""
+    variables, saved to path. grid: frequencies of the curve when the model frequencies are the solved
+    points of an interpolating sweep (the curve is interpolated over them)."""
     from . import bridge as B
     from .results import port_entries
     m, design = bridge.m, bridge.design
@@ -324,9 +444,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     fc = 0.5 * (float(freqs.min()) + float(freqs.max()))
     B.solve_at(m, [fc])
     t = time.time()
-    fixed = set(mesh.exterior_face_tags)
-    for port, _, _ in m.mw.bc.iter_port_modes():
-        fixed.update(port.tags)
+    fixed, slide = morph_constraints(m)
     diag = float(np.linalg.norm(mesh.nodes.max(axis=1) - mesh.nodes.min(axis=1)))
     tol = 1e-6 * diag
     faces = {}
@@ -336,7 +454,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
         faces[v] = MO.face_velocities(bridge.project, design, v, variable_step(design.variables[v]))
         if not any(f.moving for f in faces[v]):
             raise MO.MorphError(f"variable '{v}' does not change the geometry of the model")
-    fields = MO.velocity_fields(mesh, faces, fixed, tol, log=log)
+    fields = MO.velocity_fields(mesh, faces, fixed, tol, log=log, slide_ftags=slide)
     V = [fields[v] for v in variables]
     log(f"Mesh morphing for {', '.join(variables)}: {time.time() - t:.1f} s")
     X0 = np.array(mesh.nodes)
@@ -346,6 +464,9 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     settings = m.mw._settings
     caps = (bool(settings.mw_cap_sp_col), bool(settings.mw_cap_sp_single))
     asm = Assembly(m)
+    ports_move = any(np.abs(Vi[:, it["nid"]]).max() > 0 for it in asm.lumped.items for Vi in V)
+    if ports_move:
+        log("Lumped ports or elements stretch with the variables")
     data: dict = {}
     beta, z0 = [], None
     nfreq = len(freqs)
@@ -353,7 +474,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
         for k, f in enumerate(freqs):
             if (Path(bridge.out) / "ABORT").exists():
                 raise B.SolveAbort("aborted")
-            fm = frequency_model(asm, float(f), V, steps, log=log)
+            fm = frequency_model(asm, float(f), V, steps, log=log, ports_move=ports_move)
             for key, val in fm.items():
                 data[f"f{k}_{key}"] = val
             k0 = 2 * np.pi * float(f) / 299792458
@@ -377,6 +498,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
         "ports": port_entries(bridge.port_map or []),
         "model_key": getattr(bridge, "keys", {}).get("model_key", ""),
         "tets": int(mesh.n_tets),
+        "grid": None if grid is None else [float(x) for x in grid],
         "created": time.time(),
     }
     np.savez_compressed(path, freq=np.asarray(freqs, float), beta=np.array(beta), z0=z0, nominal=nominal,
@@ -394,26 +516,37 @@ class TuningModel:
             self.z0 = z["z0"]
             self.nominal_raw = z["nominal"]
             self.meta = json.loads(str(z["meta"]))
-            keys = ("A0", "b", "Ai", "Aii", "Aij", "Lp", "La", "c0")
-            self.fms = [{key: z[f"f{k}_{key}"] for key in keys} for k in range(len(self.freq))]
+            self.fms = []
+            for k in range(len(self.freq)):
+                pre = f"f{k}_"
+                self.fms.append({name[len(pre):]: z[name] for name in z.files if name.startswith(pre)})
         self.variables = self.meta["variables"]
         self.ranges = np.array(self.meta["ranges"], float)
         self.caps = tuple(self.meta.get("caps", (True, True)))
         from .optimetrics import split_value
         self.values = np.array([split_value(v)[0] for v in self.meta["values"]], float)
         self.units = self.meta["units"]
+        grid = self.meta.get("grid")
+        self.grid = np.asarray(grid, float) if grid else None
+        self.freq_out = self.grid if self.grid is not None else self.freq
 
     def raw(self, dp) -> np.ndarray:
         dp = np.asarray(dp, float)
         return np.array([evaluate_freq(fm, dp, self.caps) for fm in self.fms])
 
     def sparams(self, dp) -> tuple[np.ndarray, np.ndarray]:
-        """(S, reference impedance per row) at the variable offsets dp, after the same port
-        post-processing (de-embedding, renormalization) as a solved sweep."""
-        from .results import deembed_renormalize
+        """(S at freq_out, reference impedance per row) at the variable offsets dp, after the same port
+        post-processing (de-embedding, renormalization) as a solved sweep. A model of the solved points of
+        an interpolating sweep is interpolated over the sweep frequencies as the sweep does."""
+        from .results import deembed_renormalize, fit_sparams
         S = self.raw(dp)
+        beta = self.beta
+        if self.grid is not None:
+            S = fit_sparams(self.freq, S)(self.grid)
+            beta = np.array([np.interp(self.grid, self.freq, b.real) + 1j * np.interp(self.grid, self.freq, b.imag)
+                             for b in np.asarray(self.beta).T]).T
         ports = self.meta.get("ports") or []
-        beta = self.beta if any(q.get("deembed") for q in ports) else None
+        beta = beta if any(q.get("deembed") for q in ports) else None
         return deembed_renormalize(S, self.z0, ports, beta)
 
     def sweep_variable(self, k: int, i: int, values, dp) -> tuple[np.ndarray, np.ndarray]:
