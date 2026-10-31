@@ -23,6 +23,8 @@ the GitHub release notes.
   - Disabled sweeps are greyed out in the tuning panel, and Compute Derivatives asks to analyze first when
     the chosen sweep has no solution yet (its tuned curves could not be shown in any report).
   - An open report offers the variables of a new tuning model on its X axis at once (no new report needed).
+  - Documentation: [docs/TUNING.md](docs/TUNING.md) explains the workflow, the method, the accuracy and the
+    limits; tutorial section 10 tunes the substrate height of the patch antenna.
   - Faces may slide along plane parts of the outer boundary, and lumped ports and lumped RLC elements
     stretch with the mesh (width, height, integration lines and excitation follow), so a substrate height
     can be tuned with a lumped port across it. Wave ports stay in place.

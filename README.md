@@ -132,10 +132,15 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    typeset formula editor, shown in reports, **Fields reports** and field plots
    ([tutorial](docs/TUTORIAL.md#8-your-own-quantities-with-equations)).
    **Optimization** (conjugate gradient on report goals) and **Parametric** sweeps of design variables.
-   **Derivative tuning**: sliders for design variables, and the S-parameters follow live from one solve.
+   **Derivative tuning**: sliders for design variables, and S-parameters, patterns and antenna parameters
+   follow live in the reports from one solve ([how it works](docs/TUNING.md),
+   [tutorial](docs/TUTORIAL.md#10-tune-a-patch-antenna-with-sliders)).
 
 See [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md) for an overview of what is implemented and
 what is still missing.
+
+See [docs/TUNING.md](docs/TUNING.md) for derivative tuning: the workflow, the method (morphed mesh, matrix
+derivatives, reduced model), its accuracy and limits.
 
 See [docs/MESHER.md](docs/MESHER.md) for how the adaptive mesh refinement works: hzAURA (EMerge's AURA, the
 default), Hertzon's local Delaunay mesher hzmesh, curved elements and benchmark results.

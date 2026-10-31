@@ -54,6 +54,25 @@ the sphere's settings (angles, steps, coordinate system) differ from `sig`, the 
 before you compare files from different runs: values read off a sampled pattern, such as a -3 dB beam width,
 depend on the step.
 
+## tuning_\<sweep\>.npz: derivative tuning model
+
+Written by **Compute Derivatives** ([TUNING.md](TUNING.md)); `<sweep>` is the sweep name, or `LastAdaptive`
+for the solution frequency. Read it with `hertzon.solver.tuning.TuningModel(path)`, whose `sparams(dp)`
+gives the S-parameters and reference impedances at the variable offsets `dp` and `antenna(k, port, dp, theta, phi)` the far field
+quantities.
+
+| key | content |
+|---|---|
+| `freq` | the model frequencies in Hz |
+| `meta` | JSON: `variables`, solved `values` and `units`, valid `ranges` (offsets), `steps`, `ports`, `grid` (frequencies of an interpolated curve, or null), `tets` |
+| `nominal` | raw S-parameters of the model at the solved values |
+| `z0`, `beta` | port impedances and propagation constants per frequency (for de-embedding and renormalizing) |
+| `f<k>_*` | the reduced model of frequency `k` |
+| `band_*` | the band model (one basis for all frequencies), when there is one |
+| `ff_vis`, `ff_wns` | points and weighted normals of the far field surface |
+| `ff_E`, `ff_C` | E and the curl term of every basis vector on that surface (band model) |
+| `ff_E_<k>`, `ff_C_<k>` | the same per frequency (a model solved frequency by frequency) |
+
 ## Gain, directivity and realized gain are linear
 
 `DirTotal`, `GainTotal`, `RealizedGainTotal` and their Theta/Phi/LHCP/RHCP parts, as returned by
