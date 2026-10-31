@@ -1432,12 +1432,16 @@ class Bridge:
         info(f"Reusing the adaptive mesh: {self.m.mesh.n_tets} tetrahedra")
         self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
         name = spec.get("sweep", "")
-        sw = next((s for s in self.setup.sweeps if s.name == name), None)
-        if sw is None:
-            raise RuntimeError(f"Sweep '{name}' not found")
-        freqs = tuning.tuning_frequencies(sw.props, self.ev, int(spec.get("points", 51)))
         variables = list(spec.get("variables", []))
-        info(f"Derivative tuning of {', '.join(variables)} at {len(freqs)} frequencies of '{name}'")
+        if name == tuning.ADAPTIVE:
+            freqs = np.unique(np.asarray(fa, float))
+            info(f"Derivative tuning of {', '.join(variables)} at the solution frequency")
+        else:
+            sw = next((s for s in self.setup.sweeps if s.name == name), None)
+            if sw is None:
+                raise RuntimeError(f"Sweep '{name}' not found")
+            freqs = tuning.tuning_frequencies(sw.props, self.ev, int(spec.get("points", 51)))
+            info(f"Derivative tuning of {', '.join(variables)} at {len(freqs)} frequencies of '{name}'")
 
         def progress(k, n):
             emit("progress", value=15 + 83 * k / n, text=f"Tuning '{name}': {k} of {n} frequencies")

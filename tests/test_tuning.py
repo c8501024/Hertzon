@@ -141,6 +141,8 @@ def test_tuning_model_matches_exact_solves_on_the_morphed_mesh(tmp_path):
         V = MO.velocity_fields(m.mesh, faces, fixed, 1e-6 * diag)["Ls"]
         asm = TU.Assembly(m)
         S_tuned = model.raw([0.5])
+        Sv, _ = model.sweep_variable(1, 0, [0.0, 0.5], [0.0])  # the response against Ls at one frequency
+        assert np.allclose(Sv[0], model.sparams([0.0])[0][1]) and np.allclose(Sv[1], model.sparams([0.5])[0][1])
         for k, fk in enumerate(freqs):
             m.mw._compute_modes(fk)
             A, bb, ids, mats = asm.system(fk, asm.X0 + 0.5 * V)
