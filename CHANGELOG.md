@@ -111,6 +111,10 @@ the GitHub release notes.
   by default), solve with all cores, and compare the time per phase, the sweeps on the same mesh, the peak
   memory and the S-parameter difference; a run that could not use its solver (SPARTA not installed, no
   usable GPU) is marked. *Make Fastest the Default Solver* sets the default for new setups.
+- **Parallel sweeps in the solver comparison**: *Also sweep with parallel frequencies (PARDISO)* solves
+  PARDISO's sweeps on the same mesh again with 2, 4, ... frequencies at once, next to SPARTA, which solves
+  one frequency at a time. The comparison shows the start of the solver process separately and compares the
+  solvers without it: the first run of a benchmark loads the libraries from disk.
 - **Rename a report** (#130): right click a report in the project tree > Rename... gives the report and its
   open tab a new name; a name that another report already has is refused.
 

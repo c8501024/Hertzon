@@ -13,15 +13,15 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, Q
 
 from ..model import schema
 from ..solver import sparta_setup
-from ..solver.benchmark import CASES, CASES_DIR, default_cores, machine
+from ..solver.benchmark import CASES, CASES_DIR, default_cores, machine, parallel_sweeps
 from ..solver.results import _safe
 from .solve import solver_python
 
 TAG = "@@HZN "
 COLUMNS = ["Run", "Cores", "Sweep processes", "Total (s)", "Initial mesh (s)", "Adaptive passes (s)", "Sweep (s)",
            "Passes", "Tetrahedra", "Peak memory (MB)", "Speedup", "Efficiency"]
-SOLVER_COLUMNS = ["Solver", "Cores", "Total (s)", "Initial mesh (s)", "Adaptive passes (s)", "Sweep (s)", "Passes",
-                  "Tetrahedra", "Peak memory (MB)", "Total vs. first", "Sweep on same mesh (s)", "Largest |dS|",
+SOLVER_COLUMNS = ["Solver", "Cores", "Total (s)", "Solver start (s)", "Initial mesh (s)", "Adaptive passes (s)", "Sweep (s)", "Passes",
+                  "Tetrahedra", "Peak memory (MB)", "Without start vs. first", "Sweep on same mesh (s)", "Largest |dS|",
                   "Note"]
 # the solvers the comparison offers ("Auto" is one of them, chosen per problem), and the ones it starts with
 COMPARE = [s for s in schema.SOLVERS if s != "Auto"]
@@ -72,33 +72,52 @@ def recommendation(result: dict) -> tuple[str, int | None, int | None]:
     return "<br>".join(lines), same["cores"], workers
 
 
+def sweep_label(r: dict) -> str:
+    """'PARDISO', or 'PARDISO, 4 parallel' for a sweep with 4 frequencies at once."""
+    w = int(r.get("workers", 1) or 1)
+    return r["solver"] if w <= 1 else f"{r['solver']}, {w} parallel"
+
+
 def solver_runs(result: dict) -> tuple[list[dict], dict]:
-    """(runs per solver at the most cores, in the order measured; same-mesh sweep runs by solver)."""
+    """(runs per solver at the most cores, in the order measured; same-mesh sweep runs by sweep_label)."""
     cr = [r for r in result.get("runs", []) if r.get("kind") == "cores" and r.get("solver")]
     if not cr:
         return [], {}
     top = max(r["cores"] for r in cr)
     return [r for r in cr if r["cores"] == top], \
-        {r["solver"]: r for r in result.get("runs", []) if r.get("kind") == "same_mesh"}
+        {sweep_label(r): r for r in result.get("runs", []) if r.get("kind") == "same_mesh"}
+
+
+def solve_time(r: dict) -> float:
+    """Total time of a run without starting the solver process: the first run of a benchmark loads the
+    libraries from disk, which says nothing about its solver."""
+    return r["total"] - r.get("start", 0.0)
 
 
 def solver_recommendation(result: dict) -> tuple[str, str | None]:
     """(text, fastest solver) from a solver comparison."""
     runs, same = solver_runs(result)
-    runs = [r for r in runs if r["total"] > 0]
+    runs = [r for r in runs if solve_time(r) > 0]
     if not runs:
         return "", None
-    first, best = runs[0], min(runs, key=lambda r: r["total"])
-    lines = [f"Fastest with {best['cores']} cores: <b>{best['solver']}</b>, {best['total']:.0f} s"
-             + (f", {100 * (1 - best['total'] / first['total']):.0f} % faster than {first['solver']}."
-                if best is not first else ".")]
+    first, best = runs[0], min(runs, key=solve_time)
+    lines = [f"Fastest with {best['cores']} cores: <b>{best['solver']}</b>, {solve_time(best):.0f} s"
+             + (f", {100 * (1 - solve_time(best) / solve_time(first)):.0f} % faster than {first['solver']}"
+                if best is not first else "")
+             + " (without starting the solver process, which the first run pays for loading the libraries)."]
     others = [r for r in runs if r is not best]
     if others:
-        lines.append("Others: " + ", ".join(f"{r['solver']} {r['total']:.0f} s" for r in others) + ".")
+        lines.append("Others: " + ", ".join(f"{r['solver']} {solve_time(r):.0f} s" for r in others) + ".")
     if same:
         ref = first["sweep"]
         lines.append(f"Sweeps on the final mesh of {first['solver']} (the same matrices): {first['solver']} "
                      f"{ref:.0f} s, " + ", ".join(f"{sv} {r['sweep']:.0f} s" for sv, r in same.items()) + ".")
+        sweeps = {first["solver"]: ref, **{sv: r["sweep"] for sv, r in same.items()}}
+        fastest = min(sweeps, key=sweeps.get)
+        if any(r.get("workers", 1) > 1 for r in same.values()) or fastest != first["solver"]:
+            lines.append(f"Fastest sweep: <b>{fastest}</b>"
+                         + (f", {ref / sweeps[fastest]:.1f}x faster than {first['solver']} one frequency at a "
+                            f"time." if fastest != first["solver"] else "."))
         ds = {sv: max(r.get("ds_max", {}).values(), default=float("nan")) for sv, r in same.items()}
         if any(d > 1e-3 for d in ds.values()):
             lines.append("A difference of the S-parameters above 1e-3 comes from single precision "
@@ -193,11 +212,20 @@ class BenchmarkDialog(QDialog):
         f.addRow("Solvers:", grid)
         self.solver_cores = QLineEdit(str(ncpu))
         f.addRow("Cores:", self.solver_cores)
+        wr = QHBoxLayout()
+        self.solver_par = QCheckBox("Also sweep with parallel frequencies (PARDISO):")
+        self.solver_par.setToolTip("SPARTA solves the frequencies of a sweep one after another; PARDISO can solve "
+                                   "several at once, each on a share of the cores")
+        self.solver_workers = QLineEdit(", ".join(str(w) for w in (2, 4, 8) if w <= max(2, ncpu // 2)))
+        wr.addWidget(self.solver_par)
+        wr.addWidget(self.solver_workers, 1)
+        f.addRow("", wr)
         pl.addLayout(f)
         hint = QLabel("Every solver solves the whole setup in a fresh solver process with the same cores; the "
                       "first solver checked is the reference. Each solver refines its own mesh, so the sweeps of "
                       "the others are then solved once more on the reference's final mesh: the same matrices, "
-                      "so these sweep times and the S-parameter differences compare the solvers alone.")
+                      "so these sweep times and the S-parameter differences compare the solvers alone. With parallel "
+                      "frequencies, PARDISO's sweeps are solved there again with that many frequencies at once.")
         hint.setWordWrap(True)
         pl.addWidget(hint)
         self.sfig, self.scanvas, self.stable, split = self._plot_and_table(SOLVER_COLUMNS)
@@ -351,15 +379,22 @@ class BenchmarkDialog(QDialog):
         for r in cr:
             sm = same.get(r["solver"]) if top and r["cores"] == top[0]["cores"] else None
             ref_row = first is not None and r is first
-            vs = f"{r['total'] / first['total']:.2f}x" if first and first["total"] and r["cores"] == first["cores"] \
-                else ""
+            vs = f"{solve_time(r) / solve_time(first):.2f}x" if first and solve_time(first) > 0 \
+                and r["cores"] == first["cores"] else ""
             ds = max(sm.get("ds_max", {}).values(), default=float("nan")) if sm else None
-            rows.append([r["solver"], str(r["cores"]), f"{r['total']:.1f}", f"{r['mesh']:.1f}",
+            rows.append([r["solver"], str(r["cores"]), f"{r['total']:.1f}", f"{r.get('start', 0.0):.1f}",
+                         f"{r['mesh']:.1f}",
                          f"{r['adaptive']:.1f}", f"{r['sweep']:.1f}", str(r["passes"]), str(r["tets"]),
                          f"{r['memory_mb']:.0f}", vs,
                          f"{sm['sweep']:.1f}" if sm else (f"{r['sweep']:.1f}" if ref_row and same else ""),
                          f"{ds:.1e}" if ds is not None else ("reference" if ref_row and same else ""),
                          "; ".join(r.get("notes", []))])
+        for lab, sm in same.items():
+            if sm.get("workers", 1) > 1:
+                ds = max(sm.get("ds_max", {}).values(), default=float("nan"))
+                rows.append([lab, str(sm["cores"]), "", "", "", "", "", "", "", "",
+                             f"{sm['sweep'] / first['sweep']:.2f}x sweep" if first and first["sweep"] else "",
+                             f"{sm['sweep']:.1f}", f"{ds:.1e}", ""])
         self.stable.setRowCount(len(rows))
         for i, row in enumerate(rows):
             for c, v in enumerate(row):
@@ -374,9 +409,10 @@ class BenchmarkDialog(QDialog):
             y = list(range(len(top)))[::-1]
             ax1 = self.sfig.add_subplot(121 if same else 111)
             left = [0.0] * len(top)
-            # the rest of the total: starting the solver process, geometry, ports, writing the results
-            rest = [max(0.0, r["total"] - r["mesh"] - r["adaptive"] - r["sweep"]) for r in top]
-            for vals, lab, col in (([r["mesh"] for r in top], "Initial mesh", None),
+            # the rest of the total: geometry, ports, writing the results
+            start = [r.get("start", 0.0) for r in top]
+            rest = [max(0.0, r["total"] - r.get("start", 0.0) - r["mesh"] - r["adaptive"] - r["sweep"]) for r in top]
+            for vals, lab, col in ((start, "Solver start", "#e0e0e0"), ([r["mesh"] for r in top], "Initial mesh", None),
                                    ([r["adaptive"] for r in top], "Adaptive passes", None),
                                    ([r["sweep"] for r in top], "Sweep", None), (rest, "Other", "#bbbbbb")):
                 ax1.barh(y, vals, left=left, height=0.6, label=lab, color=col)
@@ -389,7 +425,7 @@ class BenchmarkDialog(QDialog):
             ax1.set_xlim(0, 1.15 * max(r["total"] for r in top))
             ax1.set_ylim(-0.6, len(top) + 0.2)        # room for the legend above the bars
             ax1.set_title(f"Whole setup, {top[0]['cores']} cores", fontsize=10)
-            ax1.legend(fontsize=8, loc="upper center", ncol=4, frameon=False)
+            ax1.legend(fontsize=7, loc="upper center", ncol=5, frameon=False, columnspacing=0.8)
             ax1.grid(True, axis="x", alpha=0.3)
             if same:
                 sw = [(first["solver"], first["sweep"])] + [(sv, r["sweep"]) for sv, r in same.items()]
@@ -431,12 +467,20 @@ class BenchmarkDialog(QDialog):
         try:
             text = self.solver_cores.text() if comparing else self.cores.text()
             cores = [int(x) for x in text.replace(";", ",").split(",") if x.strip()]
-            workers = [int(x) for x in self.workers.text().replace(";", ",").split(",") if x.strip()] \
-                if self.do_sweep.isChecked() and not comparing else []
+            if comparing:
+                workers = [int(x) for x in self.solver_workers.text().replace(";", ",").split(",") if x.strip()] \
+                    if self.solver_par.isChecked() else []
+            else:
+                workers = [int(x) for x in self.workers.text().replace(";", ",").split(",") if x.strip()] \
+                    if self.do_sweep.isChecked() else []
             if not cores or min(cores + (workers or [1])) < 1:
                 raise ValueError
         except ValueError:
             QMessageBox.warning(self, "Solver Benchmark", "Enter the core counts as whole numbers, e.g. 1, 2, 4, 8.")
+            return
+        if comparing and workers and not any(parallel_sweeps(sv) for sv in solvers):
+            QMessageBox.warning(self, "Solver Benchmark", "Parallel frequencies need PARDISO among the solvers; "
+                                                          "the others solve one frequency at a time.")
             return
         project, design, setup, _ = self.case.currentData()
         self.out = self._folder(comparing)
