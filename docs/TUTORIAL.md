@@ -1,6 +1,6 @@
 # Hertzon tutorial: from an empty window to S-parameters, gain and RCS
 
-This guide walks through five complete simulations step by step:
+This guide walks through seven complete simulations step by step:
 
 * [1. A waveguide with wave ports](#1-waveguide-with-wave-ports) (WR-90 with an inductive post, field on a
   cut plane, animation as GIF)
@@ -12,6 +12,8 @@ This guide walks through five complete simulations step by step:
   Lumped RLC, groups)
 * [9. A differential pair](#9-a-differential-pair-with-the-terminal-solution) (terminal solution, one wave port
   for two traces, mixed-mode S-parameters)
+* [10. Tune a patch antenna with sliders](#10-tune-a-patch-antenna-with-sliders) (derivative tuning: patch
+  length and inset with sliders, S11, pattern and gain follow live; S11 and gain over the patch length)
 
 and shows how to let an AI assistant do the same work for you through
 [Hertzon's MCP server](#5-let-an-ai-assistant-build-and-run-it-mcp), how to
@@ -772,6 +774,100 @@ Changing the pairs needs no new solve: the mixed-mode quantities are computed fr
 Ports with several modes are named the same way in modal designs: `S(P1_M2,P1_M1)` is the coupling from
 mode 1 to mode 2 of port P1, and a Floquet port uses its modes (`S(FP1_TM00,FP1_TE00)`).
 
+## 10. Tune a patch antenna with sliders
+
+**Goal:** move the resonance of a patch antenna to 2.45 GHz with sliders for the patch length and the
+inset of the feed, and watch S11, the radiation pattern and the realized gain follow live, from one
+solve. Then plot S11 and the gain against the patch length. The project is `examples/PatchAntenna.hzn`,
+an inset-fed patch on 1.6 mm FR4. The method behind the sliders is explained in [TUNING.md](TUNING.md).
+
+### 10.1 A sweep with fields
+
+S-parameters can be tuned over any sweep. Patterns and antenna parameters need the fields at every
+frequency, as for a normal solve.
+
+1. **File > Open Example > PatchAntenna**.
+2. Right-click **Setup1** > **Add Frequency Sweep...**: **Discrete**, Linear Step, `2.2GHz` to `2.7GHz`,
+   Step `0.025GHz`, with **Save fields (all frequencies)**. A discrete sweep is tuned at its own points,
+   here 21 frequencies.
+3. **Analyze All** (F5). Open an S11 plot: **Results > Create Report > Rectangular Plot**,
+   `dB(S(1,1))`, solution **Setup1 : Sweep2** (the new sweep).
+
+### 10.2 Compute the derivatives
+
+1. Ribbon **Results > Tuning**, or right-click the sweep in the project tree > **Derivative Tuning...**.
+   The **Derivative Tuning** panel docks at the right, next to the report.
+2. **Setup** `Setup1`, **Sweep** `Sweep2`. In **Variables**, check `Lp` (the length of the patch, which
+   sets the resonance) and `inset` (how far the feed line reaches into the patch, which sets the
+   matching).
+3. **Compute Derivatives**. The solver takes the converged mesh of the setup, works out how every node
+   moves when `Lp` and `inset` change, and builds a small model of the antenna around the solved values.
+   The Progress window shows the steps. In our run this took about 40 s on top of the solve. The model
+   is stored with the results.
+
+When the model is ready, the panel shows a slider for each variable with its range, for example
+`19.86 … 39.04` for `Lp`. The range is as far as the mesh can stretch without remeshing.
+
+### 10.3 Move the sliders
+
+Drag the `Lp` slider, or type `27` next to it. The S11 report now shows two curves:
+
+* dashed: `dB(S(1,1))`, the solved antenna;
+* solid: `dB(S(1,1))  (tuned: Lp = 27mm)`, the antenna with the shorter patch. The resonance has moved up.
+
+![The tuning panel next to an S11 report: the shorter patch resonates higher](tutorial/tuning_panel.png)
+
+Shorten `Lp` until the dip sits at 2.45 GHz, then move `inset` to see how deep the dip gets. Every
+report on this solution follows the sliders: Smith chart, data table, and any expression such as
+`re(Z(1,1))`. Markers, Copy Data and Export include the tuned curves as drawn.
+
+1. **Create Far Fields Report > Radiation Pattern**, `dB(RealizedGainTotal)` at 2.45 GHz. The tuned
+   pattern is drawn over the solved one. Here the realized gain at 2.45 GHz goes up, because the tuned
+   antenna is better matched at that frequency. **3D Polar Plot** shows the tuned pattern in 3D.
+
+   ![Radiation pattern at 2.45 GHz: solved (dashed) and with Lp = 27 mm (solid)](tutorial/tuning_pattern.png)
+
+2. **Create Far Fields Report > Antenna Parameters**, `dB(PeakRealizedGain)` and `RadiationEfficiency`.
+   The tuned curves are drawn over the sweep frequencies, and the gain maximum moves with the resonance.
+   The first time, the far fields of the model are computed once per frequency, with a progress bar.
+   After that, the sliders move in a fraction of a second.
+
+   ![Peak realized gain and efficiency over frequency, solved and tuned](tutorial/tuning_antenna.png)
+
+When a slider moves into the outer part of its range, an orange hint under the sliders says that the
+accuracy drops there. **Reset All** puts every slider back to its solved value.
+
+### 10.4 Plot against the patch length
+
+A report can also show a quantity over a variable instead of over frequency.
+
+1. In the S11 report, set **X axis** to `Lp` and **At** to `2.45 GHz`.
+2. The curve shows S11 at 2.45 GHz over the whole range of `Lp`. The dashed vertical line is the solved
+   length, the solid line the slider value. The shaded parts at both ends are the outer part of the
+   range, where the accuracy drops.
+
+   ![S11 at 2.45 GHz over the patch length](tutorial/tuning_vs_variable.png)
+
+3. The Antenna Parameters report has the same **X axis** choice. The peak realized gain over `Lp` shows at
+   a glance which length gives the most gain at 2.45 GHz. Notice that the curve bends oddly in the shaded
+   part on the right: that is where the model is no longer reliable.
+
+   ![Peak realized gain at 2.45 GHz over the patch length](tutorial/tuning_gain_vs_lp.png)
+
+The other variables stay at their slider values, so moving `inset` changes these curves too. This works
+with the tuning panel closed as well, from the stored model.
+
+### 10.5 Keep the result
+
+1. Set the sliders to the values you want and click **Apply to Design**. The design variables `Lp` and
+   `inset` take the slider values.
+2. **Analyze All** again. The new solve is the reference: close to the solved values it agrees with the
+   tuned curves, and the further the sliders were moved, the larger the difference.
+
+Tune up to six variables at once, for example also `Wp` (patch width) or `h` (substrate height), to see
+how they interact. Variables that change the topology of the model, or that move a wave port, cannot be
+tuned. See [TUNING.md](TUNING.md) for the details and the limits.
+
 ---
 
 ## Where to go next
@@ -783,10 +879,13 @@ mode 1 to mode 2 of port P1, and a Floquet port uses its modes (`S(FP1_TM00,FP1_
   complete, parametrized designs with setup, sweep and optimization from a few specifications.
 * **Results > Calculator** computes your own quantities from the fields and S-parameters
   ([section 8](#8-your-own-quantities-with-equations)); **Open Library...** under Equations has ready-made ones.
+* [TUNING.md](TUNING.md) explains derivative tuning: the workflow, the method (morphed mesh, matrix
+  derivatives, reduced model), its accuracy and its limits.
 * [MESHER.md](MESHER.md) explains how adaptive meshing works. [FEATURE_MATRIX.md](FEATURE_MATRIX.md)
   shows what is implemented.
 * **Tools > Solver Benchmark** times the projects of `examples/benchmark/scaling` on your computer and
   suggests the number of cores and sweep processes; its *Solver Comparison* tab times the matrix solvers
-  (e.g. PARDISO, SPARTA on the CPU and on the GPU) with all cores.
+  (e.g. PARDISO, SPARTA on the CPU and on the GPU) with all cores, optionally also with parallel frequencies
+  in the sweeps.
 * **File > Export > EMerge Python Script** turns any design into a stand-alone EMerge script.
 * **File > Export > Gerber...** writes Gerber X2 and Excellon files of a board ([section 6](#6-gerber-export-of-a-printed-circuit-board)).

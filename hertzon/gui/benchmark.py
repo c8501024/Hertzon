@@ -20,9 +20,9 @@ from .solve import solver_python
 TAG = "@@HZN "
 COLUMNS = ["Run", "Cores", "Sweep processes", "Total (s)", "Initial mesh (s)", "Adaptive passes (s)", "Sweep (s)",
            "Passes", "Tetrahedra", "Peak memory (MB)", "Speedup", "Efficiency"]
-SOLVER_COLUMNS = ["Solver", "Cores", "Total (s)", "Initial mesh (s)", "Adaptive passes (s)", "Sweep (s)", "Passes",
-                  "Tetrahedra", "Peak memory (MB)", "Total vs. first", "Sweep on same mesh (s)", "Largest |dS|",
-                  "Note"]
+SOLVER_COLUMNS = ["Solver", "Cores", "Parallel frequencies", "Total (s)", "Initial mesh (s)", "Adaptive passes (s)",
+                  "Sweep (s)", "Sweep solves", "Passes", "Tetrahedra", "Peak memory (MB)", "Total vs. first",
+                  "Sweep on same mesh (s)", "Solves on same mesh", "Largest |dS|", "Note"]
 # the solvers the comparison offers ("Auto" is one of them, chosen per problem), and the ones it starts with
 COMPARE = [s for s in schema.SOLVERS if s != "Auto"]
 COMPARE_DEFAULT = ("PARDISO", "SPARTA (CPU)", "SPARTA (GPU)")
@@ -72,19 +72,54 @@ def recommendation(result: dict) -> tuple[str, int | None, int | None]:
     return "<br>".join(lines), same["cores"], workers
 
 
-def solver_runs(result: dict) -> tuple[list[dict], dict]:
-    """(runs per solver at the most cores, in the order measured; same-mesh sweep runs by solver)."""
-    cr = [r for r in result.get("runs", []) if r.get("kind") == "cores" and r.get("solver")]
+def solver_runs(result: dict) -> tuple[list[dict], dict, list[dict]]:
+    """(runs per solver at the most cores, in the order measured; sweeps on the reference mesh one frequency at
+    a time, by solver; sweeps on that mesh with parallel frequencies, in the order measured)."""
+    runs = result.get("runs", [])
+    cr = [r for r in runs if r.get("kind") == "cores" and r.get("solver")]
     if not cr:
-        return [], {}
+        return [], {}, []
     top = max(r["cores"] for r in cr)
     return [r for r in cr if r["cores"] == top], \
-        {r["solver"]: r for r in result.get("runs", []) if r.get("kind") == "same_mesh"}
+        {r["solver"]: r for r in runs if r.get("kind") == "same_mesh"}, \
+        [r for r in runs if r.get("kind") == "parallel"]
+
+
+def same_mesh_sweeps(result: dict) -> list[tuple[str, int, dict]]:
+    """(solver, parallel frequencies, run) of every sweep on the reference mesh. Results measured before the
+    reference solver solved its sweeps there once more take its sweep time from its own run."""
+    top, same, par = solver_runs(result)
+    if not top or not (same or par):
+        return []
+    first = top[0]
+    out = [] if first["solver"] in same else [(first["solver"], 1, first)]
+    out += [(sv, 1, r) for sv, r in same.items()]
+    out += [(r["solver"], r["workers"], r) for r in par]
+    return out
+
+
+def solves_text(r: dict | None) -> str:
+    """'direct + reduced' solutions of a run's sweeps."""
+    sv = (r or {}).get("solves")
+    if not sv:
+        return ""
+    return f"{sv['direct']} + {sv['reduced']}" if sv.get("reduced") else str(sv["direct"])
+
+
+def note_text(r: dict, same: dict | None = None) -> str:
+    """The Note column: what a run did not do as asked, and how long it took to start the GPU (part of every
+    analysis, so it stays in the times)."""
+    notes = list(dict.fromkeys(r.get("notes", []) + (same or {}).get("notes", [])))
+    gpu = [f"{x['gpu_start']:.1f} s" for x in (r, same) if x and x.get("gpu_start")]
+    if gpu:
+        notes.append("GPU start " + (" / ".join(gpu) if len(gpu) > 1 else gpu[0])
+                     + " (included in the times)")
+    return "; ".join(notes)
 
 
 def solver_recommendation(result: dict) -> tuple[str, str | None]:
     """(text, fastest solver) from a solver comparison."""
-    runs, same = solver_runs(result)
+    runs, same, par = solver_runs(result)
     runs = [r for r in runs if r["total"] > 0]
     if not runs:
         return "", None
@@ -95,17 +130,31 @@ def solver_recommendation(result: dict) -> tuple[str, str | None]:
     others = [r for r in runs if r is not best]
     if others:
         lines.append("Others: " + ", ".join(f"{r['solver']} {r['total']:.0f} s" for r in others) + ".")
-    if same:
-        ref = first["sweep"]
-        lines.append(f"Sweeps on the final mesh of {first['solver']} (the same matrices): {first['solver']} "
-                     f"{ref:.0f} s, " + ", ".join(f"{sv} {r['sweep']:.0f} s" for sv, r in same.items()) + ".")
-        ds = {sv: max(r.get("ds_max", {}).values(), default=float("nan")) for sv, r in same.items()}
-        if any(d > 1e-3 for d in ds.values()):
-            lines.append("A difference of the S-parameters above 1e-3 comes from single precision "
-                         "(SPARTA on the GPU); check whether it matters for your design.")
-    if any(r.get("notes") for r in runs):
-        lines.append("<span style='color:#c0392b'>Some runs did not use the chosen solver; see the Note "
-                     "column.</span>")
+    sweeps = same_mesh_sweeps(result)
+    seq = [(sv, r) for sv, w, r in sweeps if w == 1]
+    if seq:
+        lines.append(f"Sweeps on the final mesh of {first['solver']} (the same matrices): "
+                     + ", ".join(f"{sv} {r['sweep']:.0f} s" for sv, r in seq) + ".")
+    if par:
+        fast = min(sweeps, key=lambda t: t[2]["sweep"])
+        alone = next((r["sweep"] for sv, w, r in sweeps if sv == fast[0] and w == 1), None)
+        lines.append(f"Fastest sweep: <b>{fast[0]}</b>"
+                     + (f" with <b>{fast[1]} parallel frequencies</b>" if fast[1] > 1 else ", one frequency at a time")
+                     + f", {fast[2]['sweep']:.0f} s"
+                     + (f" ({alone:.0f} s one at a time)" if alone and fast[1] > 1 else "") + ".")
+    ds = [max(r.get("ds_max", {}).values(), default=float("nan")) for _, _, r in sweeps if r is not first]
+    if any(d > 1e-3 for d in ds):
+        lines.append("A difference of the S-parameters above 1e-3 comes from single precision "
+                     "(SPARTA on the GPU); check whether it matters for your design.")
+    direct = {sv: r["solves"]["direct"] for sv, w, r in sweeps if w == 1 and r.get("solves")}
+    if direct and max(direct.values()) > 1.2 * max(1, min(direct.values())):
+        lines.append("The interpolating sweep solved directly at different numbers of frequencies ("
+                     + ", ".join(f"{sv} {n}" for sv, n in direct.items()) + "): it checks its points with a "
+                     "reduced basis and solves directly where that is not accurate enough, so part of a "
+                     "difference in sweep time comes from that, not from the factorization.")
+    if any(r.get("notes") for r in runs) or any(r.get("notes") for _, _, r in sweeps if r is not first):
+        lines.append("<span style='color:#c0392b'>Some runs did not do what was asked (another solver, fewer "
+                     "parallel frequencies); see the Note column.</span>")
     return "<br>".join(lines), best["solver"]
 
 
@@ -193,11 +242,21 @@ class BenchmarkDialog(QDialog):
         f.addRow("Solvers:", grid)
         self.solver_cores = QLineEdit(str(ncpu))
         f.addRow("Cores:", self.solver_cores)
+        wr = QHBoxLayout()
+        self.solver_par = QCheckBox("Also solve the sweeps with parallel frequencies:")
+        self.solver_workers = QLineEdit(", ".join(str(w) for w in (2, 4, 8) if w <= max(2, ncpu // 2)))
+        self.solver_par.setToolTip("Every solver solves the sweeps once more on the reference's final mesh with "
+                                   "each of these numbers of frequencies at a time")
+        wr.addWidget(self.solver_par)
+        wr.addWidget(self.solver_workers, 1)
+        f.addRow("", wr)
         pl.addLayout(f)
         hint = QLabel("Every solver solves the whole setup in a fresh solver process with the same cores; the "
                       "first solver checked is the reference. Each solver refines its own mesh, so the sweeps of "
-                      "the others are then solved once more on the reference's final mesh: the same matrices, "
-                      "so these sweep times and the S-parameter differences compare the solvers alone.")
+                      "all of them are then solved once more on the reference's final mesh, each in a fresh "
+                      "process: the same matrices, so these sweep times and the S-parameter differences compare "
+                      "the solvers alone. Sweep solves: direct solutions + points checked from the reduced basis "
+                      "of an interpolating sweep.")
         hint.setWordWrap(True)
         pl.addWidget(hint)
         self.sfig, self.scanvas, self.stable, split = self._plot_and_table(SOLVER_COLUMNS)
@@ -345,21 +404,33 @@ class BenchmarkDialog(QDialog):
     def show_solvers(self) -> None:
         res = self.sresult
         cr = [r for r in res.get("runs", []) if r.get("kind") == "cores" and r.get("solver")]
-        top, same = solver_runs(res)
+        top, same, par = solver_runs(res)
         first = top[0] if top else None
+        sweeps = same_mesh_sweeps(res)
+        old_ref = bool(sweeps) and first is not None and first["solver"] not in same
         rows = []
         for r in cr:
-            sm = same.get(r["solver"]) if top and r["cores"] == top[0]["cores"] else None
+            at_top = bool(top) and r["cores"] == top[0]["cores"]
+            sm = same.get(r["solver"]) if at_top else None
             ref_row = first is not None and r is first
-            vs = f"{r['total'] / first['total']:.2f}x" if first and first["total"] and r["cores"] == first["cores"] \
-                else ""
-            ds = max(sm.get("ds_max", {}).values(), default=float("nan")) if sm else None
-            rows.append([r["solver"], str(r["cores"]), f"{r['total']:.1f}", f"{r['mesh']:.1f}",
-                         f"{r['adaptive']:.1f}", f"{r['sweep']:.1f}", str(r["passes"]), str(r["tets"]),
-                         f"{r['memory_mb']:.0f}", vs,
-                         f"{sm['sweep']:.1f}" if sm else (f"{r['sweep']:.1f}" if ref_row and same else ""),
-                         f"{ds:.1e}" if ds is not None else ("reference" if ref_row and same else ""),
-                         "; ".join(r.get("notes", []))])
+            if sm is None and ref_row and old_ref:
+                sm = r                              # older results: the reference's own sweep
+            vs = f"{r['total'] / first['total']:.2f}x" if first and first["total"] and at_top else ""
+            if ref_row and sweeps:
+                ds = "reference"
+            elif sm is not None and sm is not r:
+                ds = f"{max(sm.get('ds_max', {}).values(), default=float('nan')):.1e}"
+            else:
+                ds = ""
+            rows.append([r["solver"], str(r["cores"]), "1", f"{r['total']:.1f}", f"{r['mesh']:.1f}",
+                         f"{r['adaptive']:.1f}", f"{r['sweep']:.1f}", solves_text(r), str(r["passes"]),
+                         str(r["tets"]), f"{r['memory_mb']:.0f}", vs,
+                         f"{sm['sweep']:.1f}" if sm else "", solves_text(sm) if sm is not r else "", ds,
+                         note_text(r, sm if sm is not r else None)])
+        for r in par:
+            ds = max(r.get("ds_max", {}).values(), default=float("nan"))
+            rows.append([r["solver"], str(r["cores"]), str(r["workers"]), "", "", "", "", "", "", "", "", "",
+                         f"{r['sweep']:.1f}", solves_text(r), f"{ds:.1e}", note_text(r)])
         self.stable.setRowCount(len(rows))
         for i, row in enumerate(rows):
             for c, v in enumerate(row):
@@ -372,7 +443,7 @@ class BenchmarkDialog(QDialog):
         if top:
             names = [r["solver"] for r in top]
             y = list(range(len(top)))[::-1]
-            ax1 = self.sfig.add_subplot(121 if same else 111)
+            ax1 = self.sfig.add_subplot(121 if sweeps else 111)
             left = [0.0] * len(top)
             # the rest of the total: starting the solver process, geometry, ports, writing the results
             rest = [max(0.0, r["total"] - r["mesh"] - r["adaptive"] - r["sweep"]) for r in top]
@@ -391,17 +462,20 @@ class BenchmarkDialog(QDialog):
             ax1.set_title(f"Whole setup, {top[0]['cores']} cores", fontsize=10)
             ax1.legend(fontsize=8, loc="upper center", ncol=4, frameon=False)
             ax1.grid(True, axis="x", alpha=0.3)
-            if same:
-                sw = [(first["solver"], first["sweep"])] + [(sv, r["sweep"]) for sv, r in same.items()]
+            if sweeps:
+                # one frequency at a time first, then each solver's parallel runs below it
+                order = sorted(sweeps, key=lambda t: ([s for s, _, _ in sweeps].index(t[0]), t[1]))
+                sw = [(sv if w == 1 else f"{sv}, {w} parallel", r["sweep"], w) for sv, w, r in order]
                 y2 = list(range(len(sw)))[::-1]
                 ax2 = self.sfig.add_subplot(122)
-                ax2.barh(y2, [v for _, v in sw], height=0.6, color="#2ca02c")
-                for yi, (_, v) in zip(y2, sw):
+                ax2.barh(y2, [v for _, v, _ in sw], height=0.6,
+                         color=["#2ca02c" if w == 1 else "#98df8a" for _, _, w in sw])
+                for yi, (_, v, _) in zip(y2, sw):
                     ax2.text(v, yi, f" {v:.0f} s", va="center", fontsize=8)
                 ax2.set_yticks(y2)
-                ax2.set_yticklabels([n for n, _ in sw], fontsize=8)
+                ax2.set_yticklabels([n for n, _, _ in sw], fontsize=8)
                 ax2.set_xlabel("Time (s)")
-                ax2.set_xlim(0, 1.15 * max(v for _, v in sw))
+                ax2.set_xlim(0, 1.15 * max(v for _, v, _ in sw))
                 ax2.set_title(f"Sweeps on the mesh of {first['solver']}", fontsize=10)
                 ax2.grid(True, axis="x", alpha=0.3)
         self.scanvas.draw_idle()
@@ -431,8 +505,12 @@ class BenchmarkDialog(QDialog):
         try:
             text = self.solver_cores.text() if comparing else self.cores.text()
             cores = [int(x) for x in text.replace(";", ",").split(",") if x.strip()]
-            workers = [int(x) for x in self.workers.text().replace(";", ",").split(",") if x.strip()] \
-                if self.do_sweep.isChecked() and not comparing else []
+            if comparing:
+                workers = [int(x) for x in self.solver_workers.text().replace(";", ",").split(",") if x.strip()] \
+                    if self.solver_par.isChecked() else []
+            else:
+                workers = [int(x) for x in self.workers.text().replace(";", ",").split(",") if x.strip()] \
+                    if self.do_sweep.isChecked() else []
             if not cores or min(cores + (workers or [1])) < 1:
                 raise ValueError
         except ValueError:

@@ -153,8 +153,75 @@ def test_solver_comparison_marks_runs_without_their_solver_and_names_the_fastest
     res = {"runs": [run("PARDISO", 4, 90.0), run("PARDISO", 16, 80.0), run("SPARTA (CPU)", 16, 60.0),
                     run("SPARTA (GPU)", 16, 70.0, [gpu]),
                     {"kind": "same_mesh", "solver": "SPARTA (GPU)", "sweep": 30.0, "ds_max": {"S": 2e-3}}]}
-    top, same = solver_runs(res)
+    top, same, par = solver_runs(res)
     assert [r["solver"] for r in top] == ["PARDISO", "SPARTA (CPU)", "SPARTA (GPU)"] and list(same) == ["SPARTA (GPU)"]
+    assert par == []
     text, best = solver_recommendation(res)
     assert best == "SPARTA (CPU)" and "25 % faster than PARDISO" in text
     assert "single precision" in text and "Note column" in text
+
+
+def test_solver_comparison_with_parallel_frequencies_on_one_mesh(tmp_path, monkeypatch):
+    """--solvers with --workers: every solver solves the sweeps on the reference mesh in a fresh process, one
+    frequency at a time and with each number of parallel frequencies; the direct solutions of the
+    interpolating sweep, the GPU start and a sweep that stayed sequential are recorded with them."""
+    import json
+    import numpy as np
+    from hertzon.gui.benchmark import note_text, same_mesh_sweeps, solver_recommendation, solves_text
+    from hertzon.solver import benchmark as B, bridge
+    from hertzon.solver.results import ResultStore
+    monkeypatch.setattr(bridge, "_first_run", lambda: False)
+    calls = []
+
+    def fake_solve(self, path, folder, env, label, k, n):
+        from hertzon.model.design import Project
+        sv = env.get("HERTZON_SOLVER") or \
+            Project.load(path).design(B.CASES[0][2]).setup(B.CASES[0][3]).props.get("Solver", "")
+        w = int(env["HERTZON_SWEEP_WORKERS"])
+        calls.append((sv, w, env["HERTZON_ONLY_SWEEP"], Path(folder).name))
+        gpu = "GPU" in sv
+        direct = 30 if gpu else 12
+        sweep = (27.0 if gpu else 14.0) / (1.5 if w > 1 and not sv.startswith("SPARTA") else 1)
+        msgs = [{"type": "log", "level": "info", "msg": f"Sweep 'Sweep': {direct} direct solution(s), 40 from "
+                                                        "the reduced basis of 30 vectors (worst residual 1e-5)"}]
+        if gpu:
+            msgs.append({"type": "log", "level": "info", "msg": "SPARTA: GPU started in 1.4 s"})
+        if w > 1 and sv.startswith("SPARTA"):
+            msgs.append({"type": "log", "level": "info",
+                         "msg": "Sweep 'Sweep': SPARTA solves the frequencies one after another"})
+        Path(folder, "solver.log").write_text("".join("@@HZN " + json.dumps(m) + "\n" for m in msgs))
+        st = ResultStore(folder)
+        st.write_json("profile.json", [{"task": "Adaptive meshing", "elapsed": 10.0, "total": 10.0},
+                                       {"task": "Sweep Sweep", "elapsed": sweep, "total": 10 + sweep}])
+        st.write_json("convergence.json", {"passes": [{"tets": 13000}], "final_tets": 13000, "converged": True})
+        st.write_json("status.json", {"state": "done", "elapsed": 12 + sweep})
+        f = np.linspace(1e9, 6e9, 5)
+        S = np.full((5, 1, 1), 0.1 + (1e-4 if gpu else 0), complex)
+        st.save_sparams("Sweep", f, S, np.array([50.0]), [], solved=f[:direct % 5 + 1])
+        return True
+
+    monkeypatch.setattr(B.Benchmark, "_solve", fake_solve)
+    case = B.CASES_DIR / B.CASES[0][1]
+    bm = B.Benchmark(str(case), B.CASES[0][2], B.CASES[0][3], tmp_path, [16], [1, 2],
+                     ["PARDISO", "SPARTA (GPU)"])
+    assert bm.run()
+    res = json.loads((tmp_path / "benchmark.json").read_text())
+    kinds = [(r["kind"], r.get("solver"), r.get("workers")) for r in res["runs"]]
+    assert kinds == [("cores", "PARDISO", 1), ("cores", "SPARTA (GPU)", 1), ("same_mesh", "PARDISO", None),
+                     ("same_mesh", "SPARTA (GPU)", None), ("parallel", "PARDISO", 2), ("parallel", "SPARTA (GPU)", 2)]
+    # every sweep on the mesh of the first solver's run, the reference itself in a fresh process too
+    assert all(c[3].endswith("_on_PARDISO_mesh") for c in calls[2:]) and all(c[2] == "Sweep" for c in calls[2:])
+    same = {r["solver"]: r for r in res["runs"] if r["kind"] == "same_mesh"}
+    assert same["SPARTA (GPU)"]["solves"] == {"direct": 30, "reduced": 40}
+    assert same["SPARTA (GPU)"]["gpu_start"] == 1.4 and same["PARDISO"]["gpu_start"] == 0.0
+    assert same["SPARTA (GPU)"]["ds_max"]["Sweep"] == pytest.approx(1e-4)
+    par = {r["solver"]: r for r in res["runs"] if r["kind"] == "parallel"}
+    assert par["PARDISO"]["sweep"] == pytest.approx(14 / 1.5) and not par["PARDISO"]["notes"]
+    assert "one after another" in par["SPARTA (GPU)"]["notes"][0]
+    assert solves_text(same["SPARTA (GPU)"]) == "30 + 40"
+    assert "GPU start 1.4 s" in note_text(same["SPARTA (GPU)"])
+    assert [(sv, w) for sv, w, _ in same_mesh_sweeps(res)] == [("PARDISO", 1), ("SPARTA (GPU)", 1), ("PARDISO", 2),
+                                                               ("SPARTA (GPU)", 2)]
+    text, _ = solver_recommendation(res)
+    assert "Fastest sweep: <b>PARDISO</b> with <b>2 parallel frequencies</b>, 9 s (14 s one at a time)" in text
+    assert "PARDISO 12, SPARTA (GPU) 30" in text and "Note column" in text
