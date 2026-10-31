@@ -148,9 +148,11 @@ class OptimizationDialog(QDialog):
             bl.addWidget(b)
         bl.addStretch(1)
         gl.addLayout(bl)
-        hint = QLabel("Calculation: a report expression such as dB(S(2,1)), VSWR(1) or an output variable. "
-                      "Start / Stop: frequency range of the goal. The cost is the weighted violation of all goals "
-                      "(0 = every goal met).")
+        hint = QLabel("Calculation: a report expression such as dB(S(2,1)), VSWR(1) or an output variable, or an "
+                      "antenna parameter such as dB(PeakRealizedGain) or RadiationEfficiency (needs the fields of the "
+                      "solution: LastAdaptive, or a sweep with Save fields, and a far field setup). Start / Stop: "
+                      "frequency range of the goal. The cost is the weighted violation of all goals (0 = every goal "
+                      "met).")
         hint.setWordWrap(True)
         gl.addWidget(hint)
         tabs.addTab(g, "Goals")
@@ -246,7 +248,7 @@ class OptimizationDialog(QDialog):
         """The goals over the current solution: every calculation as a curve, every goal as a line over its
         range in the colour of its calculation (the forbidden side shaded), and its margin in the table."""
         from ..solver.expressions import eval_expr, output_variables
-        from ..solver.optimetrics import goal_margins, goal_range
+        from ..solver.optimetrics import antenna_data, goal_margins, goal_range, uses_antenna
         from .reports import load_solution
         ax = self.pax
         ax.clear()
@@ -255,30 +257,42 @@ class OptimizationDialog(QDialog):
         rows = [r for r in range(self.goals.rowCount())
                 if self.goals.item(r, 0) is not None and self.goals.item(r, 0).text().strip()]
         goals = self._goal_rows()
-        data = None
+        data = st = None
         try:
-            _, _, data = load_solution(self.doc, self.sol.currentText())
+            st, sol, data = load_solution(self.doc, self.sol.currentText())
         except Exception:  # noqa: BLE001
             data = None
         if data is not None and not len(data.get("freq", [])):
             data = None
-        margins = goal_margins(goals, data, ev, outvars) if data is not None else [{} for _ in goals]
+        antenna = None
+        if data is not None and any(uses_antenna(g["calc"], outvars) for g in goals):
+            try:
+                antenna = antenna_data(st, self.doc.design, sol, ev)
+            except Exception as e:  # noqa: BLE001
+                antenna = str(e)
+        margins = goal_margins(goals, data, ev, outvars, antenna) if data is not None else [{} for _ in goals]
         colors: dict[str, str] = {}
         for g in goals:
             colors.setdefault(g["calc"].replace(" ", ""), f"C{len(colors) % 10}")
         if data is not None:
-            f = np.asarray(data["freq"], float)
-            order = np.argsort(f)
             for g in goals:
                 key = g["calc"].replace(" ", "")
                 if key in {line.get_gid() for line in ax.lines}:
                     continue
+                d = data
+                if uses_antenna(g["calc"], outvars):
+                    if not isinstance(antenna, dict):
+                        continue
+                    d = antenna
+                f = np.asarray(d["freq"], float)
+                order = np.argsort(f)
                 try:
-                    y = eval_expr(data, g["calc"], outvars)
+                    y = eval_expr(d, g["calc"], outvars)
                     y = np.broadcast_to(np.real(y) if np.iscomplexobj(y) else np.asarray(y, float), f.shape)
                 except Exception:  # noqa: BLE001
                     continue
-                ax.plot(f[order] / 1e9, y[order], "-", color=colors[key], lw=1.6, label=g["calc"], gid=key)
+                ax.plot(f[order] / 1e9, y[order], "-" if len(f) > 1 else "o", color=colors[key], lw=1.6,
+                        label=g["calc"], gid=key)
         for g in goals:
             try:
                 lo, hi = goal_range(g, ev)

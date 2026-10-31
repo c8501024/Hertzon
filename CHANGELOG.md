@@ -40,6 +40,12 @@ the GitHub release notes.
   solution (each calculation as a curve, each goal as a line over its range in the colour of its
   calculation, the forbidden side shaded) and shows its margin in a new Margin column: positive = reserve
   (green), negative = violated (red). It follows the table while you edit.
+- **Antenna parameters as optimization goals.** A goal can use PeakRealizedGain, PeakGain,
+  RadiationEfficiency, FrontToBackRatio and the other antenna parameters (dB() is 10 log10 for gains),
+  directly or through an output variable. They are evaluated over the frequencies with saved fields:
+  LastAdaptive, or a sweep with Save fields on; the first far field setup gives the directions. Without
+  saved fields the goal says what to turn on, and an optimization with antenna goals checks this before
+  it starts.
 
 ## 0.2.8 (2026-10-30)
 

@@ -20,7 +20,7 @@ import numpy as np
 
 from ..model.design import Project
 from .expressions import output_variables
-from .optimetrics import ConjugateGradient, Variables, evaluate_goals
+from .optimetrics import ConjugateGradient, Variables, antenna_data, check_antenna_goals, evaluate_goals, uses_antenna
 from .results import ResultStore
 
 TAG = "@@HZN "
@@ -103,6 +103,9 @@ class Optimizer:
         self.parallel = max(1, int(float(self.props.get("ParallelEvaluations", 6))))
         self.cores = max(1, int(os.environ.get("HERTZON_CORES") or os.cpu_count() or 1))
         self.outvars = output_variables(self.des)
+        self.antenna_goals = any(uses_antenna(g.get("calc", ""), self.outvars) for g in self.opt.goals)
+        if self.antenna_goals:
+            check_antenna_goals(self.des, setup, sol)
         self.history: list[dict] = []
         self.cache: dict[tuple, float] = {}
         self.best: dict | None = None
@@ -158,7 +161,13 @@ class Optimizer:
             if data is None:
                 raise RuntimeError(e.error or "no result (the solver stopped early; see solver.log)")
             from .expressions import with_pairs
-            cost, goals = evaluate_goals(self.opt, with_pairs(data, self.des), self.ev, self.outvars)
+            antenna = None
+            if self.antenna_goals:
+                try:
+                    antenna = antenna_data(st, self.des, self.sol, self.ev)
+                except Exception as ex:  # noqa: BLE001
+                    antenna = str(ex)
+            cost, goals = evaluate_goals(self.opt, with_pairs(data, self.des), self.ev, self.outvars, antenna)
             row.update(cost=cost, goals=goals)
         except Exception as ex:  # noqa: BLE001
             row.update(cost=None, error=str(ex))

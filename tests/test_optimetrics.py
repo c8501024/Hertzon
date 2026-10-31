@@ -2,7 +2,10 @@ import numpy as np
 
 from hertzon.model.design import Design, Optimization, Project, Setup, project_from_dict
 from hertzon.solver.keys import model_key
-from hertzon.solver.optimetrics import ConjugateGradient, Variables, evaluate_goals, goal_margins, positive_area
+import pytest
+
+from hertzon.solver.optimetrics import (ConjugateGradient, Variables, check_antenna_goals, evaluate_goals,
+                                       goal_margins, positive_area, uses_antenna)
 
 
 def test_cg_converges_on_quadratic():
@@ -74,6 +77,38 @@ def test_goal_margins_reserve_violation_and_errors():
     assert len(rows) == 3
     assert np.isclose(rows[0]["margin"], 5.0) and np.isclose(rows[1]["margin"], -5.0)
     assert "does not cover" in rows[2]["error"]
+
+
+def test_antenna_goals_use_the_antenna_parameters_of_the_solution():
+    """A goal on an antenna parameter is evaluated on the antenna data (its own frequencies), the other goals
+    on the S-parameters; without antenna data the goal says why."""
+    d = _design()
+    ev = d.evaluator()
+    outvars = {"G": "dB(PeakRealizedGain)", "R": "dB(S(1,1))"}
+    assert uses_antenna("dB(PeakRealizedGain)") and uses_antenna("G + 1", outvars)
+    assert not uses_antenna("dB(S(1,1))") and not uses_antenna("R", outvars)
+    f = np.linspace(1e9, 2e9, 11)
+    S = np.full((11, 1, 1), 10 ** (-15 / 20), complex)
+    fa = np.array([1.4e9, 1.5e9, 1.6e9])
+    ant = {"freq": fa, "solved": fa, "antenna": {"PeakRealizedGain": np.array([3.0, 4.0, 3.5]),
+                                                 "RadiationEfficiency": np.array([0.7, 0.8, 0.75])}}
+    goals = [{"calc": "dB(S(1,1))", "start": "1GHz", "stop": "2GHz", "cond": "<=", "value": "-10", "weight": "1"},
+             {"calc": "dB(PeakRealizedGain)", "start": "1.5GHz", "stop": "1.5GHz", "cond": ">=", "value": "7",
+              "weight": "1"},
+             {"calc": "RadiationEfficiency", "start": "1.4GHz", "stop": "1.6GHz", "cond": ">=", "value": "0.6",
+              "weight": "1"}]
+    data = {"freq": f, "S": S, "z0": np.array([50.0])}
+    rows = goal_margins(goals, data, ev, None, ant)
+    assert np.isclose(rows[0]["margin"], 5.0)
+    assert np.isclose(rows[1]["margin"], 10 * np.log10(4.0) - 7)       # 10 log10 of a gain: 6.02 dBi
+    assert np.isclose(rows[2]["margin"], 0.1)
+    op = Optimization("Opt1", "Setup1 : Sweep", [], goals)
+    cost, _ = evaluate_goals(op, data, ev, None, ant)
+    assert np.isclose(cost, 7 - 10 * np.log10(4.0))           # only the gain goal is violated (at one point)
+    rows = goal_margins(goals, data, ev, None, "turn on Save fields")
+    assert "margin" in rows[0] and rows[1]["error"] == "turn on Save fields"
+    with pytest.raises(ValueError, match="far field setup"):
+        check_antenna_goals(d, "Setup1", "LastAdaptive")
 
 
 def test_optimetrics_saved_and_not_in_model_key():

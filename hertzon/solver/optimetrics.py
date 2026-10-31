@@ -138,19 +138,20 @@ def goal_violation(goal: dict, f_hz: np.ndarray, y: np.ndarray, ev) -> tuple[flo
     return positive_area(grid / 1e9, err), float(max(0.0, err.max()))
 
 
-def goal_margins(goals: list[dict], data: dict, ev, outvars=None) -> list[dict]:
+def goal_margins(goals: list[dict], data: dict, ev, outvars=None, antenna=None) -> list[dict]:
     """Margin of every goal on a solution (data as for evaluate_goals): {"goal", "margin"} with the
     margin in the unit of the goal (positive: reserve, negative: violated), or {"goal", "error"} when the
     goal cannot be evaluated on it (an expression error, a range outside the solution)."""
     from .expressions import eval_expr
-    f = np.asarray(data["freq"], float)
-    order = np.argsort(f)
     out = []
     for g in goals:
         if not str(g.get("calc", "")).strip():
             continue
         try:
-            y = eval_expr(data, g["calc"], outvars)
+            d = _goal_input(g, data, antenna, outvars)
+            f = np.asarray(d["freq"], float)
+            order = np.argsort(f)
+            y = eval_expr(d, g["calc"], outvars)
             y = np.real(y) if np.iscomplexobj(y) else np.asarray(y, float)
             _, err = goal_error(g, f[order], np.broadcast_to(y, f.shape)[order], ev)
             out.append({"goal": g, "margin": -float(np.max(err))})
@@ -159,17 +160,71 @@ def goal_margins(goals: list[dict], data: dict, ev, outvars=None) -> list[dict]:
     return out
 
 
-def evaluate_goals(opt, data: dict, ev, outvars=None) -> tuple[float, list[dict]]:
-    """Cost of a solved design and the violation of every goal."""
+def uses_antenna(calc: str, outvars=None, _depth: int = 0) -> bool:
+    """Does a goal expression use antenna parameters (PeakRealizedGain, RadiationEfficiency, ...), directly
+    or through an output variable?"""
+    from .ffquant import ANTENNA_QUANTITIES
+    words = set(re.findall(r"[A-Za-z_]\w*", str(calc)))
+    if words & set(ANTENNA_QUANTITIES):
+        return True
+    return _depth < 8 and any(uses_antenna(outvars[w], outvars, _depth + 1) for w in words & set(outvars or {}))
+
+
+def antenna_data(st, design, solution: str, ev) -> dict:
+    """Antenna parameters over the frequencies of a solution ({"freq", "solved", "antenna"}), for goals on
+    PeakRealizedGain, RadiationEfficiency etc. They exist where the far fields were saved: at the solution
+    frequency (LastAdaptive), and over a sweep only with Save fields on; the first far field setup gives the
+    directions of the peak values. Raises with the reason otherwise."""
+    from .ffquant import antenna_series
+    if not design.spheres:
+        raise ValueError("antenna parameters need a far field setup (Radiation > Insert Far Field Setup)")
+    if not (st.folder / f"huygens_{solution}.npz").exists():
+        raise ValueError(f"antenna parameters need the fields of '{solution}': turn on Save fields in the sweep "
+                         "(the design needs a radiation or PML boundary)")
+    f, vals = antenna_series(st, design, design.spheres[0].name, solution, ev)
+    return {"freq": f, "solved": f, "antenna": vals}
+
+
+def check_antenna_goals(design, setup: str, solution: str) -> None:
+    """Before an optimization with antenna goals: the solution will have far fields (raises otherwise)."""
+    if not design.spheres:
+        raise ValueError("Goals on antenna parameters need a far field setup (Radiation > Insert Far Field Setup)")
+    if solution == "LastAdaptive":
+        return
+    st = design.setup(setup)
+    sw = next((s for s in st.sweeps if s.name == solution), None)
+    if sw is None:
+        return
+    if sw.props.get("SweepType") == "Interpolating":
+        raise ValueError(f"Goals on antenna parameters need the fields at every frequency: '{solution}' is an "
+                         "interpolating sweep; use a discrete sweep with Save fields, or LastAdaptive")
+    if str(sw.props.get("SaveFields", "False")).lower() not in ("true", "1", "yes"):
+        raise ValueError(f"Goals on antenna parameters need the fields of '{solution}': turn on Save fields "
+                         "(all frequencies) in the sweep")
+
+
+def _goal_input(g: dict, data: dict, antenna, outvars):
+    """The data a goal is evaluated on: the antenna parameters for an antenna goal, else the S-parameters.
+    antenna: antenna_data, or the reason why it is not available (str)."""
+    if not uses_antenna(g["calc"], outvars):
+        return data
+    if isinstance(antenna, dict):
+        return antenna
+    raise ValueError(str(antenna or "antenna parameters are not available for this solution"))
+
+
+def evaluate_goals(opt, data: dict, ev, outvars=None, antenna=None) -> tuple[float, list[dict]]:
+    """Cost of a solved design and the violation of every goal (antenna: see _goal_input)."""
     from .expressions import eval_expr
-    f = np.asarray(data["freq"], float)
-    order = np.argsort(f)
     rows, total, wsum = [], 0.0, 0.0
     worst_case = opt.props.get("CostFunction", "Error Area") == "Worst Case"
     for g in opt.goals:
         if not str(g.get("calc", "")).strip():
             continue
-        y = eval_expr(data, g["calc"], outvars)
+        d = _goal_input(g, data, antenna, outvars)
+        f = np.asarray(d["freq"], float)
+        order = np.argsort(f)
+        y = eval_expr(d, g["calc"], outvars)
         y = np.real(y) if np.iscomplexobj(y) else np.asarray(y, float)
         area, worst = goal_violation(g, f[order], y[order], ev)
         w = float(g.get("weight", 1) or 0)
