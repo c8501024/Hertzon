@@ -193,11 +193,21 @@ class TuningPanel(QWidget):
             st = self.win.des.setup(self.setup.currentText())
             for sw in st.sweeps:
                 self.sweep.addItem(sw.name, sw.name)
+                if sw.props.get("Enabled", "True") != "True":
+                    # a disabled sweep is not analyzed: no solution to tune and plot
+                    n = self.sweep.count() - 1
+                    self.sweep.setItemText(n, f"{sw.name} (disabled)")
+                    item = self.sweep.model().item(n)
+                    item.setEnabled(False)
+                    item.setToolTip("Disabled sweeps are not analyzed: enable it (right click > Enable) and analyze "
+                                    "to tune it")
         except Exception:  # noqa: BLE001
             pass
         self.sweep.addItem("Solution frequency", ADAPTIVE)
         k = self.sweep.findData(want) if want else -1
-        self.sweep.setCurrentIndex(max(k, 0))
+        if k < 0 or not self.sweep.model().item(k).isEnabled():
+            k = next(i for i in range(self.sweep.count()) if self.sweep.model().item(i).isEnabled())
+        self.sweep.setCurrentIndex(k)
         self.sweep.blockSignals(False)
 
     def sweep_name(self) -> str:
@@ -280,10 +290,36 @@ class TuningPanel(QWidget):
         if len(names) > 6:
             QMessageBox.information(self, "Derivative Tuning", "Tune at most 6 variables at a time.")
             return
+        problem = self._not_tunable()
+        if problem:
+            QMessageBox.information(self, "Derivative Tuning", problem)
+            return
         key = self.win.compute_tuning(self.setup.currentText(), self.sweep_name(), names, self.points.value())
         if key:
             self._pending = key
             self.info.setText("Computing the derivatives... (progress in the Progress window)")
+
+    def _not_tunable(self) -> str:
+        """Why the chosen sweep cannot be tuned ('' when it can): the reports draw the tuned curves over the
+        stored solution, so the sweep must be enabled and analyzed."""
+        from ..solver.results import ResultStore, results_dir, _safe
+        from ..solver.tuning import ADAPTIVE
+        setup, name = self.setup.currentText(), self.sweep_name()
+        try:
+            st = self.win.des.setup(setup)
+        except Exception:  # noqa: BLE001
+            return f"No setup '{setup}'."
+        sw = next((x for x in st.sweeps if x.name == name), None)
+        if sw is not None and sw.props.get("Enabled", "True") != "True":
+            return f"The sweep '{name}' is disabled, so it is not analyzed: enable it and analyze the setup first."
+        doc = self.win.doc
+        if not doc.project.path:
+            return "Save and analyze the project first."
+        sols = ResultStore(results_dir(doc.project.path, doc.design_name, setup)).solutions()
+        if _safe(name if name != ADAPTIVE else "LastAdaptive") not in sols:
+            what = f"the sweep '{name}'" if name != ADAPTIVE else f"the setup '{setup}'"
+            return f"There is no solution of {what} yet: analyze it first (the reports show the tuned curves over it)."
+        return ""
 
     def _solver_finished(self, key: str, ok: bool) -> None:
         if key != self._pending:

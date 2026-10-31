@@ -20,6 +20,9 @@ the GitHub release notes.
   the morphed mesh over +-2 mm. Each slider is limited to the range in which no tetrahedron shrinks below
   30 % of its volume. Plane faces may change shape, curved faces may move. Not yet for terminal designs.
   - A setup without a sweep is tuned at its solution frequency.
+  - Disabled sweeps are greyed out in the tuning panel, and Compute Derivatives asks to analyze first when
+    the chosen sweep has no solution yet (its tuned curves could not be shown in any report).
+  - An open report offers the variables of a new tuning model on its X axis at once (no new report needed).
   - Faces may slide along plane parts of the outer boundary, and lumped ports and lumped RLC elements
     stretch with the mesh (width, height, integration lines and excitation follow), so a substrate height
     can be tuned with a lumped port across it. Wave ports stay in place.
