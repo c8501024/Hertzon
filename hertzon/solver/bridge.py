@@ -1734,11 +1734,11 @@ class Bridge:
             pass
         info("Fields saved")
 
-    def save_huygens(self, fields: list, label: str) -> bool:
-        """E/H on the open boundary for post-processed far fields (infinite spheres can be
-        added or edited after the solve without analyzing again)."""
+    def huygens_surface(self) -> dict | None:
+        """The surface of the far field integral: points vis (3, N), weighted normals wns (3, N) and the
+        symmetry planes the far field is mirrored at; None without an open boundary."""
         if self.open_faces is None:
-            return False
+            return None
         m = self.m
         if getattr(self, "ff_bounds", None) is not None:
             b = np.array(self.ff_bounds, np.float64)
@@ -1760,13 +1760,23 @@ class Bridge:
                     np.add.at(wns.T, t2e[j], (nrm * ar / 3).T)
             except Exception as ex:  # noqa: BLE001
                 warn(f"Far field surface not available: {ex}")
-                return False
-        out = {"vis": vis, "wns": wns, "stamp": np.array([time.time_ns()])}
+                return None
+        out = {"vis": vis, "wns": wns}
         planes = self.symmetry_planes()
         if planes:
             out["sym_kind"] = np.array([p[0] for p in planes])
             out["sym_axis"] = np.array([p[1] for p in planes], np.int64)
             out["sym_pos"] = np.array([p[2] for p in planes], np.float64)
+        return out
+
+    def save_huygens(self, fields: list, label: str) -> bool:
+        """E/H on the open boundary for post-processed far fields (infinite spheres can be
+        added or edited after the solve without analyzing again)."""
+        surf = self.huygens_surface()
+        if surf is None:
+            return False
+        vis, wns = surf["vis"], surf["wns"]
+        out = dict(surf, stamp=np.array([time.time_ns()]))
         pw = self.plane_wave()
         if pw is not None:
             out["E0"] = np.array([abs(self.ev.value(pw.props.get("EMagnitude", "1") or "1"))])

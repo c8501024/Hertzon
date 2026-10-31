@@ -21,6 +21,10 @@ from ..solver.optimetrics import split_value, fmt_value
 STEPS = 1000                    # slider resolution over the tuning range
 CURVE_POINTS = 101              # points of a curve over a variable
 WARN_FRACTION = 0.6             # beyond this part of the range the accuracy drops noticeably
+PATTERN = "pattern"             # x axis item of the radiation pattern
+PATTERN_THETA = np.radians(np.arange(0.0, 180.1, 2.0))
+PATTERN_PHI = np.radians([0.0, 90.0, 180.0, 270.0])
+PATTERN_RANGE = 40.0            # dB shown below the peak of the pattern
 
 
 def tunable_variables(design) -> list[str]:
@@ -84,7 +88,8 @@ class TuningDialog(QDialog):
         xl = QGridLayout()
         self.xaxis = QComboBox()
         self.xaxis.setToolTip("Plot against frequency, or against one variable over its tuning range (the other "
-                              "variables at their slider values)")
+                              "variables at their slider values), or the radiation pattern (models with an "
+                              "open boundary)")
         self.fpick = QComboBox()
         self.fpick.setToolTip("Frequency of the plot against a variable")
         xl.addWidget(QLabel("X axis"), 0, 0)
@@ -332,6 +337,8 @@ class TuningDialog(QDialog):
                 self.xaxis.addItem("Frequency", None)
             for i, name in enumerate(m.variables):
                 self.xaxis.addItem(name, i)
+            if m.ff is not None:
+                self.xaxis.addItem("Pattern (realized gain)", PATTERN)
             self.xaxis.setCurrentIndex(max(self.xaxis.findText(keep), 0))
             for f in m.freq:
                 self.fpick.addItem(f"{f / 1e9:.6g} GHz")
@@ -344,6 +351,7 @@ class TuningDialog(QDialog):
         on = self.model is not None and len(self.model.freq) > 1 and self.xaxis.currentData() is not None
         self.fpick.setVisible(on)
         self.fpick_label.setVisible(on)
+        self.quantity.setEnabled(self.xaxis.currentData() != PATTERN)
 
     def _xaxis_changed(self) -> None:
         self._show_fpick()
@@ -394,10 +402,15 @@ class TuningDialog(QDialog):
 
     def _fast_update(self, m, dp: np.ndarray, sel: list) -> bool:
         """New tuned curves on the same axes, if they fit into the current y range."""
-        if self._bg is None or len(self._dyn) != len(sel):
+        if self._bg is None:
             return False
-        S, _ = m.sparams(dp)
-        ys = [self._y(S[:, i, j]) for (i, j), _ in sel]
+        if self.xaxis.currentData() == PATTERN:
+            ys, text = self._pattern(m, dp, sel)
+        else:
+            S, _ = m.sparams(dp)
+            ys, text = [self._y(S[:, i, j]) for (i, j), _ in sel], None
+        if len(self._dyn) != len(ys) + (text is not None):
+            return False
         lo, hi = self.ax.get_ylim()
         if any(np.nanmin(y) < lo or np.nanmax(y) > hi for y in ys if len(y)):
             return False
@@ -405,6 +418,9 @@ class TuningDialog(QDialog):
         for line, y in zip(self._dyn, ys):
             line.set_ydata(y)
             self.ax.draw_artist(line)
+        if text is not None:
+            self._dyn[-1].set_text(text)
+            self.ax.draw_artist(self._dyn[-1])
         self.canvas.blit(self.ax.bbox)
         return True
 
@@ -416,7 +432,8 @@ class TuningDialog(QDialog):
         sig = (id(m), self.xaxis.currentData(), self.quantity.currentText(), tuple(t for _, t in sel),
                self.fpick.currentIndex())
         self._warn(dp)
-        if m is not None and self.xaxis.currentData() is None and sig == self._sig and self._fast_update(m, dp, sel):
+        mode = self.xaxis.currentData()
+        if m is not None and mode in (None, PATTERN) and sig == self._sig and self._fast_update(m, dp, sel):
             return
         self._sig = sig
         self._dyn = []
@@ -427,13 +444,16 @@ class TuningDialog(QDialog):
                          color="#777")
             self.canvas.draw_idle()
             return
-        if self.xaxis.currentData() is None:
+        if mode is None:
             self._plot_frequency(m, dp, sel)
+        elif mode == PATTERN:
+            self._plot_pattern(m, dp, sel)
         else:
-            self._plot_variable(m, dp, sel, int(self.xaxis.currentData()))
-        self.ax.set_ylabel(self.quantity.currentText())
+            self._plot_variable(m, dp, sel, int(mode))
+        if mode != PATTERN:
+            self.ax.set_ylabel(self.quantity.currentText())
         self.ax.grid(True, alpha=0.3)
-        if sel:
+        if sel or mode == PATTERN:
             self.ax.legend(loc="best", fontsize=8)
         self.canvas.draw_idle()
 
@@ -491,6 +511,51 @@ class TuningDialog(QDialog):
                   for n, r in enumerate(self.rows) if n != v]
         self.ax.set_title(f"{m.freq[k] / 1e9:.6g} GHz" + (f"   ({', '.join(others)})" if others else "")
                           + "   ● slider  ○ solved", fontsize=9)
+
+    # ---- antenna parameters ---------------------------------------------------------------------
+    def _excited(self, sel: list) -> int:
+        """Port index of the pattern: the excited port (column) of the first checked trace."""
+        return int(sel[0][0][1]) if sel else 0
+
+    def _pattern(self, m, dp: np.ndarray, sel: list) -> tuple[list, str]:
+        """Realized gain (dBi) over theta -180..180 deg of the cuts phi = 0 and 90 deg, and the antenna
+        numbers, at the picked frequency."""
+        k = max(self.fpick.currentIndex(), 0) if len(m.freq) > 1 else 0
+        q = m.antenna(k, self._excited(sel), dp, PATTERN_THETA, PATTERN_PHI)
+        rg = 10 * np.log10(np.maximum(q["RealizedGainTotal"], 1e-30))
+        ys = [np.r_[rg[:0:-1, c + 2], rg[:, c]] for c in (0, 1)]     # phi + 180 deg as negative theta
+        peak = max(float(y.max()) for y in ys)
+        eff, pacc = float(q["_eff"][0]), float(q["_Pacc"][0])
+        text = (f"peak realized gain on the cuts {peak:.2f} dBi   radiation efficiency {100 * eff:.1f} %   "
+                f"total efficiency {100 * eff * pacc:.1f} %")
+        return ys, text
+
+    def _plot_pattern(self, m, dp: np.ndarray, sel: list) -> None:
+        """Realized gain of the solved design (dashed) and at the slider values (solid) on two cuts, with the
+        peak gain and the efficiencies of the slider values."""
+        x = np.r_[-np.degrees(PATTERN_THETA[:0:-1]), np.degrees(PATTERN_THETA)]
+        try:
+            y0, _ = self._pattern(m, np.zeros(len(m.variables)), sel)
+            ys, text = self._pattern(m, dp, sel)
+        except Exception as ex:  # noqa: BLE001
+            self.ax.text(0.5, 0.5, f"No far field: {ex}", ha="center", va="center", transform=self.ax.transAxes,
+                         color="#777")
+            return
+        for c, name in enumerate(("phi = 0 deg", "phi = 90 deg")):
+            self.ax.plot(x, y0[c], "--", color=f"C{c}", alpha=0.5, lw=1.2, label=f"{name} solved")
+            line, = self.ax.plot(x, ys[c], "-", color=f"C{c}", lw=1.8, label=f"{name} tuned", animated=True)
+            self._dyn.append(line)
+        top = max(float(np.max(y)) for y in y0 + ys)
+        self.ax.set_ylim(top - PATTERN_RANGE, top + 0.15 * PATTERN_RANGE)
+        self.ax.set_xlim(-180, 180)
+        self.ax.set_xticks(np.arange(-180, 181, 45))
+        k = max(self.fpick.currentIndex(), 0) if len(m.freq) > 1 else 0
+        labels = self._labels(m.nominal_raw.shape[1])
+        self.ax.set_title(f"{m.freq[k] / 1e9:.6g} GHz, port {labels[self._excited(sel)]} excited", fontsize=9)
+        self._dyn.append(self.ax.text(0.01, 0.01, text, transform=self.ax.transAxes, fontsize=8, va="bottom",
+                                      animated=True))
+        self.ax.set_xlabel("Theta [deg]")
+        self.ax.set_ylabel("Realized gain [dBi]")
 
     def closeEvent(self, e) -> None:  # noqa: N802
         try:

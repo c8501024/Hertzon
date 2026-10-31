@@ -202,6 +202,51 @@ def test_substrate_height_stretches_the_lumped_port(tmp_path):
         assert abs(S_tuned - S_ref[0, 0, 0]) > 0.03           # and the height matters
 
 
+def test_tuned_far_field_of_the_patch_matches_the_solved_one(tmp_path):
+    """The far field of a band model: the surface fields of the reduced solution reproduce the solved
+    surface fields, so the antenna parameters at the solved design are those of the solve; the substrate
+    height changes them."""
+    em = pytest.importorskip("emerge")
+    from hertzon.model.design import Project
+    from hertzon.solver import bridge as B
+    from hertzon.solver.farfield_post import mirrored, stratton_chu, symmetry_planes
+    from hertzon.solver.ffquant import farfield_quantities
+    p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "PatchAntenna.hzn")
+    d = p.designs[0]
+    st = d.setups[0]
+    st.props.update(LambdaRefinement="False", CurvedElements="False")
+    b = B.Bridge(p, d, st, tmp_path)
+    F = np.array([2.4e9, 2.5e9])
+    th, ph = np.radians(np.arange(0, 181, 5.0)), np.radians([0.0, 90.0, 180.0, 270.0])
+    with em.Simulation("tuning_ff", save_file=False) as m:
+        b.prepare(m)
+        b.port_map = b.store.read_json("ports.json", None) or getattr(b, "port_map", [])
+        _, S, _, _ = B.solve_at(m, list(F))
+        assert b.save_huygens(list(m.mw.data.field)[-len(F):], "chk")
+        path = tmp_path / "tuning_h.npz"
+        TU.build(b, ["h"], F, path)
+    huy = b.store.npz("huygens_chk.npz")
+    model = TU.TuningModel(path)
+    assert model.ff is not None
+    k = 1
+    E, H = model.surface_fields(k, 0, [0.0])
+    assert np.abs(E - huy[f"E_{k}_1"]).max() < 1e-5 * np.abs(huy[f"E_{k}_1"]).max()
+    assert np.abs(H - huy[f"H_{k}_1"]).max() < 1e-5 * np.abs(huy[f"H_{k}_1"]).max()
+    planes = symmetry_planes(huy)
+    v2, w2, Ein, Hin = mirrored(huy["vis"], huy["wns"], [huy[f"E_{k}_1"]], [huy[f"H_{k}_1"]], planes)
+    T, P = np.meshgrid(th, ph, indexing="ij")
+    Ef = stratton_chu(Ein[0], Hin[0], v2, w2, T.ravel(), P.ravel(), 2 * np.pi * F[k] / 299792458.0)
+    ref = farfield_quantities({"theta": th, "phi": ph, "Prad_0_0": huy[f"Prad_{k}_1"],
+                               "E_0_0": (Ef * (0.5 ** len(planes)) ** 0.5).reshape((3,) + T.shape)},
+                              0, 0, None, pacc=float(1 - np.sum(np.abs(S[k][:, 0]) ** 2)))
+    got = model.antenna(k, 0, [0.0], th, ph)
+    rg = lambda q: 10 * np.log10(q["RealizedGainTotal"].max())    # noqa: E731
+    assert abs(rg(got) - rg(ref)) < 1e-5
+    assert abs(got["_eff"][0] - ref["_eff"][0]) < 1e-6
+    tuned = model.antenna(k, 0, [0.2], th, ph)
+    assert tuned["_eff"][0] - got["_eff"][0] > 0.01               # a thicker substrate radiates better
+
+
 def test_band_model_matches_the_model_of_every_frequency(tmp_path):
     """One basis for the band (few factorizations, boundary terms per frequency) gives the response of the
     reduction of every frequency on its own."""
