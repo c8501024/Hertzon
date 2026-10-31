@@ -55,9 +55,19 @@ class RemoteRun(QObject):
             code = self._job()
         except RemoteError as ex:
             self.note.emit("error", str(ex))
+            self._give_up()
         except Exception as ex:  # noqa: BLE001
             self.note.emit("error", f"Remote analysis on {self.host.address} failed: {ex}")
+            self._give_up()
         self.ended.emit(code)
+
+    def _give_up(self) -> None:
+        """This GUI no longer follows the job: stop it on the service instead of letting it run unseen."""
+        if self.jid:
+            try:
+                self.host.abort(self.jid)
+            except RemoteError:
+                pass
 
     def _job(self) -> int:
         host = self.host
@@ -92,7 +102,10 @@ class RemoteRun(QObject):
                 continue
             for text in ev.get("lines", []):
                 if text.startswith(TAG) and self._needs_files(text):
-                    mirror.sync()
+                    try:
+                        mirror.sync()
+                    except RemoteError as ex:     # the pass plots miss these files; the final sync brings them
+                        self.note.emit("debug", f"Results of the pass not fetched yet: {ex}")
                 self.line.emit(text)
             since = ev.get("next", since)
             state, code = ev.get("state", state), ev.get("code")
@@ -102,8 +115,15 @@ class RemoteRun(QObject):
             if state not in ("queued", "running"):
                 break
         self.status.emit(99, "Downloading results")
-        mirror.sync(final=True, progress=lambda d, t: self.status.emit(
-            99, f"Downloading results {d / 1e6:.1f} of {t / 1e6:.1f} MB"))
+        for attempt in range(3):
+            try:
+                mirror.sync(final=True, progress=lambda d, t: self.status.emit(
+                    99, f"Downloading results {d / 1e6:.1f} of {t / 1e6:.1f} MB"))
+                break
+            except RemoteError:
+                if attempt == 2:
+                    raise
+                time.sleep(2)
         try:
             host.delete(self.jid)
         except RemoteError:

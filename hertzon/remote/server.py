@@ -379,8 +379,10 @@ class Handler(BaseHTTPRequestHandler):
     def _file(self, path: Path) -> None:
         try:
             f = open(path, "rb")
-        except OSError:
+        except FileNotFoundError:
             return self._error(404, "no such file")
+        except OSError:                       # Windows: the solver is writing it right now
+            return self._error(409, "file busy")
         with f:
             size = os.fstat(f.fileno()).st_size
             self.send_response(200)

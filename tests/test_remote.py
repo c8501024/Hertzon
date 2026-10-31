@@ -180,3 +180,29 @@ def test_shutdown(service, tmp_path):
     assert svc.jobs[jid].state == "aborted"            # a stopped service leaves no solver running
     with pytest.raises(RemoteError):
         host.info()
+
+
+def test_file_gone_during_sync(service, tmp_path):
+    """The solver writes some files under a temporary name and renames them: a file of the listing can be
+    gone when it is fetched. The sync skips it instead of failing the whole remote analysis."""
+    svc, host = service
+    proj, out = make_project(tmp_path)
+    jid, _ = run_job(host, proj, out)
+    ev = {"state": "queued"}
+    while ev["state"] in ("queued", "running"):
+        ev = host.events(jid, 0, wait=5)
+    job = svc.jobs[jid]
+    listed = host.files
+
+    def files_then_remove(j):
+        entries = listed(j)
+        (job.out_dir / "convergence.json").unlink()      # renamed away after the listing
+        return entries
+
+    m = Mirror(host, jid, out)
+    host.files = files_then_remove
+    m.sync()
+    host.files = listed
+    assert (out / "sparams_Sweep.npz").exists() and not (out / "convergence.json").exists()
+    m.sync(final=True)
+    assert not (out / "convergence.json").exists()

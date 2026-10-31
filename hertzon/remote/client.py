@@ -18,6 +18,10 @@ class RemoteError(RuntimeError):
     pass
 
 
+class MissingFile(RemoteError):
+    """A file of the listing was gone when it was fetched (the solver replaced or removed it meanwhile)."""
+
+
 def normalize_address(address: str) -> str:
     """'simstation02', 'simstation02:47820' or 'http://10.0.0.5:47820/' -> base URL with port."""
     a = (address or "").strip().rstrip("/")
@@ -59,7 +63,8 @@ class RemoteHost:
             if ex.code == 401:
                 raise RemoteError(f"{self.address}: the token is wrong (see the start message of the "
                                   "remote service)") from None
-            raise RemoteError(f"{self.address}: {msg or ex.reason} (HTTP {ex.code})") from None
+            err = MissingFile if ex.code in (404, 409) and path.startswith("/api/jobs/") and "/file?" in path else RemoteError
+            raise err(f"{self.address}: {msg or ex.reason} (HTTP {ex.code})") from None
         except (urllib.error.URLError, OSError) as ex:
             reason = getattr(ex, "reason", ex)
             raise RemoteError(f"{self.address}: no connection to the remote service ({reason})") from None
@@ -127,17 +132,22 @@ class Mirror:
         todo = changed(remote, self.seen)
         total = sum(e["size"] for e in todo)
         done = 0
+        missing: set[str] = set()
         for e in todo:
             if e["path"] == "ABORT" or e.get("uploaded"):      # unchanged since the upload: already here
                 self.seen[e["path"]] = (e["size"], e["mtime"])
                 continue
-            self.host.fetch(self.jid, e["path"], local_target(self.folder, e["path"]))
+            try:
+                self.host.fetch(self.jid, e["path"], local_target(self.folder, e["path"]))
+            except MissingFile:
+                missing.add(e["path"])          # written to a temporary name and renamed: the next sync has it
+                continue
             self.seen[e["path"]] = (e["size"], e["mtime"])
             done += e["size"]
             if progress is not None:
                 progress(done, total)
         if final:
-            keep = {e["path"] for e in remote}
+            keep = {e["path"] for e in remote} - missing
             for e in file_list(self.folder):
                 if e["path"] not in keep:
                     try:
