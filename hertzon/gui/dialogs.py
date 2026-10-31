@@ -837,6 +837,35 @@ class OptionsDialog(QDialog):
                         "A value in a setup's 'Solver threads' overrides this for that setup."))
         tabs.addTab(hpc, "HPC and Analysis")
 
+        rem = QWidget()
+        f = QFormLayout(rem)
+        self.remote_on = QCheckBox("Solve on a remote computer")
+        self.remote_on.setToolTip("Analyses go to the Hertzon remote service on another computer; results come\n"
+                                  "back into this project's results folder. Off: solve on this computer.")
+        self.remote_on.setChecked(s.value("remote/enabled", False, type=bool))
+        self.remote_addr = QLineEdit(s.value("remote/address", ""))
+        self.remote_addr.setPlaceholderText("simstation02 or 192.168.1.20:47820")
+        self.remote_token = QLineEdit(s.value("remote/token", ""))
+        self.remote_token.setEchoMode(QLineEdit.Password)
+        self.remote_test = QPushButton("Test Connection")
+        self.remote_state = QLabel()
+        self.remote_state.setWordWrap(True)
+        self.remote_test.clicked.connect(self._test_remote)
+        f.addRow("", self.remote_on)
+        f.addRow("Computer", self.remote_addr)
+        f.addRow("Token", self.remote_token)
+        row = QHBoxLayout()
+        row.addWidget(self.remote_test)
+        row.addWidget(self.remote_state, 1)
+        f.addRow("", row)
+        hint = QLabel("On the other computer, with Hertzon installed, run <code>hertzon-serve</code> "
+                      "(or <code>python -m hertzon.remote serve</code>). It prints the computer's address and the "
+                      "token. <code>hertzon-serve autostart on</code> starts it with each login.<br>"
+                      "The connection is meant for the local network; the token is sent unencrypted.")
+        hint.setWordWrap(True)
+        f.addRow(hint)
+        tabs.addTab(rem, "Remote")
+
         mod = QWidget()
         f = QFormLayout(mod)
         self.units = QComboBox()
@@ -908,11 +937,33 @@ class OptionsDialog(QDialog):
         self._sparta_proc = p
         p.start(args[0], args[1:])
 
+    def _test_remote(self) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QApplication
+        from .. import __version__
+        from ..remote.client import RemoteError, RemoteHost
+        QApplication.setOverrideCursor(_Qt.WaitCursor)
+        try:
+            info = RemoteHost(self.remote_addr.text(), self.remote_token.text(), timeout=10).info()
+        except RemoteError as ex:
+            self.remote_state.setText(str(ex))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        text = (f"Connected: {info.get('host')}, Hertzon {info.get('hertzon')}, {info.get('cores')} cores"
+                + (", busy" if info.get("busy") else "") + (f", {info['queued']} queued" if info.get("queued") else ""))
+        if info.get("hertzon") != __version__:
+            text += f". This computer runs {__version__}; install the same version on both."
+        self.remote_state.setText(text)
+
     def apply(self) -> None:
         s, w = self.win.settings, self.win
         s.setValue("hpc/cores", 0 if self.all_cores.isChecked() else self.cores.value())
         s.setValue("hpc/sweep_workers", self.workers.value())
         s.setValue("hpc/default_solver", self.solver.currentText())
+        s.setValue("remote/enabled", self.remote_on.isChecked())
+        s.setValue("remote/address", self.remote_addr.text().strip())
+        s.setValue("remote/token", self.remote_token.text().strip())
         s.setValue("modeler/default_units", self.units.currentText())
         w._toggle_edit_new(self.edit_new.isChecked())
         w.a_editnew.setChecked(self.edit_new.isChecked())

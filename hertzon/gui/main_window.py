@@ -1426,6 +1426,11 @@ class MainWindow(QMainWindow):
     def apply_hpc_settings(self) -> None:
         self.solver.cores = int(self.settings.value("hpc/cores", 0))
         self.solver.sweep_workers = int(self.settings.value("hpc/sweep_workers", 2))
+        self.solver.remote = None
+        addr = str(self.settings.value("remote/address", "") or "")
+        if self.settings.value("remote/enabled", False, type=bool) and addr:
+            from ..remote.client import RemoteHost
+            self.solver.remote = RemoteHost(addr, str(self.settings.value("remote/token", "") or ""))
 
     def _restore_settings(self) -> None:
         s = self.settings

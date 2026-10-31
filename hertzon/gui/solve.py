@@ -21,6 +21,7 @@ def solver_python() -> str:
     return python_exe()
 
 TAG = "@@HZN "
+NO_RESULT = -999_999          # end code of a remote analysis that produced no solver exit code
 
 
 @dataclass
@@ -74,6 +75,7 @@ class SolveManager(QObject):
         self.show_emerge_log = False
         self.cores = 0              # 0 = all cores
         self.sweep_workers = 2
+        self.remote = None          # RemoteHost: solve on that computer (Tools > Options > Remote)
 
     @property
     def busy(self) -> bool:
@@ -140,6 +142,13 @@ class SolveManager(QObject):
             pass
         if keep:
             (out / "amr_state.npz").write_bytes(keep)
+        self._buf = b""
+        self._failed = False
+        self._completed = False
+        self._aborted = False
+        if self.remote is not None:
+            self._start_remote(job, out)
+            return
         p = QProcess(self)
         env = QProcessEnvironment.systemEnvironment()
         root = str(Path(__file__).resolve().parents[2])
@@ -161,10 +170,6 @@ class SolveManager(QObject):
         p.readyReadStandardError.connect(self._read_err)
         p.finished.connect(self._done)
         self.proc = p
-        self._buf = b""
-        self._failed = False
-        self._completed = False
-        self._aborted = False
         self.started.emit(job.key)
         self.progress.emit(job.key, 0, "Starting solver")
         self.message.emit("info", f"{job.key}: solving with {n} core(s)")
@@ -177,10 +182,36 @@ class SolveManager(QObject):
         else:
             p.start(solver_python(), ["-m", "hertzon.solver.run", job.project_path, job.design, job.setup, str(out)])
 
+    def _start_remote(self, job: Job, out: Path) -> None:
+        """Solve JOB on the remote computer; its lines and end go through the same handlers as locally."""
+        from .remote_run import RemoteRun
+        if job.parametric:
+            kind, name = "parametric", job.parametric
+        elif job.optimization:
+            kind, name = "optimize", job.optimization
+        else:
+            kind, name = "run", job.setup
+        env = {"HERTZON_MESH_ONLY": "1" if job.mesh_only else "0", "HERTZON_ONLY_SWEEP": job.sweep,
+               "HERTZON_TUNING": job.tuning}
+        r = RemoteRun(self.remote, kind, job.project_path, job.design, name, out, env, self)
+        r.line.connect(self._handle_line)
+        r.note.connect(lambda level, text, key=job.key: self.message.emit(level, f"{key}: {text}"))
+        r.status.connect(lambda v, text, key=job.key: self.progress.emit(key, v, text))
+        r.ended.connect(lambda code: self._done(code, QProcess.NormalExit))
+        self.proc = r
+        self.started.emit(job.key)
+        self.progress.emit(job.key, 0, f"Starting solver on {self.remote.address}")
+        self.message.emit("info", f"{job.key}: sending to {self.remote.address}")
+        r.start()
+
     def abort(self) -> None:
         if self.proc is None or self.job is None:
             return
         self._aborted = True
+        if not isinstance(self.proc, QProcess):           # remote: the service stops its solver
+            self.message.emit("warning", f"{self.job.key}: aborting")
+            self.proc.abort()
+            return
         (self.job.out / "ABORT").write_text("1", encoding="utf-8")
         self.message.emit("warning", f"{self.job.key}: aborting")
         if self.job.optimization or self.job.parametric:
@@ -192,7 +223,7 @@ class SolveManager(QObject):
         self.proc.kill()
 
     def _read_err(self) -> None:
-        if self.proc is None:
+        if not isinstance(self.proc, QProcess):
             return
         data = bytes(self.proc.readAllStandardError()).decode("utf-8", errors="replace")
         for line in data.splitlines():
@@ -200,21 +231,26 @@ class SolveManager(QObject):
                 self.message.emit("debug", line)
 
     def _read(self) -> None:
-        if self.proc is None:
+        if not isinstance(self.proc, QProcess):
             return
         self._buf += bytes(self.proc.readAllStandardOutput())
         *lines, self._buf = self._buf.split(b"\n")
         for raw in lines:
-            line = raw.decode("utf-8", errors="replace")
-            if not line.startswith(TAG):
-                if self.show_emerge_log and line.strip():
-                    self.message.emit("debug", line)
-                continue
-            try:
-                msg = json.loads(line[len(TAG):])
-            except json.JSONDecodeError:
-                continue
-            self._handle(msg)
+            self._handle_line(raw.decode("utf-8", errors="replace"))
+
+    def _handle_line(self, line: str) -> None:
+        if self.job is None:
+            return
+        line = line.rstrip("\r")
+        if not line.startswith(TAG):
+            if self.show_emerge_log and line.strip():
+                self.message.emit("debug", line)
+            return
+        try:
+            msg = json.loads(line[len(TAG):])
+        except json.JSONDecodeError:
+            return
+        self._handle(msg)
 
     def _handle(self, msg: dict) -> None:
         key = self.job.key if self.job else ""
@@ -270,7 +306,8 @@ class SolveManager(QObject):
             else:
                 hint = (" The solver process was killed, most likely because it ran out of memory. "
                         "Lower 'Maximum Refinement' or the number of passes." if crashed else "")
-            self.message.emit("error", f"{key}: solver process ended with code {code}.{hint}")
+            self.message.emit("error", f"{key}: the remote analysis did not finish" if code == NO_RESULT else
+                              f"{key}: solver process ended with code {code}.{hint}")
             if self.job is not None and not self.job.tuning:
                 try:
                     (self.job.out / "status.json").write_text(json.dumps({"state": "failed", "error": f"exit {code}"}), encoding="utf-8")

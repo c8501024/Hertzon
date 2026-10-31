@@ -191,6 +191,8 @@ region, ports, radiation boundaries) are left out. See [docs/GERBER_EXPORT.md](d
   model (geometry, materials, boundaries, ports, initial mesh) and runs the setup, or stops after
   meshing with `--prepare-only` so you can continue in plain EMerge.
 * Solve without the GUI: `python -m hertzon.solver.run Project.hzn DesignName Setup1 out_folder`.
+* Solve on another computer in your network: run `hertzon-serve` there and enter it in Tools > Options >
+  Remote. See [docs/REMOTE.md](docs/REMOTE.md).
 * Project files (`.hzn`) are plain JSON; results go to `<project>.hznresults/<design>/<setup>/`
   (`sparams_*.npz`, Touchstone `*.sNp`, `fields_*.npz`, `farfield_*.npz`, `convergence.json`).
 

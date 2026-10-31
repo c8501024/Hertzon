@@ -6,6 +6,13 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Solving on another computer.** A computer in the local network with Hertzon installed runs the remote
+  service (`hertzon-serve`, optionally started at login with `hertzon-serve autostart on`); Tools > Options
+  > Remote points the GUI at it with its address and token. *Analyze* then uploads the project and the
+  setup's results folder, shows progress, adaptive passes and the log live, can abort, and mirrors the
+  results folder back (small files first), so reports and field plots work as after a local solve. Also
+  for parametric and optimization runs. Several users can share one service; jobs run one after the other.
+  See docs/REMOTE.md.
 - **Derivative tuning with sliders.** Results > Tuning (also Optimization > Derivative Tuning and the right
   click on a sweep) computes, once, how the S-parameters of a sweep depend on chosen design variables, on
   the converged adaptive mesh of the setup. Then sliders in a dock panel move the variables and every open
