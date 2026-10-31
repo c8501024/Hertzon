@@ -5014,6 +5014,7 @@ class MainWindow(QMainWindow):
                 elif self.des.setups:
                     m.addAction("Solution Data...", lambda: self.solution_data(self.des.setups[0].name))
                 m.addAction("Export S-Parameters (Touchstone)...", self.export_touchstone)
+                m.addAction("Derivative Tuning...", lambda: self.derivative_tuning())
                 m.addSeparator()
                 m.addAction("Clean Up Solutions...", self.clean_up_solutions)
             elif g == "Equations":
@@ -5062,6 +5063,7 @@ class MainWindow(QMainWindow):
             m.addAction("Analyze", lambda: self.analyze([data[1]]))
             m.addAction("Generate Mesh", lambda: self.generate_mesh([data[1]]))
             m.addAction("Solution Data...", lambda: self.solution_data(data[1]))
+            m.addAction("Derivative Tuning...", lambda: self.derivative_tuning(data[1]))
             m.addAction("Clean Up Solutions...", lambda: self.clean_up_solutions([data[1]]))
             m.addAction("Copy", lambda: self._copy_setup(data[1]))
             m.addAction("Delete", self._delete_project_items)
