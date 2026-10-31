@@ -833,6 +833,7 @@ class ReportWindow(QWidget):
 
     def _fill_xaxis(self) -> None:
         m = self._tuning_model()
+        self._xmodel = m
         p = self.report.props
         for w in (self.xvar, self.xfreq):
             w.blockSignals(True)
@@ -933,6 +934,11 @@ class ReportWindow(QWidget):
         return np.asarray(ff["theta"], float), np.asarray(ff["phi"], float)
 
     def _tuning_changed(self) -> None:
+        if getattr(self, "xvar", None) is not None and self._tuning_model() is not self._xmodel:
+            self._fill_xaxis()          # a new tuning model (other variables): offer its variables
+            if self.report.props.get("x_var") and not self._xvar():
+                self.refresh(keep_cache=True)       # the variable of the x axis is gone: back to frequency
+                return
         if self._tuned() or self._tuned_shown or self._xvar():
             if self.isVisible():
                 self.refresh(keep_cache=True)
