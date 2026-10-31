@@ -847,19 +847,27 @@ class OptionsDialog(QDialog):
         self.remote_addr.setPlaceholderText("simstation02 or 192.168.1.20:47820")
         self.remote_token = QLineEdit(s.value("remote/token", ""))
         self.remote_token.setEchoMode(QLineEdit.Password)
+        self.remote_find = QPushButton("Find in Network ...")
+        self.remote_find.setToolTip("Looks for computers in the local network that share themselves "
+                                    "(Share this computer below)\nand connects with the pairing code shown there")
+        self.remote_find.clicked.connect(self._find_remote)
         self.remote_test = QPushButton("Test Connection")
         self.remote_state = QLabel()
         self.remote_state.setWordWrap(True)
         self.remote_test.clicked.connect(self._test_remote)
         f.addRow("", self.remote_on)
-        f.addRow("Computer", self.remote_addr)
+        crow = QHBoxLayout()
+        crow.addWidget(self.remote_addr, 1)
+        crow.addWidget(self.remote_find)
+        f.addRow("Computer", crow)
         f.addRow("Token", self.remote_token)
         row = QHBoxLayout()
         row.addWidget(self.remote_test)
         row.addWidget(self.remote_state, 1)
         f.addRow("", row)
-        hint = QLabel("Enter the address and token that Hertzon shows on the other computer under "
-                      "<i>Share this computer</i> below.")
+        hint = QLabel("<i>Find in Network</i> lists the computers that share themselves (<i>Share this "
+                      "computer</i> below, on the other computer) and connects with the six-digit pairing code "
+                      "shown there. Address and token can also be entered by hand.")
         hint.setWordWrap(True)
         f.addRow(hint)
 
@@ -884,7 +892,12 @@ class OptionsDialog(QDialog):
         trow = QHBoxLayout()
         trow.addWidget(self.share_token, 1)
         trow.addWidget(copy)
+        self.share_code = QLabel()
+        self.share_code.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.share_code.setToolTip("Enter this code on the other computer after Find in Network; it changes "
+                                   "with each start of the service")
         g.addRow("Computer", self.share_addr)
+        g.addRow("Pairing code", self.share_code)
         g.addRow("Token", trow)
         self.share_auto = QCheckBox("Start the service at login (also without Hertzon open)")
         g.addRow("", self.share_auto)
@@ -979,6 +992,9 @@ class OptionsDialog(QDialog):
         self.share_btn.setText("Stop Service" if info else "Start Service")
         self.share_addr.setText("  or  ".join(local.share_addresses()))
         self.share_token.setText(local.token())
+        code = local.pairing_code() if info else ""
+        self.share_code.setText(f"<b style='font-size:14pt; letter-spacing:3px'>{code[:3]} {code[3:]}</b>"
+                                if code else "(shown while the service runs)")
         if not hasattr(self, "_share_auto0"):
             self._share_auto0 = autostart_enabled()
             self.share_auto.setChecked(self._share_auto0)
@@ -1001,6 +1017,50 @@ class OptionsDialog(QDialog):
         finally:
             QApplication.restoreOverrideCursor()
         self._share_status(info, checked=True)
+
+    def _find_remote(self) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QApplication, QInputDialog
+        from ..remote.client import RemoteError, discover, pair
+        QApplication.setOverrideCursor(_Qt.WaitCursor)
+        try:
+            found = discover()
+        finally:
+            QApplication.restoreOverrideCursor()
+        try:
+            from ..remote import local
+            own = local.status()
+        except Exception:  # noqa: BLE001
+            own = None
+        if own:                                       # this computer itself is no remote computer for us
+            found = [f for f in found if f.get("host") != own.get("host")]
+        if not found:
+            self.remote_state.setText("No computer in the network shares itself. On the other computer: "
+                                      "Tools > Options > Remote > Start Service.")
+            return
+        names = [f"{f.get('host')}  ({f['address']}, Hertzon {f.get('hertzon')}, {f.get('cores')} cores"
+                 + (", busy)" if f.get("busy") else ")") for f in found]
+        name, ok = QInputDialog.getItem(self, "Find in Network", "Computer:", names, 0, False)
+        if not ok:
+            return
+        sel = found[names.index(name)]
+        code, ok = QInputDialog.getText(self, "Pairing Code",
+                                        f"Pairing code shown on {sel.get('host')}\n(Tools > Options > Remote):")
+        if not ok or not code.strip():
+            return
+        try:
+            tok = pair(sel["address"], code.replace(" ", ""))
+        except RemoteError as ex:
+            self.remote_state.setText(str(ex))
+            return
+        self.remote_addr.setText(f"{sel.get('host')}:{sel['address'].rsplit(':', 1)[1]}")
+        self.remote_token.setText(tok)
+        self.remote_on.setChecked(True)
+        self._test_remote()
+        if self.remote_state.text().startswith("Connected"):
+            return
+        self.remote_addr.setText(sel["address"])          # the name does not resolve here: use the address
+        self._test_remote()
 
     def _test_remote(self) -> None:
         from PySide6.QtCore import Qt as _Qt

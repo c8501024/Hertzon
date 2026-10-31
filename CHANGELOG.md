@@ -8,9 +8,12 @@ the GitHub release notes.
 ### Added
 - **Solving on another computer.** A computer in the local network with Hertzon installed runs the remote
   service, started in Tools > Options > Remote > Share this computer (optionally at every login) or with
-  `hertzon-serve`; on the laptop the same tab points the GUI at it with its address and token. *Analyze* then uploads the project and the
+  `hertzon-serve`. On the laptop, *Find in Network* in the same tab lists the shared computers and connects
+  with the six-digit pairing code shown on them; *Solve on* in the status bar switches between this
+  computer and the remote one. The solving computer's Progress window lists the analyses sent to it. *Analyze* then uploads the project and the
   setup's results folder, shows progress, adaptive passes and the log live, can abort, and mirrors the
-  results folder back (small files first), so reports and field plots work as after a local solve. Also
+  results folder back, so reports and field plots work as after a local solve. S-parameters and
+  convergence are there as soon as the solver ends; large sweep field files follow in the background. Also
   for parametric and optimization runs. Several users can share one service; jobs run one after the other.
   See docs/REMOTE.md.
 - **Derivative tuning with sliders.** Results > Tuning (also Optimization > Derivative Tuning and the right

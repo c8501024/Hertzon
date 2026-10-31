@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -130,9 +131,11 @@ class Mirror:
         self.host, self.jid, self.folder = host, jid, Path(folder)
         self.seen: dict[str, tuple[int, int]] = {}
 
-    def sync(self, final: bool = False, progress=None) -> int:
+    def sync(self, final: bool = False, progress=None, skip=None) -> int:
+        """Fetch new and changed files (not those SKIP(entry) is true for); FINAL also removes local files the
+        solver removed remotely."""
         remote = self.host.files(self.jid)
-        todo = changed(remote, self.seen)
+        todo = [e for e in changed(remote, self.seen) if skip is None or not skip(e)]
         total = sum(e["size"] for e in todo)
         done = 0
         missing: set[str] = set()
@@ -150,7 +153,7 @@ class Mirror:
             if progress is not None:
                 progress(done, total)
         if final:
-            keep = {e["path"] for e in remote} - missing
+            keep = ({e["path"] for e in remote} - missing) | {"status.json"}   # the GUI writes it on abort
             for e in file_list(self.folder):
                 if e["path"] not in keep:
                     try:
@@ -158,6 +161,52 @@ class Mirror:
                     except OSError:
                         pass
         return len(todo)
+
+
+def discover(timeout: float = 1.5, port: int = DEFAULT_PORT) -> list[dict]:
+    """Remote services in the local network (UDP broadcast); each with 'address' (ip:port), 'host',
+    'hertzon', 'cores', 'busy'."""
+    import socket
+    from .server import DISCOVER, addresses
+    found: dict[str, dict] = {}
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(0.2)
+        targets = {"255.255.255.255", "127.0.0.1"}
+        for ip in addresses():                       # directed broadcast of each /24 network (Windows)
+            targets.add(ip.rsplit(".", 1)[0] + ".255")
+        for t in targets:
+            try:
+                sock.sendto(DISCOVER, (t, port))
+            except OSError:
+                pass
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            try:
+                data, (ip, _) = sock.recvfrom(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            try:
+                info = json.loads(data.decode("utf-8"))
+            except ValueError:
+                continue
+            if info.get("service") != "hertzon-remote":
+                continue
+            info["address"] = f"{ip}:{info.get('port', port)}"
+            found.setdefault(info.get("host", ip), info)
+    finally:
+        sock.close()
+    return sorted(found.values(), key=lambda i: str(i.get("host", "")).lower())
+
+
+def pair(address: str, code: str) -> str:
+    """The token of the service at ADDRESS for its pairing code."""
+    host = RemoteHost(address, "", timeout=10)
+    return host._json("POST", "/api/pair", data=json.dumps({"code": code}).encode("utf-8"),
+                      headers={"Content-Type": "application/json"})["token"]
 
 
 def prepare(project: Path, out: Path, workdir: Path | None = None) -> tuple[Path, str]:

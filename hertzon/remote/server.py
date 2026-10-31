@@ -119,10 +119,18 @@ class Service:
         self.cores = cores if cores > 0 else (os.cpu_count() or 1)
         self.sweep_workers = sweep_workers
         self.command = command or self.solver_command
+        self.port = DEFAULT_PORT
         self.jobs: dict[str, Job] = {}
         self.queue: list[Job] = []
         self.cond = threading.Condition()
         self.stopping = False
+        # pairing: another GUI gets the token with this short code (shown in Options > Remote on this computer)
+        self.pairing = f"{secrets.randbelow(1_000_000):06d}"
+        self._pair_failures: list[float] = []
+        try:
+            (self.workdir / "pairing").write_text(self.pairing + "\n", encoding="utf-8")
+        except OSError:
+            pass
         self.cleanup()
         self.worker = threading.Thread(target=self._work, name="hertzon-remote-worker", daemon=True)
         self.worker.start()
@@ -297,6 +305,19 @@ class Service:
             job.state = "aborted" if job.aborted else ("done" if code == 0 else "failed")
             self.cond.notify_all()
 
+    def pair(self, code: str) -> str | None:
+        """The token for the right pairing code; None otherwise. Five wrong codes in ten minutes lock pairing
+        for ten minutes (a six-digit code cannot be guessed that way)."""
+        now = time.time()
+        with self.cond:
+            self._pair_failures = [t for t in self._pair_failures if now - t < 600]
+            if len(self._pair_failures) >= 5:
+                raise PermissionError("too many wrong pairing codes; try again in ten minutes")
+            if hmac.compare_digest(str(code).strip().encode(), self.pairing.encode()):
+                return self.token
+            self._pair_failures.append(now)
+            return None
+
     def info(self) -> dict:
         from .. import __version__
         with self.cond:
@@ -412,9 +433,11 @@ class Handler(BaseHTTPRequestHandler):
                 left -= len(chunk)
 
     def do_POST(self) -> None:
+        parts, _ = self._route()
+        if parts == ["api", "pair"]:                 # the only request without the token
+            return self._pair()
         if not self._authorized():
             return
-        parts, _ = self._route()
         try:
             if parts == ["api", "jobs"]:
                 return self._submit()
@@ -435,6 +458,19 @@ class Handler(BaseHTTPRequestHandler):
             self._error(404, "unknown request")
         except (ValueError, KeyError) as ex:
             self._error(400, str(ex))
+
+    def _pair(self) -> None:
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            code = json.loads(self.rfile.read(min(n, 4096)).decode("utf-8") or "{}").get("code", "")
+            tok = self.service.pair(code)
+        except PermissionError as ex:
+            return self._error(429, str(ex))
+        except (ValueError, AttributeError):
+            return self._error(400, "bad pairing request")
+        if tok is None:
+            return self._error(403, "wrong pairing code")
+        self._send(200, {"token": tok})
 
     def _submit(self) -> None:
         meta = json.loads(self.headers.get("X-Hertzon-Job") or "{}")
@@ -474,6 +510,37 @@ def make_server(service: Service, host: str = "0.0.0.0", port: int = DEFAULT_POR
     return srv
 
 
+DISCOVER = b"HERTZON-DISCOVER"
+
+
+def start_discovery(service: Service, port: int = DEFAULT_PORT) -> socket.socket | None:
+    """Answer the GUIs that look for remote services in the network (UDP broadcast on PORT) with this
+    service's name, port and version. Nothing secret is sent; the token needs the pairing code."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("", port))
+    except OSError:
+        return None
+
+    def answer():
+        while not service.stopping:
+            try:
+                data, addr = sock.recvfrom(256)
+            except OSError:
+                return
+            if data.strip() == DISCOVER:
+                info = service.info()
+                reply = {k: info[k] for k in ("service", "host", "hertzon", "cores", "busy", "queued")}
+                reply["port"] = service.port
+                try:
+                    sock.sendto(json.dumps(reply).encode("utf-8"), addr)
+                except OSError:
+                    pass
+    threading.Thread(target=answer, name="hertzon-remote-discovery", daemon=True).start()
+    return sock
+
+
 def addresses() -> list[str]:
     """This computer's IPv4 addresses in the local network (best effort, for the start message)."""
     found = []
@@ -500,10 +567,12 @@ def serve(host: str = "0.0.0.0", port: int = DEFAULT_PORT, cores: int = 0, sweep
     token = load_token(workdir)
     service = Service(workdir, token, cores, sweep_workers)
     srv = make_server(service, host, port)
+    service.port = port
+    disc = start_discovery(service, port)
     names = [socket.gethostname()] + addresses()
     print(f"Hertzon {__version__} remote service, {service.cores} cores, work folder {workdir}")
     print("Address for Tools > Options > Remote: " + "  or  ".join(f"{n}:{port}" for n in names))
-    print(f"Token: {token}")
+    print(f"Token: {token}    Pairing code: {service.pairing}")
     print("Stop with Ctrl+C.", flush=True)
     try:
         srv.serve_forever()
@@ -512,4 +581,6 @@ def serve(host: str = "0.0.0.0", port: int = DEFAULT_PORT, cores: int = 0, sweep
     finally:
         service.stop()
         srv.server_close()
+        if disc is not None:
+            disc.close()
     return 0

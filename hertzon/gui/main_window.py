@@ -161,6 +161,12 @@ class MainWindow(QMainWindow):
         sb = self.statusBar()
         self.hint = QLabel("Ready")
         sb.addWidget(self.hint, 1)
+        self.solve_on = QComboBox()
+        self.solve_on.setToolTip("Where analyses run: this computer or a remote computer in the network\n"
+                                 "(Tools > Options > Remote)")
+        self.solve_on.activated.connect(self._solve_on_chosen)
+        sb.addPermanentWidget(QLabel("Solve on:"))
+        sb.addPermanentWidget(self.solve_on)
         self.coord_mode = QComboBox()
         self.coord_mode.addItems(["Absolute", "Relative"])
         self.coord_sys = QComboBox()
@@ -848,6 +854,7 @@ class MainWindow(QMainWindow):
         self.solver.message.connect(self.msgs.add)
         self.solver.progress.connect(self.progress.update_progress)
         self.solver.finished.connect(self._solve_finished)
+        self.solver.filesArrived.connect(lambda k: (self._pass_data(k, {}), self._refresh_reports()))
         self.solver.passUpdate.connect(self._pass_finished)
         self.solver.passData.connect(self._pass_data)
         self.solver.started.connect(lambda k: self.project_tree.rebuild())
@@ -1310,9 +1317,41 @@ class MainWindow(QMainWindow):
         self.edit_new_primitives = v
         self.settings.setValue("edit_new_primitives", v)
 
-    def options(self) -> None:
+    def _fill_solve_on(self) -> None:
+        """Status bar: This computer / the remote computer / Set up ..."""
+        box = getattr(self, "solve_on", None)
+        if box is None:
+            return
+        addr = str(self.settings.value("remote/address", "") or "")
+        box.blockSignals(True)
+        box.clear()
+        box.addItem("This computer")
+        if addr:
+            box.addItem(addr)
+        box.addItem("Remote computer ..." if not addr else "Other remote computer ...")
+        box.setCurrentIndex(1 if addr and self.solver.remote is not None else 0)
+        box.blockSignals(False)
+
+    def _solve_on_chosen(self, i: int) -> None:
+        addr = str(self.settings.value("remote/address", "") or "")
+        if i == self.solve_on.count() - 1:          # set up a remote computer
+            self.options(tab="Remote")
+            self._fill_solve_on()
+            return
+        self.settings.setValue("remote/enabled", i == 1 and bool(addr))
+        self.apply_hpc_settings()
+        self.msgs.add("info", f"Analyses run on {addr}" if self.solver.remote is not None else
+                      "Analyses run on this computer")
+
+    def options(self, tab: str = "") -> None:
         from .dialogs import OptionsDialog
         dlg = OptionsDialog(self, self)
+        if tab:
+            from PySide6.QtWidgets import QTabWidget
+            tabs = dlg.findChild(QTabWidget)
+            for k in range(tabs.count()):
+                if tabs.tabText(k) == tab:
+                    tabs.setCurrentIndex(k)
         if dlg.exec() == QDialog.Accepted:
             dlg.apply()
             self.msgs.add("info", "Options saved")
@@ -1431,6 +1470,7 @@ class MainWindow(QMainWindow):
         if self.settings.value("remote/enabled", False, type=bool) and addr:
             from ..remote.client import RemoteHost
             self.solver.remote = RemoteHost(addr, str(self.settings.value("remote/token", "") or ""))
+        self._fill_solve_on()
 
     def _restore_settings(self) -> None:
         s = self.settings

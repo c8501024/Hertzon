@@ -22,20 +22,24 @@ network; allow it for private networks.
 
 ## On your laptop
 
-Tools > Options > Remote: tick **Solve on a remote computer**, enter the computer (`simstation02` or
-`192.168.1.20:47820`) and the token, and press **Test Connection**. From now on *Analyze* sends the
-analysis to that computer:
+Tools > Options > Remote > **Find in Network ...** lists the computers that share themselves; pick one and
+enter the six-digit pairing code its Options show (*Share this computer*). Hertzon fills in address and
+token, ticks **Solve on a remote computer** and tests the connection. (Address and token can also be
+entered by hand.) From now on *Analyze* sends the analysis to that computer; **Solve on** in the status bar
+switches between *This computer* and the remote one at any time.
 
 - the project file and the setup's results folder are uploaded (so a sweep-only run or continued adaptive
   passes start from the existing mesh, as locally);
-- progress, adaptive passes and the message log show up live; the field plots of each adaptive pass work;
+- progress, adaptive passes and the message log show up live; the field plots of each adaptive pass work
+  (their files are fetched in the background, the progress never waits for them);
 - *Abort* stops the solver on the other computer;
-- the results folder is mirrored back, small files (S-parameters, convergence) first, then the fields.
+- when the solver ends, the S-parameters, convergence, mesh and last adaptive fields arrive first and the
+  analysis is finished; large field files of the sweeps follow in the background (the Message Manager says
+  when they are complete), and the next queued analysis starts after them.
 
-Several users can share one service; their analyses run one after the other. On the solving computer, the Progress window
-lists the analyses other computers sent to it (who sent them, progress); select one and press Abort to stop
-it. Untick the option to solve
-locally again.
+Several users can share one service; their analyses run one after the other. On the solving computer, the
+Progress window lists the analyses other computers sent to it (who sent them, progress); select one and
+press Abort to stop it.
 
 ## Notes
 

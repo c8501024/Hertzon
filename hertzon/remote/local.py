@@ -18,6 +18,14 @@ def token() -> str:
     return load_token(default_workdir())
 
 
+def pairing_code() -> str:
+    """The pairing code of the running service (it changes with each start of the service)."""
+    try:
+        return (default_workdir() / "pairing").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def local_host(timeout: float = 1.5) -> RemoteHost:
     return RemoteHost(f"127.0.0.1:{DEFAULT_PORT}", token(), timeout=timeout)
 

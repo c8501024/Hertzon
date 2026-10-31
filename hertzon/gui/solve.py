@@ -63,6 +63,7 @@ class SolveManager(QObject):
     passData = Signal(str, dict)             # mesh/fields of the current pass were saved
     optimUpdate = Signal(str, dict)          # an optimization evaluation finished
     started = Signal(str)
+    filesArrived = Signal(str)               # remote: the large field files came after the analysis finished
     finished = Signal(str, bool)
     queueChanged = Signal()
 
@@ -76,10 +77,11 @@ class SolveManager(QObject):
         self.cores = 0              # 0 = all cores
         self.sweep_workers = 2
         self.remote = None          # RemoteHost: solve on that computer (Tools > Options > Remote)
+        self._downloading = None    # RemoteRun still fetching field files of a finished remote analysis
 
     @property
     def busy(self) -> bool:
-        return self.proc is not None
+        return self.proc is not None or self._downloading is not None
 
     def submit(self, job: Job) -> None:
         if any(j.key == job.key for j in self.queue) or (self.job and self.job.key == job.key):
@@ -106,7 +108,7 @@ class SolveManager(QObject):
         self.queueChanged.emit()
 
     def _next(self) -> None:
-        if self.proc is not None or not self.queue:
+        if self.busy or not self.queue:
             return
         job = self.queue.pop(0)
         self.job = job
@@ -198,12 +200,26 @@ class SolveManager(QObject):
         r.line.connect(self._handle_line)
         r.note.connect(lambda level, text, key=job.key: self.message.emit(level, f"{key}: {text}"))
         r.status.connect(lambda v, text, key=job.key: self.progress.emit(key, v, text))
-        r.ended.connect(lambda code: self._done(code, QProcess.NormalExit))
+        r.ended.connect(lambda code, r=r: self._remote_ended(r, code))
+        r.downloaded.connect(lambda key=job.key, r=r: self._remote_downloaded(r, key))
         self.proc = r
         self.started.emit(job.key)
         self.progress.emit(job.key, 0, f"Starting solver on {self.remote.address}")
         self.message.emit("info", f"{job.key}: sending to {self.remote.address}")
         r.start()
+
+    def _remote_ended(self, run, code: int) -> None:
+        """The small results are here: the analysis is finished; the queue waits for the field files, so the
+        next analysis does not clear a results folder that is still filling."""
+        self._downloading = run
+        self._done(code, QProcess.NormalExit)
+
+    def _remote_downloaded(self, run, key: str) -> None:
+        if self._downloading is run:
+            self._downloading = None
+        self.filesArrived.emit(key)
+        self.queueChanged.emit()
+        self._next()
 
     def abort(self) -> None:
         if self.proc is None or self.job is None:

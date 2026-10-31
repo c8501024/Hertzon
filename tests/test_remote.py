@@ -2,6 +2,7 @@
 path checks. A small stand-in replaces the solver, so no EMerge is needed."""
 from __future__ import annotations
 
+import json
 import sys
 import threading
 import time
@@ -224,3 +225,48 @@ def test_jobs_list_shows_sender_and_progress(service, tmp_path):
     assert job["label"] == "Antenna - HFDesign - Setup1" and job["client"] == "LAPTOP"
     assert job["state"] == "running" and job["progress"] == 10 and job["text"] == "Adaptive pass 1"
     host.abort(jid)
+
+
+def test_large_sweep_fields_come_last(service, tmp_path):
+    """The small results arrive first (the analysis then counts as finished); large sweep fields after."""
+    from hertzon.gui.remote_run import late
+    svc, host = service
+    proj, out = make_project(tmp_path)
+    jid, _ = run_job(host, proj, out)
+    ev = {"state": "queued"}
+    while ev["state"] in ("queued", "running"):
+        ev = host.events(jid, 0, wait=5)
+    (svc.jobs[jid].out_dir / "fields_Sweep.npz").write_bytes(b"F" * 2_000_000)
+    m = Mirror(host, jid, out)
+    m.sync(skip=late)
+    assert (out / "sparams_Sweep.npz").exists() and (out / "fields_LastAdaptive.npz").exists()
+    assert not (out / "fields_Sweep.npz").exists()
+    m.sync(final=True)
+    assert (out / "fields_Sweep.npz").stat().st_size == 2_000_000
+
+
+def test_discovery_and_pairing(service):
+    """A GUI finds the service in the network and gets its token with the six-digit pairing code."""
+    import socket as _socket
+
+    from hertzon.remote.client import discover, pair
+    from hertzon.remote.server import start_discovery
+    svc, host = service
+    svc.port = int(host.address.rsplit(":", 1)[1])
+    probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    probe.bind(("127.0.0.1", 0))
+    udp_port = probe.getsockname()[1]
+    probe.close()
+    sock = start_discovery(svc, udp_port)
+    try:
+        found = discover(timeout=1.0, port=udp_port)
+    finally:
+        sock.close()
+    assert any(f["address"].endswith(f":{svc.port}") and f["hertzon"] for f in found)
+    assert "token" not in json.dumps(found)
+    assert pair(host.address, svc.pairing) == "secret-token"
+    for _ in range(5):
+        with pytest.raises(RemoteError, match="wrong pairing code"):
+            pair(host.address, "000000" if svc.pairing != "000000" else "111111")
+    with pytest.raises(RemoteError, match="too many"):
+        pair(host.address, svc.pairing)                  # locked, even with the right code
