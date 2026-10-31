@@ -24,7 +24,7 @@ the GitHub release notes.
     the chosen sweep has no solution yet (its tuned curves could not be shown in any report).
   - An open report offers the variables of a new tuning model on its X axis at once (no new report needed).
   - Documentation: [docs/TUNING.md](docs/TUNING.md) explains the workflow, the method, the accuracy and the
-    limits; tutorial section 10 tunes the substrate height of the patch antenna.
+    limits; tutorial section 10 tunes the patch length and inset of the patch antenna.
   - Faces may slide along plane parts of the outer boundary, and lumped ports and lumped RLC elements
     stretch with the mesh (width, height, integration lines and excitation follow), so a substrate height
     can be tuned with a lumped port across it. Wave ports stay in place.
@@ -54,7 +54,7 @@ the GitHub release notes.
     (*At*), with the other variables at their slider values. Dashed line: the solved value, solid line: the
     slider value, shaded: the outer part of the range with lower accuracy. Works without the slider panel
     open, from the stored tuning model.
-    Antenna Parameters reports and tables have it too (e.g. peak realized gain over a substrate height).
+    Antenna Parameters reports and tables have it too (e.g. peak realized gain over the patch length).
 - **Goal preview in Setup Optimization.** The Goals tab draws every goal as a mask over the current
   solution (each calculation as a curve, each goal as a line over its range in the colour of its
   calculation, the forbidden side shaded) and shows its margin in a new Margin column: positive = reserve

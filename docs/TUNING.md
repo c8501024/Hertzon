@@ -6,7 +6,7 @@ values. Sliders then move design variables, and every open report follows live. 
 Smith charts, data tables, radiation patterns and antenna parameters. A report can also plot a quantity
 against a variable instead of frequency.
 
-A step-by-step example with a patch antenna is in the
+A step-by-step example (patch length and inset of a patch antenna) is in the
 [tutorial](TUTORIAL.md#10-tune-a-patch-antenna-with-sliders). This page describes the workflow in
 detail, then the method, its accuracy and its limits.
 
