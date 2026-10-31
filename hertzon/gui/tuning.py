@@ -31,6 +31,15 @@ def same_solution(a: str, b: str) -> bool:
     return a.replace(" ", "") == b.replace(" ", "")
 
 
+def slider_range(model, i: int) -> tuple[float, float]:
+    """(lo, hi) offsets of variable i of the tuning model: its range, a positive length stays positive."""
+    v0 = model.values[i]
+    lo, hi = model.ranges[i]
+    if v0 > 0:
+        lo = max(lo, -0.9 * v0)
+    return float(lo), float(hi)
+
+
 class TuningState(QObject):
     """The tuning model of one solution and the slider offsets: what the reports draw as tuned curves."""
 
@@ -298,9 +307,7 @@ class TuningPanel(QWidget):
             return
         for i, name in enumerate(m.variables):
             v0, unit = m.values[i], m.units[i]
-            lo, hi = m.ranges[i]
-            if v0 > 0:                       # a positive length stays positive
-                lo = max(lo, -0.9 * v0)
+            lo, hi = slider_range(m, i)
             lab = QLabel(name)
             sl = QSlider(Qt.Horizontal)
             sl.setRange(0, STEPS)

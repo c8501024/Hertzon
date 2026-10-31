@@ -35,6 +35,14 @@ the GitHub release notes.
   - Radiation patterns follow the sliders (gain, realized gain, directivity ... at the report frequency):
     the model keeps the fields of its basis on the far field surface, so a slider move only sums their
     far fields; at the solved design it reproduces the solved far field exactly.
+  - Antenna Parameters reports and tables follow the sliders too (peak realized gain, radiation
+    efficiency ... over the sweep frequencies of a sweep with saved fields). The far fields of the basis are
+    computed once per frequency, with progress; after that a slider move takes a fraction of a second.
+  - Plot against a design variable: Rectangular plots and data tables of a solution with a tuning model
+    have an *X axis* choice, Frequency or one of the tuned variables over its tuning range at one frequency
+    (*At*), with the other variables at their slider values. Dashed line: the solved value, solid line: the
+    slider value, shaded: the outer part of the range with lower accuracy. Works without the slider panel
+    open, from the stored tuning model.
 - **Goal preview in Setup Optimization.** The Goals tab draws every goal as a mask over the current
   solution (each calculation as a curve, each goal as a line over its range in the colour of its
   calculation, the forbidden side shaded) and shows its margin in a new Margin column: positive = reserve
