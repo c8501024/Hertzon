@@ -560,6 +560,7 @@ class Bridge:
         for oname in a.objects:
             g = self.geos.get(oname)
             if g is None:
+                warn(f"{a.name}: object '{oname}' is not part of the solve")
                 continue
             t = self.tess.get(oname)
             tags += list(g.selection.tags) if (t and t.dim == 2) else list(g.boundary().tags)
@@ -1055,21 +1056,34 @@ class Bridge:
             restrict = p.get("RestrictElements") == "True"
             nmax = max(1, int(float(p.get("MaxElements", "1000") or 1000)))
             if op.kind == "Length Based Inside Selection":
+                applied = 0
                 for o in op.objects + [f.obj for f in op.faces]:
                     g = self.geos.get(o)
                     t = self.tess.get(o)
                     if g is None:
+                        warn(f"{op.name}: object '{o}' is not part of the solve")
                         continue
+                    applied += 1
                     s_o = size
                     if restrict and t is not None:
                         # regular tetrahedron volume ~ s^3/8.5: enlarge s so that at most nmax elements fit
                         vol = float(np.prod(np.ptp(np.asarray(t.points), axis=0)))
                         s_o = max(size, (8.5 * vol / nmax) ** (1 / 3))
                     mesher.set_domain_size(g, s_o)
+                if not applied:
+                    warn(f"{op.name}: none of its objects is part of the solve; mesh operation not applied")
+                    continue
             elif op.kind == "Length Based On Edges":
+                if not op.edges:
+                    # objects or faces assigned to an edge operation select no edge: say so instead of
+                    # reporting edges that could not be located
+                    warn(f"{op.name}: Length Based On Edges has no edges assigned"
+                         + (" (only objects or faces)" if op.objects or op.faces else "")
+                         + "; mesh operation not applied. Assign edges, or use Length Based On Selection.")
+                    continue
                 curves = self._match_edges(op)
                 if not curves:
-                    warn(f"{op.name}: no edges could be located in the solver model")
+                    warn(f"{op.name}: no edges could be located in the solver model; mesh operation not applied")
                     continue
                 if restrict:
                     total = sum(L for _, L in curves)
@@ -1081,8 +1095,10 @@ class Bridge:
                     import gmsh
                     area = sum(gmsh.model.occ.getMass(2, t) for t in tags)
                     size = max(size, (4 * area / (np.sqrt(3) * nmax)) ** 0.5)
-                if tags:
-                    mesher.set_face_size(sel, size)
+                if not tags:
+                    warn(f"{op.name}: empty selection; mesh operation not applied")
+                    continue
+                mesher.set_face_size(sel, size)
             info(f"Mesh operation '{op.name}' applied")
 
     def _match_edges(self, op) -> list[tuple[int, float]]:
@@ -1344,7 +1360,9 @@ class Bridge:
                 fl.set_field_vector()
                 err, lengths = fl._solution_quality(pec)
                 errors.append(err)
-            error = np.max(errors, axis=0)
+            error = finite_error(np.max(errors, axis=0), fields[0] if fields else None, step)
+            if error is None:
+                break
             last_n = m.mesh.n_tets
             ids = select_refinement_indices(error, incl)[::-1]
             included = np.zeros(m.mesh.n_tets, dtype=np.bool_)
@@ -2244,8 +2262,10 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         for i in range(len(fa)):
             err, lengths = fields[i]._solution_quality(solve_ids)
             errors[:, i] = err
-        error = errors.max(axis=1)
+        error = finite_error(errors.max(axis=1), fields[0] if fields else None, step)
         info(f"Pass {step}: error estimate {time.time() - t_err:.2f} s ({m.mesh.n_tets} tetrahedra)")
+        if error is None:
+            break
         emit("progress", value=12 + 40 * (step - 0.4) / maxp, text=f"Pass {step}: refining the mesh")
         t_ref = time.time()
         ids = select_refinement_indices(error, incl)[::-1]
@@ -2322,6 +2342,48 @@ def _save_amr_state(out: Path, key: str, amr, ratio: float, passes: list, fa, m=
         os.replace(tmp, out / AMR_STATE)
     except Exception as e:  # noqa: BLE001
         warn(f"Could not store the adaptive mesh state: {e}")
+
+
+def _material_of_tet(field, t: int) -> str:
+    """'er = ..., ur = ...' of tetrahedron t: one value when the material is isotropic, else the diagonal."""
+    def one(a):
+        if a is None:
+            return "?"
+        a = np.asarray(a)
+        M = a[:, :, t] if a.ndim == 3 else np.eye(3) * a[t]
+        d = np.diag(M)
+        if np.allclose(M, np.diag(d)) and np.allclose(d, d[0]):
+            return f"{complex(d[0]):.4g}"
+        return "[" + ", ".join(f"{complex(x):.4g}" for x in d) + "]"
+    return f"er = {one(getattr(field, '_der', None))}, ur = {one(getattr(field, '_dur', None))}"
+
+
+def finite_error(error: np.ndarray, field=None, step: int = 0) -> np.ndarray | None:
+    """The error estimate with NaN/inf entries set to 0, so those tetrahedra are left out of the
+    refinement instead of ending the analysis. Says which tetrahedra (and their materials) were affected;
+    None when no tetrahedron has a finite error: then the refinement cannot go on."""
+    error = np.asarray(error, float)
+    bad = ~np.isfinite(error)
+    if not bad.any():
+        return error
+    ids = np.flatnonzero(bad)
+    if bad.all():
+        warn(f"Pass {step}: the error estimate is not finite (NaN) in all {len(error)} tetrahedra "
+             f"(tet 0: {_material_of_tet(field, 0) if field is not None else '?'}); the mesh cannot be refined, "
+             "the adaptive analysis stops with this pass.")
+        return None
+    shown = []
+    for t in ids[:3]:
+        try:
+            shown.append(f"tet {int(t)} ({_material_of_tet(field, int(t))})" if field is not None else f"tet {int(t)}")
+        except Exception:  # noqa: BLE001
+            shown.append(f"tet {int(t)}")
+    warn(f"Pass {step}: the error estimate is not finite (NaN) in {len(ids)} of {len(error)} tetrahedra: "
+         + ", ".join(shown) + (", ..." if len(ids) > 3 else "")
+         + ". These tetrahedra are left out of this refinement.")
+    out = error.copy()
+    out[bad] = 0.0
+    return out
 
 
 def _refine_local(m, props, coords, sizes, ratio: float, growth: float, pct: float, error=None,
