@@ -225,6 +225,8 @@ def test_tuned_far_field_of_the_patch_matches_the_solved_one(tmp_path):
         assert b.save_huygens(list(m.mw.data.field)[-len(F):], "chk")
         path = tmp_path / "tuning_h.npz"
         TU.build(b, ["h"], F, path)
+        single = tmp_path / "tuning_single.npz"           # per frequency (a setup without a sweep)
+        TU.build(b, ["h"], F[1:], single, band=False)
     huy = b.store.npz("huygens_chk.npz")
     model = TU.TuningModel(path)
     assert model.ff is not None
@@ -251,6 +253,13 @@ def test_tuned_far_field_of_the_patch_matches_the_solved_one(tmp_path):
     assert abs(vals["RadiationEfficiency"][0] - tuned["_eff"][0]) < 1e-12
     assert abs(vals["PeakRealizedGain"][0] - tuned["RealizedGainTotal"].max()) < 1e-12
     assert model.has_farfield(k, th, ph) and not model.has_farfield(0, th, ph)
+    # a model of one frequency has its own far field basis: the same far field
+    one = TU.TuningModel(single)
+    assert one.ff is not None and "E_0" in one.ff
+    got1 = one.antenna(0, 0, [0.0], th, ph)
+    assert abs(rg(got1) - rg(ref)) < 1e-4
+    t1 = one.antenna(0, 0, [0.2], th, ph)
+    assert abs(t1["_eff"][0] - tuned["_eff"][0]) < 2e-3
 
 
 def test_band_model_matches_the_model_of_every_frequency(tmp_path):
