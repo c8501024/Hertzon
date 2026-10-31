@@ -242,6 +242,10 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
             add("Mesh Operations", "error", f"'{m.name}' references missing objects")
         if not refs:
             add("Mesh Operations", "error", f"'{m.name}' has no assignment")
+        elif m.enabled and m.kind == "Length Based On Edges" and not m.edges:
+            add("Mesh Operations", "warning", f"'{m.name}' is Length Based On Edges but has no edges assigned "
+                                              "(only objects or faces), so it has no effect. Assign edges, or "
+                                              "use Length Based On Selection.")
     if not any(c.category == "Mesh Operations" for c in out):
         add("Mesh Operations", "ok", f"{len(design.mesh_ops)} mesh operations")
 

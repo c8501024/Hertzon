@@ -301,10 +301,8 @@ def _assign_summary(a: Assignment) -> dict:
 def _solution_state(ctx: Ctx, setup: str) -> str:
     if not ctx.proj.path:
         return "not saved"
-    from ..solver.results import ResultStore, results_dir
-    st = ResultStore(results_dir(ctx.proj.path, ctx.des.name, setup))
-    s = st.read_json("status.json")
-    return (s or {}).get("state", "not solved")
+    from ..solver.results import results_dir, run_status
+    return run_status(results_dir(ctx.proj.path, ctx.des.name, setup)).get("state", "not solved")
 
 
 def summary(ctx: Ctx) -> dict:
@@ -1604,10 +1602,10 @@ def _log_tail(out: Path, n: int = 12) -> list[str]:
 
 
 def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
-    from ..solver.results import ResultStore
+    from ..solver.results import ResultStore, run_status
     out = _out_dir(ctx, setup)
     st = ResultStore(out) if out.exists() else None
-    status = (st.read_json("status.json") if st else None) or {}
+    status = run_status(out) if st else {}
     state = status.get("state", "not solved")
     res = {"setup": setup}
     p = S.procs.get(str(out))
@@ -1649,10 +1647,10 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
 
 
 def _study_status(ctx: Ctx, name: str, kind: str) -> dict:
-    from ..solver.results import ResultStore
+    from ..solver.results import ResultStore, run_status
     out = _study_dir(ctx, name)
     st = ResultStore(out) if out.exists() else None
-    status = (st.read_json("status.json") if st else None) or {}
+    status = run_status(out) if st else {}
     state = status.get("state", "not solved")
     res = {kind: name}
     p = S.procs.get(str(out))

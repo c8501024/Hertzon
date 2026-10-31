@@ -27,7 +27,7 @@ import traceback
 from pathlib import Path
 
 from ..model.design import Project
-from .results import ResultStore, _safe
+from .results import ResultStore, _safe, running_status
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES_DIR = ROOT / "examples" / "benchmark" / "scaling"
@@ -320,7 +320,7 @@ def main() -> int:
     out = Path(args[3])
     out.mkdir(parents=True, exist_ok=True)
     try:
-        ResultStore(out).write_json("status.json", {"state": "running", "started": time.time()})
+        ResultStore(out).write_json("status.json", running_status())
         cores = _ints(opts.get("--cores", "")) or default_cores()
         workers = _ints(opts.get("--workers", ""))
         solvers = [x.strip() for x in opts.get("--solvers", "").split(",") if x.strip()]

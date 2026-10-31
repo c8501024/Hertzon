@@ -986,10 +986,8 @@ class ParametricResults(QDialog):
         rows = self.t.get("variations", [])
         names, setups, calcs = self.t.get("variables", []), self.t.get("setups", []), self.t.get("calcs", [])
         states = [s for r in rows for s in r.get("state", {}).values()]
-        try:
-            status = json.loads((self.folder / "status.json").read_text(encoding="utf-8")).get("state", "")
-        except (OSError, ValueError):
-            status = ""
+        from ..solver.results import run_status
+        status = run_status(self.folder).get("state", "")
         self.info.setText(f"{len(rows)} variation(s): {states.count('done')} solved, {states.count('failed')} failed"
                           + (f", {states.count('pending') + states.count('running')} to go" if status == "running" else "")
                           + (f".  {status.capitalize()}" if status and status != "running" else "")

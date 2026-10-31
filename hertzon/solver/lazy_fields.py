@@ -12,6 +12,14 @@ from __future__ import annotations
 import numpy as np
 
 TET10_EDGES = [(0, 1), (1, 2), (0, 2), (0, 3), (1, 3), (2, 3)]   # VTK quadratic tetra mid-edge order
+
+
+def field_layout(npt: int) -> np.ndarray:
+    """The "layout" entry of fields_<solution>.npz: how E_<k>_<port> and H_<k>_<port> are ordered."""
+    pts = "4 corners" if npt == 4 else "4 corners + 6 edge midpoints (VTK quadratic tetra order)"
+    return np.array([f"per tetrahedron (tet-major): row t*{npt}+i is point i of tetrahedron t of mesh.npz, "
+                     f"{pts}; reshape to (n_tets, {npt}, 3). Values are taken from that tetrahedron "
+                     "(discontinuous across material interfaces), not averaged at shared nodes."])
 MU0 = 1.25663706212e-6
 
 # the GUI replaces this with a runner that computes in a worker thread and shows a progress bar
@@ -54,7 +62,7 @@ def fields_from_solution(sol: dict, progress=None) -> dict:
     P = np.ascontiguousarray(C.transpose(0, 2, 1).reshape(3, -1))   # tet-major
     mapping = np.repeat(np.arange(nt, dtype=np.int64), npt)
     tetids = np.arange(nt, dtype=np.int64)
-    out = {"tet4" if npt == 4 else "tet10": np.array([1]), "stamp": sol["stamp"]}
+    out = {"tet4" if npt == 4 else "tet10": np.array([1]), "stamp": sol["stamp"], "layout": field_layout(npt)}
     curve = _curver(sol, nodes, tets, C, P, npt)
     keys = sorted((k for k in sol if k.startswith("sol_")), key=lambda s: tuple(int(x) for x in s.split("_")[1:]))
     for i, key in enumerate(keys):

@@ -21,7 +21,7 @@ import numpy as np
 from ..model.design import Project
 from .expressions import output_variables
 from .optimetrics import ConjugateGradient, Variables, antenna_data, check_antenna_goals, evaluate_goals, uses_antenna
-from .results import ResultStore
+from .results import ResultStore, running_status
 
 TAG = "@@HZN "
 ROOT = Path(__file__).resolve().parents[2]
@@ -282,7 +282,7 @@ def main() -> int:
     out = Path(sys.argv[4])
     out.mkdir(parents=True, exist_ok=True)
     try:
-        ResultStore(out).write_json("status.json", {"state": "running", "started": time.time()})
+        ResultStore(out).write_json("status.json", running_status())
         return 0 if Optimizer(sys.argv[1], sys.argv[2], sys.argv[3], out).run() else 3
     except Exception as ex:  # noqa: BLE001
         emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")

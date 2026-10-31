@@ -485,7 +485,8 @@ class SolutionDataDialog(QDialog):
 
     def _profile(self) -> QWidget:
         prof = self.st.read_json("profile.json", []) if self.st else []
-        status = self.st.read_json("status.json", {}) if self.st else {}
+        from ..solver.results import run_status
+        status = run_status(self.st.folder) if self.st else {}
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.addWidget(QLabel(f"Status: {status.get('state', 'no solution')}"
