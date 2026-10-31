@@ -145,15 +145,7 @@ class ResultStore:
 
     # ---- reading --------------------------------------------------------------------------------
     def read_json(self, name: str, default=None):
-        p = self.folder / name
-        if not p.exists():
-            return default
-        for _ in range(5):   # the solver may be replacing the file right now (Windows: sharing violation)
-            try:
-                return json.loads(p.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                time.sleep(0.05)
-        return default
+        return _read_json(self.folder / name, default)
 
     def solutions(self) -> list[str]:
         out = []
@@ -198,6 +190,69 @@ class ResultStore:
                 if i == 4:
                     raise
                 time.sleep(0.1)
+
+
+def _read_json(p: Path, default=None):
+    if not p.exists():
+        return default
+    for _ in range(5):   # the solver may be replacing the file right now (Windows: sharing violation)
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            time.sleep(0.05)
+    return default
+
+
+def running_status() -> dict:
+    """status.json of a run that starts now: with the solver's process id and host, so that a reader can
+    tell a run that is still going from one whose process ended without finishing (killed, crashed,
+    interrupted): see run_status."""
+    import os
+    import socket
+    return {"state": "running", "started": time.time(), "pid": os.getpid(), "host": socket.gethostname()}
+
+
+def _process_alive(pid: int) -> bool:
+    import os
+    try:
+        import psutil
+        return psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except ImportError:
+        pass
+    except Exception:  # noqa: BLE001  (gone between the two calls, no access ...)
+        return False
+    if os.name == "nt":
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)        # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+        k32.CloseHandle(h)
+        return bool(ok) and code.value == 259          # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def run_status(folder: Path, default: dict | None = None) -> dict:
+    """status.json of a result folder. A run left 'running' by a solver process that no longer exists on this
+    computer is reported as 'aborted' (with "stale": true): the process was killed or crashed before it could
+    write its final state."""
+    d = _read_json(Path(folder) / "status.json", None)
+    if not isinstance(d, dict):
+        return dict(default or {})
+    if d.get("state") == "running" and d.get("pid"):
+        import socket
+        if d.get("host") in (None, socket.gethostname()) and not _process_alive(int(d["pid"])):
+            d = {**d, "state": "aborted", "stale": True,
+                 "error": "the solver process ended without finishing (killed, crashed or interrupted)"}
+    return d
 
 
 def _replace(src: Path, dst: Path) -> None:

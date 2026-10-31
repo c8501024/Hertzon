@@ -27,7 +27,7 @@ from ..model import schema
 from ..kernel import occ as K
 from . import facematch
 from . import sparta_setup
-from .results import ResultStore, port_entries, deembed_renormalize
+from .results import ResultStore, port_entries, deembed_renormalize, running_status
 from .emerge_compat import amr as _amr
 
 C0 = 299792458.0
@@ -186,7 +186,7 @@ class Bridge:
         except OSError:
             pass
         if not os.environ.get("HERTZON_TUNING"):    # a tuning run leaves the solution of the setup as it is
-            self.store.write_json("status.json", {"state": "running", "started": time.time()})
+            self.store.write_json("status.json", running_status())
         if _first_run():
             note = "First start detected: compiling the solver kernels (once, a few minutes)"
             info(note)
@@ -1697,7 +1697,8 @@ class Bridge:
         P = C.transpose(0, 2, 1).reshape(3, -1)                  # tet-major
         x, y, z = P[0], P[1], P[2]
         mapping = np.repeat(np.arange(nt, dtype=np.int64), npt)
-        out = {"tet4" if npt == 4 else "tet10": np.array([1])}
+        from .lazy_fields import field_layout
+        out = {"tet4" if npt == 4 else "tet10": np.array([1]), "layout": field_layout(npt)}
         # curved tetrahedra: the plots put the midpoints on the curved edges; the solution lives on the
         # straight reference tet, so map E and H to the curved element (covariant Piola transform)
         if cm:
@@ -3281,6 +3282,15 @@ def run(project_path: str, design: str, setup: str, out_dir: str) -> int:
         st = des.setup(setup)
         Bridge(proj, des, st, Path(out_dir)).run()
         return 0
+    except KeyboardInterrupt:
+        # Ctrl+C in a console (while Python code runs): not a failure, but not running any more
+        emit("log", level="warning", msg="Analysis interrupted")
+        if not os.environ.get("HERTZON_TUNING"):
+            try:
+                ResultStore(Path(out_dir)).write_json("status.json", {"state": "aborted", "finished": time.time()})
+            except Exception:  # noqa: BLE001
+                pass
+        return 130
     except Exception as ex:  # noqa: BLE001
         emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")
         emit("traceback", text=traceback.format_exc())

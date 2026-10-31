@@ -74,13 +74,23 @@ def mirrored(vis: np.ndarray, wns: np.ndarray, Es: list, Hs: list, planes: list)
             [cat([h[j] for h in HH]) for j in range(len(Hs))])
 
 
+def sampling_text(th: np.ndarray, ph: np.ndarray) -> str:
+    """The angular grid of a far field file in words, e.g. 'theta 0..180 deg step 2 (91), phi 0..360 deg step 2
+    (181)': stored with the data (key "sampling"), so a file tells which sampling it holds."""
+    def one(name, a):
+        a = np.degrees(np.asarray(a, float))
+        step = f" step {np.round(a[1] - a[0], 6):g}" if len(a) > 1 else ""
+        return f"{name} {np.round(a[0], 6):g}..{np.round(a[-1], 6):g} deg{step} ({len(a)})"
+    return one("theta", th) + ", " + one("phi", ph)
+
+
 def compute_sphere(huy: dict, props: dict, ev, design=None, plane_wave=None, progress=None) -> dict:
     """The far field file content (farfield_<sphere>_<solution>.npz) of one infinite sphere."""
     th = np.arange(ev.angle(props["ThetaStart"]), ev.angle(props["ThetaStop"]) + 1e-9,
                    max(ev.angle(props["ThetaStep"]), 1e-3))
     ph = np.arange(ev.angle(props["PhiStart"]), ev.angle(props["PhiStop"]) + 1e-9,
                    max(ev.angle(props["PhiStep"]), 1e-3))
-    res = {"theta": th, "phi": ph}
+    res = {"theta": th, "phi": ph, "sampling": np.array([sampling_text(th, ph)])}
     R = None
     csn = props.get("CoordinateSystem", "Global") or "Global"
     if csn != "Global" and design is not None:

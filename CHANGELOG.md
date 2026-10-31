@@ -60,6 +60,22 @@ the GitHub release notes.
   LastAdaptive, or a sweep with Save fields on; the first far field setup gives the directions. Without
   saved fields the goal says what to turn on, and an optimization with antenna goals checks this before
   it starts.
+- **Result files described**: [docs/RESULT_FILES.md](docs/RESULT_FILES.md) explains the per-tetrahedron
+  layout of `fields_*.npz`, the far field files and their sampling, the states in `status.json`, and that
+  gain, directivity and realized gain are linear ratios (`dB(...)` gives dBi). The files carry this too:
+  `fields_*.npz` has a `layout` entry, `farfield_*.npz` a `sampling` entry with the angular grid.
+
+### Fixed
+- **Mesh operations that miss their target** now say so: Length Based On Edges with only objects or faces
+  assigned (no edges) warns in the solver log and in Validation Check instead of "no edges could be
+  located"; an operation whose objects are not part of the solve, or whose selection is empty, is reported
+  as not applied (it was logged as applied). Objects of a boundary or excitation that are not part of the
+  solve warn like missing faces.
+- **NaN in the error estimate** no longer ends the analysis after a pass: the tetrahedra concerned are named
+  with their material and left out of that refinement; if no tetrahedron has a finite error, the adaptive
+  analysis stops with the pass it has.
+- **A killed or crashed solve no longer stays "running"**: `status.json` records the solver process, and a
+  run whose process is gone shows as aborted (in the project tree, the solution data and over MCP).
 
 ## 0.2.8 (2026-10-30)
 

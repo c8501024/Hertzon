@@ -192,7 +192,8 @@ region, ports, radiation boundaries) are left out. See [docs/GERBER_EXPORT.md](d
   meshing with `--prepare-only` so you can continue in plain EMerge.
 * Solve without the GUI: `python -m hertzon.solver.run Project.hzn DesignName Setup1 out_folder`.
 * Project files (`.hzn`) are plain JSON; results go to `<project>.hznresults/<design>/<setup>/`
-  (`sparams_*.npz`, Touchstone `*.sNp`, `fields_*.npz`, `farfield_*.npz`, `convergence.json`).
+  (`sparams_*.npz`, Touchstone `*.sNp`, `fields_*.npz`, `farfield_*.npz`, `convergence.json`); their layout,
+  units and status values are in [docs/RESULT_FILES.md](docs/RESULT_FILES.md).
 
 ## AI assistants (MCP)
 

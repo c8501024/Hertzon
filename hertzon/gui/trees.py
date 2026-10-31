@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QAbstractItemView, Q
 from .doc import Document
 from ..model import groups as G
 from ..model.schema import BOUNDARY_COLORS, EXCITATION_COLORS
-from ..solver.results import results_dir, ResultStore
+from ..solver.results import results_dir, run_status
 from .doc import result_dir
 
 ROLE = Qt.UserRole + 1
@@ -116,11 +116,8 @@ class ProjectTree(QTreeWidget):
         if not self.doc.project.path:
             return ""
         from .solve import optimization_dir
-        f = optimization_dir(self.doc.project.path, self.doc.design_name, name) / "status.json"
-        try:
-            return json.loads(f.read_text(encoding="utf-8")).get("state", "") if f.exists() else ""
-        except (OSError, ValueError):
-            return ""
+        from ..solver.results import run_status
+        return run_status(optimization_dir(self.doc.project.path, self.doc.design_name, name)).get("state", "")
 
     def rebuild(self) -> None:
         if self.topLevelItemCount():
@@ -258,12 +255,11 @@ def solution_state(doc, setup: str) -> str:
     d = result_dir(doc, setup)
     nominal = results_dir(doc.project.path, doc.design_name, setup)
     if d != nominal:                        # a solved parametric variation that matches the design
-        running = (ResultStore(nominal).read_json("status.json", {}) or {}).get("state") == "running" \
-            if (nominal / "status.json").exists() else False
+        running = run_status(nominal).get("state") == "running"
         return "running" if running else "done"
     if not (d / "status.json").exists():
         return ""
-    st = ResultStore(d).read_json("status.json", {}) or {}
+    st = run_status(d)
     state = st.get("state", "")
     if state == "done" and "model_key" in st:
         from ..solver.keys import model_key, setup_key
