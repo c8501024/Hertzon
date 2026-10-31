@@ -46,6 +46,8 @@ press Abort to stop it.
 - Cores and parallel sweep processes are those of the **solving** computer: Tools > Options > HPC and
   Analysis there (also what its Solver Benchmark recommends). What travels with the project stays as it is:
   a setup's own *Solver threads* and its matrix solver.
+  While *Solve on a remote computer* is on, the laptop's HPC tab greys out its own cores and sweep
+  processes and shows the values of the remote computer instead.
 
 - The connection is plain HTTP with a token and meant for a local network. Across the internet use an SSH
   tunnel (`ssh -L 47820:localhost:47820 user@host`, then enter `localhost` as the computer).

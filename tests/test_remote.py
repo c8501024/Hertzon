@@ -279,7 +279,7 @@ def test_hpc_settings_of_the_solving_computer(tmp_path):
         assert svc.sweep_workers == 2 and svc.cores >= 1
         (tmp_path / "w" / "hpc.json").write_text('{"cores": 3, "sweep_workers": 4}')
         assert svc.cores == 3 and svc.sweep_workers == 4
-        assert svc.info()["cores"] == 3
+        assert svc.info()["cores"] == 3 and svc.info()["sweep_workers"] == 4
         fixed = Service(tmp_path / "w", "t", cores=5)          # --cores on the command line wins
         assert fixed.cores == 5
         fixed.stop()

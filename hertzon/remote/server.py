@@ -341,7 +341,7 @@ class Service:
             run = self.running()
             return {"service": "hertzon-remote", "protocol": PROTOCOL, "hertzon": __version__,
                     "host": socket.gethostname(), "platform": platform.platform(), "cores": self.cores,
-                    "python": platform.python_version(), "busy": run is not None, "queued": len(self.queue)}
+                    "sweep_workers": self.sweep_workers, "cpus": os.cpu_count() or 1, "python": platform.python_version(), "busy": run is not None, "queued": len(self.queue)}
 
     def stop(self) -> None:
         with self.cond:

@@ -788,6 +788,8 @@ class SnapModeDialog(QDialog):
 
 class OptionsDialog(QDialog):
     """Tools > Options: HPC and analysis, modeler and general settings (stored per user)."""
+    from PySide6.QtCore import Signal as _Signal
+    remoteInfo = _Signal(object)          # info dict of the remote computer, or the error text
 
     def __init__(self, win, parent=None):
         super().__init__(parent)
@@ -817,6 +819,11 @@ class OptionsDialog(QDialog):
         self.solver = QComboBox()
         self.solver.addItems(list(schema.SOLVERS))
         self.solver.setCurrentText(s.value("hpc/default_solver", "Auto"))
+        self.hpc_remote = QLabel()
+        self.hpc_remote.setWordWrap(True)
+        self.hpc_remote.setStyleSheet("QLabel { background: palette(alternate-base); padding: 6px; "
+                                      "border: 1px solid palette(mid); border-radius: 3px; }")
+        f.addRow(self.hpc_remote)
         f.addRow("Number of cores", self.all_cores)
         f.addRow("", self.cores)
         f.addRow("Parallel sweep processes", self.workers)
@@ -856,6 +863,9 @@ class OptionsDialog(QDialog):
         self.remote_state = QLabel()
         self.remote_state.setWordWrap(True)
         self.remote_test.clicked.connect(self._test_remote)
+        self._remote_info = None
+        self.remoteInfo.connect(self._hpc_remote_state)
+        self.remote_on.toggled.connect(lambda on: self._hpc_remote_state() if not on else self._ask_remote())
         f.addRow("", self.remote_on)
         crow = QHBoxLayout()
         crow.addWidget(self.remote_addr, 1)
@@ -910,6 +920,7 @@ class OptionsDialog(QDialog):
         f.addRow(share)
         self._share_status()
         tabs.addTab(rem, "Remote")
+        self._ask_remote() if self.remote_on.isChecked() else self._hpc_remote_state()
 
         mod = QWidget()
         f = QFormLayout(mod)
@@ -1063,6 +1074,56 @@ class OptionsDialog(QDialog):
         self.remote_addr.setText(sel["address"])          # the name does not resolve here: use the address
         self._test_remote()
 
+    def _ask_remote(self) -> None:
+        """Fetch the HPC settings of the remote computer in the background (shown on the HPC tab)."""
+        import threading
+        from ..remote.client import RemoteError, RemoteHost
+        self._hpc_remote_state()
+        addr, tok = self.remote_addr.text(), self.remote_token.text()
+        if not addr.strip():
+            return
+
+        def ask():
+            try:
+                info = RemoteHost(addr, tok, timeout=5).info()
+            except RemoteError as ex:
+                info = str(ex)
+            try:
+                self.remoteInfo.emit(info)
+            except RuntimeError:                       # the dialog is closed meanwhile
+                pass
+        threading.Thread(target=ask, daemon=True).start()
+
+    def _hpc_remote_state(self, info=None) -> None:
+        """HPC tab: when analyses run on a remote computer, its own Options decide cores and sweep processes;
+        the fields here are greyed out and the note shows the remote computer's values."""
+        if info is not None:
+            self._remote_info = info
+        on = self.remote_on.isChecked() and bool(self.remote_addr.text().strip())
+        for w in (self.all_cores, self.workers):
+            w.setEnabled(not on)
+        self.cores.setEnabled(not on and not self.all_cores.isChecked())
+        self.hpc_remote.setVisible(on)
+        if not on:
+            return
+        addr = self.remote_addr.text().strip()
+        info = self._remote_info
+        if isinstance(info, dict):
+            cores, cpus = info.get("cores"), info.get("cpus")
+            used = f"all {cores} cores" if cores and cores == cpus else f"{cores} cores" + (f" of {cpus}" if cpus else "")
+            sw = info.get("sweep_workers")
+            values = f"<b>{used}</b>" + (f", <b>{sw} parallel sweep processes</b>" if sw else "")
+            where = f"<b>{info.get('host') or addr}</b>"
+        elif isinstance(info, str):
+            where, values = f"<b>{addr}</b>", f"not reachable now ({info})"
+        else:
+            where, values = f"<b>{addr}</b>", "asking ..."
+        self.hpc_remote.setText(
+            f"\u24d8 Analyses run on {where} (Remote tab). Its own Tools &gt; Options apply there: {values}. "
+            "A setup's <i>Solver threads</i> and matrix solver travel with the project and still apply.<br>"
+            "The fields below are for analyses on this computer; untick <i>Solve on a remote computer</i> to "
+            "change them.")
+
     def _test_remote(self) -> None:
         from PySide6.QtCore import Qt as _Qt
         from PySide6.QtWidgets import QApplication
@@ -1076,6 +1137,7 @@ class OptionsDialog(QDialog):
             return
         finally:
             QApplication.restoreOverrideCursor()
+        self._hpc_remote_state(info)
         text = (f"Connected: {info.get('host')}, Hertzon {info.get('hertzon')}, {info.get('cores')} cores"
                 + (", busy" if info.get("busy") else "") + (f", {info['queued']} queued" if info.get("queued") else ""))
         if info.get("hertzon") != __version__:
