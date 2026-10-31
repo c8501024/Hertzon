@@ -280,6 +280,7 @@ def evaluate_freq(fm: dict, dp: np.ndarray, caps: tuple[bool, bool] = (True, Tru
 # the tuning run (solver process) and the saved model
 # ------------------------------------------------------------------------------------------------
 MAX_POINTS = 201
+ADAPTIVE = "LastAdaptive"       # sweep name of the tuning model at the solution frequency of the setup
 
 
 def tuning_path(out: Path, sweep: str) -> Path:
@@ -413,6 +414,20 @@ class TuningModel:
         S = self.raw(dp)
         ports = self.meta.get("ports") or []
         beta = self.beta if any(q.get("deembed") for q in ports) else None
+        return deembed_renormalize(S, self.z0, ports, beta)
+
+    def sweep_variable(self, k: int, i: int, values, dp) -> tuple[np.ndarray, np.ndarray]:
+        """(S per value, reference impedance per row) at frequency index k with variable i set to the
+        offsets `values` and the other variables at their offsets in dp."""
+        from .results import deembed_renormalize
+        rows = []
+        for v in values:
+            d = np.array(dp, float)
+            d[i] = v
+            rows.append(evaluate_freq(self.fms[k], d, self.caps))
+        S = np.array(rows)
+        ports = self.meta.get("ports") or []
+        beta = self.beta[[k] * len(S)] if any(q.get("deembed") for q in ports) else None
         return deembed_renormalize(S, self.z0, ports, beta)
 
     def nominal(self) -> tuple[np.ndarray, np.ndarray]:
