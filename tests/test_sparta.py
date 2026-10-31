@@ -158,3 +158,18 @@ def test_solver_comparison_marks_runs_without_their_solver_and_names_the_fastest
     text, best = solver_recommendation(res)
     assert best == "SPARTA (CPU)" and "25 % faster than PARDISO" in text
     assert "single precision" in text and "Note column" in text
+
+
+def test_solver_comparison_shows_parallel_pardiso_sweeps_next_to_sequential_sparta():
+    from hertzon.gui.benchmark import solver_recommendation, solver_runs
+    from hertzon.solver.benchmark import parallel_sweeps
+    assert parallel_sweeps("PARDISO") and not parallel_sweeps("SPARTA (CPU)") and not parallel_sweeps("SPARTA (GPU)")
+    assert not parallel_sweeps("PARDISO + SPARTA sweep (CPU)")      # its sweeps run on SPARTA
+    res = {"runs": [{"kind": "cores", "solver": "PARDISO", "cores": 16, "total": 80.0, "sweep": 50.0},
+                    {"kind": "cores", "solver": "SPARTA (CPU)", "cores": 16, "total": 82.0, "sweep": 40.0},
+                    {"kind": "same_mesh", "solver": "SPARTA (CPU)", "workers": 1, "sweep": 40.0, "ds_max": {"S": 1e-8}},
+                    {"kind": "same_mesh", "solver": "PARDISO", "workers": 4, "sweep": 20.0, "ds_max": {"S": 1e-9}}]}
+    _, same = solver_runs(res)
+    assert list(same) == ["SPARTA (CPU)", "PARDISO, 4 parallel"]
+    text, _ = solver_recommendation(res)
+    assert "Fastest sweep: <b>PARDISO, 4 parallel</b>, 2.5x faster than PARDISO one frequency at a time" in text

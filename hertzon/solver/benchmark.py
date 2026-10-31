@@ -13,7 +13,9 @@ stops it.
 With --solvers every core count is solved with each matrix solver (the setup's own when not given).
 Each solver refines its own mesh, so the sweeps of every further solver are then also solved on the
 final mesh of the first solver's run with the most cores: the same matrices, so the sweep times and
-the largest difference of the S-parameters to the first solver compare the solvers alone.
+the largest difference of the S-parameters to the first solver compare the solvers alone. With --workers
+as well, the sweeps of the solvers that solve several frequencies at once (PARDISO) are solved there again
+with that many parallel frequencies, to compare with the sequential sweeps of the others (SPARTA).
 """
 from __future__ import annotations
 
@@ -68,6 +70,7 @@ def run_summary(folder: Path) -> dict:
     phases = {p["task"]: float(p["elapsed"]) for p in prof}
     passes = conv.get("passes", [])
     return {"total": float(status.get("elapsed") or (prof[-1]["total"] if prof else 0.0)),
+            "start": max(0.0, float(prof[0]["total"]) - float(prof[0]["elapsed"])) if prof else 0.0,
             "mesh": phases.get("Initial meshing", 0.0),
             "adaptive": phases.get("Adaptive meshing", 0.0),
             "sweep": sum(v for k, v in phases.items() if k.startswith("Sweep ")),
@@ -98,6 +101,13 @@ def solver_notes(folder: Path) -> list[str]:
                 and text not in out:
             out.append(text)
     return out
+
+
+def parallel_sweeps(solver: str) -> bool:
+    """Whether a sweep with this solver solves several frequencies at once. EMerge's sweep worker threads only
+    take solvers that release the GIL, and Hertzon gives them PARDISO (mt_pardiso); SPARTA keeps the GIL
+    while it factorizes, so its frequencies run one after another (and on the GPU they share one card)."""
+    return solver in ("", "Auto", "PARDISO")
 
 
 class Benchmark:
@@ -168,6 +178,21 @@ class Benchmark:
                                f"(see {folder / 'solver.log'})")
         return True
 
+    def _sweeps_on(self, ref: Path, folder: Path, path: Path, env: dict, label: str, k: int, n: int) -> float | None:
+        """Time of all sweeps solved again on the adaptive mesh of the run in ref (None: aborted)."""
+        shutil.rmtree(folder, ignore_errors=True)
+        shutil.copytree(ref, folder)
+        total = 0.0
+        for sw in self.sweeps:
+            for f in folder.glob(f"sparams_{_safe(sw)}.npz"):
+                f.unlink()
+            t = time.time()
+            if not self._solve(path, folder, dict(env, HERTZON_ONLY_SWEEP=sw), label, k, n):
+                return None
+            prof = ResultStore(folder).read_json("profile.json", []) or []
+            total += sum(float(p["elapsed"]) for p in prof if p["task"].startswith("Sweep ")) or (time.time() - t)
+        return total
+
     def _write(self) -> None:
         ResultStore(self.out).write_json("benchmark.json", self.result)
 
@@ -179,8 +204,12 @@ class Benchmark:
             from .warmup import run as warmup
             warmup(lambda s: None)
         solvers = self.solvers or [""]
-        n = len(self.cores) * len(solvers) + (len(self.workers) if self.sweeps else 0) \
-            + ((len(solvers) - 1) if self.sweeps else 0)
+        # with --solvers, --workers solves the sweeps of every solver that can run them in parallel with that
+        # many parallel frequencies on the first solver's final mesh, so they compare with the sequential ones
+        par = [(sv, w) for sv in solvers if parallel_sweeps(sv) for w in self.workers if w > 1] \
+            if self.solvers and self.sweeps else []
+        n = len(self.cores) * len(solvers) + ((len(solvers) - 1) if self.sweeps else 0) + len(par) \
+            + (len(self.workers) if self.sweeps and not self.solvers else 0)
         log(f"Benchmark {self.design} : {self.setup}: cores {', '.join(map(str, self.cores))}"
             + (f"; solvers {', '.join(solvers)}" if self.solvers else "")
             + (f"; parallel sweep processes {', '.join(map(str, self.workers))}" if self.workers and self.sweeps else ""))
@@ -203,36 +232,29 @@ class Benchmark:
                 self._write()
                 log(f"{label}: {row['total']:.1f} s (passes {row['adaptive']:.1f} s, sweep {row['sweep']:.1f} s), "
                     f"{row['passes']} passes, {row['tets']} tetrahedra")
-        if len(solvers) > 1 and self.sweeps:
+        if len(solvers) > 1 and self.sweeps or par:
             # the sweeps of every further solver on the first solver's final mesh: the same matrices
             ref = runs / f"{_safe(solvers[0])}_cores_{self.cores[-1]}"
-            for sv in solvers[1:]:
+            # the first solver's project, so that its adaptive solution is reused; the solver from the environment
+            path = self.out / f"case_{_safe(solvers[0])}.hzn"
+            ppath = self._project(f"case_{_safe(solvers[0])}_parallel", parallel_sweeps=True, solver=solvers[0]) \
+                if par else None
+            for sv, w in [(sv, 1) for sv in solvers[1:]] + par:
                 k += 1
-                folder = runs / f"{_safe(sv)}_on_{_safe(solvers[0])}_mesh"
-                shutil.rmtree(folder, ignore_errors=True)
-                shutil.copytree(ref, folder)
-                # the first solver's project, so that its adaptive solution is reused; the solver from the
-                # environment
-                path = self.out / f"case_{_safe(solvers[0])}.hzn"
-                total = 0.0
-                for sw in self.sweeps:
-                    for f in folder.glob(f"sparams_{_safe(sw)}.npz"):
-                        f.unlink()
-                    t = time.time()
-                    if not self._solve(path, folder, dict(self._env(self.cores[-1], 1, sw), HERTZON_SOLVER=sv),
-                                       f"{sv}: sweep on the mesh of {solvers[0]}", k, n):
-                        return self._stop()
-                    prof = ResultStore(folder).read_json("profile.json", []) or []
-                    total += sum(float(p["elapsed"]) for p in prof if p["task"].startswith("Sweep ")) or \
-                        (time.time() - t)
+                tag = f"_x{w}" if w > 1 else ""
+                folder = runs / f"{_safe(sv)}{tag}_on_{_safe(solvers[0])}_mesh"
+                what = f"{sv}{f' with {w} parallel frequencies' if w > 1 else ''}: sweep on the mesh of {solvers[0]}"
+                total = self._sweeps_on(ref, folder, ppath if w > 1 else path,
+                                        dict(self._env(self.cores[-1], w), HERTZON_SOLVER=sv), what, k, n)
+                if total is None:
+                    return self._stop()
                 diff = {sw: s_difference(ref, folder, sw) for sw in self.sweeps}
                 row = {"kind": "same_mesh", "solver": sv, "reference": solvers[0], "cores": self.cores[-1],
-                       "sweep": total, "ds_max": diff}
+                       "workers": w, "sweep": total, "ds_max": diff}
                 self.result["runs"].append(row)
                 self._write()
-                log(f"{sv} on the mesh of {solvers[0]}: sweep {total:.1f} s, largest |dS| "
-                    + ", ".join(f"{sw} {d:.2e}" for sw, d in diff.items()))
-        if self.workers and self.sweeps:
+                log(f"{what}: {total:.1f} s, largest |dS| " + ", ".join(f"{sw} {d:.2e}" for sw, d in diff.items()))
+        if self.workers and self.sweeps and not self.solvers:
             # the fewest cores that are as fast as the fastest run (within 2 %): on a computer with
             # hyperthreading the physical ones, so that the parallel frequencies do not share cores
             cr = sorted((r for r in self.result["runs"] if r["kind"] == "cores"), key=lambda r: r["cores"])
