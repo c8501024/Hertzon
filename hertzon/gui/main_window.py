@@ -441,6 +441,7 @@ class MainWindow(QMainWindow):
         om = m.addMenu("Optimization")
         om.addAction("Add Parametric...", self.add_parametric)
         om.addAction("Add Optimization...", self.add_optimization)
+        om.addAction("Derivative Tuning...", lambda: self.derivative_tuning())
         m.addSeparator()
         m.addAction("Design Properties...", lambda: self.edit_variables(False))
 
@@ -796,6 +797,8 @@ class MainWindow(QMainWindow):
         rm.aboutToShow.connect(lambda rm=rm: self._fill_report_menu(rm))
         g = pg.group("Solution Data")
         g.large("Solution Data", "soldata", lambda: self.solution_data())
+        g.large("Tuning", "variables", lambda: self.derivative_tuning(),
+                tip="Derivative Tuning: move design variables with sliders and see the S-parameters follow live")
         g.large("Touchstone", "export", lambda: self.export_touchstone())
         g = pg.group("Fields")
         g.large("Mag E", "field", lambda: self.plot_fields("Mag_E"))
@@ -3711,6 +3714,33 @@ class MainWindow(QMainWindow):
         self.solver.submit(Job(self.doc.project.path, self.des.name, setup, sweep=sweep))
         self.project_tree.rebuild()
 
+    def derivative_tuning(self, setup: str | None = None, sweep: str | None = None) -> None:
+        """Optimization > Derivative Tuning: sliders for design variables, live S-parameters."""
+        from .tuning import TuningDialog
+        if not self.doc.project.path:
+            QMessageBox.information(self, "Derivative Tuning", "Save and analyze the project first.")
+            return
+        dlg = TuningDialog(self, setup, sweep)
+        dlg.setModal(False)
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.show()
+
+    def compute_tuning(self, setup: str, sweep: str, variables: list[str], points: int) -> str:
+        """Queue the tuning model of a sweep (reuses the adaptive mesh); returns the job key, '' if not."""
+        from .trees import solution_state
+        if solution_state(self.doc, setup) != "done":
+            QMessageBox.information(self, "Derivative Tuning",
+                                    "Analyze the setup first (with the current design); the derivatives are "
+                                    "computed on its adaptive mesh.")
+            return ""
+        if not self.doc.project.path or self.doc.dirty:
+            if not self.file_save():
+                return ""
+        job = Job(self.doc.project.path, self.des.name, setup,
+                  tuning=json.dumps({"sweep": sweep, "variables": variables, "points": int(points)}))
+        self.solver.submit(job)
+        return job.key
+
     def analyze(self, setups: list[str], mesh_only: bool = False) -> None:
         if not setups:
             QMessageBox.information(self, "Analyze", "No enabled solution setup.")
@@ -5042,6 +5072,7 @@ class MainWindow(QMainWindow):
                         lambda: self.export_touchstone(f"{data[1]} : {data[2]}"))
             m.addAction("Analyze", lambda: self.analyze_sweep(data[1], data[2]))
             m.addAction("Analyze (setup)", lambda: self.analyze([data[1]]))
+            m.addAction("Derivative Tuning...", lambda: self.derivative_tuning(data[1], data[2]))
             on = self._sweep(data[1], data[2]).props.get("Enabled", "True") == "True"
             m.addAction("Disable" if on else "Enable", lambda: self._toggle_sweep(data[1], data[2]))
             m.addAction("Delete", self._delete_project_items)

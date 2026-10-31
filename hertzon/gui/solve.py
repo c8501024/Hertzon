@@ -32,11 +32,14 @@ class Job:
     sweep: str = ""               # analyze only this sweep (reuses the adaptive mesh)
     optimization: str = ""        # Optimization: run this optimization (setup is unused)
     parametric: str = ""          # Optimization: solve the variations of this parametric setup
+    tuning: str = ""              # derivative tuning model of a sweep (JSON: sweep, variables, points)
 
     @property
     def key(self) -> str:
         if self.optimization or self.parametric:
             return f"{Path(self.project_path).stem} - {self.design} - {self.optimization or self.parametric}"
+        if self.tuning:
+            return f"{Path(self.project_path).stem} - {self.design} - {self.setup} : tuning {json.loads(self.tuning)['sweep']}"
         return f"{Path(self.project_path).stem} - {self.design} - {self.setup}" + (f" : {self.sweep}" if self.sweep else "")
 
     @property
@@ -108,7 +111,9 @@ class SolveManager(QObject):
         self.queueChanged.emit()
         out = job.out
         keep = None
-        if job.sweep and out.exists():
+        if job.tuning:
+            pass                    # reads the adaptive mesh and writes only its tuning model
+        elif job.sweep and out.exists():
             # single sweep: keep the adaptive solution and the other sweeps
             for f in list(out.glob(f"sparams_{job.sweep}.npz")) + list(out.glob(f"fields_{job.sweep}.npz")) + \
                     list(out.glob(f"solution_{job.sweep}.npz")):
@@ -147,6 +152,7 @@ class SolveManager(QObject):
         env.insert("HERTZON_SWEEP_WORKERS", str(self.sweep_workers))
         env.insert("HERTZON_MESH_ONLY", "1" if job.mesh_only else "0")
         env.insert("HERTZON_ONLY_SWEEP", job.sweep)
+        env.insert("HERTZON_TUNING", job.tuning)
         for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS"):
             env.insert(var, str(n))
         p.setProcessEnvironment(env)
@@ -252,7 +258,7 @@ class SolveManager(QObject):
         if not ok and self._aborted and not getattr(self, "_failed", False):
             # killed by Abort (on Windows Qt ends the process with code 0xF291 = 62097): not a failure
             self.message.emit("warning", f"{key}: aborted by user")
-            if self.job is not None:
+            if self.job is not None and not self.job.tuning:
                 try:
                     (self.job.out / "status.json").write_text(json.dumps({"state": "aborted"}), encoding="utf-8")
                 except OSError:
@@ -265,7 +271,7 @@ class SolveManager(QObject):
                 hint = (" The solver process was killed, most likely because it ran out of memory. "
                         "Lower 'Maximum Refinement' or the number of passes." if crashed else "")
             self.message.emit("error", f"{key}: solver process ended with code {code}.{hint}")
-            if self.job is not None:
+            if self.job is not None and not self.job.tuning:
                 try:
                     (self.job.out / "status.json").write_text(json.dumps({"state": "failed", "error": f"exit {code}"}), encoding="utf-8")
                 except OSError:

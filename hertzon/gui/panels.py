@@ -269,6 +269,8 @@ def job_kind(j) -> str:
         return "Optimization"
     if getattr(j, "parametric", ""):
         return "Parametric"
+    if getattr(j, "tuning", ""):
+        return "Tuning"
     return "Generate Mesh" if j.mesh_only else ("Sweep only" if j.sweep else "Analyze")
 
 

@@ -132,6 +132,7 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    typeset formula editor, shown in reports, **Fields reports** and field plots
    ([tutorial](docs/TUTORIAL.md#8-your-own-quantities-with-equations)).
    **Optimization** (conjugate gradient on report goals) and **Parametric** sweeps of design variables.
+   **Derivative tuning**: sliders for design variables, and the S-parameters follow live from one solve.
 
 See [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md) for an overview of what is implemented and
 what is still missing.
