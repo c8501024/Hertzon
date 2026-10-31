@@ -12,6 +12,12 @@ frequency of the sweep:
 3. these vectors span a small basis W; the matrix terms are projected onto it (W^T A W) and the
    S-parameter functionals of the ports are evaluated on its columns.
 
+With several frequencies one basis serves the whole band (BandModel): the volume matrices of every mesh
+state do not depend on the frequency and are assembled once, only the boundary terms are assembled per
+frequency, and the basis holds the solutions and derivatives of a few expansion frequencies, chosen where
+the residual of the reduced solution is largest until it is below 1e-4 at every frequency. So only a few
+frequencies are factorized; every other frequency is still the exact FEM system, solved in the basis.
+
 A slider position dp then costs one small dense solve per frequency: (W^T A(p0+dp) W) y = W^T b and
 S = L W y. The approximation is applied to the matrix, not to the S-parameters, so resonances move with
 the variables instead of being smeared by a Taylor series of S. At dp = 0 the result is the nominal
@@ -215,6 +221,40 @@ def _orth(cols: list[np.ndarray], tol: float = 1e-10) -> np.ndarray:
     return np.column_stack(V)
 
 
+def derivative_solutions(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list, bii: list,
+                         bij: dict) -> np.ndarray:
+    """The solution of A0 x = b and its first and second derivatives with respect to the variables (one
+    factorization of A0), as columns (solve dofs x (1 + 2n + n(n-1)/2) * ports)."""
+    n = len(Ai)
+    fac = factor(A0)
+    try:
+        x0 = fac.solve(b)
+        xi = [fac.solve(bi[i] - Ai[i] @ x0) for i in range(n)]
+        xii = [fac.solve(bii[i] - (Aii[i] @ x0 + 2 * (Ai[i] @ xi[i]))) for i in range(n)]
+        xij = {(i, j): fac.solve(bij[(i, j)] - (Aij[(i, j)] @ x0 + Ai[i] @ xi[j] + Ai[j] @ xi[i]))
+               for (i, j) in Aij}
+    finally:
+        if hasattr(fac, "close"):
+            fac.close()
+    return np.hstack([x0] + xi + xii + [xij[k] for k in sorted(xij)])
+
+
+def _extend(W: np.ndarray | None, C: np.ndarray, tol: float = 1e-9) -> np.ndarray:
+    """W (orthonormal columns) extended by the part of the columns C outside its span (block Gram-Schmidt
+    twice, then an SVD that drops dependent directions)."""
+    C = np.array(C, dtype=np.complex128)
+    scale = np.linalg.norm(C, axis=0)
+    C = C[:, scale > 0] / scale[scale > 0]
+    if C.shape[1] == 0:
+        return W
+    if W is not None and W.shape[1]:
+        for _ in range(2):
+            C -= W @ (W.conj().T @ C)
+    U, sv, _ = np.linalg.svd(C, full_matrices=False)
+    U = U[:, sv > tol]
+    return U if W is None or not W.shape[1] else np.hstack([W, U])
+
+
 def reduce_system(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list | None = None,
                   bii: list | None = None, bij: dict | None = None) -> tuple[dict, np.ndarray]:
     """Reduced model of A(dp) x = b(dp) with A(dp) = A0 + sum dp_i Ai + 1/2 sum dp_i^2 Aii + sum_{i<j} dp_i
@@ -226,21 +266,8 @@ def reduce_system(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list | None
     bi = bi if bi is not None else [zero] * n
     bii = bii if bii is not None else [zero] * n
     bij = bij if bij is not None else {key: zero for key in Aij}
-    fac = factor(A0)
-    try:
-        x0 = fac.solve(b)
-        xi = [fac.solve(bi[i] - Ai[i] @ x0) for i in range(n)]
-        xii = [fac.solve(bii[i] - (Aii[i] @ x0 + 2 * (Ai[i] @ xi[i]))) for i in range(n)]
-        xij = {(i, j): fac.solve(bij[(i, j)] - (Aij[(i, j)] @ x0 + Ai[i] @ xi[j] + Ai[j] @ xi[i]))
-               for (i, j) in Aij}
-    finally:
-        if hasattr(fac, "close"):
-            fac.close()
-    cols = [x0[:, e] for e in range(x0.shape[1])]
-    for group in (xi, xii, [xij[k] for k in sorted(xij)]):
-        for x in group:
-            cols += [x[:, e] for e in range(x.shape[1])]
-    W = _orth(cols)
+    cols = derivative_solutions(A0, b, Ai, Aii, Aij, factor, bi, bii, bij)
+    W = _orth([cols[:, e] for e in range(cols.shape[1])])
     proj = lambda M: W.T @ (M @ W)      # noqa: E731  (complex symmetric: W^T keeps the reduced matrix symmetric)
     k = W.shape[1]
     out = {
@@ -291,8 +318,6 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
             raise MO.MorphError("the morphed mesh changes the unknowns of the solve")
         return submatrix(Ac, ids).tocsr(), np.asarray(bc[ids], dtype=np.complex128)
 
-    states = [{i: +1} for i in range(n)] + [{i: -1} for i in range(n)] + \
-        [{i: +1, j: +1} for i, j in pairs(n)]
     t = time.time()
     Ai, Aii, bi, bii, Ap, bp = [], [], [], [], [], []
     for i in range(n):
@@ -313,27 +338,308 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
     t = time.time()
     out, W = reduce_system(A0, bs, Ai, Aii, Aij, _Factor, bi, bii, bij)
     t_fac = time.time() - t
-    # the S functionals of the ports on the basis; with stretching lumped ports also their derivatives
-    # (a larger step: they need no matrix, and their round-off would dominate the second differences)
-    F0 = s_functionals(mw, freq, W, NF, ids, mats, powers)
-    out.update(Lp=F0[0], La=F0[1], c0=F0[2])
-    if ports_move and n:
-        hs = [FUNCTIONAL_STEP * s_ for s_ in steps]
-        Fs = {}
-        for c in states:
-            asm._move(asm.X0 + sum(ci * hs[i] * V[i] for i, ci in c.items()), asm._ANON)
-            Fs[tuple(sorted(c.items()))] = s_functionals(mw, freq, W, NF, ids, mats, powers)
-        asm.restore()
-        for q, name in enumerate(("Lp", "La", "c0")):
-            f0 = F0[q]
-            fp = [Fs[((i, +1),)][q] for i in range(n)]
-            fm_ = [Fs[((i, -1),)][q] for i in range(n)]
-            out[f"{name}_i"] = np.array([(fp[i] - fm_[i]) / (2 * hs[i]) for i in range(n)])
-            out[f"{name}_ii"] = np.array([(fp[i] - 2 * f0 + fm_[i]) / hs[i] ** 2 for i in range(n)])
-            dx = [(Fs[((i, +1), (j, +1))][q] - fp[i] - fp[j] + f0) / (hs[i] * hs[j]) for i, j in pairs(n)]
-            out[f"{name}_ij"] = np.array(dx).reshape((len(dx),) + f0.shape)
+    out.update(_functionals(asm, mw, freq, W, NF, ids, mats, powers, V, steps, ports_move))
     if log is not None:
         log(f"{freq / 1e9:.6g} GHz: basis {W.shape[1]}, assembly {t_asm:.1f} s, solves {t_fac:.1f} s")
+    return out
+
+
+# ------------------------------------------------------------------------------------------------
+# one reduced model for the whole band
+# ------------------------------------------------------------------------------------------------
+class NotAffine(RuntimeError):
+    """The matrix does not split into frequency independent parts (frequency dependent materials,
+    periodic boundaries): the band model is not possible, every frequency is reduced on its own."""
+
+
+def _fd(vals: dict, n: int, h: list[float]):
+    """Central differences of values at the states: (value, [d/dp_i], [d2/dp_i2], [d2/dp_i dp_j])."""
+    v0 = vals[()]
+    d1 = [(vals[((i, 1),)] - vals[((i, -1),)]) / (2 * h[i]) for i in range(n)]
+    d2 = [(vals[((i, 1),)] - 2 * v0 + vals[((i, -1),)]) / h[i] ** 2 for i in range(n)]
+    dx = [(vals[((i, 1), (j, 1))] - vals[((i, 1),)] - vals[((j, 1),)] + v0) / (h[i] * h[j]) for i, j in pairs(n)]
+    return v0, d1, d2, dx
+
+
+class BandModel:
+    """The FEM matrix of every node state split as A(f) = E - k0^2 B + R(f): the volume matrices E and B do
+    not depend on the frequency and are assembled once per state, only the boundary terms R(f) (radiation
+    boundaries, ports, surface impedances) and the excitations are assembled per frequency, which is
+    cheap. The derivatives with respect to the variables split the same way.
+
+    One basis W serves the whole band: the solution and its derivatives at a few expansion frequencies
+    (one factorization each), added where the residual of the reduced solution is largest until it is
+    below the tolerance everywhere. Every frequency of the model then costs only boundary assembly and
+    small dense algebra."""
+
+    def __init__(self, asm: Assembly, V: list[np.ndarray], steps: list[float], f_ref: float, log=None):
+        from emerge._emerge.physics.microwave.bcs import RobinBC
+        from emerge._emerge.periodic import Periodic
+        self.asm, self.V, self.steps, self.log = asm, V, steps, log or (lambda s: None)
+        mw = asm.mw
+        self.n = n = len(V)
+        if any(isinstance(bc, Periodic) for bc in mw.bc.boundary_conditions):
+            raise NotAffine("periodic boundaries")
+        self.robin = [bc for bc in mw.bc.boundary_conditions if isinstance(bc, RobinBC)]
+        self.states = [()] + [((i, 1),) for i in range(n)] + [((i, -1),) for i in range(n)] + \
+            [((i, 1), (j, 1)) for i, j in pairs(n)]
+        self.parts = {}
+        E, Bv = {}, {}
+        for key in self.states:
+            st = self._state(key, f_ref)
+            E[key], Bv[key] = st.pop("E"), st.pop("B")
+            self.parts[key] = st
+        self.ids = self.parts[()]["ids"]
+        self.mats = self.parts[()]["mats"]
+        self.NF = mw.basis.n_field
+        self.E = _fd(E, n, steps)
+        self.B = _fd(Bv, n, steps)
+        del E, Bv
+        asm.restore()
+
+    def _move(self, key: tuple) -> None:
+        if key:
+            X = self.asm.X0 + sum(c * self.steps[i] * self.V[i] for i, c in key)
+            self.asm._move(X, key)
+        else:
+            self.asm.restore()
+
+    def _state(self, key: tuple, f_ref: float) -> dict:
+        from emerge._emerge.mth.csc_submatrix import csc_submatrix
+        self._move(key)
+        mw, asy = self.asm.mw, self.asm.mw.assembler
+        field, mesh, bcs = mw.basis, self.asm.mesh, mw.bc.boundary_conditions
+        er, ur, cond, fdep = asy._assemble_materials(mw.mat_assy, field, f_ref)
+        if fdep:
+            raise NotAffine("frequency dependent materials")
+        ct = asy._find_conductor_tets(field, bcs, cond)
+        system, E, Bm = asy._prepare_system(field, er, ur, ct, self.robin, True, bcs=bcs)
+        pec_ids, _ = asy._collect_pec_dofs(field, mesh, bcs, ct, cond)
+        ids = np.asarray(asy._solve_ids(field.n_field, pec_ids))
+        if key and not np.array_equal(ids, self.parts[()]["ids"]):
+            raise MO.MorphError("the morphed mesh changes the unknowns of the solve")
+        g = np.full(field.n_field, -1)
+        g[ids] = np.arange(len(ids))
+        rows = np.asarray(system.indices)
+        cols = np.repeat(np.arange(system.N), np.diff(system.indptr))
+        return {"system": system, "er": er, "ids": ids, "mats": (er, ur, cond),
+                "E": csc_submatrix(system.as_csc_matrix(E), ids).tocsr(),
+                "B": csc_submatrix(system.as_csc_matrix(Bm), ids).tocsr(),
+                "rows": g[rows], "cols": g[cols], "mask": None}
+
+    def boundary(self, key: tuple, f: float, W: np.ndarray | None = None):
+        """(R, b) of a state at frequency f: boundary matrix terms (solve dofs, sparse) and excitations;
+        with W their projections (W^T R W, W^T b), from the rows and columns R touches only."""
+        import scipy.sparse as sp
+        self._move(key)
+        st = self.parts[key]
+        mw, asy = self.asm.mw, self.asm.mw.assembler
+        system = st["system"]
+        R = np.zeros(system.nnz, dtype=np.complex128)
+        pv = {si: np.zeros(self.NF, dtype=np.complex128) for _, si, _ in mw.bc.iter_port_modes()}
+        k0 = 2 * np.pi * f / 299792458
+        asy._assemble_robin_terms(system, R, mw.basis, self.asm.mesh, k0, st["er"], self.robin, port_vectors=pv)
+        nz = R != 0
+        if st["mask"] is None or (nz & ~st["mask"]).any():
+            st["mask"] = nz if st["mask"] is None else (st["mask"] | nz)
+            st["sel"] = sel = np.flatnonzero(st["mask"] & (st["rows"] >= 0) & (st["cols"] >= 0))
+            st["rr"], st["ri"] = np.unique(st["rows"][sel], return_inverse=True)
+            st["cc"], st["ci"] = np.unique(st["cols"][sel], return_inverse=True)
+        sel = st["sel"]
+        b = np.column_stack([pv[si] for _, si, _ in mw.bc.iter_port_modes()])[self.ids]
+        if W is not None:
+            Rc = sp.csr_matrix((R[sel], (st["ri"], st["ci"])), shape=(len(st["rr"]), len(st["cc"])))
+            return W[st["rr"]].T @ (Rc @ W[st["cc"]]), W.T @ b
+        n = len(self.ids)
+        Rs = sp.csr_matrix((R[sel], (st["rows"][sel], st["cols"][sel])), shape=(n, n))
+        return Rs, b
+
+    def boundary_terms(self, f: float, W: np.ndarray | None = None):
+        """Boundary matrix terms and excitations at f and their derivatives (_fd form), projected onto W
+        when given."""
+        Rs, bs = {}, {}
+        for key in self.states:
+            Rs[key], bs[key] = self.boundary(key, f, W)
+        self.asm.restore()
+        return _fd(Rs, self.n, self.steps), _fd(bs, self.n, self.steps)
+
+    @staticmethod
+    def _combine(Et, Bt, Rt, k0: float):
+        """(A0, [A_i], [A_ii], {(i, j): A_ij}) from the _fd forms of E, B and R."""
+        n = len(Et[1])
+        A0 = Et[0] - k0 ** 2 * Bt[0] + Rt[0]
+        Ai = [Et[1][i] - k0 ** 2 * Bt[1][i] + Rt[1][i] for i in range(n)]
+        Aii = [Et[2][i] - k0 ** 2 * Bt[2][i] + Rt[2][i] for i in range(n)]
+        Aij = {key: Et[3][q] - k0 ** 2 * Bt[3][q] + Rt[3][q] for q, key in enumerate(pairs(n))}
+        return A0, Ai, Aii, Aij
+
+    def expansion(self, f: float) -> np.ndarray:
+        """Solution and derivatives at f (one factorization)."""
+        from .fast_sweep import _Factor
+        self.asm.mw._compute_modes(f)
+        Rt, bt = self.boundary_terms(f)
+        A0, Ai, Aii, Aij = self._combine(self.E, self.B, Rt, 2 * np.pi * f / 299792458)
+        bij = {key: bt[3][q] for q, key in enumerate(pairs(self.n))}
+        return derivative_solutions(A0.tocsr(), bt[0], Ai, Aii, Aij, _Factor, bt[1], bt[2], bij)
+
+    def basis(self, freqs: np.ndarray, tol: float = 1e-4, max_points: int | None = None) -> np.ndarray:
+        """Greedy choice of the expansion frequencies: start in the middle of the band, add the frequency
+        with the largest relative residual of the reduced nominal solution until all are below tol."""
+        freqs = np.asarray(freqs, float)
+        max_points = max_points or len(freqs)
+        E0, B0 = self.E[0], self.B[0]
+        nominal = {}
+        mw = self.asm.mw
+        for f in freqs:                     # nominal boundary terms of every frequency (reused each round)
+            mw._compute_modes(float(f))
+            nominal[float(f)] = self.boundary((), float(f))
+        k_mid = int(np.argmin(np.abs(freqs - 0.5 * (freqs.min() + freqs.max()))))
+        todo, used = [float(freqs[k_mid])], []
+        W = None
+        EW = BW = None
+        res = {}
+        while todo:
+            f = todo.pop()
+            used.append(f)
+            t = time.time()
+            W_old = 0 if W is None else W.shape[1]
+            W = _extend(W, self.expansion(f))
+            new = W[:, W_old:]
+            EW = E0 @ new if EW is None else np.hstack([EW, E0 @ new])
+            BW = B0 @ new if BW is None else np.hstack([BW, B0 @ new])
+            for fq in freqs:
+                fq = float(fq)
+                if fq in used:
+                    res[fq] = 0.0
+                    continue
+                R0, b0 = nominal[fq]
+                k0 = 2 * np.pi * fq / 299792458
+                AW = EW - k0 ** 2 * BW + R0 @ W
+                y = np.linalg.solve(W.T @ AW, W.T @ b0)
+                r = AW @ y - b0
+                res[fq] = float(np.max(np.linalg.norm(r, axis=0) / np.maximum(np.linalg.norm(b0, axis=0), 1e-300)))
+            worst = max(res, key=res.get)
+            self.log(f"expansion at {f / 1e9:.6g} GHz: basis {W.shape[1]}, largest residual {res[worst]:.1e} "
+                     f"at {worst / 1e9:.6g} GHz ({time.time() - t:.1f} s)")
+            if res[worst] > tol and len(used) < max_points:
+                todo.append(worst)
+        self.used = used
+        return W
+
+    def frequency_terms(self, f: float, W: np.ndarray, ER: tuple, BR: tuple, ports_move: bool,
+                        functionals: dict | None = None) -> dict:
+        """Reduced model of frequency f on the band basis W (the same keys as frequency_model);
+        functionals: the S functionals at f if known (interpolated over the band)."""
+        mw = self.asm.mw
+        k0 = 2 * np.pi * f / 299792458
+        mw._compute_modes(f)
+        RR, bt = self.boundary_terms(f, W)
+        A0, Ai, Aii, Aij = self._combine(ER, BR, RR, k0)
+        n, k = self.n, W.shape[1]
+        out = {"A0": A0, "b": bt[0],
+               "Ai": np.array(Ai).reshape(n, k, k), "Aii": np.array(Aii).reshape(n, k, k),
+               "Aij": np.array([Aij[key] for key in pairs(n)]).reshape(len(Aij), k, k)}
+        m = bt[0].shape[1]
+        if any(np.abs(v).max() > 1e-12 * max(float(np.abs(bt[0]).max()), 1e-300) for v in bt[1] + bt[2] + bt[3]):
+            out["b_i"] = np.array(bt[1]).reshape(n, k, m)
+            out["b_ii"] = np.array(bt[2]).reshape(n, k, m)
+            out["b_ij"] = np.array(bt[3]).reshape(len(bt[3]), k, m)
+        out.update(functionals if functionals is not None else self.functionals(f, W, ports_move))
+        return out
+
+    def functionals(self, f: float, W: np.ndarray, ports_move: bool) -> dict:
+        mw = self.asm.mw
+        mw._compute_modes(f)
+        return _functionals(self.asm, mw, f, W, self.NF, self.ids, self.mats, _port_powers(mw, f), self.V,
+                            self.steps, ports_move)
+
+
+def _port_powers(mw, f: float) -> dict:
+    keep = list(getattr(mw, "frequencies", []) or [])
+    try:
+        mw.frequencies = [f]
+        return mw._check_port_powers()
+    finally:
+        mw.frequencies = keep
+
+
+FUNCTIONAL_POINTS = 7           # frequencies of the port functionals of a band model (interpolated between)
+
+
+def _interpolated_functionals(bm: "BandModel", freqs: np.ndarray, W: np.ndarray, ports_move: bool,
+                              log=None) -> list[dict] | None:
+    """The S functionals of the ports on W at all frequencies, from FUNCTIONAL_POINTS frequencies
+    (Chebyshev-Lobatto points over the band) and a polynomial through them: they follow the port modes,
+    which change smoothly with frequency (the resonances are in the solution, not in the functionals).
+    None when the band has few frequencies (all computed exactly)."""
+    from scipy.interpolate import BarycentricInterpolator
+    nq = FUNCTIONAL_POINTS
+    if len(freqs) <= nq + 2:
+        return None
+    a, b = float(freqs.min()), float(freqs.max())
+    xs = np.cos(np.pi * np.arange(nq) / (nq - 1))[::-1]           # -1 .. 1
+    vals = [bm.functionals(0.5 * (a + b) + 0.5 * (b - a) * x, W, ports_move) for x in xs]
+    t = 2 * (np.asarray(freqs, float) - a) / (b - a) - 1
+    out = [dict() for _ in freqs]
+    for key in vals[0]:
+        P = BarycentricInterpolator(xs, np.array([v[key] for v in vals]), axis=0)
+        Y = P(t)
+        for k in range(len(freqs)):
+            out[k][key] = Y[k]
+    if log is not None:
+        log(f"Port functionals at {nq} frequencies, interpolated over {len(freqs)}")
+    return out
+
+
+def _functionals(asm, mw, freq, W, NF, ids, mats, powers, V, steps, ports_move) -> dict:
+    """S functionals of the ports on W, with their derivatives when lumped ports stretch."""
+    n = len(V)
+    F0 = s_functionals(mw, freq, W, NF, ids, mats, powers)
+    out = {"Lp": F0[0], "La": F0[1], "c0": F0[2]}
+    if not (ports_move and n):
+        return out
+    hs = [FUNCTIONAL_STEP * s_ for s_ in steps]
+    states = [{i: +1} for i in range(n)] + [{i: -1} for i in range(n)] + [{i: +1, j: +1} for i, j in pairs(n)]
+    Fs = {}
+    for c in states:
+        asm._move(asm.X0 + sum(ci * hs[i] * V[i] for i, ci in c.items()), asm._ANON)
+        Fs[tuple(sorted(c.items()))] = s_functionals(mw, freq, W, NF, ids, mats, powers)
+    asm.restore()
+    for q, name in enumerate(("Lp", "La", "c0")):
+        f0 = F0[q]
+        fp = [Fs[((i, +1),)][q] for i in range(n)]
+        fm_ = [Fs[((i, -1),)][q] for i in range(n)]
+        out[f"{name}_i"] = np.array([(fp[i] - fm_[i]) / (2 * hs[i]) for i in range(n)])
+        out[f"{name}_ii"] = np.array([(fp[i] - 2 * f0 + fm_[i]) / hs[i] ** 2 for i in range(n)])
+        dx = [(Fs[((i, +1), (j, +1))][q] - fp[i] - fp[j] + f0) / (hs[i] * hs[j]) for i, j in pairs(n)]
+        out[f"{name}_ij"] = np.array(dx).reshape((len(dx),) + f0.shape)
+    return out
+
+
+def band_models(asm: Assembly, freqs: np.ndarray, V: list[np.ndarray], steps: list[float], log=None,
+                ports_move: bool = False, tol: float = 1e-4, progress=None, abort=None,
+                on_frequency=None) -> list[dict]:
+    """Reduced models of all frequencies on one band basis (BandModel)."""
+    log = log or (lambda s: None)
+    t = time.time()
+    bm = BandModel(asm, V, steps, float(np.mean(freqs)), log=log)
+    log(f"Volume matrices of {len(bm.states)} mesh states: {time.time() - t:.1f} s")
+    W = bm.basis(freqs, tol=tol)
+    log(f"Band basis: {W.shape[1]} vectors from {len(bm.used)} expansion frequencies")
+    proj = lambda M: W.T @ (M @ W)      # noqa: E731
+    ER = (proj(bm.E[0]), [proj(M) for M in bm.E[1]], [proj(M) for M in bm.E[2]], [proj(M) for M in bm.E[3]])
+    BR = (proj(bm.B[0]), [proj(M) for M in bm.B[1]], [proj(M) for M in bm.B[2]], [proj(M) for M in bm.B[3]])
+    funs = _interpolated_functionals(bm, np.asarray(freqs, float), W, ports_move, log=log)
+    out = []
+    for k, f in enumerate(freqs):
+        if abort is not None:
+            abort()
+        out.append(bm.frequency_terms(float(f), W, ER, BR, ports_move, None if funs is None else funs[k]))
+        if on_frequency is not None:
+            on_frequency(f)             # the port modes of f are current
+        if progress is not None:
+            progress(k + 1, len(freqs))
+    asm.restore()
     return out
 
 
@@ -427,7 +733,7 @@ def variable_step(text: str) -> float:
 
 
 def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None, progress=None,
-          grid=None) -> dict:
+          grid=None, band: bool = True) -> dict:
     """Tuning model of the EMerge model of bridge (prepared, final adaptive mesh) for the design
     variables, saved to path. grid: frequencies of the curve when the model frequencies are the solved
     points of an interpolating sweep (the curve is interpolated over them)."""
@@ -464,26 +770,47 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     settings = m.mw._settings
     caps = (bool(settings.mw_cap_sp_col), bool(settings.mw_cap_sp_single))
     asm = Assembly(m)
-    ports_move = any(np.abs(Vi[:, it["nid"]]).max() > 0 for it in asm.lumped.items for Vi in V)
+    ports_move = any(np.abs(Vi[:, it["nid"]]).max() > 1e-9 * max(float(np.abs(Vi).max()), 1e-300)
+                     for it in asm.lumped.items for Vi in V)
     if ports_move:
         log("Lumped ports or elements stretch with the variables")
     data: dict = {}
     beta, z0 = [], None
     nfreq = len(freqs)
+
+    def abort():
+        if (Path(bridge.out) / "ABORT").exists():
+            raise B.SolveAbort("aborted")
+
+    def port_data(f):
+        nonlocal z0
+        k0 = 2 * np.pi * float(f) / 299792458
+        pm = list(m.mw.bc.iter_port_modes())
+        beta.append([complex(p.get_beta(k0) or 0) for p, _, _ in pm])
+        if z0 is None:
+            z0 = np.array([complex(p.portZ0(k0) or 50.0) for p, _, _ in pm])
+
     try:
-        for k, f in enumerate(freqs):
-            if (Path(bridge.out) / "ABORT").exists():
-                raise B.SolveAbort("aborted")
-            fm = frequency_model(asm, float(f), V, steps, log=log, ports_move=ports_move)
+        fms = None
+        if band and nfreq > 1:
+            try:
+                fms = band_models(asm, freqs, V, steps, log=log, ports_move=ports_move, progress=progress,
+                                  abort=abort, on_frequency=port_data)
+            except NotAffine as e:
+                log(f"No band model ({e}): every frequency is reduced on its own")
+                beta.clear()
+                asm.restore()
+        if fms is None:
+            fms = []
+            for k, f in enumerate(freqs):
+                abort()
+                fms.append(frequency_model(asm, float(f), V, steps, log=log, ports_move=ports_move))
+                port_data(f)
+                if progress is not None:
+                    progress(k + 1, nfreq)
+        for k, fm in enumerate(fms):
             for key, val in fm.items():
                 data[f"f{k}_{key}"] = val
-            k0 = 2 * np.pi * float(f) / 299792458
-            pm = list(m.mw.bc.iter_port_modes())
-            beta.append([complex(p.get_beta(k0) or 0) for p, _, _ in pm])
-            if z0 is None:
-                z0 = np.array([complex(p.portZ0(k0) or 50.0) for p, _, _ in pm])
-            if progress is not None:
-                progress(k + 1, nfreq)
     finally:
         asm.close()
     nominal = np.array([evaluate_freq({kk[len(f"f{k}_"):]: vv for kk, vv in data.items() if kk.startswith(f"f{k}_")},
