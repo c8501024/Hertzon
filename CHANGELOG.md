@@ -6,6 +6,17 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Solving on another computer (experimental).** For now only with another computer in the local
+  network; a full solution, also for servers and cloud machines, is in progress. A computer in the local network with Hertzon installed runs the remote
+  service, started in Tools > Options > Remote > Share this computer (optionally at every login) or with
+  `hertzon-serve`. On the laptop, *Find in Network* in the same tab lists the shared computers and connects
+  with the six-digit pairing code shown on them; *Solve on* in the status bar switches between this
+  computer and the remote one. The solving computer's Progress window lists the analyses sent to it. *Analyze* then uploads the project and the
+  setup's results folder, shows progress, adaptive passes and the log live, can abort, and mirrors the
+  results folder back, so reports and field plots work as after a local solve. S-parameters and
+  convergence are there as soon as the solver ends; large sweep field files follow in the background. Also
+  for parametric and optimization runs. Several users can share one service; jobs run one after the other.
+  See docs/REMOTE.md.
 - **Derivative tuning with sliders.** Results > Tuning (also Optimization > Derivative Tuning and the right
   click on a sweep) computes, once, how the S-parameters of a sweep depend on chosen design variables, on
   the converged adaptive mesh of the setup. Then sliders in a dock panel move the variables and every open

@@ -37,6 +37,7 @@ test = ["pytest", "gerbonara", "pygerber", "pillow"]   # Gerber export is read b
 [project.scripts]
 hertzon = "hertzon.gui.app:main"
 hertzon-mcp = "hertzon.mcp.__main__:main"
+hertzon-serve = "hertzon.remote.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["hertzon*"]

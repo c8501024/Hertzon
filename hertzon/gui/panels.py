@@ -276,8 +276,11 @@ def job_kind(j) -> str:
 
 class ProgressPanel(QWidget):
     """Progress window with the analysis queue: every running or queued job is a row with its own
-    progress bar and state, estimate from the last run; abort, remove from queue, reorder."""
+    progress bar and state, estimate from the last run; abort, remove from queue, reorder. When this
+    computer shares itself (Tools > Options > Remote), the analyses other computers sent here are rows too."""
     abortRequested = Signal()
+    hostedFetched = Signal(object)          # list of the jobs of the remote service on this computer
+    HOSTED_POLL_MS = 3000
     COLS = ["Analysis", "Progress", "State", "Estimate (last run)"]
 
     def __init__(self, parent=None):
@@ -309,6 +312,53 @@ class ProgressPanel(QWidget):
         lay.addLayout(btns)
         self._progress: dict[str, tuple[float, str]] = {}      # running job -> (percent, text)
         self._post: tuple[str, float] | None = None
+        self.abort.clicked.disconnect()
+        self.abort.clicked.connect(self._abort_clicked)
+        self._hosted: list[dict] = []                           # analyses of other computers solving here
+        self._hosted_rows: dict[int, str] = {}                  # table row -> job id on the service
+        self._fetching = False
+        self.hostedFetched.connect(self._set_hosted)
+        from PySide6.QtCore import QTimer
+        self._hosted_timer = QTimer(self)
+        self._hosted_timer.timeout.connect(self._poll_hosted)
+        self._hosted_timer.start(self.HOSTED_POLL_MS)
+
+    # ---- analyses other computers sent to this one ---------------------------------------------------
+    def _poll_hosted(self) -> None:
+        if self._fetching:
+            return
+        self._fetching = True
+        import threading
+
+        def fetch():
+            try:
+                from ..remote import local
+                jobs = local.hosted_jobs() or []
+            except Exception:  # noqa: BLE001
+                jobs = []
+            self.hostedFetched.emit(jobs)
+        threading.Thread(target=fetch, daemon=True).start()
+
+    def _set_hosted(self, jobs: list) -> None:
+        self._fetching = False
+        if jobs != self._hosted:
+            self._hosted = jobs
+            self.refresh()
+
+    def _abort_clicked(self) -> None:
+        jid = self._hosted_rows.get(self.table.currentRow())
+        if jid is None:
+            self.abortRequested.emit()
+            return
+        import threading
+
+        def abort():
+            try:
+                from ..remote import local
+                local.abort_hosted(jid)
+            except Exception:  # noqa: BLE001
+                pass
+        threading.Thread(target=abort, daemon=True).start()
 
     def _bar(self, row: int, value: float | None) -> None:
         """Progress bar in the row (None: queued, no bar)."""
@@ -366,7 +416,7 @@ class ProgressPanel(QWidget):
             return
         jobs = ([(self.solver.job, "Running")] if self.solver.job else []) + [(j, "Queued") for j in self.solver.queue]
         off = 1 if self._post else 0
-        self.table.setRowCount(len(jobs) + off)
+        self.table.setRowCount(len(jobs) + off + len(self._hosted))
         if self._post:
             text, value = self._post
             for c, v in ((0, "Post-processing"), (2, text), (3, "")):
@@ -382,7 +432,22 @@ class ProgressPanel(QWidget):
             self.table.item(r, 2).setToolTip(self.table.item(r, 2).text())
             self._set(r, 3, self.estimate(j))
             self._bar(r, value)
-        self.abort.setEnabled(bool(running))
+        self._hosted_rows = {}
+        for r, h in enumerate(self._hosted, start=off + len(jobs)):
+            who = h.get("client") or "another computer"
+            name = h.get("label") or f"{h.get('project', '')} - {h.get('design', '')} - {h.get('name', '')}"
+            self._hosted_rows[r] = h.get("id", "")
+            self._set(r, 0, f"{name} (from {who})")
+            if h.get("state") == "running":
+                self._set(r, 2, f"Solving for {who}" + (f": {h['text']}" if h.get("text") else ""))
+                self._bar(r, float(h.get("progress", 0.0)))
+            else:
+                self._set(r, 2, f"Queued for {who}")
+                self._bar(r, None)
+            self.table.item(r, 2).setToolTip("Sent by another computer to the remote service on this one; "
+                                             "select it and press Abort to stop it")
+            self._set(r, 3, "")
+        self.abort.setEnabled(bool(running) or bool(self._hosted))
 
     def _sel_key(self) -> str | None:
         r = self.table.currentRow()
