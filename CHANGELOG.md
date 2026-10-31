@@ -6,7 +6,8 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
-- **Solving on another computer.** A computer in the local network with Hertzon installed runs the remote
+- **Solving on another computer (experimental).** For now only with another computer in the local
+  network; a full solution, also for servers and cloud machines, is in progress. A computer in the local network with Hertzon installed runs the remote
   service, started in Tools > Options > Remote > Share this computer (optionally at every login) or with
   `hertzon-serve`. On the laptop, *Find in Network* in the same tab lists the shared computers and connects
   with the six-digit pairing code shown on them; *Solve on* in the status bar switches between this

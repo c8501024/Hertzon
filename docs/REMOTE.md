@@ -1,5 +1,9 @@
 # Solving on another computer
 
+> **Experimental.** Remote solving currently works only with another computer in the local network that
+> runs Hertzon. A full solution, also for servers and cloud machines, is in progress; options, behaviour
+> and the connection between GUI and service may still change.
+
 Build and post-process the model in the Hertzon GUI on your laptop and let a stronger computer in your
 network do the solving. The other computer runs a normal Hertzon installation plus the small remote service;
 the GUI sends each analysis there and gets the results back into the project's results folder, so reports,
@@ -55,4 +59,5 @@ press Abort to stop it.
 - Closing the GUI aborts a running remote analysis, as it does locally.
 - Job folders the GUI did not remove (for example after a lost connection) are deleted by the service after
   seven days.
-- Cloud machines that are created for a job and removed afterwards build on this service; see the roadmap.
+- Servers and cloud machines that are created for a job and removed afterwards will build on this service;
+  this is in progress (see the roadmap).
