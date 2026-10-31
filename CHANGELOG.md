@@ -38,6 +38,12 @@ the GitHub release notes.
   - Antenna Parameters reports and tables follow the sliders too (peak realized gain, radiation
     efficiency ... over the sweep frequencies of a sweep with saved fields). The far fields of the basis are
     computed once per frequency, with progress; after that a slider move takes a fraction of a second.
+  - Patterns and antenna parameters also follow the sliders for a setup without a sweep (or a sweep
+    without a band model): every frequency keeps the far field basis of its own reduced model. Earlier
+    such tuning models had no far field, so these reports did not change. A pattern or antenna report on
+    another solution of the tuned setup (e.g. LastAdaptive while a sweep is tuned) follows too, and the
+    3D polar plot shows the tuned pattern. When a report cannot show a tuned curve, its info line says why
+    (no far field in the model, or a frequency the model does not have).
   - Plot against a design variable: Rectangular plots and data tables of a solution with a tuning model
     have an *X axis* choice, Frequency or one of the tuned variables over its tuning range at one frequency
     (*At*), with the other variables at their slider values. Dashed line: the solved value, solid line: the

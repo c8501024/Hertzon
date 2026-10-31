@@ -288,7 +288,7 @@ FUNCTIONAL_STEP = 50            # finite difference step of the port functionals
 
 
 def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list[float], log=None,
-                    ports_move: bool = False) -> dict:
+                    ports_move: bool = False, basis: list | None = None) -> dict:
     """Reduced model of one frequency (see the module docstring). V: velocity fields (3, N) per variable,
     steps: finite difference step of every variable (in its unit); ports_move: lumped ports stretch with
     the variables, so their S functionals change too."""
@@ -341,6 +341,8 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
     out.update(_functionals(asm, mw, freq, W, NF, ids, mats, powers, V, steps, ports_move))
     if log is not None:
         log(f"{freq / 1e9:.6g} GHz: basis {W.shape[1]}, assembly {t_asm:.1f} s, solves {t_fac:.1f} s")
+    if basis is not None:               # (W, ids) for the far field basis of this frequency
+        basis.append((W, ids))
     return out
 
 
@@ -919,10 +921,26 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
                 asm.restore()
         if fms is None:
             fms = []
+            ff_ok = True
             for k, f in enumerate(freqs):
                 abort()
-                fms.append(frequency_model(asm, float(f), V, steps, log=log, ports_move=ports_move))
+                keep: list = []
+                fms.append(frequency_model(asm, float(f), V, steps, log=log, ports_move=ports_move, basis=keep))
                 port_data(f)
+                if ff_ok:
+                    # every frequency has its own basis: the fields of that basis on the far field surface
+                    try:
+                        fb = farfield_basis(bridge, keep[0][0], keep[0][1], float(f))
+                    except Exception as e:  # noqa: BLE001
+                        log(f"No far field in the tuning model: {e}")
+                        fb = {}
+                    ff_ok = bool(fb)
+                    if fb:
+                        band_data.update({kk: vv for kk, vv in fb.items() if kk not in ("ff_E", "ff_C")})
+                        band_data[f"ff_E_{k}"], band_data[f"ff_C_{k}"] = fb["ff_E"], fb["ff_C"]
+                    else:
+                        band_data = {kk: vv for kk, vv in band_data.items() if not kk.startswith("ff_")}
+                del keep
                 if progress is not None:
                     progress(k + 1, nfreq)
         for k, fm in enumerate(fms):
@@ -966,10 +984,12 @@ class TuningModel:
                 self.fms.append({name[len(pre):]: z[name] for name in z.files if name.startswith(pre)})
             band = {name[5:]: z[name] for name in z.files if name.startswith("band_")}
             ff = {name[3:]: z[name] for name in z.files if name.startswith("ff_")}
-        self.ff = ff if "E" in ff else None
+        # the fields of the basis on the far field surface: one set for a band model ("E", "C"), else one
+        # per frequency ("E_0", "C_0", ...)
+        self.ff = ff if ("E" in ff or "E_0" in ff) else None
         if self.ff is not None:         # stored in single precision, summed in double
-            self.ff["E"] = self.ff["E"].astype(np.complex128)
-            self.ff["C"] = self.ff["C"].astype(np.complex128)
+            for key in [x for x in self.ff if x == "E" or x == "C" or x.startswith(("E_", "C_"))]:
+                self.ff[key] = self.ff[key].astype(np.complex128)
         self.variables = self.meta["variables"]
         self.ranges = np.array(self.meta["ranges"], float)
         self.caps = tuple(self.meta.get("caps", (True, True)))
@@ -1047,9 +1067,16 @@ class TuningModel:
         if Y is None:
             Y, _ = _solve(self.fms[k], np.asarray(dp, float), self.caps)
         y = Y[:, port]
-        E = np.tensordot(y, self.ff["E"], axes=1)
-        H = np.tensordot(y, self.ff["C"], axes=1) / (-1j * 2 * np.pi * float(self.freq[k]))
+        Eb, Cb = self._surface_basis(k)
+        E = np.tensordot(y, Eb, axes=1)
+        H = np.tensordot(y, Cb, axes=1) / (-1j * 2 * np.pi * float(self.freq[k]))
         return E, H
+
+    def _surface_basis(self, k: int) -> tuple[np.ndarray, np.ndarray]:
+        """(E, C) of the basis vectors on the far field surface at model frequency k."""
+        if "E" in self.ff:
+            return self.ff["E"], self.ff["C"]
+        return self.ff[f"E_{k}"], self.ff[f"C_{k}"]
 
     def _basis_farfield(self, k: int, theta: np.ndarray, phi: np.ndarray) -> np.ndarray:
         """Far fields of the basis vectors (basis x 3 x directions) on the grid theta x phi at model frequency
@@ -1060,8 +1087,9 @@ class TuningModel:
         cache = self._ffcache
         if key not in cache:
             f = float(self.freq[k])
-            Es = list(self.ff["E"])
-            Hs = list(self.ff["C"] / (-1j * 2 * np.pi * f))
+            Eb, Cb = self._surface_basis(k)
+            Es = list(Eb)
+            Hs = list(Cb / (-1j * 2 * np.pi * f))
             planes = symmetry_planes(self.ff)
             v2, w2, Ein, Hin = mirrored(self.ff["vis"], self.ff["wns"], Es, Hs, planes)
             T, P = np.meshgrid(theta, phi, indexing="ij")
@@ -1089,7 +1117,8 @@ class TuningModel:
                 ks.append(k)
                 fs.append(float(self.freq[k]))
         if not ks:
-            raise ValueError("the tuning model has none of the frequencies of this solution")
+            fs = ", ".join(f"{x / 1e9:.6g}" for x in self.freq[:8]) + (" ..." if len(self.freq) > 8 else "")
+            raise ValueError(f"the tuning model has none of the frequencies of this solution (it has {fs} GHz)")
         rows = []
         for i, k in enumerate(ks):
             rows.append(antenna_values(self.antenna(k, port, dp, theta, phi)))
