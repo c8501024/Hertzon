@@ -1,30 +1,25 @@
-"""Derivative Tuning: sliders for design variables and the S-parameters of the tuned design, live.
+"""Derivative Tuning: sliders for design variables, the reports follow live.
 
 The tuning model of a sweep (hertzon.solver.tuning) is computed once by the solver from the converged
-adaptive mesh of the setup; moving a slider then only evaluates the small reduced model, so the plot
-follows the slider without solving again. The solved response stays in the plot (dashed) as reference.
-The response can also be plotted against one variable over its tuning range, at one frequency (a setup
-without a sweep is tuned at its solution frequency).
+adaptive mesh of the setup; moving a slider then only evaluates the small reduced model. The slider panel
+(a dock) holds the state (TuningState); every open report on the tuned solution draws the tuned curves over
+the solved ones (dashed), with all its quantities, markers and exports.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QComboBox, QPushButton,
-                               QSlider, QSpinBox, QListWidget, QListWidgetItem, QGroupBox, QSplitter, QWidget,
-                               QMessageBox, QDoubleSpinBox, QAbstractItemView)
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QComboBox, QPushButton, QSlider,
+                               QSpinBox, QListWidget, QListWidgetItem, QGroupBox, QWidget, QMessageBox,
+                               QDoubleSpinBox, QAbstractItemView, QScrollArea)
 
 from ..solver.optimetrics import split_value, fmt_value
 
 STEPS = 1000                    # slider resolution over the tuning range
-CURVE_POINTS = 101              # points of a curve over a variable
 WARN_FRACTION = 0.6             # beyond this part of the range the accuracy drops noticeably
-PATTERN = "pattern"             # x axis item of the radiation pattern
-PATTERN_THETA = np.radians(np.arange(0.0, 180.1, 2.0))
-PATTERN_PHI = np.radians([0.0, 90.0, 180.0, 270.0])
-PATTERN_RANGE = 40.0            # dB shown below the peak of the pattern
+TUNED = "<tuned>"               # the 'variation' of a report that shows the tuned design
 
 
 def tunable_variables(design) -> list[str]:
@@ -32,16 +27,75 @@ def tunable_variables(design) -> list[str]:
     return [k for k, v in design.variables.items() if split_value(v) is not None]
 
 
-class TuningDialog(QDialog):
+def same_solution(a: str, b: str) -> bool:
+    return a.replace(" ", "") == b.replace(" ", "")
+
+
+class TuningState(QObject):
+    """The tuning model of one solution and the slider offsets: what the reports draw as tuned curves."""
+
+    changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.model = None
+        self.solution = ""              # "Setup1 : Sweep" / "Setup1 : LastAdaptive"
+        self.dp: np.ndarray | None = None
+        self.texts: list[str] = []      # "h = 1.8 mm" of the variables off their solved value
+        self._data = None
+
+    def set_model(self, model, solution: str) -> None:
+        self.model, self.solution = model, solution
+        self.dp = None if model is None else np.zeros(len(model.variables))
+        self.texts, self._data = [], None
+        self.changed.emit()
+
+    def set_offsets(self, dp: np.ndarray, texts: list[str]) -> None:
+        self.dp, self.texts, self._data = np.asarray(dp, float), texts, None
+        self.changed.emit()
+
+    def active(self, solution: str) -> bool:
+        """Does a report on `solution` show tuned curves (a slider off its solved value)?"""
+        return (self.model is not None and self.dp is not None and bool(np.any(self.dp != 0))
+                and same_solution(solution, self.solution))
+
+    def label(self) -> str:
+        return "  (tuned: " + ", ".join(self.texts) + ")"
+
+    def data(self, base: dict | None) -> dict:
+        """Solution data of the tuned design, like the stored data of the solution (base: its ports, pairs)."""
+        if self._data is None:
+            S, z = self.model.sparams(self.dp)
+            d = {k: v for k, v in (base or {}).items()
+                 if k not in ("freq", "S", "z0", "solved", "gamma", "zo")}
+            d.update(freq=np.asarray(self.model.freq_out, float), S=S, z0=z,
+                     solved=np.asarray(self.model.freq, float))
+            if "ports" not in d:
+                d["ports"] = self.model.meta.get("ports") or []
+            self._data = d
+        return self._data
+
+
+def tuning_state(doc) -> TuningState:
+    """The tuning state of a document (one slider panel per design window)."""
+    st = getattr(doc, "_tuning_state", None)
+    if st is None:
+        st = TuningState()
+        doc._tuning_state = st
+    return st
+
+
+class TuningPanel(QWidget):
+    """Dock panel: the tuning model of a setup and sweep, one slider per variable."""
+
     def __init__(self, win, setup: str | None = None, sweep: str | None = None):
         super().__init__(win)
         self.win = win
-        self.setWindowTitle("Derivative Tuning")
+        self.state = tuning_state(win.doc)
         self.model = None
         self.rows: list[dict] = []
         lay = QVBoxLayout(self)
 
-        # ---- what to tune ---------------------------------------------------------------------
         top = QGroupBox("Tuning model")
         g = QGridLayout(top)
         self.setup = QComboBox()
@@ -60,103 +114,68 @@ class TuningDialog(QDialog):
                                   "setup (the setup must be analyzed)")
         g.addWidget(QLabel("Setup"), 0, 0)
         g.addWidget(self.setup, 0, 1)
-        g.addWidget(QLabel("Sweep"), 0, 2)
-        g.addWidget(self.sweep, 0, 3)
-        g.addWidget(QLabel("Points"), 0, 4)
-        g.addWidget(self.points, 0, 5)
-        g.addWidget(QLabel("Variables"), 1, 0, Qt.AlignTop)
-        g.addWidget(self.vars, 1, 1, 1, 5)
-        g.addWidget(self.b_compute, 2, 5)
+        g.addWidget(QLabel("Sweep"), 1, 0)
+        g.addWidget(self.sweep, 1, 1)
+        g.addWidget(QLabel("Points"), 2, 0)
+        g.addWidget(self.points, 2, 1)
+        g.addWidget(QLabel("Variables"), 3, 0, Qt.AlignTop)
+        g.addWidget(self.vars, 3, 1)
+        g.addWidget(self.b_compute, 4, 1)
         self.info = QLabel("")
         self.info.setWordWrap(True)
-        g.addWidget(self.info, 2, 0, 1, 5)
+        g.addWidget(self.info, 5, 0, 1, 2)
         lay.addWidget(top)
 
-        split = QSplitter(Qt.Horizontal)
-        # ---- sliders ----------------------------------------------------------------------------
-        left = QWidget()
-        ll = QVBoxLayout(left)
-        ll.setContentsMargins(0, 0, 0, 0)
         self.slider_box = QGroupBox("Variables")
         self.slider_grid = QGridLayout(self.slider_box)
-        ll.addWidget(self.slider_box)
-        tr = QGroupBox("Traces")
-        tl = QVBoxLayout(tr)
-        self.quantity = QComboBox()
-        self.quantity.addItems(["dB", "Magnitude", "Phase (deg)"])
-        tl.addWidget(self.quantity)
-        xl = QGridLayout()
-        self.xaxis = QComboBox()
-        self.xaxis.setToolTip("Plot against frequency, or against one variable over its tuning range (the other "
-                              "variables at their slider values), or the radiation pattern (models with an "
-                              "open boundary)")
-        self.fpick = QComboBox()
-        self.fpick.setToolTip("Frequency of the plot against a variable")
-        xl.addWidget(QLabel("X axis"), 0, 0)
-        xl.addWidget(self.xaxis, 0, 1)
-        self.fpick_label = QLabel("Frequency")
-        xl.addWidget(self.fpick_label, 1, 0)
-        xl.addWidget(self.fpick, 1, 1)
-        tl.addLayout(xl)
-        self.traces = QListWidget()
-        self.traces.setSelectionMode(QAbstractItemView.NoSelection)
-        tl.addWidget(self.traces)
-        ll.addWidget(tr, 1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.slider_box)
+        lay.addWidget(scroll, 1)
         self.warn = QLabel("")
         self.warn.setWordWrap(True)
         self.warn.setStyleSheet("color: #b36b00;")
-        ll.addWidget(self.warn)
-        split.addWidget(left)
-        # ---- plot -------------------------------------------------------------------------------
-        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-        from matplotlib.figure import Figure
-        self.fig = Figure(figsize=(6, 4), tight_layout=True)
-        self.ax = self.fig.add_subplot(111)
-        self.canvas = FigureCanvasQTAgg(self.fig)
-        split.addWidget(self.canvas)
-        split.setStretchFactor(1, 3)
-        lay.addWidget(split, 1)
-
+        lay.addWidget(self.warn)
+        self.hint = QLabel("")
+        self.hint.setWordWrap(True)
+        self.hint.setStyleSheet("color: #777;")
+        lay.addWidget(self.hint)
         bl = QHBoxLayout()
         self.b_reset = QPushButton("Reset All")
         self.b_apply = QPushButton("Apply to Design")
         self.b_apply.setToolTip("Set the design variables to the slider values (analyze again to confirm the "
                                 "tuned response)")
-        close = QPushButton("Close")
         bl.addWidget(self.b_reset)
         bl.addWidget(self.b_apply)
-        bl.addStretch(1)
-        bl.addWidget(close)
         lay.addLayout(bl)
 
-        des = win.des
-        self.setup.addItems([s.name for s in des.setups if not s.eigen])
-        if setup:
-            self.setup.setCurrentText(setup)
-        self._fill_sweeps(sweep)
-        self._fill_vars()
+        self._pending = ""
+        self._timer = QTimer(self)                      # coalesce slider moves into one update
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(15)
+        self._timer.timeout.connect(self._publish)
         self.setup.currentTextChanged.connect(lambda *_: (self._fill_sweeps(None), self.load()))
         self.sweep.currentIndexChanged.connect(lambda *_: self.load())
-        self.quantity.currentTextChanged.connect(lambda *_: self.plot())
-        self.xaxis.currentIndexChanged.connect(lambda *_: self._xaxis_changed())
-        self.fpick.currentIndexChanged.connect(lambda *_: self.plot())
-        self.traces.itemChanged.connect(lambda *_: self.plot())
         self.b_compute.clicked.connect(self.compute)
         self.b_reset.clicked.connect(self.reset)
         self.b_apply.clicked.connect(self.apply)
-        close.clicked.connect(self.close)
-        self._pending = ""
         win.solver.finished.connect(self._solver_finished)
-        self._timer = QTimer(self)                      # coalesce slider moves into one redraw
-        self._timer.setSingleShot(True)
-        self._timer.setInterval(15)
-        self._timer.timeout.connect(self.plot)
-        self._sig, self._dyn, self._bg = None, [], None
-        self.canvas.mpl_connect("draw_event", self._on_draw)
-        self.resize(1100, 680)
-        self.load()
+        self.select(setup, sweep)
 
     # ---- model ---------------------------------------------------------------------------------
+    def select(self, setup: str | None, sweep: str | None) -> None:
+        """Show the tuning model of setup and sweep (None: keep the current choice)."""
+        des = self.win.des
+        self.setup.blockSignals(True)
+        keep = self.setup.currentText()
+        self.setup.clear()
+        self.setup.addItems([s.name for s in des.setups if not s.eigen])
+        self.setup.setCurrentText(setup or keep)
+        self.setup.blockSignals(False)
+        self._fill_sweeps(sweep or self.sweep_name() or None)
+        self._fill_vars()
+        self.load()
+
     def _fill_sweeps(self, want: str | None) -> None:
         from ..solver.tuning import ADAPTIVE
         self.sweep.blockSignals(True)
@@ -174,6 +193,9 @@ class TuningDialog(QDialog):
 
     def sweep_name(self) -> str:
         return self.sweep.currentData() or ""
+
+    def solution(self) -> str:
+        return f"{self.setup.currentText()} : {self.sweep_name()}"
 
     def _fill_vars(self, checked: list[str] | None = None) -> None:
         self.vars.blockSignals(True)
@@ -200,14 +222,15 @@ class TuningDialog(QDialog):
         self.points.setEnabled(self.sweep_name() != ADAPTIVE)
         p = self._path()
         self.model = None
+        self.info.setText("")
         if p is not None and p.exists():
             try:
                 self.model = TuningModel(p)
             except Exception as e:  # noqa: BLE001
                 self.info.setText(f"The tuning model cannot be read ({e}); compute it again.")
         if self.model is None:
-            if not self.info.text() or p is None or not p.exists():
-                self.info.setText("No tuning model for this sweep yet: check the variables to tune and click "
+            if not self.info.text():
+                self.info.setText("No tuning model for this solution yet: check the variables to tune and click "
                                   "Compute Derivatives.")
             self._fill_vars(self._checked())
         else:
@@ -223,9 +246,18 @@ class TuningDialog(QDialog):
                               f"({m.meta.get('tets', 0)} tetrahedra).{note}")
             self._fill_vars(m.variables)
         self._build_sliders()
-        self._fill_traces()
-        self._fill_axes()
-        self.plot()
+        self.state.set_model(self.model, self.solution())
+        self._show_hint()
+
+    def _show_hint(self) -> None:
+        if self.model is None:
+            self.hint.setText("")
+            return
+        open_on = [w for w in getattr(self.win, "report_tabs", {}).values()
+                   if same_solution(w.sol.currentText(), self.solution())]
+        self.hint.setText("The reports on " + self.solution() + " show the tuned curves (solid) over the solved "
+                          "ones (dashed)." if open_on else
+                          "Open a report on " + self.solution() + " to see the tuned curves.")
 
     def _checked(self) -> list[str]:
         return [self.vars.item(i).data(Qt.UserRole) for i in range(self.vars.count())
@@ -239,8 +271,7 @@ class TuningDialog(QDialog):
         if len(names) > 6:
             QMessageBox.information(self, "Derivative Tuning", "Tune at most 6 variables at a time.")
             return
-        key = self.win.compute_tuning(self.setup.currentText(), self.sweep_name(), names,
-                                      self.points.value())
+        key = self.win.compute_tuning(self.setup.currentText(), self.sweep_name(), names, self.points.value())
         if key:
             self._pending = key
             self.info.setText("Computing the derivatives... (progress in the Progress window)")
@@ -291,6 +322,9 @@ class TuningDialog(QDialog):
             self.slider_grid.addWidget(rng, 2 * i, 2)
             self.slider_grid.addWidget(sl, 2 * i + 1, 0, 1, 3)
             self.rows.append(row)
+        for r in range(self.slider_grid.rowCount()):
+            self.slider_grid.setRowStretch(r, 0)
+        self.slider_grid.setRowStretch(2 * len(m.variables), 1)    # the sliders at the top, not spread out
 
     @staticmethod
     def _pos(row: dict, dp: float) -> int:
@@ -314,6 +348,20 @@ class TuningDialog(QDialog):
     def offsets(self) -> np.ndarray:
         return np.array([r["spin"].value() - r["v0"] for r in self.rows], float)
 
+    def _publish(self) -> None:
+        dp = self.offsets()
+        self._warn(dp)
+        texts = [f"{r['name']} = {fmt_value(r['spin'].value(), r['unit'])}" for r, d in zip(self.rows, dp) if d]
+        self.state.set_offsets(dp, texts)
+        self._show_hint()
+
+    def _warn(self, dp) -> None:
+        far = [r["name"] for r, d in zip(self.rows, dp)
+               if (d > 0 and r["hi"] > 0 and d > WARN_FRACTION * r["hi"])
+               or (d < 0 and r["lo"] < 0 and d < WARN_FRACTION * r["lo"])]
+        self.warn.setText(f"{', '.join(far)} far from the solved value: the accuracy decreases. Apply to Design "
+                          "and analyze to confirm." if far else "")
+
     def reset(self) -> None:
         for r in self.rows:
             r["spin"].setValue(r["v0"])
@@ -324,240 +372,8 @@ class TuningDialog(QDialog):
         vals = {r["name"]: fmt_value(r["spin"].value(), r["unit"]) for r in self.rows}
         self.win.apply_variables(vals, "derivative tuning")
 
-    # ---- plot ----------------------------------------------------------------------------------
-    def _fill_axes(self) -> None:
-        keep = self.xaxis.currentText()
-        m = self.model
-        self.xaxis.blockSignals(True)
-        self.fpick.blockSignals(True)
-        self.xaxis.clear()
-        self.fpick.clear()
-        if m is not None:
-            if len(m.freq) > 1:
-                self.xaxis.addItem("Frequency", None)
-            for i, name in enumerate(m.variables):
-                self.xaxis.addItem(name, i)
-            if m.ff is not None:
-                self.xaxis.addItem("Pattern (realized gain)", PATTERN)
-            self.xaxis.setCurrentIndex(max(self.xaxis.findText(keep), 0))
-            for f in m.freq:
-                self.fpick.addItem(f"{f / 1e9:.6g} GHz")
-            self.fpick.setCurrentIndex(len(m.freq) // 2)
-        self.xaxis.blockSignals(False)
-        self.fpick.blockSignals(False)
-        self._show_fpick()
-
-    def _show_fpick(self) -> None:
-        on = self.model is not None and len(self.model.freq) > 1 and self.xaxis.currentData() is not None
-        self.fpick.setVisible(on)
-        self.fpick_label.setVisible(on)
-        self.quantity.setEnabled(self.xaxis.currentData() != PATTERN)
-
-    def _xaxis_changed(self) -> None:
-        self._show_fpick()
-        self.plot()
-
-    def _fill_traces(self) -> None:
-        keep = {self.traces.item(i).text() for i in range(self.traces.count())
-                if self.traces.item(i).checkState() == Qt.Checked}
-        self.traces.blockSignals(True)
-        self.traces.clear()
-        m = self.model
-        if m is not None:
-            n = m.nominal_raw.shape[1]
-            labels = self._labels(n)
-            for j in range(n):
-                for i in range(n):
-                    if i < j:
-                        continue                  # reciprocal: S(i,j) = S(j,i)
-                    t = f"S({labels[i]},{labels[j]})"
-                    it = QListWidgetItem(t)
-                    it.setData(Qt.UserRole, (i, j))
-                    it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-                    on = t in keep if keep else (i == j == 0 or (i == 1 and j == 0))
-                    it.setCheckState(Qt.Checked if on else Qt.Unchecked)
-                    self.traces.addItem(it)
-        self.traces.blockSignals(False)
-
-    def _labels(self, n: int) -> list[str]:
-        ports = (self.model.meta.get("ports") if self.model is not None else None) or []
-        labels = [str(q.get("label", q.get("name", i + 1))) for i, q in enumerate(ports)][:n]
-        return labels + [str(i + 1) for i in range(len(labels), n)]
-
-    def _y(self, s: np.ndarray) -> np.ndarray:
-        q = self.quantity.currentText()
-        if q == "dB":
-            return 20 * np.log10(np.maximum(np.abs(s), 1e-15))
-        if q == "Magnitude":
-            return np.abs(s)
-        return np.degrees(np.angle(s))
-
-    def _on_draw(self, _event) -> None:
-        """After a full draw: keep the background without the tuned curves, then draw them on it (slider
-        moves only redraw the curves: blitting)."""
-        self._bg = self.canvas.copy_from_bbox(self.ax.bbox)
-        for line in self._dyn:
-            self.ax.draw_artist(line)
-        self.canvas.blit(self.ax.bbox)
-
-    def _fast_update(self, m, dp: np.ndarray, sel: list) -> bool:
-        """New tuned curves on the same axes, if they fit into the current y range."""
-        if self._bg is None:
-            return False
-        if self.xaxis.currentData() == PATTERN:
-            ys, text = self._pattern(m, dp, sel)
-        else:
-            S, _ = m.sparams(dp)
-            ys, text = [self._y(S[:, i, j]) for (i, j), _ in sel], None
-        if len(self._dyn) != len(ys) + (text is not None):
-            return False
-        lo, hi = self.ax.get_ylim()
-        if any(np.nanmin(y) < lo or np.nanmax(y) > hi for y in ys if len(y)):
-            return False
-        self.canvas.restore_region(self._bg)
-        for line, y in zip(self._dyn, ys):
-            line.set_ydata(y)
-            self.ax.draw_artist(line)
-        if text is not None:
-            self._dyn[-1].set_text(text)
-            self.ax.draw_artist(self._dyn[-1])
-        self.canvas.blit(self.ax.bbox)
-        return True
-
-    def plot(self) -> None:
-        m = self.model
-        dp = self.offsets() if m is not None else None
-        sel = [(self.traces.item(k).data(Qt.UserRole), self.traces.item(k).text())
-               for k in range(self.traces.count()) if self.traces.item(k).checkState() == Qt.Checked]
-        sig = (id(m), self.xaxis.currentData(), self.quantity.currentText(), tuple(t for _, t in sel),
-               self.fpick.currentIndex())
-        self._warn(dp)
-        mode = self.xaxis.currentData()
-        if m is not None and mode in (None, PATTERN) and sig == self._sig and self._fast_update(m, dp, sel):
-            return
-        self._sig = sig
-        self._dyn = []
-        self._bg = None
-        self.ax.clear()
-        if m is None:
-            self.ax.text(0.5, 0.5, "No tuning model", ha="center", va="center", transform=self.ax.transAxes,
-                         color="#777")
-            self.canvas.draw_idle()
-            return
-        if mode is None:
-            self._plot_frequency(m, dp, sel)
-        elif mode == PATTERN:
-            self._plot_pattern(m, dp, sel)
-        else:
-            self._plot_variable(m, dp, sel, int(mode))
-        if mode != PATTERN:
-            self.ax.set_ylabel(self.quantity.currentText())
-        self.ax.grid(True, alpha=0.3)
-        if sel or mode == PATTERN:
-            self.ax.legend(loc="best", fontsize=8)
-        self.canvas.draw_idle()
-
-    def _warn(self, dp) -> None:
-        if dp is None:
-            self.warn.setText("")
-            return
-        far = [r["name"] for r, d in zip(self.rows, dp)
-               if (d > 0 and r["hi"] > 0 and d > WARN_FRACTION * r["hi"])
-               or (d < 0 and r["lo"] < 0 and d < WARN_FRACTION * r["lo"])]
-        self.warn.setText(f"{', '.join(far)} far from the solved value: the accuracy decreases. Apply to Design "
-                          "and analyze to confirm." if far else "")
-
-    def _plot_frequency(self, m, dp: np.ndarray, sel: list) -> None:
-        S0, _ = m.nominal()
-        S, _ = m.sparams(dp)
-        f = m.freq_out / 1e9
-        for k, ((i, j), lab) in enumerate(sel):
-            c = f"C{k % 10}"
-            self.ax.plot(f, self._y(S0[:, i, j]), "--", color=c, alpha=0.5, lw=1.2, label=f"{lab} solved")
-            line, = self.ax.plot(f, self._y(S[:, i, j]), "-", color=c, lw=1.8, label=f"{lab} tuned",
-                                 animated=True)
-            self._dyn.append(line)
-        # the y range with some room, so that the tuned curves can move without a full redraw
-        self.ax.relim()
-        ys = [self._y(S0[:, i, j]) for (i, j), _ in sel] + [self._y(S[:, i, j]) for (i, j), _ in sel]
-        if ys:
-            lo, hi = float(min(np.nanmin(y) for y in ys)), float(max(np.nanmax(y) for y in ys))
-            pad = 0.15 * max(hi - lo, 1e-6)
-            self.ax.set_ylim(lo - pad, hi + pad)
-        self.ax.set_xlabel("Frequency [GHz]")
-
-    def _plot_variable(self, m, dp: np.ndarray, sel: list, v: int) -> None:
-        """The response at one frequency against variable v over its tuning range: the curve, the slider
-        value (filled marker), the solved design (open marker) and the ranges of lower accuracy (shaded)."""
-        row = self.rows[v]
-        k = max(self.fpick.currentIndex(), 0) if len(m.freq) > 1 else 0
-        lo, hi, v0 = row["lo"], row["hi"], row["v0"]
-        offs = np.linspace(lo, hi, CURVE_POINTS)
-        S, _ = m.sweep_variable(k, v, np.r_[offs, dp[v]], dp)
-        S0, _ = m.nominal()
-        x = v0 + offs
-        for kk, ((i, j), lab) in enumerate(sel):
-            c = f"C{kk % 10}"
-            self.ax.plot(x, self._y(S[:-1, i, j]), "-", color=c, lw=1.8, label=lab)
-            self.ax.plot([v0 + dp[v]], self._y(S[-1:, i, j]), "o", color=c, ms=7)
-            self.ax.plot([v0], self._y(S0[k:k + 1, i, j]), "o", mfc="none", mec=c, ms=8, mew=1.5)
-        for a, b in ((lo, WARN_FRACTION * lo), (WARN_FRACTION * hi, hi)):
-            if a != b:
-                self.ax.axvspan(v0 + min(a, b), v0 + max(a, b), color="#b36b00", alpha=0.07, lw=0)
-        self.ax.axvline(v0 + dp[v], color="#777", lw=0.8, alpha=0.6)
-        unit = f" [{row['unit']}]" if row["unit"] else ""
-        self.ax.set_xlabel(f"{row['name']}{unit}")
-        others = [f"{r['name']} = {r['spin'].value():.4g}{(' ' + r['unit']) if r['unit'] else ''}"
-                  for n, r in enumerate(self.rows) if n != v]
-        self.ax.set_title(f"{m.freq[k] / 1e9:.6g} GHz" + (f"   ({', '.join(others)})" if others else "")
-                          + "   ● slider  ○ solved", fontsize=9)
-
-    # ---- antenna parameters ---------------------------------------------------------------------
-    def _excited(self, sel: list) -> int:
-        """Port index of the pattern: the excited port (column) of the first checked trace."""
-        return int(sel[0][0][1]) if sel else 0
-
-    def _pattern(self, m, dp: np.ndarray, sel: list) -> tuple[list, str]:
-        """Realized gain (dBi) over theta -180..180 deg of the cuts phi = 0 and 90 deg, and the antenna
-        numbers, at the picked frequency."""
-        k = max(self.fpick.currentIndex(), 0) if len(m.freq) > 1 else 0
-        q = m.antenna(k, self._excited(sel), dp, PATTERN_THETA, PATTERN_PHI)
-        rg = 10 * np.log10(np.maximum(q["RealizedGainTotal"], 1e-30))
-        ys = [np.r_[rg[:0:-1, c + 2], rg[:, c]] for c in (0, 1)]     # phi + 180 deg as negative theta
-        peak = max(float(y.max()) for y in ys)
-        eff, pacc = float(q["_eff"][0]), float(q["_Pacc"][0])
-        text = (f"peak realized gain on the cuts {peak:.2f} dBi   radiation efficiency {100 * eff:.1f} %   "
-                f"total efficiency {100 * eff * pacc:.1f} %")
-        return ys, text
-
-    def _plot_pattern(self, m, dp: np.ndarray, sel: list) -> None:
-        """Realized gain of the solved design (dashed) and at the slider values (solid) on two cuts, with the
-        peak gain and the efficiencies of the slider values."""
-        x = np.r_[-np.degrees(PATTERN_THETA[:0:-1]), np.degrees(PATTERN_THETA)]
-        try:
-            y0, _ = self._pattern(m, np.zeros(len(m.variables)), sel)
-            ys, text = self._pattern(m, dp, sel)
-        except Exception as ex:  # noqa: BLE001
-            self.ax.text(0.5, 0.5, f"No far field: {ex}", ha="center", va="center", transform=self.ax.transAxes,
-                         color="#777")
-            return
-        for c, name in enumerate(("phi = 0 deg", "phi = 90 deg")):
-            self.ax.plot(x, y0[c], "--", color=f"C{c}", alpha=0.5, lw=1.2, label=f"{name} solved")
-            line, = self.ax.plot(x, ys[c], "-", color=f"C{c}", lw=1.8, label=f"{name} tuned", animated=True)
-            self._dyn.append(line)
-        top = max(float(np.max(y)) for y in y0 + ys)
-        self.ax.set_ylim(top - PATTERN_RANGE, top + 0.15 * PATTERN_RANGE)
-        self.ax.set_xlim(-180, 180)
-        self.ax.set_xticks(np.arange(-180, 181, 45))
-        k = max(self.fpick.currentIndex(), 0) if len(m.freq) > 1 else 0
-        labels = self._labels(m.nominal_raw.shape[1])
-        self.ax.set_title(f"{m.freq[k] / 1e9:.6g} GHz, port {labels[self._excited(sel)]} excited", fontsize=9)
-        self._dyn.append(self.ax.text(0.01, 0.01, text, transform=self.ax.transAxes, fontsize=8, va="bottom",
-                                      animated=True))
-        self.ax.set_xlabel("Theta [deg]")
-        self.ax.set_ylabel("Realized gain [dBi]")
-
     def closeEvent(self, e) -> None:  # noqa: N802
+        self.state.set_model(None, "")
         try:
             self.win.solver.finished.disconnect(self._solver_finished)
         except Exception:  # noqa: BLE001

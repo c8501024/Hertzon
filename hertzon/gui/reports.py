@@ -762,7 +762,32 @@ class ReportWindow(QWidget):
         split.setSizes([260, 800])
         split.setCollapsible(0, False)
         self._fill_qty()
+        from .tuning import tuning_state
+        self._tuned_shown = False
+        tuning_state(doc).changed.connect(self._tuning_changed)
         self.refresh()
+
+    # ---- derivative tuning -----------------------------------------------------------------------
+    TUNED_KINDS = ("Rectangular", "Smith Chart", "Data Table", "Radiation Pattern")
+
+    def _tuned(self) -> bool:
+        """Draw the tuned curves: the slider panel tunes this report's solution, a slider is off its value."""
+        from .tuning import tuning_state
+        return (self.report.kind in self.TUNED_KINDS and not self._family()
+                and tuning_state(self.doc).active(self.sol.currentText()))
+
+    def _tuning_changed(self) -> None:
+        if self._tuned() or self._tuned_shown:
+            if self.isVisible():
+                self.refresh(keep_cache=True)
+            else:
+                self._tuning_pending = True     # a tab in the background: drawn when it is shown
+
+    def showEvent(self, e) -> None:  # noqa: N802
+        super().showEvent(e)
+        if getattr(self, "_tuning_pending", False):
+            self._tuning_pending = False
+            self.refresh(keep_cache=True)
 
     # ---- trace editing ---------------------------------------------------------------------------
     def _ports(self) -> int:
@@ -951,6 +976,9 @@ class ReportWindow(QWidget):
         """(legend suffix, folder) of the curves: the nominal design, or the chosen variations."""
         fam = self._family()
         if not fam:
+            if self._tuned():
+                from .tuning import TUNED, tuning_state
+                return [("", None), (tuning_state(self.doc).label(), TUNED)]
             return [("", None)]
         from ..solver.parametric import solved_variations, variation_label
         try:
@@ -1459,9 +1487,15 @@ class ReportWindow(QWidget):
                 name = f"S({m.group(1)},{m.group(2)})" + suffix
                 curves += [(f"re({name})", xs, g.real), (f"im({name})", xs, g.imag)]
             return xlabel, curves
+        from .tuning import TUNED
         for tr in self.report.traces:
             for suffix, root in variations:
-                xs, y = self._trace_xy(tr, root)
+                try:
+                    xs, y = self._trace_xy(tr, root)
+                except Exception:  # noqa: BLE001
+                    if root != TUNED:
+                        raise
+                    continue
                 curves.append((with_unit(self.doc, tr) + suffix, xs, y))
         if kind not in ("Data Table", "Antenna Parameters Table"):
             xlabel = p.get("xlabel") or xlabel
@@ -1528,6 +1562,9 @@ class ReportWindow(QWidget):
         expr, sol = split_trace(tr)
         from .calc_bridge import field_names_in
         if field_names_in(self.doc.design, expr):
+            from .tuning import TUNED
+            if root == TUNED:
+                raise RuntimeError("the tuning model has no field values")
             return self._field_trace(expr, sol, root)
         data = self._sol_data(sol, root)
         xs, _, _ = x_axis(data)
@@ -1563,6 +1600,11 @@ class ReportWindow(QWidget):
     def _sol_data(self, sol: str | None, root=None):
         cache = self.__dict__.setdefault("_cache", {})
         key = sol or self.sol.currentText()
+        from .tuning import TUNED, tuning_state
+        if root == TUNED:
+            if (key, TUNED) not in cache:
+                cache[key, TUNED] = with_pairs(tuning_state(self.doc).data(self._sol_data(sol)), self.doc.design)
+            return cache[key, TUNED]
         if (key, root) not in cache:
             if self.report.kind in ANTENNA_KINDS:
                 cache[key, root] = load_antenna(self.doc, key, self._sphere_name())
@@ -1584,8 +1626,12 @@ class ReportWindow(QWidget):
                 self.mtable.setItem(r, c, QTableWidgetItem(v))
 
     # ---- drawing ------------------------------------------------------------------------------------
-    def refresh(self) -> None:
-        self._cache = {}
+    def refresh(self, keep_cache: bool = False) -> None:
+        """Draw the report again; keep_cache: only the tuned curves changed (the stored data are kept)."""
+        from .tuning import TUNED
+        cache = getattr(self, "_cache", {}) if keep_cache else {}
+        self._cache = {k: v for k, v in cache.items() if not (isinstance(k, tuple) and TUNED in k)}
+        self._tuned_shown = self._tuned()
         self.traces.clear()
         self.traces.addItems(self.report.traces)
         try:
@@ -1729,10 +1775,23 @@ class ReportWindow(QWidget):
         SYM = {"None": None, "Circle": "o", "Square": "s", "Triangle": "^", "Cross": "x"}
         curves = []
         variations = self._variations()
+        from .tuning import TUNED
+        tuned = any(r == TUNED for _, r in variations)
+        colors: dict[str, str] = {}
         for tr, suffix, root in [(t, s, r) for t in self.report.traces for s, r in variations]:
-            xs, y = self._trace_xy(tr, root)
+            if root == TUNED:
+                try:
+                    xs, y = self._trace_xy(tr, root)
+                except Exception:  # noqa: BLE001
+                    continue                    # a quantity the tuning model does not have (fields)
+            else:
+                xs, y = self._trace_xy(tr, root)
             stl = self._style(tr)
-            if len(variations) > 1:
+            if tuned:                           # the solved curve dashed, the tuned one solid in its colour
+                stl = dict(stl, style="Dashed" if root is None else "Solid")
+                if root == TUNED and tr in colors:
+                    stl["color"] = colors[tr]
+            elif len(variations) > 1:
                 stl = {k: v for k, v in stl.items() if k != "color"}     # one colour per variation
             target = ax
             if stl.get("y2"):
@@ -1746,7 +1805,10 @@ class ReportWindow(QWidget):
             mk = SYM.get(stl.get("symbol", "None"))
             if mk is None and (len(xs) < 3 or passes):
                 mk = "o"
+            if tuned and root is None:
+                kw["alpha"] = 0.55
             line, = target.plot(xs, y, marker=mk, **kw)
+            colors.setdefault(tr, line.get_color())
             curves.append((tr + suffix, xs, y, target, line.get_color()))
         self._draw_markers(ax, curves, unit, xlabel)
         if passes:
@@ -1914,13 +1976,21 @@ class ReportWindow(QWidget):
                 ax.plot(g.real, g.imag, color="#bbb", lw=0.6)
         ax.plot([-1, 1], [0, 0], color="#bbb", lw=0.6)
         variations = self._variations()
+        from .tuning import TUNED
+        tuned = any(r == TUNED for _, r in variations)
+        colors: dict[str, str] = {}
         for tr, suffix, root in [(t, s, r) for t in self.report.traces for s, r in variations]:
             m = re.match(r"^\s*(?:\w+\()?S\((\d+),(\d+)\)\)?\s*$", tr)
             if not m:
                 continue
             i, j = int(m.group(1)) - 1, int(m.group(2)) - 1
             g = (data if root is None else self._sol_data(None, root))["S"][:, i, j]
-            ax.plot(g.real, g.imag, label=f"S({i + 1},{j + 1})" + suffix)
+            if tuned:
+                kw = dict(linestyle="--", alpha=0.55) if root is None else dict(color=colors.get(tr))
+            else:
+                kw = {}
+            line, = ax.plot(g.real, g.imag, label=f"S({i + 1},{j + 1})" + suffix, **kw)
+            colors.setdefault(tr, line.get_color())
             ax.plot(g.real[:1], g.imag[:1], "o", ms=3, color="k")
         ax.legend(loc="upper right", fontsize=8)
         ax.set_title(f"{self.report.name}   ({self.sol.currentText()})", fontsize=10)
@@ -1931,9 +2001,15 @@ class ReportWindow(QWidget):
         variations = self._variations()
         xs0 = self._trace_xy(self.report.traces[0], variations[0][1])[0] if self.report.traces else None
         cols = []
+        from .tuning import TUNED
         for tr in self.report.traces:
             for suffix, root in variations:
-                xs, y = self._trace_xy(tr, root)
+                try:
+                    xs, y = self._trace_xy(tr, root)
+                except Exception:  # noqa: BLE001
+                    if root != TUNED:
+                        raise
+                    continue
                 if xs0 is not None and (len(xs) != len(xs0) or not np.allclose(xs, xs0)):
                     y = np.interp(xs0, xs, y, left=np.nan, right=np.nan)
                 cols.append((tr + suffix, y))
@@ -1979,6 +2055,23 @@ class ReportWindow(QWidget):
         q["_freq"] = float(ff[f"freq_{k}"][0])
         cache["ff"] = q
         return q
+
+    def _ff_tuned(self, q: dict) -> dict | None:
+        """Far field quantities of the tuned design on the grid of q (the tuning model at the far field
+        frequency, port 1 with 1 W); None when the model has no far field there."""
+        from .tuning import TUNED, tuning_state
+        cache = self.__dict__.setdefault("_cache", {})
+        if ("ff", TUNED) in cache:
+            return cache["ff", TUNED]
+        ts = tuning_state(self.doc)
+        m = ts.model
+        out = None
+        if m is not None and m.ff is not None:
+            k = int(np.argmin(np.abs(m.freq - q["_freq"])))
+            if abs(m.freq[k] - q["_freq"]) <= 1e-6 * q["_freq"]:
+                out = m.antenna(k, 0, ts.dp, q["_theta"], q["_phi"])
+        cache["ff", TUNED] = out
+        return out
 
     def _ff_cut(self, q: dict, tr: str):
         """(angle in rad, values) of one trace on the cut of the report (Phi or Theta constant)."""
@@ -2045,14 +2138,23 @@ class ReportWindow(QWidget):
             if cut == "Phi":                # the Phi cut runs over theta -180..180, as in the rectangular plot
                 ax.xaxis.set_major_formatter(FuncFormatter(_signed_deg))
         curves = []
+        qt = self._ff_tuned(q) if self._tuned() else None
         for tr in self.report.traces:
             func, name = ff_trace(tr)
             if name not in q:
                 continue
             ang, yy = self._ff_cut(q, tr)
             x = np.degrees(ang)
-            line, = ax.plot(x if rect else ang, yy, label=tr)
+            kw = dict(linestyle="--", alpha=0.55) if qt is not None else {}
+            line, = ax.plot(x if rect else ang, yy, label=tr, **kw)
             curves.append((tr, x, yy, ax, line.get_color()))
+            if qt is not None and name in qt:
+                from .tuning import tuning_state
+                ang, yt = self._ff_cut(qt, tr)
+                xt = np.degrees(ang)
+                label = tr + tuning_state(self.doc).label()
+                ax.plot(xt if rect else ang, yt, "-", color=line.get_color(), label=label)
+                curves.append((label, xt, yt, ax, line.get_color()))
         other = "Theta" if cut == "Phi" else "Phi"
         self._draw_markers(ax, curves, " deg", f"{other} [deg]")
         if rect:
