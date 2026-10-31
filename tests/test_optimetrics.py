@@ -2,7 +2,7 @@ import numpy as np
 
 from hertzon.model.design import Design, Optimization, Project, Setup, project_from_dict
 from hertzon.solver.keys import model_key
-from hertzon.solver.optimetrics import ConjugateGradient, Variables, evaluate_goals, positive_area
+from hertzon.solver.optimetrics import ConjugateGradient, Variables, evaluate_goals, goal_margins, positive_area
 
 
 def test_cg_converges_on_quadratic():
@@ -56,6 +56,24 @@ def test_variables_and_goals():
     assert np.isclose(cost, 5.0) and np.isclose(rows[0]["worst"], 5.0)
     op.props["CostFunction"] = "Worst Case"
     assert np.isclose(evaluate_goals(op, {"freq": f, "S": S, "z0": np.array([50.0])}, ev)[0], 25.0)
+
+
+def test_goal_margins_reserve_violation_and_errors():
+    """The margins the tuning window shows: positive with reserve, negative when violated, an error for a
+    goal outside the solution."""
+    d = _design()
+    ev = d.evaluator()
+    f = np.linspace(1e9, 2e9, 11)
+    S = np.zeros((11, 1, 1), complex)
+    S[:, 0, 0] = 10 ** (-15 / 20)                     # -15 dB everywhere
+    goals = [{"calc": "dB(S(1,1))", "start": "1GHz", "stop": "2GHz", "cond": "<=", "value": "-10"},
+             {"calc": "dB(S(1,1))", "start": "1.5GHz", "stop": "1.5GHz", "cond": "<=", "value": "-20"},
+             {"calc": "dB(S(1,1))", "start": "2GHz", "stop": "3GHz", "cond": "<=", "value": "-10"},
+             {"calc": "", "start": "1GHz", "cond": "<=", "value": "0"}]
+    rows = goal_margins(goals, {"freq": f, "S": S, "z0": np.array([50.0])}, ev)
+    assert len(rows) == 3
+    assert np.isclose(rows[0]["margin"], 5.0) and np.isclose(rows[1]["margin"], -5.0)
+    assert "does not cover" in rows[2]["error"]
 
 
 def test_optimetrics_saved_and_not_in_model_key():

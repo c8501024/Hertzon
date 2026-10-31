@@ -103,11 +103,16 @@ def positive_area(f, error) -> float:
     return float(areas.sum())
 
 
-def goal_violation(goal: dict, f_hz: np.ndarray, y: np.ndarray, ev) -> tuple[float, float]:
-    """(violation area in unit*GHz, largest violation) of one goal on a response y(f)."""
+def goal_range(goal: dict, ev) -> tuple[float, float]:
+    """Frequency range (Hz) of a goal, ascending."""
     lo, hi = float(ev.freq(str(goal["start"]))), float(ev.freq(str(goal.get("stop") or goal["start"])))
-    if hi < lo:
-        lo, hi = hi, lo
+    return (hi, lo) if hi < lo else (lo, hi)
+
+
+def goal_error(goal: dict, f_hz: np.ndarray, y: np.ndarray, ev) -> tuple[np.ndarray, np.ndarray]:
+    """(frequencies in Hz, error) of one goal on a response y(f): the error is positive where the goal is
+    violated, its negative maximum is the margin of the goal."""
+    lo, hi = goal_range(goal, ev)
     tol = 1e-6 * max(abs(hi), 1.0)
     if f_hz[0] > lo + tol or f_hz[-1] < hi - tol:
         raise ValueError(f"The solution ({f_hz[0] / 1e9:g}-{f_hz[-1] / 1e9:g} GHz) does not cover the goal range "
@@ -124,7 +129,34 @@ def goal_violation(goal: dict, f_hz: np.ndarray, y: np.ndarray, ev) -> tuple[flo
         err = v.max() - v - target
     else:
         err = v - target
+    return grid, err
+
+
+def goal_violation(goal: dict, f_hz: np.ndarray, y: np.ndarray, ev) -> tuple[float, float]:
+    """(violation area in unit*GHz, largest violation) of one goal on a response y(f)."""
+    grid, err = goal_error(goal, f_hz, y, ev)
     return positive_area(grid / 1e9, err), float(max(0.0, err.max()))
+
+
+def goal_margins(goals: list[dict], data: dict, ev, outvars=None) -> list[dict]:
+    """Margin of every goal on a solution (data as for evaluate_goals): {"goal", "margin"} with the
+    margin in the unit of the goal (positive: reserve, negative: violated), or {"goal", "error"} when the
+    goal cannot be evaluated on it (an expression error, a range outside the solution)."""
+    from .expressions import eval_expr
+    f = np.asarray(data["freq"], float)
+    order = np.argsort(f)
+    out = []
+    for g in goals:
+        if not str(g.get("calc", "")).strip():
+            continue
+        try:
+            y = eval_expr(data, g["calc"], outvars)
+            y = np.real(y) if np.iscomplexobj(y) else np.asarray(y, float)
+            _, err = goal_error(g, f[order], np.broadcast_to(y, f.shape)[order], ev)
+            out.append({"goal": g, "margin": -float(np.max(err))})
+        except Exception as e:  # noqa: BLE001
+            out.append({"goal": g, "error": str(e)})
+    return out
 
 
 def evaluate_goals(opt, data: dict, ev, outvars=None) -> tuple[float, list[dict]]:

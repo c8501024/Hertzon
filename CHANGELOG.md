@@ -36,6 +36,9 @@ the GitHub release notes.
     the cuts phi = 0 and 90 deg at the picked frequency, solved and tuned, with the radiation and total
     efficiency. The model keeps the fields of its basis on the far field surface, so a slider move costs
     about 2 ms; at the solved design it reproduces the solved far field exactly.
+  - Goals: the tuning window shows the goals of an optimization (preselected: the one on the tuned
+    solution) with their margin at the slider values, green when met and red when violated. Goals on a
+    plotted trace in dB are drawn as masks, the forbidden side shaded. The optimizer uses the same goals.
 
 ## 0.2.8 (2026-10-30)
 
