@@ -22,6 +22,7 @@ from ..solver.results import ResultStore, results_dir
 from .doc import result_dir
 from ..solver.ffquant import monostatic_rcs, farfield_quantities, antenna_parameters  # noqa: F401
 from ..solver.ffquant import ANTENNA_QUANTITIES, ANTENNA_POWER, ANTENNA_PASSES, antenna_series, antenna_pass_series
+from ..solver.ffquant import antenna_values
 from ..solver.ffquant import RCS_PASSES, rcs_pass_series
 from ..solver.expressions import (network, split_trace, output_variables, _FUNCS, _ast_eval,  # noqa: F401
                                   eval_expr, eval_trace, with_pairs)
@@ -327,6 +328,7 @@ def load_antenna(doc, solution: str, sphere: str) -> dict:
 
 FAMILY_KINDS = ("Rectangular", "Smith Chart", "Data Table")
 XVAR_POINTS = 101                 # points of a plot against a design variable (tuning model)
+XVAR_POINTS_FF = 41               # ... of antenna parameters (a far field per point)
 
 
 def family_solution_list(doc, name: str) -> list[str]:
@@ -802,7 +804,7 @@ class ReportWindow(QWidget):
         return ts.active(sol)
 
     # ---- plot against a design variable (tuning model) ---------------------------------------------
-    XVAR_KINDS = ("Rectangular", "Data Table")
+    XVAR_KINDS = ("Rectangular", "Data Table") + ANTENNA_KINDS
 
     def _tuning_model(self):
         """Tuning model of the report solution: the one of the slider panel, else read from the results."""
@@ -877,21 +879,58 @@ class ReportWindow(QWidget):
         from .tuning import WARN_FRACTION, slider_range, tuning_state, same_solution
         m, i, k = self._xvar()
         ts = tuning_state(self.doc)
-        dp = np.array(ts.dp, float) if (ts.model is m and ts.dp is not None and same_solution(key, ts.solution)) \
-            else np.zeros(len(m.variables))
+        antenna = self.report.kind in ANTENNA_KINDS
+        same = same_solution(key, ts.solution) or (antenna and key.split(":")[0].strip() ==
+                                                   ts.solution.split(":")[0].strip())
+        dp = np.array(ts.dp, float) if (ts.model is m and ts.dp is not None and same) else np.zeros(len(m.variables))
         lo, hi = slider_range(m, i)
-        x = m.values[i] + np.linspace(lo, hi, XVAR_POINTS)
-        S, z = m.sweep_variable(k, i, x - m.values[i], dp)
-        _, _, base = load_solution(self.doc, key, None)
-        d = {kk: v for kk, v in (base or {}).items() if kk not in ("freq", "S", "z0", "solved", "gamma", "zo")}
+        if antenna:
+            # antenna parameters at every value: a far field per point, so fewer points
+            x = m.values[i] + np.linspace(lo, hi, XVAR_POINTS_FF)
+            th, ph = self._sphere_grid(key)
+
+            def run(prog):
+                rows = []
+                for n, v in enumerate(x - m.values[i]):
+                    d1 = np.array(dp, float)
+                    d1[i] = v
+                    rows.append(antenna_values(m.antenna(k, 0, d1, th, ph)))
+                    if prog is not None:
+                        prog((n + 1) / len(x))
+                return {q: np.array([r[q] for r in rows], float) for q in ANTENNA_QUANTITIES}
+            if m.ff is None:
+                raise RuntimeError("the tuning model has no far field (computed without a radiation boundary or by "
+                                   "an older version): click Compute Derivatives again")
+            from ..solver import farfield_post
+            vals = run(None) if m.has_farfield(k, th, ph) else farfield_post.RUN("Far fields of the tuning model", run)
+            d = {"antenna": vals}
+        else:
+            x = m.values[i] + np.linspace(lo, hi, XVAR_POINTS)
+            S, z = m.sweep_variable(k, i, x - m.values[i], dp)
+            _, _, base = load_solution(self.doc, key, None)
+            d = {kk: v for kk, v in (base or {}).items() if kk not in ("freq", "S", "z0", "solved", "gamma", "zo")}
+            d.update(S=S, z0=z)
         unit = m.units[i]
-        d.update(freq=x, S=S, z0=z, xaxis="Variable", xlabel=f"{m.variables[i]}" + (f" [{unit}]" if unit else ""),
+        d.update(freq=x, xaxis="Variable", xlabel=f"{m.variables[i]}" + (f" [{unit}]" if unit else ""),
                  xunit=unit, x0=float(m.values[i]), warn=[(m.values[i] + a, m.values[i] + WARN_FRACTION * a)
                                                           for a in (lo, hi) if a], xnow=float(m.values[i] + dp[i]), at=float(m.freq[k]),
                  others=[t for t in ts.texts if not t.startswith(m.variables[i] + " ")] if np.any(dp) else [])
+        if antenna:
+            d["solved"] = np.array([float(m.values[i])])
+            return d
         if "ports" not in d:
             d["ports"] = m.meta.get("ports") or []
         return with_pairs(d, self.doc.design)
+
+    def _sphere_grid(self, key: str) -> tuple[np.ndarray, np.ndarray]:
+        """(theta, phi) of the far field setup of the report, as stored with the far field of solution `key`."""
+        from ..solver import farfield_post
+        setup, _, sol = [x.strip() for x in key.partition(":")]
+        st = ResultStore(result_dir(self.doc, setup))
+        ff = farfield_post.farfield(st, self.doc.design, self._sphere_name(), sol or "LastAdaptive", self.doc.evaluator())
+        if ff is None:
+            raise RuntimeError("no far field data")
+        return np.asarray(ff["theta"], float), np.asarray(ff["phi"], float)
 
     def _tuning_changed(self) -> None:
         if self._tuned() or self._tuned_shown or self._xvar():
@@ -2220,12 +2259,7 @@ class ReportWindow(QWidget):
         if m is None or m.ff is None:
             raise RuntimeError("the tuning model has no far field (computed without a radiation boundary or by an "
                                "older version): click Compute Derivatives again")
-        setup, _, sol = [x.strip() for x in key.partition(":")]
-        st = ResultStore(result_dir(self.doc, setup))
-        ff = farfield_post.farfield(st, self.doc.design, self._sphere_name(), sol or "LastAdaptive", self.doc.evaluator())
-        if ff is None:
-            raise RuntimeError("no far field data")
-        th, ph = np.asarray(ff["theta"], float), np.asarray(ff["phi"], float)
+        th, ph = self._sphere_grid(key)
         f = base["freq"]
         run = lambda prog: m.antenna_series(f, 0, ts.dp, th, ph, prog)  # noqa: E731
         ks = [int(np.argmin(np.abs(m.freq - x))) for x in f]

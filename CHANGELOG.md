@@ -49,6 +49,7 @@ the GitHub release notes.
     (*At*), with the other variables at their slider values. Dashed line: the solved value, solid line: the
     slider value, shaded: the outer part of the range with lower accuracy. Works without the slider panel
     open, from the stored tuning model.
+    Antenna Parameters reports and tables have it too (e.g. peak realized gain over a substrate height).
 - **Goal preview in Setup Optimization.** The Goals tab draws every goal as a mask over the current
   solution (each calculation as a curve, each goal as a line over its range in the colour of its
   calculation, the forbidden side shaded) and shows its margin in a new Margin column: positive = reserve
