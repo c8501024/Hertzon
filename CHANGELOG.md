@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.2.9 (2026-10-31)
 
 ### Added
 - **Solving on another computer (experimental).** For now only with another computer in the local
