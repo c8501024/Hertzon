@@ -24,6 +24,10 @@ the GitHub release notes.
     can be tuned with a lumped port across it. Wave ports stay in place.
   - An analyzed interpolating sweep is tuned at the frequencies it solved, and the tuned curve is
     interpolated over the sweep frequencies the same way, instead of at a fixed number of points.
+  - Computing the derivatives of a band is faster: one reduced basis serves all frequencies, the volume
+    matrices are assembled once, and only a few frequencies are factorized (chosen where the residual is
+    largest); every other frequency is solved in that basis. Patch antenna, two variables, 51
+    frequencies: 85 s instead of 204 s, the same response within 3e-6.
 
 ## 0.2.8 (2026-10-30)
 

@@ -200,3 +200,23 @@ def test_substrate_height_stretches_the_lumped_port(tmp_path):
         S_tuned = model.raw([0.2])[0, 0, 0]
         assert abs(S_tuned - S) < 3e-3
         assert abs(S_tuned - S_ref[0, 0, 0]) > 0.03           # and the height matters
+
+
+def test_band_model_matches_the_model_of_every_frequency(tmp_path):
+    """One basis for the band (few factorizations, boundary terms per frequency) gives the response of the
+    reduction of every frequency on its own."""
+    em = pytest.importorskip("emerge")
+    from hertzon.solver import bridge as B
+    p, d, st = _stub_design()
+    b = B.Bridge(p, d, st, tmp_path)
+    freqs = np.linspace(2.8e9, 4.0e9, 11)
+    with em.Simulation("tuning_band", save_file=False) as m:
+        b.prepare(m)
+        b.port_map = b.store.read_json("ports.json", None) or getattr(b, "port_map", [])
+        B.solve_at(m, [3.4e9])
+        TU.build(b, ["Ls"], freqs, tmp_path / "band.npz")
+        TU.build(b, ["Ls"], freqs, tmp_path / "each.npz", band=False)
+    band, each = TU.TuningModel(tmp_path / "band.npz"), TU.TuningModel(tmp_path / "each.npz")
+    for dp in ([0.0], [0.7], [-0.7]):
+        assert np.abs(band.raw(dp) - each.raw(dp)).max() < 1e-4
+    assert np.abs(each.raw([0.7]) - each.raw([0.0])).max() > 0.05
