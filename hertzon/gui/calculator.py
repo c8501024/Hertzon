@@ -475,8 +475,6 @@ class EquationsTab(QWidget):
         self.b_text.setChecked(self.mode == "lin")
         g = page.group("Fields")
         g.row.addWidget(self._keys(FIELD_KEYS, 4, field=True))
-        g = page.group("Symbols")
-        g.row.addWidget(self._keys(SYMBOL_KEYS, 8))
         g = page.group("Network")
         b = self._big(g, "S Parameter", "S₁₁", None,
                       "S, Y and Z parameters and VSWR between the ports of the model, e.g. S(2, 1)")
@@ -486,6 +484,8 @@ class EquationsTab(QWidget):
         self._network_menu(m)
         b.setMenu(m)
         b.setPopupMode(QToolButton.InstantPopup)
+        g = page.group("Symbols")
+        g.row.addWidget(self._keys(SYMBOL_KEYS, 8))
         g = page.group("Structures")
         for name, glyph, items in STRUCTURES[:3]:
             self._struct(g, name, glyph, items)
