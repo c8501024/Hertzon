@@ -245,6 +245,12 @@ def test_tuned_far_field_of_the_patch_matches_the_solved_one(tmp_path):
     assert abs(got["_eff"][0] - ref["_eff"][0]) < 1e-6
     tuned = model.antenna(k, 0, [0.2], th, ph)
     assert tuned["_eff"][0] - got["_eff"][0] > 0.01               # a thicker substrate radiates better
+    # antenna parameters over frequency (the Antenna Parameters report): the model frequencies only
+    f, vals = model.antenna_series([F[k], 3.0e9], 0, [0.2], th, ph)
+    assert np.allclose(f, [F[k]])
+    assert abs(vals["RadiationEfficiency"][0] - tuned["_eff"][0]) < 1e-12
+    assert abs(vals["PeakRealizedGain"][0] - tuned["RealizedGainTotal"].max()) < 1e-12
+    assert model.has_farfield(k, th, ph) and not model.has_farfield(0, th, ph)
 
 
 def test_band_model_matches_the_model_of_every_frequency(tmp_path):

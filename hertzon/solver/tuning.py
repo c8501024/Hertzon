@@ -691,6 +691,7 @@ def farfield_basis(bridge, W: np.ndarray, ids: np.ndarray, f_ref: float) -> dict
 
 
 MU0 = 1.25663706212e-6
+FF_CACHE_BYTES = 1_000_000_000      # basis far fields kept per model (about 12 MB per frequency for a patch)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -1065,10 +1066,36 @@ class TuningModel:
             v2, w2, Ein, Hin = mirrored(self.ff["vis"], self.ff["wns"], Es, Hs, planes)
             T, P = np.meshgrid(theta, phi, indexing="ij")
             Fs = stratton_chu_multi(Ein, Hin, v2, w2, T.ravel(), P.ravel(), 2 * np.pi * f / 299792458.0)
-            if len(cache) > 8:
-                cache.clear()
-            cache[key] = np.array(Fs) * (0.5 ** len(planes)) ** 0.5
+            F = np.array(Fs) * (0.5 ** len(planes)) ** 0.5
+            while cache and sum(v.nbytes for v in cache.values()) + F.nbytes > FF_CACHE_BYTES:
+                cache.pop(next(iter(cache)))            # the oldest grid or frequency first
+            cache[key] = F
         return cache[key]
+
+    def has_farfield(self, k: int, theta: np.ndarray, phi: np.ndarray) -> bool:
+        """The basis far fields at model frequency k on this grid are computed already (a slider move is fast)."""
+        return (k, np.asarray(theta, float).tobytes(), np.asarray(phi, float).tobytes()) in self._ffcache
+
+    def antenna_series(self, freqs, port: int, dp, theta: np.ndarray, phi: np.ndarray,
+                       progress=None) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+        """Antenna parameters (ffquant.antenna_values: peak realized gain, efficiency ...) at the offsets dp
+        at those of the frequencies `freqs` the model has (within 1e-6), port index `port` with 1 W.
+        progress(fraction) while the basis far fields of new frequencies are computed."""
+        from .ffquant import ANTENNA_QUANTITIES, antenna_values
+        ks, fs = [], []
+        for f in np.asarray(freqs, float):
+            k = int(np.argmin(np.abs(self.freq - f)))
+            if abs(self.freq[k] - f) <= 1e-6 * max(f, 1.0):
+                ks.append(k)
+                fs.append(float(self.freq[k]))
+        if not ks:
+            raise ValueError("the tuning model has none of the frequencies of this solution")
+        rows = []
+        for i, k in enumerate(ks):
+            rows.append(antenna_values(self.antenna(k, port, dp, theta, phi)))
+            if progress is not None:
+                progress((i + 1) / len(ks))
+        return np.array(fs), {n: np.array([r[n] for r in rows], float) for n in ANTENNA_QUANTITIES}
 
     def antenna(self, k: int, port: int, dp, theta: np.ndarray, phi: np.ndarray) -> dict:
         """Far field quantities (ffquant.farfield_quantities: realized gain, gain, efficiency ...) on the

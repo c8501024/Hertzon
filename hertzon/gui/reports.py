@@ -326,6 +326,7 @@ def load_antenna(doc, solution: str, sphere: str) -> dict:
 
 
 FAMILY_KINDS = ("Rectangular", "Smith Chart", "Data Table")
+XVAR_POINTS = 101                 # points of a plot against a design variable (tuning model)
 
 
 def family_solution_list(doc, name: str) -> list[str]:
@@ -357,6 +358,8 @@ def x_axis(data: dict) -> tuple[np.ndarray, str, float]:
     """(x values for plotting, axis label, scale from data['freq'] to x)."""
     if data.get("xaxis") == "Pass":
         return data["freq"], "Pass", 1.0
+    if data.get("xaxis") == "Variable":
+        return data["freq"], data["xlabel"], 1.0
     return data["freq"] / 1e9, "Freq [GHz]", 1e-9
 
 
@@ -664,6 +667,20 @@ class ReportWindow(QWidget):
         form.addRow("Category:", self.cat)
         form.addRow("Quantity:", self.qty)
         form.addRow("Function:", self.func)
+        self._form = form
+        self.xvar = self.xfreq = None
+        if report.kind in self.XVAR_KINDS and not is_fields_report(doc, report):
+            # with a tuning model (Compute Derivatives): plot against a design variable at one frequency
+            self.xvar = QComboBox()
+            self.xvar.setToolTip("Plot against frequency, or against a design variable over its tuning range at "
+                                 "one frequency (from the tuning model of the solution: Derivative Tuning)")
+            self.xfreq = QComboBox()
+            self.xfreq.setToolTip("Frequency of the plot against a variable")
+            form.addRow("X axis:", self.xvar)
+            form.addRow("At:", self.xfreq)
+            self._fill_xaxis()
+            self.xvar.currentIndexChanged.connect(lambda *_: self._xaxis_changed())
+            self.xfreq.currentIndexChanged.connect(lambda *_: self._xaxis_changed())
         ll.addLayout(form)
         # what the numbers in S(i,j), Zo(i) ... are: the ports, or the terminals of a terminal solution
         self.numbering = QLabel()
@@ -768,16 +785,109 @@ class ReportWindow(QWidget):
         self.refresh()
 
     # ---- derivative tuning -----------------------------------------------------------------------
-    TUNED_KINDS = ("Rectangular", "Smith Chart", "Data Table", "Radiation Pattern")
+    TUNED_KINDS = ("Rectangular", "Smith Chart", "Data Table", "Radiation Pattern") + ANTENNA_KINDS
 
     def _tuned(self) -> bool:
         """Draw the tuned curves: the slider panel tunes this report's solution, a slider is off its value."""
         from .tuning import tuning_state
-        return (self.report.kind in self.TUNED_KINDS and not self._family()
-                and tuning_state(self.doc).active(self.sol.currentText()))
+        sol = self.sol.currentText()
+        return (self.report.kind in self.TUNED_KINDS and not self._family() and "AdaptivePasses" not in sol
+                and not self._xvar() and tuning_state(self.doc).active(sol))
+
+    # ---- plot against a design variable (tuning model) ---------------------------------------------
+    XVAR_KINDS = ("Rectangular", "Data Table")
+
+    def _tuning_model(self):
+        """Tuning model of the report solution: the one of the slider panel, else read from the results."""
+        from .tuning import tuning_state, same_solution
+        from ..solver.tuning import TuningModel, tuning_path
+        sol = self.sol.currentText()
+        ts = tuning_state(self.doc)
+        if ts.model is not None and same_solution(sol, ts.solution):
+            return ts.model
+        setup, _, sw = [x.strip() for x in sol.partition(":")]
+        if not self.doc.project.path or not setup or not sw or "AdaptivePasses" in sw:
+            return None
+        path = tuning_path(result_dir(self.doc, setup), sw)
+        try:
+            key = (str(path), path.stat().st_mtime)
+        except OSError:
+            return None
+        cached = getattr(self, "_tmodel", None)
+        if cached is None or cached[0] != key:
+            try:
+                cached = (key, TuningModel(path))
+            except Exception:  # noqa: BLE001
+                cached = (key, None)
+            self._tmodel = cached
+        return cached[1]
+
+    def _fill_xaxis(self) -> None:
+        m = self._tuning_model()
+        p = self.report.props
+        for w in (self.xvar, self.xfreq):
+            w.blockSignals(True)
+            w.clear()
+        self.xvar.addItem("Frequency", "")
+        if m is not None:
+            for name in m.variables:
+                self.xvar.addItem(name, name)
+            for f in m.freq:
+                self.xfreq.addItem(f"{f / 1e9:.6g} GHz", float(f))
+        self.xvar.setCurrentIndex(max(self.xvar.findData(p.get("x_var", "")), 0))
+        want = float(p.get("x_freq", "") or "nan")
+        if self.xfreq.count() and np.isfinite(want):
+            self.xfreq.setCurrentIndex(min(range(self.xfreq.count()),
+                                           key=lambda i: abs(self.xfreq.itemData(i) - want)))
+        for w in (self.xvar, self.xfreq):
+            w.blockSignals(False)
+        self._form.setRowVisible(self.xvar, m is not None)
+        self._form.setRowVisible(self.xfreq, m is not None and bool(self.xvar.currentData()))
+
+    def _xaxis_changed(self) -> None:
+        self.report.props["x_var"] = self.xvar.currentData() or ""
+        if self.xfreq.count():
+            self.report.props["x_freq"] = repr(self.xfreq.currentData())
+        self._form.setRowVisible(self.xfreq, bool(self.xvar.currentData()))
+        self.changed.emit()
+        self.refresh()
+
+    def _xvar(self):
+        """(model, variable index, frequency index) of a plot against a variable, None for frequency."""
+        name = self.report.props.get("x_var", "")
+        if not name or self.report.kind not in self.XVAR_KINDS or self._family():
+            return None
+        m = self._tuning_model()
+        if m is None or name not in m.variables:
+            return None
+        want = float(self.report.props.get("x_freq", "") or "nan")
+        k = int(np.argmin(np.abs(m.freq - want))) if np.isfinite(want) else 0
+        return m, m.variables.index(name), k
+
+    def _xvar_data(self, key: str) -> dict:
+        """Solution data over the tuning range of the x variable at one frequency, the other variables at
+        their slider values (the solved values while the slider panel is closed)."""
+        from .tuning import WARN_FRACTION, slider_range, tuning_state, same_solution
+        m, i, k = self._xvar()
+        ts = tuning_state(self.doc)
+        dp = np.array(ts.dp, float) if (ts.model is m and ts.dp is not None and same_solution(key, ts.solution)) \
+            else np.zeros(len(m.variables))
+        lo, hi = slider_range(m, i)
+        x = m.values[i] + np.linspace(lo, hi, XVAR_POINTS)
+        S, z = m.sweep_variable(k, i, x - m.values[i], dp)
+        _, _, base = load_solution(self.doc, key, None)
+        d = {kk: v for kk, v in (base or {}).items() if kk not in ("freq", "S", "z0", "solved", "gamma", "zo")}
+        unit = m.units[i]
+        d.update(freq=x, S=S, z0=z, xaxis="Variable", xlabel=f"{m.variables[i]}" + (f" [{unit}]" if unit else ""),
+                 xunit=unit, x0=float(m.values[i]), warn=[(m.values[i] + a, m.values[i] + WARN_FRACTION * a)
+                                                          for a in (lo, hi) if a], xnow=float(m.values[i] + dp[i]), at=float(m.freq[k]),
+                 others=[t for t in ts.texts if not t.startswith(m.variables[i] + " ")] if np.any(dp) else [])
+        if "ports" not in d:
+            d["ports"] = m.meta.get("ports") or []
+        return with_pairs(d, self.doc.design)
 
     def _tuning_changed(self) -> None:
-        if self._tuned() or self._tuned_shown:
+        if self._tuned() or self._tuned_shown or self._xvar():
             if self.isVisible():
                 self.refresh(keep_cache=True)
             else:
@@ -1045,6 +1155,8 @@ class ReportWindow(QWidget):
         self.report.solution = s
         self.changed.emit()
         self._fill_qty()
+        if getattr(self, "xvar", None) is not None:
+            self._fill_xaxis()
         self.refresh()
 
     def _save_props(self) -> None:
@@ -1460,10 +1572,15 @@ class ReportWindow(QWidget):
             q = self._ff()
             other = "Theta" if p.get("cut", "Phi") == "Phi" else "Phi"
             curves = []
+            qt = self._ff_tuned(q) if self._tuned() else None      # the tuned cut, as drawn
             for tr in self.report.traces:
                 if ff_trace(tr)[1] in q:
                     ang, y = self._ff_cut(q, tr)
                     curves.append((with_unit(self.doc, tr), np.degrees(ang), y))
+                if qt is not None and ff_trace(tr)[1] in qt:
+                    from .tuning import tuning_state
+                    ang, y = self._ff_cut(qt, tr)
+                    curves.append((with_unit(self.doc, tr) + tuning_state(self.doc).label(), np.degrees(ang), y))
             return (p.get("xlabel") if self._ff_rect() else None) or f"{other} [deg]", curves
         if kind.startswith("Monostatic RCS"):
             f, xl, _, cols, _ = self._rcs_series()
@@ -1563,7 +1680,7 @@ class ReportWindow(QWidget):
         from .calc_bridge import field_names_in
         if field_names_in(self.doc.design, expr):
             from .tuning import TUNED
-            if root == TUNED:
+            if root == TUNED or self._xvar():
                 raise RuntimeError("the tuning model has no field values")
             return self._field_trace(expr, sol, root)
         data = self._sol_data(sol, root)
@@ -1601,9 +1718,16 @@ class ReportWindow(QWidget):
         cache = self.__dict__.setdefault("_cache", {})
         key = sol or self.sol.currentText()
         from .tuning import TUNED, tuning_state
+        if root is None and self._xvar():
+            if (key, TUNED, "x") not in cache:          # follows the sliders: dropped on a tuning refresh
+                cache[key, TUNED, "x"] = self._xvar_data(key)
+            return cache[key, TUNED, "x"]
         if root == TUNED:
             if (key, TUNED) not in cache:
-                cache[key, TUNED] = with_pairs(tuning_state(self.doc).data(self._sol_data(sol)), self.doc.design)
+                if self.report.kind in ANTENNA_KINDS:
+                    cache[key, TUNED] = self._antenna_tuned(key, self._sol_data(sol))
+                else:
+                    cache[key, TUNED] = with_pairs(tuning_state(self.doc).data(self._sol_data(sol)), self.doc.design)
             return cache[key, TUNED]
         if (key, root) not in cache:
             if self.report.kind in ANTENNA_KINDS:
@@ -1676,6 +1800,9 @@ class ReportWindow(QWidget):
         if self.report.kind in ANTENNA_KINDS:
             setup, _, sol = [x.strip() for x in self.sol.currentText().partition(":")]
             st = ResultStore(result_dir(self.doc, setup))
+            return st, sol, self._sol_data(None)
+        if self._xvar():
+            st, sol, _ = load_solution(self.doc, self.sol.currentText(), None)
             return st, sol, self._sol_data(None)
         st, sol, data = load_solution(self.doc, self.sol.currentText(), self._variations()[0][1])
         if data is None:
@@ -1770,7 +1897,10 @@ class ReportWindow(QWidget):
         ax2 = None
         xs0, xlabel, scale = x_axis(data)
         passes = data.get("xaxis") == "Pass"
+        var = data.get("xaxis") == "Variable"
         unit = "" if passes else " GHz"
+        if var:
+            unit = f" {data['xunit']}" if data["xunit"] else ""
         LS = {"Solid": "-", "Dashed": "--", "Dotted": ":", "Dash-Dot": "-."}
         SYM = {"None": None, "Circle": "o", "Square": "s", "Triangle": "^", "Cross": "x"}
         curves = []
@@ -1832,10 +1962,21 @@ class ReportWindow(QWidget):
                 h2, l2 = ax2.get_legend_handles_labels()
                 hs, ls = hs + h2, ls + l2
             ax.legend(hs, ls, loc="best", fontsize=8)
-        ax.set_title(f"{self.report.name}   ({self.sol.currentText()})", fontsize=10)
+        title = f"{self.report.name}   ({self.sol.currentText()})"
+        if var:      # the solved value (dashed) and the slider value (solid) of the variable
+            for a, b in data["warn"]:     # the outer part of the range: lower accuracy (as on the slider)
+                ax.axvspan(min(a, b), max(a, b), color="#b36b00", alpha=0.07, lw=0)
+            ax.axvline(data["x0"], color="#777", lw=1.0, ls="--", alpha=0.7)
+            if data["xnow"] != data["x0"]:
+                ax.axvline(data["xnow"], color="#777", lw=1.0, alpha=0.7)
+            title += f"   at {data['at'] / 1e9:.6g} GHz" + (f"   ({', '.join(data['others'])})" if data["others"] else "")
+        ax.set_title(title, fontsize=10)
         self.canvas.draw_idle()
         solved = data.get("solved")
-        self.info.setText(f"{len(data['freq'])} points, {len(solved) if solved is not None else 0} solved. "
+        what = ("tuning model; dashed line: solved value, solid line: slider value, shaded: lower accuracy. "
+                if var else
+                f"{len(solved) if solved is not None else 0} solved. ")
+        self.info.setText(f"{len(data['freq'])} points, {what}"
                           "Double-click: marker. Right-click: markers, axes, traces, copy, templates.")
 
     def _apply_axes(self, ax, ax2) -> None:
@@ -2056,6 +2197,30 @@ class ReportWindow(QWidget):
         cache["ff"] = q
         return q
 
+    def _antenna_tuned(self, key: str, base: dict) -> dict:
+        """Antenna parameters of the tuned design at the frequencies of the solved ones (`base`), on the grid
+        of the far field setup; the far fields of the basis are computed once per frequency (with progress)."""
+        from ..solver import farfield_post
+        from .tuning import tuning_state
+        ts = tuning_state(self.doc)
+        m = ts.model
+        if m is None or m.ff is None:
+            raise RuntimeError("the tuning model has no far field")
+        setup, _, sol = [x.strip() for x in key.partition(":")]
+        st = ResultStore(result_dir(self.doc, setup))
+        ff = farfield_post.farfield(st, self.doc.design, self._sphere_name(), sol or "LastAdaptive", self.doc.evaluator())
+        if ff is None:
+            raise RuntimeError("no far field data")
+        th, ph = np.asarray(ff["theta"], float), np.asarray(ff["phi"], float)
+        f = base["freq"]
+        run = lambda prog: m.antenna_series(f, 0, ts.dp, th, ph, prog)  # noqa: E731
+        ks = [int(np.argmin(np.abs(m.freq - x))) for x in f]
+        if all(m.has_farfield(k, th, ph) for k in ks):
+            f, vals = run(None)
+        else:
+            f, vals = farfield_post.RUN("Far fields of the tuning model", run)
+        return {"freq": f, "solved": f, "antenna": vals}
+
     def _ff_tuned(self, q: dict) -> dict | None:
         """Far field quantities of the tuned design on the grid of q (the tuning model at the far field
         frequency, port 1 with 1 W); None when the model has no far field there."""
@@ -2195,8 +2360,8 @@ class ReportWindow(QWidget):
             if "S" not in data:
                 self.info.setText("Touchstone needs S-parameters; export the antenna parameters as CSV")
                 return
-            if data.get("xaxis") == "Pass":
-                raise_msg = "Touchstone needs a frequency solution, not adaptive passes"
+            if data.get("xaxis") in ("Pass", "Variable"):
+                raise_msg = "Touchstone needs a frequency solution, not adaptive passes or a variable axis"
                 self.info.setText(raise_msg)
                 return
             st.write_touchstone(sol, data["freq"], data["S"], data["z0"], path)
