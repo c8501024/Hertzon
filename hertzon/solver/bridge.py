@@ -1213,6 +1213,11 @@ class Bridge:
         info(f"Matrix solver: {sparta_setup.describe()}; factorization on the {mode}")
         if mode != sparta_setup.MODES[name]:
             warn(f"Solver {name}: no GPU usable by SPARTA in this process; factorizing on the CPU")
+        elif mode == "GPU":
+            try:
+                info(f"SPARTA: GPU started in {sparta_setup.warm_up(mode, self.cell is None):.1f} s")
+            except Exception as ex:  # noqa: BLE001
+                info(f"SPARTA: GPU warm-up failed ({ex})")
 
     # ----------------------------------------------------------------------------------------
     def run_adaptive(self) -> None:

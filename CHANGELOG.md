@@ -70,7 +70,22 @@ the GitHub release notes.
   gain, directivity and realized gain are linear ratios (`dB(...)` gives dBi). The files carry this too:
   `fields_*.npz` has a `layout` entry, `farfield_*.npz` a `sampling` entry with the angular grid.
 
+- **Solver Comparison with parallel frequencies.** Tools > Solver Benchmark > Solver Comparison can also
+  solve the sweeps with 2, 4, ... frequencies at a time, for every checked solver, on the reference's final
+  mesh (as the Core Scaling tab does for one solver). The table and the chart show each run, and the advice
+  names the fastest combination of solver and parallel frequencies. A run that solved fewer frequencies at
+  a time than asked (SPARTA solves them one after another for now, or the memory allowed fewer) says so in
+  the Note column.
+
 ### Fixed
+- **Solver Comparison on the same mesh was unfair to the other solvers**: the reference solver's sweep time
+  came from its full run, the others' from a fresh process that only solved the sweep and paid the solver
+  start (for SPARTA on the GPU the device start and its analysis) inside the sweep. Now every solver,
+  the reference too, solves the sweeps there in a fresh process. SPARTA on the GPU starts the GPU while the
+  boundaries are set up, with the time in the log and in the Note column; it is still part of every
+  analysis and of the times. New columns show the direct and reduced solutions of each sweep: an
+  interpolating sweep solves directly only where its reduced basis is not accurate enough, so single
+  precision can make it solve more frequencies, which the advice now points out.
 - **Mesh operations that miss their target** now say so: Length Based On Edges with only objects or faces
   assigned (no edges) warns in the solver log and in Validation Check instead of "no edges could be
   located"; an operation whose objects are not part of the solve, or whose selection is empty, is reported

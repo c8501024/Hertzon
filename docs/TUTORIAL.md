@@ -885,6 +885,7 @@ tuned. See [TUNING.md](TUNING.md) for the details and the limits.
   shows what is implemented.
 * **Tools > Solver Benchmark** times the projects of `examples/benchmark/scaling` on your computer and
   suggests the number of cores and sweep processes; its *Solver Comparison* tab times the matrix solvers
-  (e.g. PARDISO, SPARTA on the CPU and on the GPU) with all cores.
+  (e.g. PARDISO, SPARTA on the CPU and on the GPU) with all cores, optionally also with parallel frequencies
+  in the sweeps.
 * **File > Export > EMerge Python Script** turns any design into a stand-alone EMerge script.
 * **File > Export > Gerber...** writes Gerber X2 and Excellon files of a board ([section 6](#6-gerber-export-of-a-printed-circuit-board)).
