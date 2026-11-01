@@ -5,9 +5,10 @@
 ARG BASE=python:3.12-slim
 FROM ${BASE}
 
-# gmsh's wheel links against these X/GL libraries even without a display; libgomp for the solvers' OpenMP
+# gmsh's wheel links against these X/GL libraries even without a display (ldd libgmsh.so); libgomp: OpenMP
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libglu1-mesa libopengl0 libxrender1 libxcursor1 libxft2 libxinerama1 libxext6 libgomp1 \
+        libgl1 libglu1-mesa libopengl0 libx11-6 libxext6 libxrender1 libxcursor1 libxfixes3 libxft2 \
+        libfontconfig1 libxinerama1 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/hertzon
