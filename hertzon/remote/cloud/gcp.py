@@ -106,6 +106,10 @@ def _label(text: str) -> str:
     return v or "unknown"
 
 
+class AccessDenied(RemoteError):
+    """The service account lacks a permission."""
+
+
 class GCP:
     name = NAME
     key = "gcp"
@@ -178,7 +182,7 @@ class GCP:
                 if "has not been used" in msg or "is disabled" in msg:
                     raise RemoteError("Google Cloud: the Compute Engine API is not enabled for the project; "
                                       "enable it in the console (APIs & Services > Compute Engine API)") from None
-                raise RemoteError(f"Google Cloud: the service account may not do this ({msg}); see the roles "
+                raise AccessDenied(f"Google Cloud: the service account may not do this ({msg}); see the roles "
                                   "in the Hertzon documentation (docs/REMOTE.md)") from None
             if reason in ("ZONE_RESOURCE_POOL_EXHAUSTED", "resourceExhausted") or "does not have enough resources" in msg:
                 raise PlacementError(f"Google Cloud: {msg}") from None
@@ -243,15 +247,22 @@ class GCP:
         return public.strip()            # goes into the instance metadata (ssh-keys) as well
 
     def _firewall(self) -> None:
+        """The rule hertzon-ssh, created once. The roles of docs/REMOTE.md may not read or create firewall
+        rules; then the rule default-allow-ssh of the project's default network lets SSH in."""
         try:
             self._call("GET", f"global/firewalls/{FIREWALL}")
             return
         except LookupError:
             pass
-        self._wait(self._call("POST", "global/firewalls", {
-            "name": FIREWALL, "network": "global/networks/default", "direction": "INGRESS",
-            "allowed": [{"IPProtocol": "tcp", "ports": ["22"]}], "sourceRanges": ["0.0.0.0/0"],
-            "targetTags": [LABEL], "description": "Hertzon: SSH to the solver"}))
+        except AccessDenied:
+            return
+        try:
+            self._wait(self._call("POST", "global/firewalls", {
+                "name": FIREWALL, "network": "global/networks/default", "direction": "INGRESS",
+                "allowed": [{"IPProtocol": "tcp", "ports": ["22"]}], "sourceRanges": ["0.0.0.0/0"],
+                "targetTags": [LABEL], "description": "Hertzon: SSH to the solver"}))
+        except AccessDenied:
+            pass
 
     def create(self, name: str, server_type: str, location: str, user_data: str, ssh_key, client: str) -> dict:
         zone = location or self.zone

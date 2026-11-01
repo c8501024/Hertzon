@@ -52,6 +52,7 @@ class FakeGoogle(BaseHTTPRequestHandler):
     full_zones: ClassVar[set] = set()
     base: ClassVar[str] = ""
     host_key_after: ClassVar[int] = 0
+    no_firewall_rights: ClassVar[bool] = False
 
     def log_message(self, *a):
         pass
@@ -91,6 +92,9 @@ class FakeGoogle(BaseHTTPRequestHandler):
         body = json.loads(raw) if raw else {}
         path = self.path.split("?")[0].replace("/compute/v1/projects/proj/", "")
         if path == "global/firewalls":
+            if self.no_firewall_rights:
+                return self._send(403, {"error": {"code": 403, "message": "Required 'compute.firewalls.create' "
+                                                  "permission for 'projects/proj/global/firewalls/hertzon-ssh'"}})
             self.firewalls.append(body)
             return self._op()
         if path.endswith("/instances"):
@@ -123,6 +127,8 @@ class FakeGoogle(BaseHTTPRequestHandler):
                 {"name": "n2d-standard-16", "guestCpus": 16, "memoryMb": 65536},
                 {"name": "e2-micro", "guestCpus": 2, "memoryMb": 1024}]})
         if path.startswith("global/firewalls/"):
+            if self.no_firewall_rights:
+                return self._send(403, {"error": {"code": 403, "message": "Required 'compute.firewalls.get' permission"}})
             if self.firewalls:
                 return self._send(200, self.firewalls[0])
             return self._send(404, {"error": {"code": 404, "message": "not found"}})
@@ -156,6 +162,7 @@ class FakeGoogle(BaseHTTPRequestHandler):
 def gcloud(rsa_pem):
     FakeGoogle.instances, FakeGoogle.firewalls, FakeGoogle.created, FakeGoogle.full_zones = {}, [], [], set()
     FakeGoogle.host_key_after = 0
+    FakeGoogle.no_firewall_rights = False
     srv = ThreadingHTTPServer(("127.0.0.1", 0), FakeGoogle)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -201,6 +208,13 @@ def test_gcp_servers(gcloud):
     g.delete(s["id"])
     g.delete(s["id"])                                                      # already gone: no error
     assert g.get(s["id"]) is None
+
+
+def test_gcp_without_firewall_rights(gcloud):
+    """The two roles of the documentation cannot manage firewall rules: the default network's rule serves."""
+    FakeGoogle.no_firewall_rights = True
+    s = gcloud().create("hertzon-abc", "c3d-standard-8", "europe-west3-a", "#cloud-config\n{}", "", "x")
+    assert s["name"] == "hertzon-abc" and FakeGoogle.firewalls == []
 
 
 def test_gcp_full_zone(gcloud):
