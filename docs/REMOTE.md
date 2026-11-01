@@ -1,8 +1,9 @@
 # Solving on another computer
 
-> **Experimental.** Remote solving currently works only with another computer in the local network that
-> runs Hertzon. A full solution, also for servers and cloud machines, is in progress; options, behaviour
-> and the connection between GUI and service may still change.
+> **Experimental.** Remote solving works with another computer in the local network that runs Hertzon and
+> with cloud servers that Hertzon creates itself ([Solving in the cloud](#solving-in-the-cloud-hetzner-cloud)).
+> Of the cloud providers only Hetzner Cloud has been tried with a real account; options, behaviour and the
+> connection between GUI and service may still change.
 
 Build and post-process the model in the Hertzon GUI on your laptop and let a stronger computer in your
 network do the solving. The other computer runs a normal Hertzon installation plus the small remote service;

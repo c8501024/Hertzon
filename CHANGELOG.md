@@ -30,10 +30,11 @@ the GitHub release notes.
   by shutting down (terminate on shutdown). A sold-out zone is retried in the other zones of the region; the
   vCPU limit of new accounts gets a clear message.
 - **Solving in the cloud on Google Cloud**: Provider *Google Cloud* with the JSON key of a service account
-  (roles in docs/REMOTE.md), zone and machine type with vCPUs, cores and memory. Hertzon signs in with the key
+  (roles in docs/REMOTE.md), or, where the organisation forbids service account keys, with the gcloud login
+  (`gcloud auth application-default login`; Hertzon finds its file and asks for the project ID); zone and machine type with vCPUs, cores and memory. Hertzon signs in with the key
   itself (no extra package), starts an Ubuntu instance that installs Docker and the solver image, reads its SSH
-  host key through the API and tries the other zones of the region when a zone is full. The key stays on this
-  computer; the instance deletes itself with its own service account.
+  host key through the API and tries the other zones of the region when a zone is full. The key (or the gcloud
+  login) stays on this computer; the instance deletes itself with its own service account.
 - **Solving in the cloud on Microsoft Azure**: Provider *Microsoft Azure* with a service principal (the JSON of
   `az ad sp create-for-rbac`, Contributor on the resource group `hertzon`) and the subscription ID; region and
   size with vCPUs, cores, memory and the pay-as-you-go price in EUR. Hertzon creates the network once per

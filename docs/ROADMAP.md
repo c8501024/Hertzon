@@ -218,7 +218,8 @@ Runs alongside the other steps once the second solver is in.
 
 - [ ] **7.1 Cluster and remote solves (L).** MPI for large models; Palace as an option for very large
   FEM runs. Done so far (experimental): solving on another computer in the local network with the remote
-  service ([REMOTE.md](REMOTE.md)). In progress: servers and cloud machines created for a job.
+  service, and on cloud servers that Hertzon creates for a session and deletes again (Hetzner Cloud tried;
+  Amazon Web Services, Google Cloud and Microsoft Azure untested) ([REMOTE.md](REMOTE.md)). Open: MPI, Palace.
 - [ ] **7.2 Coupled analyses (L).** Linked designs: EM, then thermal, then structural mechanics
   (CalculiX where needed).
 - [ ] **7.3 Plugin interface for further solvers (M).** Builds on 0.1.

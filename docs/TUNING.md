@@ -100,6 +100,12 @@ Two examples on the patch antenna (variables Lp and inset, discrete sweep 2.2 to
   every round the solve confirmed the predicted improvement (ratio 0.5 to 1.2). The last two rounds were
   small corrections: every solve refines its own mesh, so the solved cost moves a little from mesh to mesh.
 
+**Apply to Design** on an evaluation (Optimization results) sets its variables and shows its solution without
+solving again: S-parameters, reports and the adaptive passes, and for the best evaluation also the mesh and
+the fields at the adaptive frequency. **Results > Solution Data > Design Variation** lists every evaluation
+with its passes. The wizard **Tools > Antenna Design > Rectangular Patch** uses this optimizer with a goal at
+the design frequency only, on the adaptive solution, so no sweep is solved per round.
+
 Use it for designs that are near their goals already, for example from a design formula or a wizard. A
 variable that changes the topology, or a step beyond the tuning range, needs Conjugate Gradient.
 
