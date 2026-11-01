@@ -835,6 +835,8 @@ class Bridge:
         self.port_map = []
         global TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS
         TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS = None, {}, False
+        BETA.clear()            # records of an earlier solve in the same process (tests, tuning)
+        PORT_RECORDS.clear()
         term = None
         if self.design.settings.get("SolutionType") == "Terminal" and self.plane_wave() is None:
             from .terminals import Terminals
@@ -857,13 +859,14 @@ class Bridge:
                              f"{len(tp['terminals'])} mode(s)")
                     nmodes = len(tp["terminals"])
                 zdef = {"Zpv": "PV", "Zpi": "PI", "Zvi": "VI"}[p.get("ImpedanceDefinition", "Zpv")]
-                if term is not None and nmodes > 1:
-                    # several signal conductors: every mode is absorbed with its own propagation constant
-                    # (even and odd mode of coupled lines), modes solved at every frequency
-                    # without the end faces of the conductors: the port block couples all port unknowns,
-                    # and those of a face inside metal would have nothing else (singular matrix)
-                    sel = em.FaceSelection(self.faces_off_metal(tags))
-                    MULTI_TERMINAL_PORTS = True
+                if nmodes > 1:
+                    # several modes: every mode is absorbed with its own propagation constant (TE10 and TE01
+                    # of a waveguide, even and odd mode of coupled lines), modes solved at every frequency
+                    if term is not None:
+                        # without the end faces of the conductors: the port block couples all port unknowns,
+                        # and those of a face inside metal would have nothing else (singular matrix)
+                        sel = em.FaceSelection(self.faces_off_metal(tags))
+                        MULTI_TERMINAL_PORTS = True
                     port = mw.bc.MultiModeWavePort(sel, num, number_of_modes=nmodes,
                                                    modetype=None if mt == "Auto" else mt,
                                                    impedance_definition=zdef)
@@ -2260,7 +2263,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
                     z0 = np.asarray(data.scalar[-1].Z0)
             except Exception:  # noqa: BLE001
                 pass
-            _record_port_data(data.scalar[-1], sf)
+            _record_port_data(data.scalar[-1], sf, m)
             if TERMINALS is not None:
                 # convergence and results on the terminal S-parameters (unique for degenerate port modes)
                 Ss[-1] = TERMINALS.transform([sf], Ss[-1][None], list(data.scalar[-1]._portnumbers), DEEMBED)[0]
@@ -3231,7 +3234,7 @@ def _solve_at(m, freqs, **kw):
     S = np.array([np.asarray(e.Sp) for e in entries])
     z0 = np.asarray(entries[0].Z0) if entries and entries[0].Z0 is not None else np.array([50.0])
     for e, fk in zip(entries, f):
-        _record_port_data(e, fk)
+        _record_port_data(e, fk, m)
     if TERMINALS is not None and len(entries):
         S, z0 = TERMINALS.transform(f, S, list(entries[0]._portnumbers), DEEMBED), TERMINALS.zref
     return f, S, z0, data
@@ -3244,16 +3247,37 @@ MULTI_TERMINAL_PORTS = False           # a port with several signal conductors i
 DEEMBED: dict[int, float] = {}         # port number -> de-embedding distance (terminal designs)
 
 
-def _record_port_data(entry, freq: float) -> None:
+def _record_port_data(entry, freq: float, m=None) -> None:
     """Propagation constant and port impedance of every port mode of one solved frequency."""
     try:
         if entry.beta is not None:
             beta = np.asarray(entry.beta, complex).ravel()
-            BETA[float(freq)] = beta
             z = np.asarray(entry.Z0, complex).ravel() if entry.Z0 is not None else np.full(len(beta), np.nan)
+            if m is not None:
+                beta, z = _mode_constants(m, freq, beta.copy(), z.copy())
+            BETA[float(freq)] = beta
             PORT_RECORDS[float(freq)] = (1j * beta, z)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _mode_constants(m, freq: float, beta: np.ndarray, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """EMerge records the propagation constant and impedance of a port's first mode for all its S-matrix
+    rows; a wave port with several modes (each absorbed with its own propagation constant) gets those of
+    each mode here, in the order of the S-matrix rows."""
+    from emerge._emerge.physics.microwave.bcs.port_bcs import MultiModeWavePort
+    k0 = 2 * np.pi * float(freq) / C0
+    for i, (port, _, mode_nr) in enumerate(m.mw.bc.iter_port_modes()):
+        if i >= len(beta) or not isinstance(port, MultiModeWavePort):
+            continue
+        try:
+            beta[i] = port.get_beta(k0, mode_nr)
+            md = port.get_modes(k0)[mode_nr - 1]
+            if md.Z0 is not None and np.isfinite(md.Z0):
+                z[i] = md.Z0
+        except Exception:  # noqa: BLE001
+            pass
+    return beta, z
 
 
 

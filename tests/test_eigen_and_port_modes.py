@@ -65,3 +65,29 @@ def test_wave_port_with_more_modes_than_the_face_carries_says_so(tmp_path):
     d.setups.append(st)
     with pytest.raises(RuntimeError, match="Wave port 'WP1': 2 modes requested, the port face carries only 1"):
         B.Bridge(p, d, st, tmp_path).run()
+
+
+def test_two_mode_wave_port_absorbs_modes_with_different_propagation_constants(tmp_path):
+    """A 22.86 x 15 mm guide at 12 GHz carries TE10 (beta 210.6 rad/m) and TE01 (beta 139.3 rad/m). An empty
+    guide between two two-mode wave ports reflects neither mode, and each S-matrix row has its own gamma."""
+    import numpy as np
+    p = Project()
+    d = p.designs[0]
+    d.add_object("CreateBox", "Guide", Position="-11.43mm,0,0", XSize="22.86mm", YSize="30mm", ZSize="15mm",
+                 material="vacuum")
+    for i, y in enumerate(("0", "30mm"), 1):
+        d.add_object("CreateRectangle", f"P{i}", Position=f"-11.43mm,{y},0", Axis="Y", XSize="22.86mm", ZSize="15mm")
+        props = schema.defaults(schema.EXCITATIONS["Wave Port"])
+        props.update(PortNumber=str(i), NumberOfModes="2")
+        d.excitations.append(Assignment(f"WP{i}", "Wave Port", props, objects=[f"P{i}"]))
+    st = Setup("Setup1")
+    st.props.update(Frequency="12GHz", MaximumPasses="2", MinimumPasses="2")
+    d.setups.append(st)
+    B.Bridge(p, d, st, tmp_path).run()
+    z = np.load(tmp_path / "sparams_LastAdaptive.npz")
+    S = np.abs(z["S"][0])
+    assert np.all(np.diag(S) < 0.05)                      # no reflection of either mode
+    assert S[2, 0] > 0.98 and S[3, 1] > 0.98              # both modes pass
+    k0 = 2 * np.pi * 12e9 / 299792458.0
+    beta = [np.sqrt(k0 ** 2 - (np.pi / 22.86e-3) ** 2), np.sqrt(k0 ** 2 - (np.pi / 15e-3) ** 2)]
+    assert np.allclose(np.imag(z["gamma"][0]), beta * 2, rtol=0.01)

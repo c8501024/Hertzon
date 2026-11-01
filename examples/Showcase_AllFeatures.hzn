@@ -5580,8 +5580,8 @@
     "OutputVariables": "Conv_10_01 = dB(S(WP2_M2,WP1_M1))\nThru_10 = dB(S(WP2_M1,WP1_M1))\nPowerSum = mag(S(WP1_M1,WP1_M1))^2 + mag(S(WP1_M2,WP1_M1))^2 + mag(S(WP2_M1,WP1_M1))^2 + mag(S(WP2_M2,WP1_M1))^2"
    },
    "variables": {
-    "a": "20mm",
-    "b": "20mm",
+    "a": "22.86mm",
+    "b": "15mm",
     "L": "40mm",
     "tilt": "35deg",
     "wp": "3mm"
@@ -5785,7 +5785,7 @@
      "props": {
       "Enabled": "True",
       "SolutionFrequencyMode": "Single",
-      "Frequency": "9GHz",
+      "Frequency": "12GHz",
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
@@ -5822,8 +5822,8 @@
         "Enabled": "True",
         "SweepType": "Interpolating",
         "Distribution": "Linear Count",
-        "Start": "8GHz",
-        "Stop": "10.4GHz",
+        "Start": "10.5GHz",
+        "Stop": "13GHz",
         "Step": "0.1GHz",
         "Count": "126",
         "SamplesPerDecade": "20",
@@ -5842,7 +5842,7 @@
      "props": {
       "Enabled": "True",
       "SolutionFrequencyMode": "Single",
-      "Frequency": "9GHz",
+      "Frequency": "12GHz",
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
@@ -5879,8 +5879,8 @@
         "Enabled": "True",
         "SweepType": "Discrete",
         "Distribution": "Linear Count",
-        "Start": "8GHz",
-        "Stop": "10.4GHz",
+        "Start": "10.5GHz",
+        "Stop": "13GHz",
         "Step": "0.1GHz",
         "Count": "6",
         "SamplesPerDecade": "20",
@@ -5960,7 +5960,7 @@
    "optimetrics": [],
    "parametrics": [],
    "working_cs": "Global",
-   "notes": "Modal wave ports with two modes each: a 20 x 20 mm square guide carries the degenerate TE10 and TE01 (same propagation constant) between 7.5 and 10.6 GHz. A tilted dielectric post couples them; the mode rows of S are named WP1_M1, WP1_M2, WP2_M1, WP2_M2 and used in reports and output variables (mode conversion)."
+   "notes": "Modal wave ports with two modes each: a 22.86 x 15 mm guide carries TE10 and TE01 between 10 and 13.1 GHz, each port mode absorbed with its own propagation constant. A tilted dielectric post couples them; the mode rows of S are named WP1_M1, WP1_M2, WP2_M1, WP2_M2 and used in reports and output variables (mode conversion)."
   }
  ],
  "variables": {
