@@ -29,6 +29,11 @@ the GitHub release notes.
   itself (no extra package), starts an Ubuntu instance that installs Docker and the solver image, reads its SSH
   host key through the API and tries the other zones of the region when a zone is full. The key stays on this
   computer; the instance deletes itself with its own service account.
+- **Solving in the cloud on Microsoft Azure**: Provider *Microsoft Azure* with a service principal (the JSON of
+  `az ad sp create-for-rbac`, Contributor on the resource group `hertzon`) and the subscription ID; region and
+  size with vCPUs, cores, memory and the pay-as-you-go price in EUR. Hertzon creates the network once per
+  region and per server an address, a network card and an Ubuntu machine that installs Docker and the solver
+  image; deleting the machine deletes the rest. The server deletes itself with the service principal.
 - **Optimizer "Derivative Trust Region"**: every round solves the design, computes its derivative tuning
   model and minimizes the goals on the model (milliseconds per evaluation) within a part of the tuning
   range; the step is checked with a solve, and the region grows or shrinks with the agreement. On the patch

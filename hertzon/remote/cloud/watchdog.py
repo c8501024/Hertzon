@@ -79,7 +79,26 @@ def _gcp_delete(cfg: dict) -> None:
     urllib.request.urlopen(req, timeout=30).close()
 
 
-DELETE = {"hetzner": _hetzner_delete, "aws": _shutdown, "gcp": _gcp_delete}
+def _azure_delete(cfg: dict) -> None:
+    """Azure: delete this virtual machine (its disk, network card and address go with it) with the service
+    principal, which may act only in the resource group "hertzon"."""
+    import urllib.parse
+    c = json.loads(cfg["api_token"])
+    body = urllib.parse.urlencode({"grant_type": "client_credentials", "client_id": c["client"],
+                                   "client_secret": c["secret"], "scope": "https://management.azure.com/.default"})
+    with urllib.request.urlopen(f"https://login.microsoftonline.com/{c['tenant']}/oauth2/v2.0/token",
+                                data=body.encode(), timeout=30) as r:
+        token = json.loads(r.read())["access_token"]
+    req = urllib.request.Request("http://169.254.169.254/metadata/instance/compute/resourceId"
+                                 "?api-version=2021-02-01&format=text", headers={"Metadata": "true"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        rid = r.read().decode().strip()
+    req = urllib.request.Request(f"https://management.azure.com{rid}?forceDeletion=true&api-version=2024-07-01",
+                                 method="DELETE", headers={"Authorization": f"Bearer {token}"})
+    urllib.request.urlopen(req, timeout=60).close()
+
+
+DELETE = {"hetzner": _hetzner_delete, "aws": _shutdown, "gcp": _gcp_delete, "azure": _azure_delete}
 
 
 def delete(cfg: dict, reason: str) -> None:
