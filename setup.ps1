@@ -18,8 +18,42 @@ function Find-Python {
     return $null
 }
 
+# Hertzon processes that run from this folder (the window, the remote server 'hertzon.remote serve', the
+# MCP server started by an AI app, solver workers) keep files of .venv open; pip then fails to update them
+function Get-HertzonProcesses {
+    $root = (Resolve-Path -LiteralPath $PSScriptRoot).Path.TrimEnd('\') + '\'
+    # this script and the processes that started it (Hertzon.exe runs it on the first start) do not count
+    $own = @{}
+    $id = $PID
+    while ($id -and -not $own.ContainsKey($id)) {
+        $own[$id] = $true
+        $id = (Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue).ParentProcessId
+    }
+    Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        -not $own.ContainsKey($_.Id) -and $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)
+    }
+}
+
+function Wait-HertzonClosed {
+    while ($true) {
+        $procs = @(Get-HertzonProcesses)
+        if (-not $procs) { return }
+        Write-Host ''
+        Write-Host 'Hertzon is still running from this folder (window, remote server or MCP server of an AI app):' -ForegroundColor Yellow
+        foreach ($p in $procs) {
+            $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
+            Write-Host ("  {0,6}  {1}" -f $p.Id, $(if ($cmd) { $cmd } else { $p.Path }))
+        }
+        if ($env:CI) { Write-Host 'Continuing anyway (unattended run).'; return }
+        $a = Read-Host 'Close them (for an MCP server: quit the AI app), then press Enter. S = stop them, C = continue anyway'
+        if ($a -match '^[sS]') { $procs | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+        elseif ($a -match '^[cC]') { return }
+    }
+}
+
 try {
     $venvPy = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+    Wait-HertzonClosed
     if (-not (Test-Path -LiteralPath $venvPy)) {
         $py = Find-Python
         if (-not $py) {
