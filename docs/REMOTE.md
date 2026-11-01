@@ -83,8 +83,8 @@ the command `python -m hertzon.remote serve --cores 16 --sweep-workers 4` to `do
 ## Solving in the cloud (Hetzner Cloud)
 
 Hertzon can create such a server itself, use it for the analyses of a session and delete it again; you pay
-the provider per hour of the server and install nothing. Amazon Web Services, Google Cloud and Microsoft Azure
-follow.
+the provider for the time the server exists and install nothing. Providers: Hetzner Cloud and Amazon Web
+Services ([below](#amazon-web-services-aws)); Google Cloud and Microsoft Azure follow.
 
 1. At [console.hetzner.cloud](https://console.hetzner.cloud/) create a project only for Hertzon, then
    Security > API tokens > Generate API token with *Read & Write*.
@@ -110,6 +110,47 @@ The connection is an SSH tunnel: Hertzon creates an SSH key for this computer (i
 connection is encrypted and checked from the first packet. The remote service listens only inside the server.
 Hertzon uses the `ssh` and `ssh-keygen` programs of the operating system (Windows 10 and later: *OpenSSH
 Client*, normally installed; Linux: `openssh-client`).
+
+### Amazon Web Services (AWS)
+
+1. In the [IAM console](https://console.aws.amazon.com/iam/) create a user only for Hertzon (no console
+   access) with the policy below, then Security credentials > **Create access key** (use case: application
+   outside AWS).
+2. Tools > Options > **Cloud**: Provider *Amazon Web Services*, paste the access key ID and the secret access
+   key, press **Check Account**, choose the region (for example eu-central-1, Frankfurt) and the instance type.
+   The list shows vCPUs, physical cores, memory and the on-demand price in USD per hour. The AMD types
+   (`c7a`, `m7a`, `r7a`) have one physical core per vCPU; the Intel ones (`c7i`, `m7i`, `r7i`) two vCPUs per
+   core, so an `m7a.2xlarge` (8 cores, 32 GB) solves about as fast as an `m7i.4xlarge`.
+
+Hertzon starts an Ubuntu 24.04 instance in the default VPC of the region with a 30 GB disk, the security
+group `hertzon` (SSH only, created on first use) and the tags `hertzon=1` and `hertzon-client`. The first
+start also installs Docker, so it takes one to two minutes longer than at Hetzner. The access key stays on
+this computer: the instance is started with *terminate on shutdown*, and its watchdog deletes it by shutting
+it down. **Delete Cloud Servers** deletes the Hertzon instances of the chosen region.
+
+New AWS accounts may start only a few vCPUs at once. If the analysis reports the vCPU limit, request more in
+the AWS console: Service Quotas > Amazon EC2 > *Running On-Demand Standard (A, C, D, H, I, M, R, T, Z)
+instances*. If a region has no default VPC: VPC console > Your VPCs > Actions > Create default VPC.
+
+Policy of the Hertzon user (IAM > Policies > Create policy > JSON):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Resource": "*", "Action": [
+      "ec2:DescribeRegions", "ec2:DescribeInstanceTypes", "ec2:DescribeInstanceTypeOfferings",
+      "ec2:DescribeImages", "ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups",
+      "ec2:DescribeInstances", "ec2:CreateSecurityGroup", "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:RunInstances", "ec2:CreateTags", "pricing:GetProducts"]},
+    {"Effect": "Allow", "Action": "ec2:TerminateInstances", "Resource": "*",
+     "Condition": {"StringEquals": {"ec2:ResourceTag/hertzon": "1"}}}
+  ]
+}
+```
+
+Without `pricing:GetProducts` the types are listed without prices. The user can terminate only instances
+tagged `hertzon=1`.
 
 To build the image yourself: `docker build -f packaging/docker/Dockerfile -t hertzon-solver .` in the
 repository folder.

@@ -2,7 +2,8 @@
 
 Runs on the cloud server itself (outside the solver container, Python standard library only; cloud-init
 installs this file as /etc/hertzon/watchdog.py with its settings in /etc/hertzon/watchdog.json). Every minute
-it asks the remote service for its activity and deletes the server through the provider's API when
+it asks the remote service for its activity and deletes the server (through the provider's API, or on AWS
+by shutting down an instance that terminates on shutdown) when
 
 - no analysis ran or waited and no GUI asked anything for IDLE_MIN minutes,
 - an analysis runs but no GUI asked anything for CONTACT_H hours (the GUI is gone: cost limit),
@@ -57,7 +58,13 @@ def _hetzner_delete(cfg: dict) -> None:
     urllib.request.urlopen(req, timeout=30).close()
 
 
-DELETE = {"hetzner": _hetzner_delete}
+def _shutdown(cfg: dict) -> None:
+    """AWS: the instance was started with "terminate on shutdown"; no API key on the server."""
+    if subprocess.call(["shutdown", "-h", "now"]) != 0:
+        raise OSError("shutdown failed")
+
+
+DELETE = {"hetzner": _hetzner_delete, "aws": _shutdown}
 
 
 def delete(cfg: dict, reason: str) -> None:

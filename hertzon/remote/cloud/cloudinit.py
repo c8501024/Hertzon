@@ -48,7 +48,8 @@ exec docker run -d --name hertzon --hostname "$(hostname)" --restart unless-stop
 
 def user_data(*, provider: str, token: str, api_token: str, host_private: str, host_public: str,
               client_public: str, image: str, fallback: str, idle_min: float = 30, contact_h: float = 48,
-              quiet_h: float = 2, start_min: float = 20, args: list[str] | None = None) -> str:
+              quiet_h: float = 2, start_min: float = 20, args: list[str] | None = None,
+              install_docker: bool = False) -> str:
     watchdog = (Path(__file__).with_name("watchdog.py")).read_text(encoding="utf-8")
     wcfg = {"provider": provider, "token": token, "api_token": api_token, "port": PORT, "idle_min": idle_min,
             "contact_h": contact_h, "quiet_h": quiet_h, "start_min": start_min}
@@ -58,6 +59,7 @@ def user_data(*, provider: str, token: str, api_token: str, host_private: str, h
         "ssh_keys": {"ed25519_private": host_private.strip() + "\n", "ed25519_public": host_public.strip()},
         "ssh_authorized_keys": [client_public.strip()],
         "disable_root": False,
+        "ssh_pwauth": False,
         "write_files": [
             {"path": "/etc/hertzon/watchdog.py", "permissions": "0700", "content": watchdog},
             {"path": "/etc/hertzon/watchdog.json", "permissions": "0600", "content": json.dumps(wcfg)},
@@ -70,4 +72,7 @@ def user_data(*, provider: str, token: str, api_token: str, host_private: str, h
         "runcmd": [["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", "hertzon-watchdog"],
                    ["/etc/hertzon/start.sh"]],
     }
+    if install_docker:                  # a plain Ubuntu image: Docker from its packages (before runcmd)
+        cfg["package_update"] = True
+        cfg["packages"] = ["docker.io"]
     return "#cloud-config\n" + json.dumps(cfg, indent=1) + "\n"

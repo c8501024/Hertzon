@@ -27,6 +27,8 @@ class PlacementError(RemoteError):
 class Hetzner:
     name = NAME
     key = "hetzner"
+    ssh_user = "root"
+    install_docker = False              # the docker-ce image has it
 
     def __init__(self, token: str, api: str = API):
         self.token, self.api = (token or "").strip(), api.rstrip("/")
