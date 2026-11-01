@@ -10,7 +10,8 @@ the GitHub release notes.
 ### Highlights
 - **Tune with sliders, live**: compute the derivatives once, then move design variables with sliders and every
   open report (S-parameters, Smith chart, radiation pattern, antenna parameters) follows in real time. It works
-  by deforming the mesh instead of remeshing. (Introduced in 0.2.9.)
+  by deforming the mesh instead of remeshing, which suits optimization very well; more built on it is coming.
+  (Introduced in 0.2.9.)
 - **New optimizer, Derivative Trust Region**: minimizes the goals on the derivative tuning model and checks each
   step with one solve. The patch antenna wizard reaches S11 <= -20 dB at the design frequency in about a minute.
 - **Solving in the cloud**: Hertzon starts a cloud server, solves there and deletes it again. Tested with Hetzner
