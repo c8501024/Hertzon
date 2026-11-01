@@ -550,7 +550,6 @@ class SolutionDataDialog(QDialog):
         return Path(data) if data else shown
 
     def _load(self, setup: str, keep_variation: bool = False) -> None:
-        doc = self.doc
         folder = self._variations(setup, keep_variation)
         self.st = ResultStore(folder) if folder is not None else None
         cur = self.tabs.currentIndex()
