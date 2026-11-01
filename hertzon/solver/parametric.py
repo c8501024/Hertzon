@@ -24,7 +24,7 @@ import numpy as np
 
 from ..model.design import Project
 from .optimetrics import split_value, in_unit, fmt_value
-from .results import ResultStore, results_dir, _safe, running_status
+from .results import ResultStore, results_dir, _safe, run_status, running_status
 
 SHORT = {"Linear step": "LIN", "Linear count": "LINC", "Decade count": "DEC", "Octave count": "OCT",
          "Exponential count": "EXP"}
@@ -295,17 +295,28 @@ def optimization_evaluations(project, design, setup: str) -> list[tuple[str, dic
     for op in design.optimetrics:
         if optimization_setup(op) != setup:
             continue
-        rows = _read_cached(parametric_dir(project.path, design.name, op.name) / "history.json").get("evaluations", [])
+        run = parametric_dir(project.path, design.name, op.name)
+        rows = _read_cached(run / "history.json").get("evaluations", [])
         ok = [r for r in rows if r.get("cost") is not None]
         best = min(ok, key=lambda r: r["cost"])["eval"] if ok else None
         for r in rows:
             folder = evaluation_dir(project.path, design.name, op.name, r.get("eval", 0))
             if (folder / "status.json").exists():
                 out.append((op.name, r, folder, r.get("eval") == best))
+        # while the optimization runs: the evaluations being solved (in the history once their cost is known)
+        if run_status(run).get("state") == "running":
+            last = max((int(r.get("eval", 0)) for r in rows), default=0)
+            for folder in sorted((run / "evals").glob("[0-9][0-9][0-9][0-9]/results")):
+                n = int(folder.parent.name)
+                if n > last and (folder / "status.json").exists():
+                    state = run_status(folder).get("state", "")
+                    out.append((op.name, {"eval": n, "state": state}, folder, False))
     return out
 
 
 def evaluation_label(name: str, row: dict, best: bool = False) -> str:
+    if "state" in row and "cost" not in row:
+        return f"{name}: evaluation {row.get('eval')} ({'solving' if row['state'] == 'running' else row['state']})"
     cost = f"cost {row['cost']:.4g}" if row.get("cost") is not None else "failed"
     return f"{name}: evaluation {row.get('eval')}{' (best)' if best else ''}, {cost}, " + \
         variation_label(row.get("variables", {}))
@@ -332,6 +343,35 @@ def matching_evaluation(project, design, setup: str) -> Path | None:
         if _is_current(folder, keys):
             return folder
     return None
+
+
+def adopt_evaluation(project, design, setup: str, folder: Path) -> Path:
+    """Take the solution of an optimization evaluation (the current design, see matching_evaluation) over as
+    the solution of `setup`: its files replace the nominal ones, so that everything working on the nominal
+    solution (derivative tuning on its adaptive mesh, continuing the passes, Solution Data, fields) uses it as
+    if the design had been analyzed. Returns the nominal folder."""
+    import shutil
+    from .keys import model_key, setup_key
+    nominal = results_dir(project.path, design.name, setup)
+    if run_status(nominal).get("state") == "running":
+        raise RuntimeError(f"{setup} is being solved")
+    folder = Path(folder)
+    status = json.loads((folder / "status.json").read_text(encoding="utf-8"))
+    s = design.setup(setup)
+    # the evaluation solved the same model (equal model keys); its setup copy had the fields of the sweeps
+    # off and only the goal sweep on, both of which keep a solution valid (setup_key)
+    status.update(model_key=model_key(project, design, s), setup_key=setup_key(s), adopted_from=str(folder))
+    nominal.mkdir(parents=True, exist_ok=True)
+    for f in nominal.iterdir():
+        if f.is_dir():
+            shutil.rmtree(f, ignore_errors=True)
+        else:
+            f.unlink(missing_ok=True)
+    for f in folder.iterdir():
+        if f.name != "status.json":
+            (shutil.copytree(f, nominal / f.name) if f.is_dir() else shutil.copy2(f, nominal / f.name))
+    ResultStore(nominal).write_json("status.json", status)
+    return nominal
 
 
 def solution_variations(project, design, setup: str) -> list[tuple[str, Path]]:

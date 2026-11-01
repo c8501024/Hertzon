@@ -52,13 +52,15 @@ the GitHub release notes.
 - **Wave ports with several modes** (modal solution) absorb every mode with its own propagation constant, as terminal ports already did. Before, all modes used the first mode's constant: in an empty 22.86 x 15 mm guide at 12 GHz, TE01 was reflected with |S22| = 0.34. Gamma and Zo of every mode row are now the mode's own (they showed the first mode's for all rows), which also corrects their de-embedding.
 - **Eigenmode** setups solve again: the mesh is sized at the minimum frequency (the solve stopped with 'Frequency'), and the eigen search climbs from the minimum frequency until the wanted number of modes is found. A search below the first resonance returned only the static null space, so no modes were listed.
 - A **wave port with more modes than its face carries** (for example two TE modes on a WR-90 port at 10 GHz) now stops with a message naming the port and the number of modes it has, instead of a division by zero in the S-parameters.
-- **Optimization > Apply to Design** now shows the solution of the applied evaluation without solving
-  again: S-parameters, reports and the adaptive passes of every evaluation, and for the best evaluation
-  also the mesh and the fields at the adaptive frequency (it keeps them; the other evaluations still keep
-  only S-parameters, convergence and log). Before, the design had to be analyzed again.
+- **Optimization > Apply to Design** takes the solution of the applied evaluation over as the solution of
+  the setup, without solving again: reports, Solution Data, field overlays and **Derivative Tuning** (on the
+  evaluation's adaptive mesh) work on it as after an analysis. The best evaluation keeps its mesh and the
+  fields at the adaptive frequency; the other evaluations keep S-parameters, passes and log. Before, the
+  design had to be analyzed again.
 - **Results > Solution Data** has a *Design Variation* list: next to the current design it shows every
   solved parametric variation and every optimization evaluation, with its passes (Convergence), Matrix
-  Data, Profile and Mesh Statistics, without changing the design.
+  Data, Profile and Mesh Statistics, without changing the design. While an optimization runs and the design
+  has no solution of its own, it shows the evaluation being solved and follows its passes.
 - **Tools > Options** opens at once. It used to wait for the check whether this computer's remote service
   runs (on Windows a refused connection to this computer alone takes about two seconds), for the host name
   lookup of the share addresses and for the scan of the installed SPARTA version. These now run in the
