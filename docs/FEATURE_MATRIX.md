@@ -63,7 +63,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 
 | Function | In Hertzon | Status | Notes |
 |---|---|---|---|
-| Wave Port (modes, Zpi/Zpv/Zvi, renormalize, de-embed) | Wave Port | ✔ | De-embedding uses the solved port propagation constant |
+| Wave Port (modes, Zpi/Zpv/Zvi, renormalize, de-embed) | Wave Port | ✔ | De-embedding uses the solved port propagation constant; with several modes every mode is absorbed with its own propagation constant (Gamma and Zo per mode); more modes than the port face carries stop with a message naming the port |
 | Lumped Port (impedance, integration line) | Lumped Port | ✔ | Integration line placed automatically between the touching conductors, or drawn in the 3D view; it moves, rotates, mirrors and scales with its sheet |
 | Floquet Port | Floquet Port | ◐ | TE00 and TM00 of the periodic cell, port normal to z, in air or vacuum. Higher Floquet modes ✖; at oblique incidence TM00 is absorbed with the TE00 propagation constant (only TE00 exact) |
 | Incident Plane Wave | Incident Plane Wave | ✔ | Scattered-field formulation with a radiation boundary, RCS (monostatic and bistatic); one plane wave per design, ignored while ports are present |
@@ -96,7 +96,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Solver: SPARTA (GPU / CPU), PARDISO + SPARTA sweep | ✔ optional, Tools > Options > Install SPARTA; sweeps with SPARTA solve one frequency at a time |
 | Solver benchmark: core scaling and solver comparison on the same mesh | ✔ Tools > Solver Benchmark |
 | Save fields | ✔ |
-| Eigenmode setup (min frequency, number of modes) | ✔ |
+| Eigenmode setup (min frequency, number of modes) | ✔ (the search climbs from the minimum frequency until the wanted number of modes is found) |
 
 ## Frequency sweeps
 
