@@ -5,7 +5,7 @@ title: "Hertzon: a graphical 3D full-wave electromagnetic simulator built on EMe
 authors:
   - family-names: "Mair"
     given-names: "Dominik"
-version: "0.3.0"
+version: "0.2.10"
 date-released: "2026-11-01"
 license: GPL-2.0-or-later
 repository-code: "https://github.com/c8501024/Hertzon"
