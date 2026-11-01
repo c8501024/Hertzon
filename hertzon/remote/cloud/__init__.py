@@ -181,14 +181,37 @@ class CloudSession:
                                  host_private=host_priv, host_public=host_pub, client_public=client_pub,
                                  image=image, fallback=fallback, idle_min=self.idle_min,
                                  contact_h=self.contact_h, quiet_h=self.quiet_h)
-        say(f"Creating a {self.server_type} server at {self.provider.name} ({self.location})")
         key_id = self.provider.ssh_key(client_pub, self.client)
         name = f"hertzon-{secrets.token_hex(3)}"
-        srv = self.provider.create(name, self.server_type, self.location, ud, key_id, self.client)
+        srv, where = self._place(name, ud, key_id, say)
         st = {"id": srv["id"], "name": name, "ip": srv.get("ip", ""), "token": token, "host_key": host_pub,
-              "type": self.server_type, "created": time.time(), "image": image}
+              "type": self.server_type, "location": where, "created": time.time(), "image": image}
         self._save(st)
         return st
+
+    def _place(self, name: str, ud: str, key_id, say) -> tuple[dict, str]:
+        """Create the server at the chosen location; when the provider has none of the type free there
+        (sold out), at the other locations that offer it."""
+        from .hetzner import PlacementError
+        tried = [self.location]
+        try:
+            say(f"Creating a {self.server_type} server at {self.provider.name} ({self.location})")
+            return self.provider.create(name, self.server_type, self.location, ud, key_id, self.client), self.location
+        except PlacementError:
+            pass
+        others = getattr(self.provider, "locations_for", lambda t: [])(self.server_type)
+        for loc in others:
+            if loc in tried:
+                continue
+            tried.append(loc)
+            say(f"No {self.server_type} free in {tried[0]}; trying {loc}")
+            try:
+                return self.provider.create(name, self.server_type, loc, ud, key_id, self.client), loc
+            except PlacementError:
+                continue
+        raise RemoteError(f"{self.provider.name} has no {self.server_type} server free right now (tried "
+                          f"{', '.join(tried)}). Choose another server type in Tools > Options > Cloud or try "
+                          "again later.")
 
     def _connect(self, st: dict, say, abort, timeout: float = 900) -> None:
         """Wait for the server, open the tunnel and wait for the service (the first start pulls the image)."""

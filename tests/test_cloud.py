@@ -22,6 +22,7 @@ class FakeHetzner(BaseHTTPRequestHandler):
     servers: ClassVar[dict] = {}
     keys: ClassVar[list] = []
     created: ClassVar[list] = []
+    sold_out: ClassVar[set] = set()
 
     def log_message(self, *a):
         pass
@@ -74,6 +75,9 @@ class FakeHetzner(BaseHTTPRequestHandler):
             self.keys.append(k)
             return self._send(201, {"ssh_key": k})
         if self.path == "/servers":
+            if body["location"] in self.sold_out:
+                return self._send(412, {"error": {"code": "resource_unavailable",
+                                                  "message": "error during placement"}})
             sid = 100 + len(self.created)
             self.created.append(body)
             s = {"id": sid, "name": body["name"], "status": "initializing", "labels": body["labels"],
@@ -93,7 +97,7 @@ class FakeHetzner(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def api():
-    FakeHetzner.servers, FakeHetzner.keys, FakeHetzner.created = {}, [], []
+    FakeHetzner.servers, FakeHetzner.keys, FakeHetzner.created, FakeHetzner.sold_out = {}, [], [], set()
     srv = ThreadingHTTPServer(("127.0.0.1", 0), FakeHetzner)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_address[1]}"
@@ -138,6 +142,21 @@ def test_session_creates_a_server_with_known_host_key(api, tmp_path):
     start = files["/etc/hertzon/start.sh"]
     assert "hertzon-solver:9.9.9" in start and "hertzon-solver:dev" in start and "127.0.0.1:47820:47820" in start
     assert s.delete() and not s.state() and FakeHetzner.servers == {}
+
+
+@pytest.mark.skipif(shutil.which("ssh-keygen") is None, reason="needs OpenSSH's ssh-keygen")
+def test_sold_out_location_falls_back(api, tmp_path):
+    """Hetzner answers 412 when the type is sold out at a location: the other locations are tried."""
+    from hertzon.remote.cloud import CloudSession
+    FakeHetzner.sold_out = {"fsn1"}
+    said = []
+    s = CloudSession(Hetzner("good", api), "ccx33", "fsn1", workdir=tmp_path)
+    st = s._create(said.append)
+    assert st["location"] == "nbg1" and any("trying nbg1" in x for x in said)
+    s.delete()
+    FakeHetzner.sold_out = {"fsn1", "nbg1"}
+    with pytest.raises(RemoteError, match="no ccx33 server free"):
+        s._create(said.append)
 
 
 def test_watchdog_decisions():

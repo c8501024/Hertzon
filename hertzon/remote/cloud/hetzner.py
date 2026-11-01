@@ -20,6 +20,10 @@ DEFAULT_LOCATION = "fsn1"
 IMAGE = "docker-ce"                     # Hetzner's Ubuntu image with Docker installed
 
 
+class PlacementError(RemoteError):
+    """No server of the type is free at the location now (Hetzner: placement_error / resource_unavailable)."""
+
+
 class Hetzner:
     name = NAME
     key = "hetzner"
@@ -41,12 +45,15 @@ class Hetzner:
             try:
                 err = json.loads(ex.read().decode("utf-8")).get("error", {})
                 msg = err.get("message") or err.get("code") or ex.reason
+                code = err.get("code", "")
             except Exception:  # noqa: BLE001
-                msg = ex.reason
+                msg, code = ex.reason, ""
             if ex.code == 401:
                 raise RemoteError("Hetzner Cloud: the API token is wrong or was removed") from None
             if ex.code == 404:
                 raise LookupError(msg) from None
+            if ex.code == 412 or code in ("placement_error", "resource_unavailable"):
+                raise PlacementError(f"Hetzner Cloud: {msg} (HTTP {ex.code})") from None
             raise RemoteError(f"Hetzner Cloud: {msg} (HTTP {ex.code})") from None
         except (urllib.error.URLError, OSError) as ex:
             raise RemoteError(f"Hetzner Cloud not reachable ({getattr(ex, 'reason', ex)})") from None
@@ -67,6 +74,10 @@ class Hetzner:
                         "dedicated": t.get("cpu_type") == "dedicated", "price": price, "prices": prices,
                         "locations": sorted(prices)})
         return sorted(out, key=lambda t: (not t["dedicated"], t["cores"] or 0, t["name"]))
+
+    def locations_for(self, server_type: str) -> list[str]:
+        """The locations that offer SERVER_TYPE (where it has a price)."""
+        return next((t["locations"] for t in self.server_types() if t["name"] == server_type), [])
 
     def locations(self) -> list[dict]:
         return [{"name": loc["name"], "city": loc.get("city", ""), "country": loc.get("country", "")}
