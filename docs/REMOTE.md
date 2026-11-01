@@ -87,6 +87,10 @@ the provider for the time the server exists and install nothing. Providers: Hetz
 Services ([below](#amazon-web-services-aws)), Google Cloud ([below](#google-cloud)) and Microsoft Azure
 ([below](#microsoft-azure)).
 
+> **Untested providers:** only Hetzner Cloud has been tried with a real account so far. Amazon Web Services,
+> Google Cloud and Microsoft Azure are checked only against stand-ins of their APIs; Hertzon marks them
+> *(untested)*. Use them at your own risk and check in the provider's console that no server is left running.
+
 1. At [console.hetzner.cloud](https://console.hetzner.cloud/) create a project only for Hertzon, then
    Security > API tokens > Generate API token with *Read & Write*.
 2. Tools > Options > **Cloud**: paste the token, press **Check Account** (loads locations and server types
@@ -113,6 +117,8 @@ Hertzon uses the `ssh` and `ssh-keygen` programs of the operating system (Window
 Client*, normally installed; Linux: `openssh-client`).
 
 ### Amazon Web Services (AWS)
+
+*Untested with a real account; see the note above.*
 
 1. In the [IAM console](https://console.aws.amazon.com/iam/) create a user only for Hertzon (no console
    access) with the policy below, then Security credentials > **Create access key** (use case: application
@@ -155,6 +161,8 @@ tagged `hertzon=1`.
 
 ### Google Cloud
 
+*Untested with a real account; see the note above.*
+
 1. In the [Google Cloud console](https://console.cloud.google.com/) create a project only for Hertzon (with
    billing) and enable the **Compute Engine API** (APIs & Services > Library).
 2. IAM & Admin > Service accounts > **Create service account**, with the roles *Compute Instance Admin (v1)*
@@ -185,6 +193,8 @@ through the API before the first connection, so the tunnel is checked as on the 
 New projects have small CPU quotas per region; raise them in IAM & Admin > Quotas if the analysis reports one.
 
 ### Microsoft Azure
+
+*Untested with a real account; see the note above.*
 
 1. In the [Azure portal](https://portal.azure.com/) create the resource group **hertzon** (Resource groups >
    Create; its region does not matter) and note the subscription ID (Subscriptions).

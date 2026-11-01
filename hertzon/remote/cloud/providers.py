@@ -15,6 +15,10 @@ from . import aws, azure, gcp, hetzner
 
 NAMES = {"hetzner": hetzner.NAME, "aws": aws.NAME, "gcp": gcp.NAME, "azure": azure.NAME}
 SHORT = {"hetzner": "Hetzner Cloud", "aws": "AWS", "gcp": "Google Cloud", "azure": "Azure"}
+# Not yet tried with a real account (only against stand-ins of their APIs): shown with a warning
+UNTESTED = frozenset({"aws", "gcp", "azure"})
+WARNING = ("<b>Untested:</b> this provider has not yet been tried with a real account. Use it at your own risk "
+           "and check in the provider's console that no server is left running.")
 
 
 def current(get: Callable) -> str:

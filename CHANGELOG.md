@@ -18,6 +18,8 @@ the GitHub release notes.
   deletes it when it closes and the server deletes itself when idle, hung or without a GUI (watchdog). The
   connection is an SSH tunnel with a host key known in advance. **Solve on** offers the cloud next to this
   computer and a remote computer. See docs/REMOTE.md.
+- **Amazon Web Services, Google Cloud and Microsoft Azure are marked *(untested)***: only Hetzner Cloud has
+  been tried with a real account; the Cloud tab warns to use the others at your own risk.
 - **Solving in the cloud on Amazon Web Services**: Tools > Options > Cloud > Provider *Amazon Web Services*
   with the access key of an IAM user (policy in docs/REMOTE.md), region and instance type with vCPUs,
   physical cores, memory and on-demand price. Hertzon starts an Ubuntu instance in the default VPC that
