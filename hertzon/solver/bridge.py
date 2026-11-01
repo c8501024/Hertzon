@@ -93,8 +93,14 @@ def box_quadrature(bounds, panel: float, skip=()) -> tuple[np.ndarray, np.ndarra
 # --------------------------------------------------------------------------------------------
 # Frequency helpers
 # --------------------------------------------------------------------------------------------
+EIGEN_SEARCHES = 8      # eigenmode: searches with a rising search frequency
+EIGEN_STEP = 1.4        # factor between two search frequencies
+
+
 def adaptive_frequencies(setup: Setup, ev: Evaluator) -> list[float]:
     p = setup.props
+    if setup.eigen:     # an eigenmode setup has no solution frequency: its minimum frequency sizes the mesh
+        return [ev.freq(p.get("MinimumFrequency", "1GHz") or "1GHz")]
     mode = p.get("SolutionFrequencyMode", "Single")
     if mode == "Multi-Frequencies":
         return sorted(ev.freq(x) for x in p.get("MultiFrequencies", "").split(",") if x.strip())
@@ -261,6 +267,35 @@ class Bridge:
         self.step("Initial meshing", t)
 
     def solve(self) -> None:
+        try:
+            self._solve()
+        except Exception as exc:
+            missing = self.missing_port_modes()
+            if missing:
+                raise RuntimeError("; ".join(missing)) from exc
+            raise
+
+    def missing_port_modes(self) -> list[str]:
+        """Wave ports that ask for more modes than their face carries: the mode analysis finds fewer, and
+        the S-parameters fail (zero power of the missing modes). One message per such port."""
+        out = []
+        try:
+            from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+            bcs = self.m.mw.bc.oftype(ModalPort)
+        except Exception:  # noqa: BLE001
+            return out
+        names = {m["number"]: m["name"] for m in self.port_map}
+        for bc in bcs:
+            want = int(getattr(bc, "_desired_number_of_modes", 0) or 0)
+            have = len(getattr(bc, "available_modes", None) or [])
+            if want > 1 and 0 < have < want:
+                name = names.get(getattr(bc, "port_number", None), f"port {getattr(bc, 'port_number', '?')}")
+                out.append(f"Wave port '{name}': {want} modes requested, the port face carries only {have} "
+                           f"(the others are below cutoff or excluded by the mode type); set Number of modes "
+                           f"to {have} or widen the port")
+        return out
+
+    def _solve(self) -> None:
         if self.setup.eigen or self.design.settings.get("SolutionType") == "Eigenmode":
             self.run_eigen()
         elif self.plane_wave() is not None:
@@ -2082,17 +2117,35 @@ class Bridge:
         return gf, Sm
 
     def run_eigen(self) -> None:
+        """The lowest NumberOfModes eigenmodes at or above MinimumFrequency. The eigen solver returns the
+        modes closest to its search frequency; below the first mode those are the static null space modes
+        of the curl operator (f = 0), which EMerge drops. So the search frequency climbs from the minimum
+        frequency until the modes found cover NumberOfModes modes below it."""
         p = self.setup.props
         fmin = self.ev.freq(p.get("MinimumFrequency", "1GHz"))
-        n = int(p.get("NumberOfModes", "3"))
+        n = max(1, int(p.get("NumberOfModes", "3")))
         t = time.time()
-        emit("progress", value=30, text="Eigenmode solve")
-        data = self.m.mw.eigenmode(search_frequency=fmin, nmodes=n)
-        modes = []
-        for fld in data.field:
-            f = complex(getattr(fld, "freq", 0))
-            q = f.real / (2 * f.imag) if f.imag else float("inf")
-            modes.append({"freq": f.real, "Q": q})
+        found: list[complex] = []
+        fs = fmin
+        for k in range(EIGEN_SEARCHES):
+            emit("progress", value=30 + 60 * k / EIGEN_SEARCHES,
+                 text=f"Eigenmode solve, search at {fs / 1e9:.4g} GHz")
+            data = self.m.mw.eigenmode(search_frequency=fs, nmodes=n)
+            for fld in data.field:      # the data set collects the modes of every search
+                f = complex(getattr(fld, "freq", 0))
+                if f.real >= fmin * (1 - 1e-6) and all(abs(f - g) > 1e-6 * abs(f) for g in found):
+                    found.append(f)
+            found.sort(key=lambda f: f.real)
+            if len(found) >= n and found[n - 1].real <= fs:
+                break
+            # not enough modes yet, or the highest wanted one lies above the search frequency (modes between
+            # may be missing): search higher, at least just above the modes found so far
+            fs = max(fs * EIGEN_STEP, found[min(n, len(found)) - 1].real * 1.01 if found else 0.0)
+        else:
+            if len(found) < n:
+                warn(f"Eigenmode: {len(found)} of {n} modes found above {fmin / 1e9:.4g} GHz "
+                     f"(searched up to {fs / 1e9:.4g} GHz)")
+        modes = [{"freq": f.real, "Q": f.real / (2 * f.imag) if f.imag else float("inf")} for f in found[:n]]
         self.store.write_json("eigenmodes.json", modes)
         self.save_mesh()
         self.step("Eigenmode", t)

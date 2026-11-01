@@ -34,6 +34,8 @@ the GitHub release notes.
   [docs/TUNING.md](docs/TUNING.md#optimize-with-the-tuning-model).
 
 ### Fixed
+- **Eigenmode** setups solve again: the mesh is sized at the minimum frequency (the solve stopped with 'Frequency'), and the eigen search climbs from the minimum frequency until the wanted number of modes is found. A search below the first resonance returned only the static null space, so no modes were listed.
+- A **wave port with more modes than its face carries** (for example two TE modes on a WR-90 port at 10 GHz) now stops with a message naming the port and the number of modes it has, instead of a division by zero in the S-parameters.
 - A parallel frequency sweep with the matrix solver set to PARDISO warned for every frequency that
   the solver "cannot be used in MultiThreading as it does not release the GIL". The worker threads use
   PARDISO through the automatic choice anyway; the warning is gone and the results are unchanged.
