@@ -12,7 +12,7 @@ from .filter_tool import _float, _num
 
 class PatchAntennaDialog(QDialog):
     """Inset-fed rectangular patch from the transmission line model, with setup, sweep, far-field sphere and an
-    optimization (Derivative Trust Region) of the patch length and the inset on the return loss."""
+    optimization (Derivative Trust Region) of the patch length and the inset on the return loss at the frequency."""
 
     def __init__(self, parent, project):
         super().__init__(parent)
@@ -26,14 +26,11 @@ class PatchAntennaDialog(QDialog):
         g = QGroupBox("Antenna")
         f = QFormLayout(g)
         self.f0 = _num(d.f0, 0.01, 300, 5, "GHz", 0.01)
-        self.bw = _num(d.bandwidth, 0, 50, 2, "%")
-        self.rl = _num(d.match, 0, 60, 1, "dB")
         self.rl0 = _num(d.match_f0, 0, 60, 1, "dB")
         self.zf = _num(d.z_feed, 10, 200, 2, "ohm")
         f.addRow("Frequency", self.f0)
-        f.addRow("Bandwidth", self.bw)
-        f.addRow("Return loss over the band >=", self.rl)
         f.addRow("Return loss at the frequency >=", self.rl0)
+        self.rl0.setToolTip("Goal of the optimization: dB(S(1,1)) at the frequency")
         f.addRow("Feed line impedance", self.zf)
         left.addWidget(g)
 
@@ -59,11 +56,9 @@ class PatchAntennaDialog(QDialog):
 
         g = QGroupBox("Analysis")
         f = QFormLayout(g)
-        self.sw = _num(d.sweep, 1, 90, 1, "%")
-        self.opt = QCheckBox("Add the optimization of patch length and inset (Derivative Trust Region)")
+        self.opt = QCheckBox("Add the optimization of patch length and inset at the frequency (Derivative Trust Region)")
         self.opt.setChecked(True)
         self.name = QLineEdit("")
-        f.addRow("Sweep around the frequency (+-)", self.sw)
         f.addRow(self.opt)
         f.addRow("Design name", self.name)
         left.addWidget(g)
@@ -101,9 +96,9 @@ class PatchAntennaDialog(QDialog):
         m = self.mats.get(self.mat.currentText())
         if m is None:
             raise ValueError("Choose a substrate material")
-        return PatchSpec(f0=self.f0.value(), bandwidth=self.bw.value(), match=self.rl.value(), match_f0=self.rl0.value(),
+        return PatchSpec(f0=self.f0.value(), match_f0=self.rl0.value(),
                          material=m.name, er=_float(m.permittivity), tand=_float(m.loss_tangent), h=self.h.value(),
-                         t=self.t.value(), z_feed=self.zf.value(), margin=self.margin.value(), sweep=self.sw.value(),
+                         t=self.t.value(), z_feed=self.zf.value(), margin=self.margin.value(),
                          optimization=self.opt.isChecked(), name=self.name.text().strip())
 
     def refresh(self) -> None:
@@ -114,8 +109,6 @@ class PatchAntennaDialog(QDialog):
         self.name.setPlaceholderText(f"Patch_{self.f0.value():g}GHz")
         try:
             s = self.spec()
-            if s.bandwidth / 2 >= s.sweep:
-                raise ValueError("The sweep must cover the bandwidth")
             self.design, nom = patch_design(s)
         except Exception as e:  # noqa: BLE001
             self.design = None
