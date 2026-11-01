@@ -7,6 +7,7 @@ Face and edge indices are taken from the built geometry, so the script needs the
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -160,9 +161,16 @@ def design_patch_array(p: Project) -> Design:
                "coordinate system, all mesh operations, three setups (single, multi-frequency, broadband), "
                "Interpolating / Fast / Discrete sweeps, two far-field spheres, output variables, Fields "
                "Calculator expressions and functions, every report type of a driven antenna, field overlays on "
-               "objects, faces and cut planes, an optimization and a parametric sweep.")
+               "objects, faces and cut planes, a conjugate-gradient optimization, a Derivative Trust Region "
+               "optimization with goals on S-parameters and antenna parameters, reports plotted against a "
+               "design variable (derivative tuning model), report axis settings, bandwidth and delta markers, "
+               "selected parametric families, SPARTA matrix solvers and two parametric sweeps.")
     d.settings.update(AutoOpen="Auto Open", AutoOpenBoundary="Radiation", RadiatingStructure="True",
-                      OutputVariables="RL = -dB(S(1,1))\nZin_re = re(Z(1,1))\nZin_im = im(Z(1,1))")
+                      OutputVariables="RL = -dB(S(1,1))\nZin_re = re(Z(1,1))\nZin_im = im(Z(1,1))\n"
+                                      "Yin_mag = mag(Y(1,1))\nVSWR_in = VSWR(1)\n"
+                                      "Mismatch_dB = 10*log10(1 - mag(S(1,1))^2)\n"
+                                      "Gain_margin = dB(PeakRealizedGain) - 7",
+                      Sources=json.dumps({"P1": {"mag": 1.0, "phase": 0.0}}), FieldType="Total")
     d.variables.update({
         "h": "1.524mm", "Lp": "32.4mm", "Wp": "40mm", "inset": "10mm", "gap": "1mm", "wf": "3.4mm",
         "d_el": "0.8*c0/f0", "y0": "0mm", "yj": "-14mm", "Wsub": "d_el+Wp+30mm", "Lsub": "Lp+50mm",
@@ -271,7 +279,11 @@ def design_patch_array(p: Project) -> Design:
           Step="0.05GHz")
     setup(d, "Setup_Broadband", SolutionFrequencyMode="Broadband", LowFrequency="2GHz", HighFrequency="3GHz",
           MaximumPasses=6, BasisOrder="Zero Order", LambdaTarget="0.1", LambdaRefinement="True",
-          ErrorInclusion=40, RefinementRatio=0.5, GrowthRate=1.5, Solver="MUMPS", Enabled="False")
+          ErrorInclusion=40, RefinementRatio=0.5, GrowthRate=1.5, Solver="SPARTA (CPU)", Enabled="False")
+    s4 = setup(d, "Setup_SpartaSweep", Frequency="f0", MaximumPasses=6, Solver="PARDISO + SPARTA sweep (CPU)",
+               Enabled="False")
+    sweep(s4, "Wide", SweepType="Discrete", Distribution="Linear Count", Start="1.5GHz", Stop="3.5GHz", Count=41)
+    setup(d, "Setup_MUMPS", Frequency="f0", MaximumPasses=4, Solver="MUMPS", Enabled="False")
     sphere(d, "FF_Global", PhiStep="5deg", ThetaStep="5deg")
     sphere(d, "FF_Upper_Tilted", CoordinateSystem="CS_Tilted", ThetaStop="90deg", PhiStep="15deg", ThetaStep="3deg")
 
@@ -285,7 +297,11 @@ def design_patch_array(p: Project) -> Design:
     # reports
     R = d.reports
     R.append(Report("S11 and Return Loss", "Rectangular", "Setup1 : Interp", ["dB(S(1,1))", "RL"],
-                    {"markers": "2.45e9"}))
+                    {"markers": "2.4e9,2.5e9", "delta": "True", "bandwidth": "dB(S(1,1))", "bw_level": "-10",
+                     "ymin": "-40", "ymax": "0", "ydiv": "5", "xlabel": "Frequency [GHz]",
+                     "ylabel": "Magnitude [dB]", "legend": "True"}))
+    R.append(Report("Network Parameters", "Rectangular", "Setup1 : Interp",
+                    ["VSWR_in", "Yin_mag", "Mismatch_dB"], {"ylog": "True", "xlog": "False", "legend": "True"}))
     R.append(Report("Input Impedance", "Rectangular", "Setup1 : Interp", ["Zin_re", "Zin_im", "VSWR(1)"]))
     R.append(Report("Smith Chart 1", "Smith Chart", "Setup1 : Interp", ["S(1,1)"]))
     R.append(Report("Data Table 1", "Data Table", "Setup1 : Points", ["dB(S(1,1))", "ang_deg(S(1,1))",
@@ -311,7 +327,20 @@ def design_patch_array(p: Project) -> Design:
     R.append(Report("Fields Table 1", "Data Table", "Setup1 : Points", ["Pin", "Emax_sub"],
                     {"port": "1", "fields": "1"}))
     R.append(Report("Inset Families", "Rectangular", "Setup1 : Interp", ["dB(S(1,1))"],
-                    {"families": "ParametricInset"}))
+                    {"families": "ParametricInset",
+                     "family_values": json.dumps({"inset": ["8mm", "10mm", "12mm"], "Lp": ["32mm", "33mm"]})}))
+    # derivative tuning: against a design variable at one frequency (needs Compute Derivatives on Setup1 : Fast)
+    R.append(Report("S11 vs Patch Length", "Rectangular", "Setup1 : Fast", ["dB(S(1,1))", "VSWR(1)"],
+                    {"x_var": "Lp", "x_freq": "2450000000.0"}))
+    R.append(Report("Gain vs Inset", "Antenna Parameters", "Setup1 : Fast",
+                    ["dB(PeakRealizedGain)", "RadiationEfficiency"],
+                    {"sphere": "FF_Global", "x_var": "inset", "x_freq": "2450000000.0"}))
+    R.append(Report("Gain vs Inset Table", "Antenna Parameters Table", "Setup1 : Fast",
+                    ["dB(PeakRealizedGain)", "dB(PeakDirectivity)"],
+                    {"sphere": "FF_Global", "x_var": "inset", "x_freq": "2450000000.0"}))
+    R.append(Report("Gain at 2.5 GHz", "Radiation Pattern", "Setup1 : Fast", ["dB(RealizedGainTotal)"],
+                    {"cut": "Phi", "cut_value": "90", "sphere": "FF_Global", "freq": "2500000000",
+                     "bandwidth": "dB(RealizedGainTotal)", "bw_level": "-3"}))
 
     # field overlays
     field_plot(d, "Jsurf_Radiator", "Mag_Jsurf", "Setup1 : LastAdaptive", objects=["Radiator"], Log="True",
@@ -338,6 +367,22 @@ def design_patch_array(p: Project) -> Design:
     opt.props.update(CostFunction="Worst Case", MaxEvaluations="200", ParallelEvaluations="4",
                      DifferenceStep="0.04", InitialStep="0.15")
     d.optimetrics.append(opt)
+    dtr = Optimization("Optim_DerivativeTR", "Setup1 : Fast",
+                       [{"name": "Lp", "include": True, "min": "31mm", "max": "34mm"},
+                        {"name": "inset", "include": True, "min": "8mm", "max": "12mm"},
+                        {"name": "Wp", "include": True, "min": "38mm", "max": "42mm"},
+                        {"name": "h", "include": False, "min": "1.4mm", "max": "1.6mm"}],
+                       [{"calc": "dB(S(1,1))", "start": "2.4GHz", "stop": "2.5GHz", "cond": "<=", "value": "-12",
+                         "weight": "1"},
+                        {"calc": "dB(PeakRealizedGain)", "start": "2.45GHz", "stop": "2.45GHz", "cond": ">=",
+                         "value": "7", "weight": "0.5"},
+                        {"calc": "RadiationEfficiency", "start": "2.4GHz", "stop": "2.5GHz", "cond": ">=",
+                         "value": "0.8", "weight": "0.3"},
+                        {"calc": "Gain_margin", "start": "2.45GHz", "stop": "2.45GHz", "cond": ">=", "value": "0",
+                         "weight": "0.2"}])
+    dtr.props.update(Optimizer="Derivative Trust Region", CostFunction="Error Area", TrustRadius="0.5",
+                     MaxRounds="8", TuningPoints="41")
+    d.optimetrics.append(dtr)
     ps = ParametricSetup("ParametricInset",
                          sweeps=[{"variable": "inset", "type": "Linear step", "start": "8mm", "stop": "12mm",
                                   "step": "1mm", "sync": ""},
@@ -364,10 +409,10 @@ def design_patch_array(p: Project) -> Design:
 def design_waveguide_filter(p: Project) -> Design:
     d = Design("B_WaveguideIrisFilter_Half")
     d.notes = ("WR-90 two-cavity iris filter, half model: the full guide is cut with Split, the symmetry plane "
-               "x = a/2 is a Perfect H Symmetry boundary. Wave ports with two modes, renormalization and "
-               "de-embedding, an impedance wall, a dielectric tuning post (Unite with a clone, KeepOriginals), "
-               "Perfect E / Perfect H assignments, a parametric family over the iris width and an eigen-free "
-               "driven sweep.")
+               "x = a/2 is a Perfect H Symmetry boundary. Wave ports with renormalization and "
+               "de-embedding, an impedance wall, a dielectric tuning post, Perfect E / Perfect H assignments, "
+               "output variables, a ports-only setup (Zo and Gamma without the 3D "
+               "solve) and a parametric family over the iris width.")
     d.variables.update({"a": "22.86mm", "b": "10.16mm", "L": "60mm", "t_ir": "2mm", "w_ir": "11mm",
                         "Lc": "17mm", "r_tune": "1.2mm", "h_tune": "3mm"})
     wg = d.add_object("CreateBox", name="Guide", material="vacuum", Position="0,0,0", XSize="a", YSize="L",
@@ -386,7 +431,7 @@ def design_waveguide_filter(p: Project) -> Design:
     tune.color = "#f7f7ef"
     p1 = d.add_object("CreateRectangle", name="Port1Sheet", Position="0,0,0", Axis="Y", ZSize="b", XSize="a/2")
     p2 = d.add_object("CreateRectangle", name="Port2Sheet", Position="0,L,0", Axis="Y", ZSize="b", XSize="a/2")
-    excitation(d, "Wave Port", "WP1", objects=[p1.name], PortNumber=1, NumberOfModes=2, ModeType="TE",
+    excitation(d, "Wave Port", "WP1", objects=[p1.name], PortNumber=1, NumberOfModes=1, ModeType="TE",
                ImpedanceDefinition="Zpi", Deembed="True", DeembedDistance="-5mm")
     excitation(d, "Wave Port", "WP2", objects=[p2.name], PortNumber=2, NumberOfModes=1, ImpedanceDefinition="Zvi",
                Renormalize="True", RenormImpedance="50ohm")
@@ -397,14 +442,22 @@ def design_waveguide_filter(p: Project) -> Design:
     boundary(d, "Impedance", "TopWall_Rs", faces=topw, Resistance="0.03", Reactance="0.03")
     botw = b.faces("Guide", lambda c, n: abs(c[2]) < 1e-6 and n[2] < -0.99)
     boundary(d, "Perfect E", "BottomWall_PEC", faces=botw)
+    d.settings["OutputVariables"] = ("IL = -dB(S(2,1))\n"
+                                     "Z21_mag = mag(Z(2,1))\nS11_phase = ang_deg(S(1,1))")
     s = setup(d, "Setup1", Frequency="10GHz", MaximumPasses=10, MaximumDeltaS=0.01, PercentRefinement=30)
+    po = setup(d, "Setup_PortsOnly", Frequency="10GHz", PortsOnly="True")
+    sweep(po, "PortSweep", SweepType="Discrete", Distribution="Linear Count", Start="8.5GHz", Stop="11.5GHz",
+          Count=7)
     sweep(s, "Sweep", SweepType="Interpolating", Distribution="Linear Count", Start="8.5GHz", Stop="11.5GHz",
           Count=301)
     sweep(s, "Coarse", SweepType="Discrete", Distribution="Linear Step", Start="8.5GHz", Stop="11.5GHz",
           Step="0.25GHz", SaveFields="True")
     d.reports.append(Report("S Parameters", "Rectangular", "Setup1 : Sweep",
-                            ["dB(S(1,1))", "dB(S(2,1))", "dB(S(1:2,1:1))"]))
-    d.reports.append(Report("Group Delay", "Rectangular", "Setup1 : Sweep", ["GroupDelay(2,1)"]))
+                            ["dB(S(1,1))", "dB(S(2,1))"]))
+    d.reports.append(Report("Group Delay", "Rectangular", "Setup1 : Sweep", ["GroupDelay(S(2,1))"]))
+    d.reports.append(Report("Insertion Loss", "Rectangular", "Setup1 : Sweep", ["IL", "S11_phase", "Z21_mag"]))
+    d.reports.append(Report("Port Impedance", "Rectangular", "Setup_PortsOnly : PortSweep",
+                            ["re(Zo(1))", "re(Zo(2))", "im(Gamma(1))", "im(Gamma(2))"]))
     d.reports.append(Report("Phase", "Rectangular", "Setup1 : Sweep", ["ang_deg(S(2,1))", "ang_rad(S(1,1))"]))
     d.reports.append(Report("Smith", "Smith Chart", "Setup1 : Sweep", ["S(1,1)", "S(2,2)"]))
     d.reports.append(Report("Iris Families", "Rectangular", "Setup1 : Sweep", ["dB(S(2,1))"],
@@ -468,6 +521,7 @@ def design_geometry_zoo(p: Project) -> Design:
                               Position=at(-2, -2), XSize="s", YSize="s", ZSize="s")
     op(pos["box"], "Chamfer", Distance="1.5mm", Edges="0")
     op(pos["box"], "Fillet", Radius="1mm", Edges="5")
+    pos["box"].solve_inside = False
     d.add_object("CreateCylinder", name="Cyl_Faceted", material="Showcase_Brass", CenterPosition=at(-1, -2),
                  Axis="X", Radius="s/2", Height="s", NumberOfSegments=10)
     d.add_object("CreateSphere", name="Sphere_True", material="pec", CenterPosition=at(0, -2), Radius="s/2")
@@ -490,6 +544,10 @@ def design_geometry_zoo(p: Project) -> Design:
     ring = d.add_object("CreateRectangle", name="Ring_Revolved", material="pec", Position="(2)*sp+s/4,(-1)*sp,0",
                         Axis="Y", XSize="s/4", ZSize="s/4")
     op(ring, "SweepAroundAxis", Axis="Z", Angle="270deg", Center=at(2, -1))
+    tilt = d.add_object("CreateRectangle", name="Ring_RevolvedInCS", material="pec", Position="s,0,0", Axis="Y",
+                        XSize="s/6", ZSize="s/6")
+    tilt.orientation = "CS_Zoo"
+    op(tilt, "SweepAroundAxis", Axis="X", Angle="180deg", Center="s,0,-s/4", CoordinateSystem="CS_Zoo")
     # row 2: polylines, helix, spiral, bondwire
     pl = d.add_object("CreatePolyline", name="Polyline_Mixed", material="pec",
                       Points=";".join([at(-2, 0), "(-2)*sp+s,(0)*sp,0", "(-2)*sp+s+s/3,(0)*sp+s/2,0",
@@ -515,8 +573,9 @@ def design_geometry_zoo(p: Project) -> Design:
     consume(d, u, "Unite", u2)
     sb = d.add_object("CreateBox", name="Subtract_KeepOriginal", material="Showcase_Brass", Position=at(-1, 1),
                       XSize="s", YSize="s", ZSize="s/2")
+    # the kept tool sits in the hole with a small gap (coincident curved faces of two solids do not mesh)
     sbt = d.add_object("CreateSphere", name="SubtractTool", material="PLA", CenterPosition="(-1)*sp+s,(1)*sp+s,s/2",
-                       Radius="s/2")
+                       Radius="s/2-0.5mm")
     clone = Command.new("CreateSphere", CenterPosition="(-1)*sp+s,(1)*sp+s,s/2", Radius="s/2")
     tool_clone = d.add_object("CreateSphere", name="SubtractTool_tool", **clone.props)
     tool_clone.consumed_by = sb.name
@@ -535,8 +594,8 @@ def design_geometry_zoo(p: Project) -> Design:
     consume(d, cyl, "SweepAlongPath", path, Trihedron="CorrectedFrenet")
     c1 = d.add_object("CreateCircle", name="Loft_Connect", material="pec", CenterPosition=at(2, 1), Axis="Z",
                       Radius="s/2")
-    c2 = d.add_object("CreateRectangle", name="LoftTop", Position="(2)*sp-s/4,(1)*sp-s/4,s", Axis="Z",
-                      XSize="s/2", YSize="s/2")
+    c2 = d.add_object("CreateEllipse", name="LoftTop", CenterPosition="(2)*sp+s/8,(1)*sp,s", Axis="Z",
+                      MajorRadius="s/3", Ratio="0.5")
     consume(d, c1, "Connect", c2, Ruled="False")
     # row 4: face operations, split, section, transforms
     imp = d.add_object("CreateBox", name="Imprinted_Box", material="silicon", Position=at(-2, 2), XSize="s",
@@ -568,6 +627,7 @@ def design_geometry_zoo(p: Project) -> Design:
                       ZSize="s/6")
     op(tr, "Move", Vector="2mm,0,0")
     op(tr, "Rotate", Axis="Z", Angle="30deg", Center=at(0, 3))
+    op(tr, "Rotate", Axis="X", Angle="10deg", Center="0,0,0", CoordinateSystem="CS_Zoo")
     op(tr, "Mirror", Base=at(0, 3), Normal="1,0,0")
     op(tr, "Scale", Factor="1.2", Center=at(0, 3))
     op(tr, "Move", Vector="0,0,50mm").suppressed = True
@@ -592,6 +652,9 @@ def design_geometry_zoo(p: Project) -> Design:
                Polarization="90deg", ZeroPhasePosition="0,0,0", EMagnitude="1")
     excitation(d, "Incident Plane Wave", "PlaneWave_Cartesian", VectorInput="Cartesian", E0Vector="0,1,0",
                KVector="0,0,-1").enabled = False
+    d.settings.update(Sources=json.dumps({"PlaneWave": {"mag": 1.0, "phase": 0.0},
+                                          "PlaneWave_Cartesian": {"mag": 0.5, "phase": 90.0}}),
+                      FieldType="Scattered")
     s = setup(d, "Setup1", Frequency="1.5GHz", MaximumPasses=6, MaximumDeltaEnergy=0.002)
     sweep(s, "RCS_Sweep", SweepType="Discrete", Distribution="Linear Count", Start="1GHz", Stop="2GHz", Count=5,
           SaveFields="True")
@@ -693,12 +756,128 @@ def design_unit_cell(p: Project) -> Design:
     return d
 
 
+# ---- G: edge-coupled pair, terminal solution with differential pairs --------------------------------------
+def design_diff_pair(p: Project) -> Design:
+    d = Design("G_DiffPair_Terminal")
+    d.notes = ("Terminal solution with multi-conductor wave ports: an edge-coupled microstrip pair on RO4350B in a "
+               "shielded box. Each wave port carries two terminals (even and odd mode, each absorbed with its own "
+               "propagation constant); the shield is named as the reference conductor. Differential pairs give "
+               "the mixed-mode S-parameters; output variables use S, Y, Z and VSWR of the terminals; a ports-only "
+               "setup checks Zo and Gamma without the 3D solve; Edit Sources drives the odd mode.")
+    d.settings["SolutionType"] = "Terminal"
+    d.settings["DifferentialPairs"] = json.dumps([{"pos": 1, "neg": 2, "zdiff": "100ohm", "zcomm": "25ohm"},
+                                                     {"pos": 3, "neg": 4}])
+    d.settings["OutputVariables"] = ("Sdd11 = dB(S(Diff1,Diff1))\nSdd21 = dB(S(Diff2,Diff1))\n"
+                                     "Scd21 = dB(S(Comm2,Diff1))\nNEXT = dB(S(P1_TraceN,P1_TraceP))\n"
+                                     "Zdiff = re(Z(Diff1,Diff1))\nVSWR_diff = VSWR(Diff1)\n"
+                                     "Y11_mag = mag(Y(1,1))")
+    d.settings["Sources"] = json.dumps({"P1_TraceP": {"mag": 1.0, "phase": 0.0},
+                                        "P1_TraceN": {"mag": 1.0, "phase": 180.0}})
+    d.variables.update({"h": "0.508mm", "w": "0.8mm", "s_gap": "0.4mm", "L": "20mm", "Wbox": "6mm", "Hair": "3mm"})
+    d.add_object("CreateBox", name="Substrate", material="Rogers RO4350B (tm)", Position="-Wbox/2,0,0",
+                 XSize="Wbox", YSize="L", ZSize="h")
+    air = d.add_object("CreateBox", name="Air", material="air", Position="-Wbox/2,0,h", XSize="Wbox", YSize="L",
+                       ZSize="Hair")
+    air.transparency = 0.85
+    tp = d.add_object("CreateRectangle", name="TraceP", Position="-s_gap/2-w,0,h", Axis="Z", XSize="w", YSize="L")
+    tn = d.add_object("CreateRectangle", name="TraceN", Position="s_gap/2,0,h", Axis="Z", XSize="w", YSize="L")
+    tp.color = tn.color = "#d4a017"
+    p1 = d.add_object("CreateRectangle", name="Port1Sheet", Position="-Wbox/2,0,0", Axis="Y", XSize="Wbox",
+                      ZSize="h+Hair")
+    p2 = d.add_object("CreateRectangle", name="Port2Sheet", Position="-Wbox/2,L,0", Axis="Y", XSize="Wbox",
+                      ZSize="h+Hair")
+    boundary(d, "Perfect E", "PerfE_Traces", objects=[tp.name, tn.name])
+    # the outer faces of the box keep the default perfect conductor: the shield ("Outer") is the reference
+    excitation(d, "Wave Port", "P1", objects=[p1.name], PortNumber=1, ReferenceConductor="Outer")
+    excitation(d, "Wave Port", "P2", objects=[p2.name], PortNumber=2, ReferenceConductor="Outer",
+               Renormalize="True", RenormImpedance="50ohm")
+    s = setup(d, "Setup1", Frequency="10GHz", MaximumPasses=6, MaximumDeltaS=0.02, Solver="PARDISO")
+    sweep(s, "Sweep", SweepType="Interpolating", Distribution="Linear Count", Start="1GHz", Stop="12GHz", Count=111)
+    po = setup(d, "Setup_PortsOnly", Frequency="10GHz", PortsOnly="True", Solver="SPARTA (GPU)")
+    sweep(po, "PortSweep", SweepType="Discrete", Distribution="Linear Count", Start="1GHz", Stop="12GHz", Count=12)
+    sol = "Setup1 : Sweep"
+    d.reports += [
+        Report("Differential S", "Rectangular", sol, ["Sdd11", "Sdd21"], {"markers": "1e10"}),
+        Report("Mode Conversion", "Rectangular", sol, ["Scd21", "dB(S(Comm1,Diff1))"]),
+        Report("Single-Ended S", "Rectangular", sol, ["dB(S(P1_TraceP,P1_TraceP))", "dB(S(P2_TraceP,P1_TraceP))",
+                                                      "NEXT", "dB(S(P2_TraceN,P1_TraceP))"]),
+        Report("Differential Impedance", "Rectangular", sol, ["Zdiff", "VSWR_diff", "Y11_mag"]),
+        Report("Line Impedance", "Rectangular", "Setup_PortsOnly : PortSweep",
+               ["re(Zo(P1_TraceP))", "re(Zo(P1_TraceN))"]),
+        Report("Propagation Constant", "Rectangular", "Setup_PortsOnly : PortSweep", ["im(Gamma(1))", "im(Gamma(2))"]),
+        Report("Mixed-Mode Smith", "Smith Chart", sol, ["S(Diff1,Diff1)", "S(Comm1,Comm1)"]),
+    ]
+    field_plot(d, "E_PortPlane", "Mag_E", "Setup1 : LastAdaptive", plane="XZ@L/2")
+    field_plot(d, "Jsurf_Traces", "Mag_Jsurf", "Setup1 : LastAdaptive", objects=[tp.name, tn.name])
+    d.field_exprs.append(FieldExpression("Sdd21_calc", "dB(S(Diff2,Diff1))", "differential insertion loss"))
+    d.field_exprs.append(FieldExpression("Ploss_traces", "flux(TraceP, re(S)) + flux(TraceN, re(S))",
+                                         "power through the trace sheets"))
+    opt = Optimization("Optim_Zdiff_DTR", sol,
+                       [{"name": "w", "include": True, "min": "0.6mm", "max": "1mm"},
+                        {"name": "s_gap", "include": True, "min": "0.25mm", "max": "0.6mm"}],
+                       [{"calc": "Sdd11", "start": "1GHz", "stop": "12GHz", "cond": "<=", "value": "-20",
+                         "weight": "1"},
+                        {"calc": "Scd21", "start": "1GHz", "stop": "12GHz", "cond": "<=", "value": "-30",
+                         "weight": "0.5"}])
+    opt.props.update(Optimizer="Derivative Trust Region", CostFunction="Worst Case", TrustRadius="0.6",
+                     MaxRounds="10", TuningPoints="51")
+    d.optimetrics.append(opt)
+    d.parametrics.append(ParametricSetup(
+        "GapSweep", sweeps=[{"variable": "s_gap", "type": "Linear count", "start": "0.3mm", "stop": "0.6mm",
+                             "step": "4", "sync": ""}], setups=["Setup1"],
+        calcs=[{"calc": "Zdiff", "solution": sol, "func": "Mean", "start": "1GHz", "stop": "12GHz"},
+               {"calc": "Sdd11", "solution": sol, "func": "Max", "start": "1GHz", "stop": "12GHz"}]))
+    d.reports.append(Report("Gap Families", "Rectangular", sol, ["Sdd11"], {"families": "GapSweep"}))
+    return d
+
+
+# ---- H: over-moded waveguide, two-mode wave ports --------------------------------------------------------
+def design_two_mode_guide(p: Project) -> Design:
+    d = Design("H_TwoModeWaveguide")
+    d.notes = ("Modal wave ports with two modes each: a 22.86 x 15 mm guide carries TE10 and TE01 between "
+               "10 and 13.1 GHz, each port mode absorbed with its own propagation constant. A tilted dielectric post couples them; the mode rows of S are named WP1_M1, "
+               "WP1_M2, WP2_M1, WP2_M2 and used in reports and output variables (mode conversion).")
+    d.variables.update({"a": "22.86mm", "b": "15mm", "L": "40mm", "tilt": "35deg", "wp": "3mm"})
+    d.settings["OutputVariables"] = ("Conv_10_01 = dB(S(WP2_M2,WP1_M1))\nThru_10 = dB(S(WP2_M1,WP1_M1))\n"
+                                     "PowerSum = mag(S(WP1_M1,WP1_M1))^2 + mag(S(WP1_M2,WP1_M1))^2 + "
+                                     "mag(S(WP2_M1,WP1_M1))^2 + mag(S(WP2_M2,WP1_M1))^2")
+    d.add_object("CreateBox", name="Guide", material="vacuum", Position="-a/2,0,-b/2", XSize="a", YSize="L",
+                 ZSize="b").transparency = 0.8
+    post = d.add_object("CreateBox", name="TiltedPost", material="Al2_O3_ceramic", Position="-wp/2,L/2-wp/2,-b/2",
+                        XSize="wp", YSize="wp", ZSize="b")
+    op(post, "Rotate", Axis="Y", Angle="tilt", Center="0,L/2,0")
+    keep = d.add_object("CreateBox", name="GuideClip", Position="-a/2,0,-b/2", XSize="a", YSize="L", ZSize="b")
+    consume(d, post, "Intersect", keep)
+    p1 = d.add_object("CreateRectangle", name="WP1Sheet", Position="-a/2,0,-b/2", Axis="Y", ZSize="b", XSize="a")
+    p2 = d.add_object("CreateRectangle", name="WP2Sheet", Position="-a/2,L,-b/2", Axis="Y", ZSize="b", XSize="a")
+    excitation(d, "Wave Port", "WP1", objects=[p1.name], PortNumber=1, NumberOfModes=2)
+    excitation(d, "Wave Port", "WP2", objects=[p2.name], PortNumber=2, NumberOfModes=2, Deembed="True",
+               DeembedDistance="5mm")
+    s = setup(d, "Setup1", Frequency="12GHz", MaximumPasses=8, MaximumDeltaS=0.02)
+    sweep(s, "Sweep", SweepType="Interpolating", Distribution="Linear Count", Start="10.5GHz", Stop="13GHz",
+          Count=126)
+    po = setup(d, "Setup_PortsOnly", Frequency="12GHz", PortsOnly="True")
+    sweep(po, "PortSweep", SweepType="Discrete", Distribution="Linear Count", Start="10.5GHz", Stop="13GHz",
+          Count=6)
+    sol = "Setup1 : Sweep"
+    d.reports += [
+        Report("Mode Conversion", "Rectangular", sol, ["Conv_10_01", "Thru_10", "dB(S(WP2_M1,WP1_M2))"]),
+        Report("Mode Reflection", "Rectangular", sol, ["dB(S(WP1_M1,WP1_M1))", "dB(S(WP1_M2,WP1_M2))"]),
+        Report("Power Balance", "Rectangular", sol, ["PowerSum"], {"ymin": "0", "ymax": "1.1"}),
+        Report("Mode Impedance", "Rectangular", "Setup_PortsOnly : PortSweep",
+               ["re(Zo(WP1_M1))", "re(Zo(WP1_M2))", "im(Gamma(WP1_M1))", "im(Gamma(WP1_M2))"]),
+    ]
+    field_plot(d, "E_Mid", "Vector_E", "Setup1 : LastAdaptive", plane="XZ@L/2")
+    return d
+
+
 def showcase() -> Project:
     p = Project("Showcase_AllFeatures", designs=[])
     p.variables.update({"f0": "2.45GHz", "er_lam": "3.55"})
     p.materials = project_materials()
     p.designs = [design_patch_array(p), design_waveguide_filter(p), design_cavity(p), design_geometry_zoo(p),
-                 design_monopole(p), design_unit_cell(p)]
+                 design_monopole(p), design_unit_cell(p), design_diff_pair(p),
+                 design_two_mode_guide(p)]
     return p
 
 
