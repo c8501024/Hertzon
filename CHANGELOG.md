@@ -24,6 +24,11 @@ the GitHub release notes.
   installs Docker and the solver image; the access key stays on this computer, the instance deletes itself
   by shutting down (terminate on shutdown). A sold-out zone is retried in the other zones of the region; the
   vCPU limit of new accounts gets a clear message.
+- **Solving in the cloud on Google Cloud**: Provider *Google Cloud* with the JSON key of a service account
+  (roles in docs/REMOTE.md), zone and machine type with vCPUs, cores and memory. Hertzon signs in with the key
+  itself (no extra package), starts an Ubuntu instance that installs Docker and the solver image, reads its SSH
+  host key through the API and tries the other zones of the region when a zone is full. The key stays on this
+  computer; the instance deletes itself with its own service account.
 - **Optimizer "Derivative Trust Region"**: every round solves the design, computes its derivative tuning
   model and minimizes the goals on the model (milliseconds per evaluation) within a part of the tuning
   range; the step is checked with a solve, and the region grows or shrinks with the agreement. On the patch

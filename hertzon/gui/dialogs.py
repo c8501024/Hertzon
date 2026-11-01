@@ -1100,17 +1100,20 @@ class OptionsDialog(QDialog):
         self.cloud_provider = QComboBox()
         for key, name in providers.NAMES.items():
             self.cloud_provider.addItem(name, key)
-        self.cloud_provider.setToolTip("Google Cloud and Microsoft Azure follow")
+        self.cloud_provider.setToolTip("Microsoft Azure follows")
         f.addRow("Provider", self.cloud_provider)
         self.cloud_token = QLineEdit()
         self.cloud_secret = QLineEdit()
         self.cloud_secret.setEchoMode(QLineEdit.Password)
         self.cloud_secret.setPlaceholderText("Secret access key")
+        self.cloud_browse = QPushButton("Browse ...")
+        self.cloud_browse.clicked.connect(self._cloud_browse_key)
         check = QPushButton("Check Account")
         check.clicked.connect(self._cloud_check)
         row = QHBoxLayout()
         row.addWidget(self.cloud_token, 1)
         row.addWidget(self.cloud_secret, 1)
+        row.addWidget(self.cloud_browse)
         row.addWidget(check)
         self.cloud_token_label = QLabel("API token")
         f.addRow(self.cloud_token_label, row)
@@ -1154,7 +1157,7 @@ class OptionsDialog(QDialog):
         delete.clicked.connect(self._cloud_delete_all)
         f.addRow("Servers", self.cloud_state)
         f.addRow("", delete)
-        note = QLabel("Billing is per hour (AWS: per second) of the server, from its creation to its deletion. Hertzon deletes "
+        note = QLabel("Billing is for the time the server exists (Hetzner per hour, AWS and Google per second). Hertzon deletes "
                       "it when it closes; the server also deletes itself in the cases above, so a crashed or "
                       "disconnected Hertzon leaves nothing running. The connection is an SSH tunnel (encrypted, "
                       "the server's key is known in advance). Cores and sweep processes: all of the server and 2.")
@@ -1171,7 +1174,19 @@ class OptionsDialog(QDialog):
                 "credentials &gt; Create access key. The key stays on this computer; the servers delete "
                 "themselves by shutting down. New accounts may start only a few vCPUs: Service Quotas &gt; "
                 "Amazon EC2 &gt; Running On-Demand Standard instances."),
+        "gcp": ('<a href="https://console.cloud.google.com/">console.cloud.google.com</a>: create a project only '
+                "for Hertzon and enable the Compute Engine API; IAM &amp; Admin &gt; Service accounts &gt; Create, "
+                "with the roles Compute Instance Admin (v1) and Service Account User; then Keys &gt; Add key &gt; "
+                "JSON. The key file stays on this computer; the servers delete themselves with their own "
+                "account."),
     }
+
+    def _cloud_browse_key(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Service account key", self.cloud_token.text(),
+                                              "Key file (*.json);;All files (*)")
+        if path:
+            self.cloud_token.setText(path)
 
     def _cloud_key(self) -> str:
         return self.cloud_provider.currentData() or "hetzner"
@@ -1191,14 +1206,16 @@ class OptionsDialog(QDialog):
         self._cloud_store()
         key = self._cloud_key()
         v = self._cloud_vals[key]
-        aws = key == "aws"
+        aws, gcp = key == "aws", key == "gcp"
         self.cloud_token.setText(v["token"])
-        self.cloud_token.setEchoMode(QLineEdit.Normal if aws else QLineEdit.Password)
-        self.cloud_token.setPlaceholderText("Access key ID (AKIA...)" if aws else "API token (Read & Write)")
+        self.cloud_token.setEchoMode(QLineEdit.Normal if aws or gcp else QLineEdit.Password)
+        self.cloud_token.setPlaceholderText({"aws": "Access key ID (AKIA...)",
+                                             "gcp": "Service account key file (JSON)"}.get(key, "API token (Read & Write)"))
         self.cloud_secret.setText(v["secret"])
         self.cloud_secret.setVisible(aws)
-        self.cloud_token_label.setText("Access key" if aws else "API token")
-        self.cloud_location_label.setText("Region" if aws else "Location")
+        self.cloud_browse.setVisible(gcp)
+        self.cloud_token_label.setText({"aws": "Access key", "gcp": "Key file"}.get(key, "API token"))
+        self.cloud_location_label.setText({"aws": "Region", "gcp": "Zone"}.get(key, "Location"))
         self.cloud_how.setText(self.HOW[key])
         self._cloud_types = []
         for box, val in ((self.cloud_location, v["location"]), (self.cloud_type, v["type"])):
@@ -1248,8 +1265,9 @@ class OptionsDialog(QDialog):
         if not self._cloud_types:
             return
         loc = self._cloud_field(self.cloud_location)
-        aws = self._cloud_key() == "aws"
-        if aws and loc != getattr(self, "_cloud_types_at", loc):      # AWS: the types and prices of the region
+        key = self._cloud_key()
+        aws = key in ("aws", "gcp")
+        if aws and loc != getattr(self, "_cloud_types_at", loc):      # the types (and prices) of the region or zone
             from PySide6.QtCore import Qt as _Qt
             from PySide6.QtWidgets import QApplication
             from ..remote.client import RemoteError
@@ -1271,7 +1289,7 @@ class OptionsDialog(QDialog):
             if aws:
                 cores = f"{t['cores']} vCPU" + (f" = {t['physical']} cores" if t.get("physical") != t["cores"]
                                                 else ", one core each")
-                cost = f", {price:.3f} USD/h" if price else ", price: see AWS"
+                cost = f", {price:.3f} USD/h" if price else (", price: see AWS" if key == "aws" else "")
             else:
                 cores = f"{t['cores']} {'dedicated' if t['dedicated'] else 'shared'} vCPU"
                 cost = f", {price:.3f} EUR/h"
@@ -1395,7 +1413,7 @@ class OptionsDialog(QDialog):
         s.setValue("remote/address", self.remote_addr.text().strip())
         s.setValue("remote/token", self.remote_token.text().strip())
         self._cloud_store()
-        h, a = self._cloud_vals["hetzner"], self._cloud_vals["aws"]
+        h, a, g = self._cloud_vals["hetzner"], self._cloud_vals["aws"], self._cloud_vals["gcp"]
         s.setValue("cloud/provider", self._cloud_key())
         s.setValue("cloud/hetzner_token", h["token"])
         s.setValue("cloud/location", h["location"] or "fsn1")
@@ -1404,6 +1422,9 @@ class OptionsDialog(QDialog):
         s.setValue("cloud/aws_secret", a["secret"])
         s.setValue("cloud/aws_region", a["location"] or "eu-central-1")
         s.setValue("cloud/aws_type", a["type"] or "m7a.2xlarge")
+        s.setValue("cloud/gcp_key_file", g["token"])
+        s.setValue("cloud/gcp_zone", g["location"] or "europe-west3-a")
+        s.setValue("cloud/gcp_type", g["type"] or "c3d-standard-8")
         from ..remote.cloud import providers
         s.setValue("cloud/enabled", self.cloud_on.isChecked() and providers.configured(s.value))
         s.setValue("cloud/idle_min", self.cloud_idle.value())

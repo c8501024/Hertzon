@@ -84,7 +84,7 @@ the command `python -m hertzon.remote serve --cores 16 --sweep-workers 4` to `do
 
 Hertzon can create such a server itself, use it for the analyses of a session and delete it again; you pay
 the provider for the time the server exists and install nothing. Providers: Hetzner Cloud and Amazon Web
-Services ([below](#amazon-web-services-aws)); Google Cloud and Microsoft Azure follow.
+Services ([below](#amazon-web-services-aws)) and Google Cloud ([below](#google-cloud)); Microsoft Azure follows.
 
 1. At [console.hetzner.cloud](https://console.hetzner.cloud/) create a project only for Hertzon, then
    Security > API tokens > Generate API token with *Read & Write*.
@@ -151,6 +151,27 @@ Policy of the Hertzon user (IAM > Policies > Create policy > JSON):
 
 Without `pricing:GetProducts` the types are listed without prices. The user can terminate only instances
 tagged `hertzon=1`.
+
+### Google Cloud
+
+1. In the [Google Cloud console](https://console.cloud.google.com/) create a project only for Hertzon (with
+   billing) and enable the **Compute Engine API** (APIs & Services > Library).
+2. IAM & Admin > Service accounts > **Create service account**, with the roles *Compute Instance Admin (v1)*
+   and *Service Account User*. Then the account > Keys > Add key > **JSON**: the browser saves the key file.
+3. Tools > Options > **Cloud**: Provider *Google Cloud*, choose the key file with **Browse**, press **Check
+   Account**, choose the zone (for example europe-west3-a, Frankfurt) and the machine type. Google's types have
+   two vCPUs per core: `c3d-standard-8` is 4 AMD cores with 32 GB, `c3d-standard-16` 8 cores with 64 GB. The
+   Compute Engine API has no prices; see [cloud.google.com/compute/vm-instance-pricing](https://cloud.google.com/compute/vm-instance-pricing).
+
+Hertzon starts an Ubuntu 24.04 instance in the project's default network with a 30 GB disk, the firewall rule
+`hertzon-ssh` (SSH to instances tagged `hertzon`, created on first use) and the labels `hertzon=1` and
+`hertzon-client`; the first start installs Docker. If the zone has no capacity, the other zones of the region
+are tried. The key file stays on this computer. The instance runs as the project's default compute service
+account, and its watchdog deletes it with that account's token from the metadata server; that is why a
+project only for Hertzon is recommended. The server's SSH host key is made by Google's guest agent and read
+through the API before the first connection, so the tunnel is checked as on the other providers.
+
+New projects have small CPU quotas per region; raise them in IAM & Admin > Quotas if the analysis reports one.
 
 To build the image yourself: `docker build -f packaging/docker/Dockerfile -t hertzon-solver .` in the
 repository folder.
