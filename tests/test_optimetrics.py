@@ -214,6 +214,10 @@ def test_solution_data_shows_the_passes_of_an_evaluation(tmp_path):
     dlg = SolutionDataDialog(Document(p), "Setup1")
     assert dlg.var.itemText(0) == "Nominal" and dlg.var.count() == 2
     assert "evaluation 1 (best)" in dlg.var.itemText(1)
+    assert dlg.st.folder == out              # nothing solved for the design: the best evaluation is shown
+    dlg.var.setCurrentIndex(0)
+    dlg.var.activated.emit(0)                # the user's choice stays
+    assert dlg.st.folder != out
     dlg.var.setCurrentIndex(1)
     dlg.var.activated.emit(1)
     assert dlg.st.folder == out
@@ -222,3 +226,56 @@ def test_solution_data_shows_the_passes_of_an_evaluation(tmp_path):
     dlg.reload()                                              # a pass of a running solve: the choice stays
     assert dlg.st.folder == out
     dlg.close()
+
+
+def test_applied_evaluation_becomes_the_solution_of_the_setup(tmp_path):
+    """After Apply to Design the evaluation's files are the nominal solution: derivative tuning (adaptive
+    mesh), Solution Data and fields work on it as after an analysis."""
+    import json
+    from hertzon.solver.keys import model_key, setup_key
+    from hertzon.solver.parametric import (_variation_keys, adopt_evaluation, evaluation_dir, solution_dir)
+    from hertzon.solver.results import results_dir
+    p = _patch_optimization(tmp_path)
+    d = p.designs[0]
+    d.setup("Setup1").sweeps[0].props["SaveFields"] = "True"     # the evaluation solved with sweep fields off
+    out = evaluation_dir(p.path, d.name, "Opt1", 1)
+    out.mkdir(parents=True)
+    (out.parents[2] / "history.json").write_text(json.dumps(
+        {"variables": ["Lp"], "evaluations": [{"eval": 1, "variables": {"Lp": "29mm"}, "cost": 0.5}]}))
+    d.variables["Lp"] = "29mm"
+    (out / "status.json").write_text(json.dumps({"state": "done", **_variation_keys(p, d, "Setup1", False)}))
+    for name in ("amr_state.npz", "mesh.npz", "solution_LastAdaptive.npz", "convergence.json"):
+        (out / name).write_bytes(b"x")
+    nominal = results_dir(p.path, d.name, "Setup1")
+    nominal.mkdir(parents=True)
+    (nominal / "sparams_Old.npz").write_bytes(b"old")            # the solution of the earlier values
+    assert solution_dir(p, d, "Setup1") == out
+    assert adopt_evaluation(p, d, "Setup1", out) == nominal
+    assert solution_dir(p, d, "Setup1") == nominal
+    assert not (nominal / "sparams_Old.npz").exists() and (nominal / "amr_state.npz").exists()
+    st = json.loads((nominal / "status.json").read_text())
+    s = d.setup("Setup1")
+    assert st["model_key"] == model_key(p, d, s) and st["setup_key"] == setup_key(s)
+    assert (out / "mesh.npz").exists()                              # the optimization keeps its record
+
+
+def test_running_evaluations_are_listed(tmp_path):
+    import json
+    from hertzon.solver.parametric import evaluation_dir, evaluation_label, optimization_evaluations
+    from hertzon.solver.results import running_status
+    p = _patch_optimization(tmp_path)
+    d = p.designs[0]
+    first, second = (evaluation_dir(p.path, d.name, "Opt1", n) for n in (1, 2))
+    for f in (first, second):
+        f.mkdir(parents=True)
+    run = first.parents[2]
+    (run / "history.json").write_text(json.dumps(
+        {"variables": ["Lp"], "evaluations": [{"eval": 1, "variables": {"Lp": "29mm"}, "cost": 0.5}]}))
+    (first / "status.json").write_text(json.dumps({"state": "done"}))
+    (second / "status.json").write_text(json.dumps(running_status()))
+    (run / "status.json").write_text(json.dumps({"state": "done"}))
+    assert [r["eval"] for _, r, _, _ in optimization_evaluations(p, d, "Setup1")] == [1]
+    (run / "status.json").write_text(json.dumps(running_status()))     # the optimization runs
+    rows = optimization_evaluations(p, d, "Setup1")
+    assert [r["eval"] for _, r, _, _ in rows] == [1, 2]
+    assert evaluation_label("Opt1", rows[1][1]) == "Opt1: evaluation 2 (solving)"

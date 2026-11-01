@@ -4048,9 +4048,11 @@ class MainWindow(QMainWindow):
         self.apply_evaluation(name, best, f"the best evaluation ({best['eval']}) of {name}")
 
     def apply_evaluation(self, name: str, row: dict, source: str) -> None:
-        """Set the design variables of an optimization evaluation; its stored solution is shown without
-        solving again (the best evaluation with mesh and fields, the others with S-parameters and passes)."""
-        from ..solver.parametric import evaluation_dir, optimization_setup
+        """Set the design variables of an optimization evaluation and take its stored solution over as the
+        solution of the setup (no new solve): reports, Solution Data, field overlays and derivative tuning
+        work on it as after an analysis. The best evaluation keeps mesh and fields, the others S-parameters
+        and passes."""
+        from ..solver.parametric import adopt_evaluation, evaluation_dir, optimization_setup
         self.apply_variables(row["variables"], source)
         op = next((o for o in self.des.optimetrics if o.name == name), None)
         if op is None or not self.doc.project.path:
@@ -4061,11 +4063,22 @@ class MainWindow(QMainWindow):
         folder = evaluation_dir(self.doc.project.path, self.des.name, name, row["eval"])
         if result_dir(self.doc, setup) != folder:
             return                    # the nominal solution is current, or the evaluation's one is gone
-        if list(folder.glob("solution_*.npz")) or list(folder.glob("fields_*.npz")):
-            self.msgs.add("info", f"The solution of {source} is shown without solving again")
+        fields = bool(list(folder.glob("solution_*.npz")) or list(folder.glob("fields_*.npz")))
+        F._cache.clear()
+        try:
+            adopt_evaluation(self.doc.project, self.des, setup, folder)
+        except Exception as e:  # noqa: BLE001
+            self.msgs.add("warning", f"The solution of {source} is shown, but could not be taken over as the "
+                                     f"solution of {setup} ({e}); analyze for derivative tuning")
+            return
+        self.doc.changed.emit("results")
+        if fields:
+            self.msgs.add("info", f"The solution of {source} is now the solution of {setup} (no new solve): "
+                                  "reports, fields and derivative tuning use it")
         else:
-            self.msgs.add("info", f"The S-parameters and adaptive passes of {source} are shown without solving "
-                                  "again; only the best evaluation keeps its fields: Analyze for field overlays")
+            self.msgs.add("info", f"The S-parameters and adaptive passes of {source} are now the solution of "
+                                  f"{setup} (no new solve); only the best evaluation keeps its mesh and fields: "
+                                  "analyze for field overlays and derivative tuning")
 
     def apply_variables(self, values: dict, source: str) -> None:
         """Set design variables (from an optimization result); undo restores the previous values."""
