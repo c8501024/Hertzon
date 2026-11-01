@@ -122,6 +122,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Export Touchstone, CSV, images | ✔ (CSV and Copy Data hold the curves as drawn, in the units of the axes) |
 | Export Gerber X2 (copper layers, profile) and Excellon (PTH / NPTH), File > Export > Gerber ([details](GERBER_EXPORT.md)) | ✔ |
 | Optimization: conjugate gradient (projected Polak-Ribiere+), goals on report expressions, error-area or worst-case cost, filter mask, parallel gradient evaluations | ✔ |
+| Optimization: derivative trust region (goals minimized on the derivative tuning model, each step checked with a solve; up to 6 variables) | ✔ [TUNING.md](TUNING.md#optimize-with-the-tuning-model) |
 | Parametric sweep | ✔ Optimization > Add Parametric; solved variations can be shown again without solving |
 | Derivative tuning: sliders for design variables, S-parameters follow live (morphed mesh, matrix derivatives, reduced model) | ✔ Results > Tuning; plane faces may change shape, curved faces may move, ports stay ([TUNING.md](TUNING.md)) |
 | Tuned radiation patterns (2D, 3D) and antenna parameters in the reports | ✔ needs fields on the far field surface (Save fields over a sweep) |

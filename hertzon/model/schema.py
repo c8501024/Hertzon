@@ -345,7 +345,7 @@ SWEEP: list[Prop] = [
     P("Parallel", "bool", "False", label="Solve frequencies in parallel"),
 ]
 
-OPTIMIZERS = ("Conjugate Gradient",)
+OPTIMIZERS = ("Conjugate Gradient", "Derivative Trust Region")
 COST_FUNCTIONS = ("Error Area", "Worst Case")
 GOAL_CONDITIONS = ("<=", ">=", "=", "Ripple <=")
 
@@ -365,23 +365,44 @@ PARAMETRIC: list[Prop] = [
 # (filterbench configs hairpin_3_conjugateGradient_3 / Hairpin_5_conjugateGradient)
 OPTIMIZATION: list[Prop] = [
     P("Optimizer", "choice", "Conjugate Gradient", choices=OPTIMIZERS,
-      help="Projected nonlinear conjugate gradient (Polak-Ribiere+) on the variables scaled to 0..1 "
-           "between their Min and Max, with a finite-difference gradient and a backtracking line search"),
+      help="Conjugate Gradient: projected nonlinear conjugate gradient (Polak-Ribiere+) on the variables scaled "
+           "to 0..1 between their Min and Max, with a finite-difference gradient and a backtracking line "
+           "search. Derivative Trust Region: every round solves the design once, computes its derivative "
+           "tuning model (as Compute Derivatives) and minimizes the goals on the model within a part of the "
+           "tuning range; the step is checked with a solve. Few solves for designs near the goal (at most 6 "
+           "variables, the topology must not change)"),
     P("CostFunction", "choice", "Error Area", label="Cost function", choices=COST_FUNCTIONS,
       help="Error Area: area of the goal violations over frequency (dB GHz), weighted and summed. "
            "Worst Case: weighted mean of the squared largest violation of every goal"),
     P("MaxEvaluations", "int", "3000", label="Maximum evaluations",
       help="Upper limit of solved designs; the optimizer usually stops earlier (tolerance or no improvement)"),
     P("ParallelEvaluations", "int", "6", label="Parallel evaluations",
+      visible_if=("Optimizer", "Conjugate Gradient"),
       help="Designs solved at the same time (the gradient samples are independent); the cores are shared"),
     P("DifferenceStep", "float", "0.05", label="Difference step", tab="Conjugate Gradient",
+      visible_if=("Optimizer", "Conjugate Gradient"),
       help="Finite-difference step of the gradient, as a fraction of each variable's range"),
     P("InitialStep", "float", "0.1", label="Initial step", tab="Conjugate Gradient",
+      visible_if=("Optimizer", "Conjugate Gradient"),
       help="First line-search step along the search direction, as a fraction of the variable ranges"),
     P("GradientTolerance", "float", "0.0001", label="Gradient tolerance", tab="Conjugate Gradient",
+      visible_if=("Optimizer", "Conjugate Gradient"),
       help="Stop when the largest projected gradient component falls below this value"),
     P("MaxLineTrials", "int", "16", label="Line search trials", tab="Conjugate Gradient",
+      visible_if=("Optimizer", "Conjugate Gradient"),
       help="Step halvings without improvement before the optimizer stops"),
+    P("TrustRadius", "float", "0.6", label="Initial trust region", tab="Derivative Trust Region",
+      visible_if=("Optimizer", "Derivative Trust Region"),
+      help="Largest step of the first round, as a fraction of each variable's tuning range (1: the whole range "
+           "in which no tetrahedron shrinks below 30 % of its volume; the sliders mark the part beyond 0.6). "
+           "The region grows when the solves confirm the model and shrinks when they do not"),
+    P("MaxRounds", "int", "10", label="Maximum rounds", tab="Derivative Trust Region",
+      visible_if=("Optimizer", "Derivative Trust Region"),
+      help="Rounds of model optimum and check; each costs one solve, plus a tuning model when the step is taken"),
+    P("TuningPoints", "int", "51", label="Tuning points", tab="Derivative Trust Region",
+      visible_if=("Optimizer", "Derivative Trust Region"),
+      help="Frequencies of the tuning model of a fast sweep or one not analyzed yet (as in the tuning panel); "
+           "a discrete sweep uses its own frequencies, an interpolating one the frequencies it solved"),
 ]
 
 COORDINATE_SYSTEM: list[Prop] = [
