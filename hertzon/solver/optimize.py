@@ -5,6 +5,10 @@ Every evaluation is a copy of the project with the variables set, solved by its 
 the cores are shared). Progress goes to stdout in the solver's @@HZN protocol; the evaluations are in
 OUTDIR/history.json, the best one in OUTDIR/best.json. A file OUTDIR/ABORT stops the run.
 
+Every evaluation keeps its S-parameters, convergence and log; the best one also keeps its mesh and the
+fields at the adaptive frequency, so that 'Apply to Design' shows its solution without solving again
+(hertzon.solver.parametric.matching_evaluation).
+
 The optimizer "Derivative Trust Region" (hertzon.solver.trust_region) computes the derivative tuning model
 of a solved design in its evaluation folder and minimizes the goals on the model; each step is checked
 with a solve.
@@ -135,7 +139,8 @@ class Optimizer:
         for st in d.setups:
             if st.name != self.setup:
                 continue
-            st.props["SaveFields"] = "False"
+            # the setup keeps its own Save fields (the fields at the adaptive frequency): the best evaluation
+            # keeps them, the others are removed after their cost is known (cleanup)
             for sw in st.sweeps:
                 on = sw.name == self.sol
                 sw.props["Enabled"] = "True" if on else "False"
@@ -190,12 +195,18 @@ class Optimizer:
         except Exception as ex:  # noqa: BLE001
             row.update(cost=None, error=str(ex))
             log(f"Evaluation {e.n} failed: {ex}", "warning")
-        if not self.keep_mesh:
-            self.cleanup(e.folder)
         self.history.append(row)
+        previous = self.best
         if np.isfinite(cost) and (self.best is None or cost < self.best["cost"]):
             self.best = row
             (self.out / "best.json").write_text(json.dumps(row, indent=1), encoding="utf-8")
+        if not self.keep_mesh:
+            # mesh and fields of the best evaluation only (its solution is shown after Apply to Design)
+            if self.best is row:
+                if previous is not None:
+                    self.discard(previous["eval"])
+            else:
+                self.cleanup(e.folder)
         (self.out / "history.json").write_text(json.dumps({"variables": self.vars.names, "evaluations": self.history},
                                                           indent=1, default=str), encoding="utf-8")
         emit("optim", eval=e.n, cost=row.get("cost"), best=self.best["cost"] if self.best else None)
@@ -203,6 +214,11 @@ class Optimizer:
         if msg:
             log(msg + "   " + ", ".join(f"{k}={v}" for k, v in e.texts.items()))
         return cost
+
+    def discard(self, n: int) -> None:
+        """Remove mesh and fields of evaluation n unless it is the best one."""
+        if n in self.folders and not (self.best and self.best.get("eval") == n):
+            self.cleanup(self.folders[n])
 
     @staticmethod
     def cleanup(folder: Path) -> None:
@@ -249,6 +265,8 @@ class Optimizer:
 
     def _end(self, reason: str) -> bool:
         stopped = self.aborted()
+        for n in list(self.folders):
+            self.discard(n)
         reason = "Aborted" if stopped else reason
         summary = {"reason": reason, "evaluations": self.n, "best": self.best, "elapsed": time.time() - self.t0,
                    "variables": self.vars.names}
@@ -329,10 +347,10 @@ class Optimizer:
             log(f"Round {it + 1}: solved cost {new:.6g}, predicted {pred_cost:.6g} (actual / predicted "
                 f"improvement {rho:.2f}): step {'taken' if taken else 'rejected'}, region now {radius:.0%}")
             if taken:
-                self.cleanup(self.folders[cur])
+                self.discard(cur)
                 x, cost, cur, model = xn, new, self.n, None
             else:
-                self.cleanup(self.folders[self.n])
+                self.discard(self.n)
             if radius < TR.MIN_RADIUS:
                 reason = "The trust region became too small (the model no longer predicts the solves)"
                 break

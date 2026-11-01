@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -496,7 +497,13 @@ class SolutionDataDialog(QDialog):
         self.sim.setCurrentText(setup)
         self.sim.currentTextChanged.connect(self._load)
         top.addRow("Simulation:", self.sim)
-        top.addRow("Design Variation:", QLabel("Nominal"))
+        # the current design, every solved parametric variation and every optimization evaluation with
+        # results: their passes, matrix data and mesh statistics without changing the design
+        self.var = QComboBox()
+        self.var.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.var.setMinimumContentsLength(40)
+        self.var.activated.connect(lambda *_: self._load(self.sim.currentText(), keep_variation=True))
+        top.addRow("Design Variation:", self.var)
         lay.addLayout(top)
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs)
@@ -508,11 +515,43 @@ class SolutionDataDialog(QDialog):
         self._load(setup)
 
     def reload(self, *_args) -> None:
-        self._load(self.sim.currentText())
+        self._load(self.sim.currentText(), keep_variation=True)
 
-    def _load(self, setup: str) -> None:
+    def _variations(self, setup: str, keep: bool) -> Path | None:
+        """Fill the Design Variation list for `setup`; the result folder of the chosen entry. The first entry
+        is the current design (the solution the model window shows)."""
+        from ..solver.parametric import solution_variations
         doc = self.doc
-        self.st = ResultStore(result_dir(doc, setup)) if doc.project.path else None
+        if not doc.project.path:
+            self.var.clear()
+            self.var.setEnabled(False)
+            return None
+        shown = result_dir(doc, setup)
+        try:
+            others = solution_variations(doc.project, doc.design, setup)
+        except Exception:  # noqa: BLE001  (a run is writing its table right now)
+            others = []
+        nominal = results_dir(doc.project.path, doc.design.name, setup)
+        first = "Nominal" if shown == nominal else \
+            "Current design: " + next((lbl for lbl, f in others if f == shown), str(shown))
+        old = self.var.currentData() if keep and self.var.currentIndex() > 0 else None
+        self.var.blockSignals(True)
+        self.var.clear()
+        self.var.addItem(first, None)
+        self.var.setItemData(0, first, Qt.ToolTipRole)
+        for lbl, f in others:
+            self.var.addItem(lbl, str(f))
+            self.var.setItemData(self.var.count() - 1, lbl, Qt.ToolTipRole)
+        i = self.var.findData(old) if old else 0
+        self.var.setCurrentIndex(max(0, i))
+        self.var.setEnabled(self.var.count() > 1)
+        self.var.blockSignals(False)
+        data = self.var.currentData()
+        return Path(data) if data else shown
+
+    def _load(self, setup: str, keep_variation: bool = False) -> None:
+        folder = self._variations(setup, keep_variation)
+        self.st = ResultStore(folder) if folder is not None else None
         cur = self.tabs.currentIndex()
         old = [self.tabs.widget(i) for i in range(self.tabs.count())]
         self.tabs.clear()

@@ -47,6 +47,13 @@ the GitHub release notes.
   [docs/TUNING.md](docs/TUNING.md#optimize-with-the-tuning-model).
 
 ### Fixed
+- **Optimization > Apply to Design** now shows the solution of the applied evaluation without solving
+  again: S-parameters, reports and the adaptive passes of every evaluation, and for the best evaluation
+  also the mesh and the fields at the adaptive frequency (it keeps them; the other evaluations still keep
+  only S-parameters, convergence and log). Before, the design had to be analyzed again.
+- **Results > Solution Data** has a *Design Variation* list: next to the current design it shows every
+  solved parametric variation and every optimization evaluation, with its passes (Convergence), Matrix
+  Data, Profile and Mesh Statistics, without changing the design.
 - **Tools > Options** opens at once. It used to wait for the check whether this computer's remote service
   runs (on Windows a refused connection to this computer alone takes about two seconds), for the host name
   lookup of the share addresses and for the scan of the installed SPARTA version. These now run in the

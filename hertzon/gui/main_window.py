@@ -4045,7 +4045,27 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Optimization", f"{name} has no evaluated design yet.")
             return
         best = min(ok, key=lambda e: e["cost"])
-        self.apply_variables(best["variables"], f"the best evaluation ({best['eval']}) of {name}")
+        self.apply_evaluation(name, best, f"the best evaluation ({best['eval']}) of {name}")
+
+    def apply_evaluation(self, name: str, row: dict, source: str) -> None:
+        """Set the design variables of an optimization evaluation; its stored solution is shown without
+        solving again (the best evaluation with mesh and fields, the others with S-parameters and passes)."""
+        from ..solver.parametric import evaluation_dir, optimization_setup
+        self.apply_variables(row["variables"], source)
+        op = next((o for o in self.des.optimetrics if o.name == name), None)
+        if op is None or not self.doc.project.path:
+            return
+        setup = optimization_setup(op)
+        if not any(s.name == setup for s in self.des.setups):
+            return
+        folder = evaluation_dir(self.doc.project.path, self.des.name, name, row["eval"])
+        if result_dir(self.doc, setup) != folder:
+            return                    # the nominal solution is current, or the evaluation's one is gone
+        if list(folder.glob("solution_*.npz")) or list(folder.glob("fields_*.npz")):
+            self.msgs.add("info", f"The solution of {source} is shown without solving again")
+        else:
+            self.msgs.add("info", f"The S-parameters and adaptive passes of {source} are shown without solving "
+                                  "again; only the best evaluation keeps its fields: Analyze for field overlays")
 
     def apply_variables(self, values: dict, source: str) -> None:
         """Set design variables (from an optimization result); undo restores the previous values."""
