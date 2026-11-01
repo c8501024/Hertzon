@@ -112,7 +112,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 
 | Function | In Hertzon | Status |
 |---|---|---|
-| Solution Data: Profile, Convergence (table + plot), Matrix Data S/Y/Z (mag/phase, dB, re/im), Mesh Statistics | ✔ |
+| Solution Data: Profile, Convergence (table + plot), Matrix Data S/Y/Z (mag/phase, dB, re/im), Mesh Statistics | ✔ also of every solved parametric variation and optimization evaluation (*Design Variation* list) |
 | Rectangular plot, Smith chart, Data table, markers | ✔ (rename a report from the project tree) |
 | Expressions `dB(S(1,1))`, `VSWR`, `GroupDelay`, `Z`, `Y`, `Zo`, `Gamma`, mixed-mode `S(Diff1,Comm1)`, `ang_deg`, `re`, `im` | ✔ (also as named equations, e.g. `RL = -dB(S(1,1))`, category Equations) |
 | Units on report axes, data tables, CSV export and colour bars | ✔ |
@@ -123,6 +123,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Export Gerber X2 (copper layers, profile) and Excellon (PTH / NPTH), File > Export > Gerber ([details](GERBER_EXPORT.md)) | ✔ |
 | Optimization: conjugate gradient (projected Polak-Ribiere+), goals on report expressions, error-area or worst-case cost, filter mask, parallel gradient evaluations | ✔ |
 | Optimization: derivative trust region (goals minimized on the derivative tuning model, each step checked with a solve; up to 6 variables) | ✔ [TUNING.md](TUNING.md#optimize-with-the-tuning-model) |
+| Optimization > Apply to Design | ✔ shows the applied evaluation's S-parameters, reports and passes without solving again; the best evaluation also keeps mesh and fields at the adaptive frequency |
 | Parametric sweep | ✔ Optimization > Add Parametric; solved variations can be shown again without solving |
 | Derivative tuning: sliders for design variables, S-parameters follow live (morphed mesh, matrix derivatives, reduced model) | ✔ Results > Tuning; plane faces may change shape, curved faces may move, ports stay ([TUNING.md](TUNING.md)) |
 | Tuned radiation patterns (2D, 3D) and antenna parameters in the reports | ✔ needs fields on the far field surface (Save fields over a sweep) |
@@ -132,6 +133,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Fields calculator: named equations of E, H, J, Js, S and the network data (S, Y, Z, VSWR), typeset formula editor, units | ✔ Results > Calculator (Equations tab); integrals over lines, faces, volumes and cut planes, flux, circulation, max/min/avg, point values, curl, div, grad, cylindrical and spherical components, on the solver's elements; library of loss, energy, Q, voltage, current and power; import/export ([tutorial](TUTORIAL.md#8-your-own-quantities-with-equations)) |
 | Fields report (values computed from the fields over frequency) | ✔ Results > Create Fields Report (Rectangular Plot, Data Table); frequencies with saved fields |
 | Solve with HPC / distributed | ◐ (threads per solve, parallel sweep points) |
+| Solve on another computer / in the cloud | ◐ experimental: computer in the local network (remote service, pairing code) or a cloud server created per session (Hetzner Cloud; Amazon Web Services, Google Cloud, Microsoft Azure untested); **Solve on** in the status bar ([REMOTE.md](REMOTE.md)) |
 
 ## Extras
 

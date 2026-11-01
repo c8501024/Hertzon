@@ -122,7 +122,8 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
 5. **Validation Check** (also checks overlapping solids exactly: partial overlaps of different
    materials are errors, except a metal in a dielectric with the design setting *Material override*; one
    click resolves them), then **Analyze All** (F5). The progress window shows each adaptive pass;
-   **Solution Data** shows the convergence table and plot, matrix data and mesh statistics.
+   **Solution Data** shows the convergence table and plot, matrix data and mesh statistics, also of every
+   solved parametric variation and optimization evaluation (*Design Variation*).
 6. **Results**: rectangular plots, Smith chart, data table, radiation pattern, 3D polar plot;
    **Fields**: magnitude, complex magnitude and vector plots of E, H and surface current on faces,
    objects, cut planes or drawn planes, with phase animation and **Export GIF** of the animation as
@@ -131,7 +132,9 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    (`RL = -dB(S(1,1))`) or the fields (`P_in = flux(Port1, re(S))`, losses, energies, Q), typed in a
    typeset formula editor, shown in reports, **Fields reports** and field plots
    ([tutorial](docs/TUTORIAL.md#8-your-own-quantities-with-equations)).
-   **Optimization** (conjugate gradient on report goals) and **Parametric** sweeps of design variables.
+   **Optimization** (conjugate gradient on report goals, or the **Derivative Trust Region**, which minimizes
+   the goals on the derivative tuning model and checks each step with a solve) and **Parametric** sweeps of
+   design variables. **Apply to Design** on an evaluation shows its solution without solving again.
    **Derivative tuning**: sliders for design variables, and S-parameters, patterns and antenna parameters
    follow live in the reports from one solve ([how it works](docs/TUNING.md),
    [tutorial](docs/TUTORIAL.md#10-tune-a-patch-antenna-with-sliders)).
@@ -196,8 +199,11 @@ region, ports, radiation boundaries) are left out. See [docs/GERBER_EXPORT.md](d
   model (geometry, materials, boundaries, ports, initial mesh) and runs the setup, or stops after
   meshing with `--prepare-only` so you can continue in plain EMerge.
 * Solve without the GUI: `python -m hertzon.solver.run Project.hzn DesignName Setup1 out_folder`.
-* Solve on another computer in your network (experimental; servers and cloud machines are in progress):
-  run `hertzon-serve` there and enter it in Tools > Options > Remote. See [docs/REMOTE.md](docs/REMOTE.md).
+* Solve on another computer (experimental): a computer in your network runs `hertzon-serve` (or Tools >
+  Options > Remote > Share this computer) and the laptop pairs with it in Tools > Options > Remote; or
+  Hertzon creates a cloud server for the session in Tools > Options > Cloud (Hetzner Cloud; Amazon Web
+  Services, Google Cloud and Microsoft Azure are marked *untested*) and deletes it again. **Solve on** in the
+  status bar switches between this computer, the remote one and the cloud. See [docs/REMOTE.md](docs/REMOTE.md).
 * Project files (`.hzn`) are plain JSON; results go to `<project>.hznresults/<design>/<setup>/`
   (`sparams_*.npz`, Touchstone `*.sNp`, `fields_*.npz`, `farfield_*.npz`, `convergence.json`); their layout,
   units and status values are in [docs/RESULT_FILES.md](docs/RESULT_FILES.md).
