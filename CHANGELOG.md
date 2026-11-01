@@ -6,6 +6,7 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Showcase project** brought up to date: Derivative Trust Region optimizations (goals on S-parameters, antenna parameters and output variables), output variables with S, Y, Z and VSWR, reports against a design variable, report axis settings, bandwidth and delta markers, SPARTA matrix solvers, ports-only setups, Edit Sources, Rotate / Sweep Around Axis in a coordinate system, and two new designs: a terminal differential pair (reference conductor, mixed-mode S-parameters) and a waveguide with two-mode wave ports (TE10 and TE01). The iris filter's first port has one mode again (the half model has no second mode, the solve failed) and the geometry zoo solves again (loft to an ellipse, a gap around the kept Subtract tool).
 - **Tools > Antenna Design > Rectangular Patch** optimizes patch length and inset at the design frequency
   only, on the adaptive solution (no sweep is solved per evaluation), with the Derivative Trust Region
   instead of Conjugate Gradient (named PatchOpt). The dialog no longer asks for a bandwidth, a return loss
@@ -47,6 +48,9 @@ the GitHub release notes.
   [docs/TUNING.md](docs/TUNING.md#optimize-with-the-tuning-model).
 
 ### Fixed
+- **Wave ports with several modes** (modal solution) absorb every mode with its own propagation constant, as terminal ports already did. Before, all modes used the first mode's constant: in an empty 22.86 x 15 mm guide at 12 GHz, TE01 was reflected with |S22| = 0.34. Gamma and Zo of every mode row are now the mode's own (they showed the first mode's for all rows), which also corrects their de-embedding.
+- **Eigenmode** setups solve again: the mesh is sized at the minimum frequency (the solve stopped with 'Frequency'), and the eigen search climbs from the minimum frequency until the wanted number of modes is found. A search below the first resonance returned only the static null space, so no modes were listed.
+- A **wave port with more modes than its face carries** (for example two TE modes on a WR-90 port at 10 GHz) now stops with a message naming the port and the number of modes it has, instead of a division by zero in the S-parameters.
 - **Optimization > Apply to Design** now shows the solution of the applied evaluation without solving
   again: S-parameters, reports and the adaptive passes of every evaluation, and for the best evaluation
   also the mesh and the fields at the adaptive frequency (it keeps them; the other evaluations still keep

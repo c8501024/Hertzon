@@ -12,7 +12,9 @@
     "FilterAirMargin": "12mm",
     "MaterialOverride": "True",
     "RadiatingStructure": "True",
-    "OutputVariables": "RL = -dB(S(1,1))\nZin_re = re(Z(1,1))\nZin_im = im(Z(1,1))"
+    "OutputVariables": "RL = -dB(S(1,1))\nZin_re = re(Z(1,1))\nZin_im = im(Z(1,1))\nYin_mag = mag(Y(1,1))\nVSWR_in = VSWR(1)\nMismatch_dB = 10*log10(1 - mag(S(1,1))^2)\nGain_margin = dB(PeakRealizedGain) - 7",
+    "Sources": "{\"P1\": {\"mag\": 1.0, \"phase\": 0.0}}",
+    "FieldType": "Total"
    },
    "variables": {
     "h": "1.524mm",
@@ -855,10 +857,105 @@
       "MinimumConvergedPasses": "1",
       "BasisOrder": "Zero Order",
       "CurvedElements": "True",
-      "Solver": "MUMPS",
+      "Solver": "SPARTA (CPU)",
       "ErrorInclusion": "40",
       "RefinementRatio": "0.5",
       "GrowthRate": "1.5",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [],
+     "eigen": false
+    },
+    {
+     "name": "Setup_SpartaSweep",
+     "props": {
+      "Enabled": "False",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "f0",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "PortsOnly": "False",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "PARDISO + SPARTA sweep (CPU)",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Wide",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Discrete",
+        "Distribution": "Linear Count",
+        "Start": "1.5GHz",
+        "Stop": "3.5GHz",
+        "Step": "0.1GHz",
+        "Count": "41",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    },
+    {
+     "name": "Setup_MUMPS",
+     "props": {
+      "Enabled": "False",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "f0",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "PortsOnly": "False",
+      "MaximumPasses": "4",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "MUMPS",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
       "EnforceRefinementPercent": "True",
       "RefinementMethod": "hzAURA (EMerge)",
       "SaveFields": "True",
@@ -905,7 +1002,31 @@
       "RL"
      ],
      "props": {
-      "markers": "2.45e9"
+      "markers": "2.4e9,2.5e9",
+      "delta": "True",
+      "bandwidth": "dB(S(1,1))",
+      "bw_level": "-10",
+      "ymin": "-40",
+      "ymax": "0",
+      "ydiv": "5",
+      "xlabel": "Frequency [GHz]",
+      "ylabel": "Magnitude [dB]",
+      "legend": "True"
+     }
+    },
+    {
+     "name": "Network Parameters",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Interp",
+     "traces": [
+      "VSWR_in",
+      "Yin_mag",
+      "Mismatch_dB"
+     ],
+     "props": {
+      "ylog": "True",
+      "xlog": "False",
+      "legend": "True"
      }
     },
     {
@@ -1079,7 +1200,65 @@
       "dB(S(1,1))"
      ],
      "props": {
-      "families": "ParametricInset"
+      "families": "ParametricInset",
+      "family_values": "{\"inset\": [\"8mm\", \"10mm\", \"12mm\"], \"Lp\": [\"32mm\", \"33mm\"]}"
+     }
+    },
+    {
+     "name": "S11 vs Patch Length",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Fast",
+     "traces": [
+      "dB(S(1,1))",
+      "VSWR(1)"
+     ],
+     "props": {
+      "x_var": "Lp",
+      "x_freq": "2450000000.0"
+     }
+    },
+    {
+     "name": "Gain vs Inset",
+     "kind": "Antenna Parameters",
+     "solution": "Setup1 : Fast",
+     "traces": [
+      "dB(PeakRealizedGain)",
+      "RadiationEfficiency"
+     ],
+     "props": {
+      "sphere": "FF_Global",
+      "x_var": "inset",
+      "x_freq": "2450000000.0"
+     }
+    },
+    {
+     "name": "Gain vs Inset Table",
+     "kind": "Antenna Parameters Table",
+     "solution": "Setup1 : Fast",
+     "traces": [
+      "dB(PeakRealizedGain)",
+      "dB(PeakDirectivity)"
+     ],
+     "props": {
+      "sphere": "FF_Global",
+      "x_var": "inset",
+      "x_freq": "2450000000.0"
+     }
+    },
+    {
+     "name": "Gain at 2.5 GHz",
+     "kind": "Radiation Pattern",
+     "solution": "Setup1 : Fast",
+     "traces": [
+      "dB(RealizedGainTotal)"
+     ],
+     "props": {
+      "cut": "Phi",
+      "cut_value": "90",
+      "sphere": "FF_Global",
+      "freq": "2500000000",
+      "bandwidth": "dB(RealizedGainTotal)",
+      "bw_level": "-3"
      }
     }
    ],
@@ -1315,7 +1494,87 @@
       "DifferenceStep": "0.04",
       "InitialStep": "0.15",
       "GradientTolerance": "0.0001",
-      "MaxLineTrials": "16"
+      "MaxLineTrials": "16",
+      "TrustRadius": "0.6",
+      "MaxRounds": "10",
+      "TuningPoints": "51"
+     }
+    },
+    {
+     "name": "Optim_DerivativeTR",
+     "solution": "Setup1 : Fast",
+     "variables": [
+      {
+       "name": "Lp",
+       "include": true,
+       "min": "31mm",
+       "max": "34mm"
+      },
+      {
+       "name": "inset",
+       "include": true,
+       "min": "8mm",
+       "max": "12mm"
+      },
+      {
+       "name": "Wp",
+       "include": true,
+       "min": "38mm",
+       "max": "42mm"
+      },
+      {
+       "name": "h",
+       "include": false,
+       "min": "1.4mm",
+       "max": "1.6mm"
+      }
+     ],
+     "goals": [
+      {
+       "calc": "dB(S(1,1))",
+       "start": "2.4GHz",
+       "stop": "2.5GHz",
+       "cond": "<=",
+       "value": "-12",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(PeakRealizedGain)",
+       "start": "2.45GHz",
+       "stop": "2.45GHz",
+       "cond": ">=",
+       "value": "7",
+       "weight": "0.5"
+      },
+      {
+       "calc": "RadiationEfficiency",
+       "start": "2.4GHz",
+       "stop": "2.5GHz",
+       "cond": ">=",
+       "value": "0.8",
+       "weight": "0.3"
+      },
+      {
+       "calc": "Gain_margin",
+       "start": "2.45GHz",
+       "stop": "2.45GHz",
+       "cond": ">=",
+       "value": "0",
+       "weight": "0.2"
+      }
+     ],
+     "props": {
+      "Optimizer": "Derivative Trust Region",
+      "CostFunction": "Error Area",
+      "MaxEvaluations": "3000",
+      "ParallelEvaluations": "6",
+      "DifferenceStep": "0.05",
+      "InitialStep": "0.1",
+      "GradientTolerance": "0.0001",
+      "MaxLineTrials": "16",
+      "TrustRadius": "0.5",
+      "MaxRounds": "8",
+      "TuningPoints": "41"
      }
     }
    ],
@@ -1399,7 +1658,7 @@
     }
    ],
    "working_cs": "CS_Array",
-   "notes": "Driven antenna: 2x1 inset-fed patch array on a dispersive laminate with a DC-block chip capacitor (Lumped RLC, grouped with its body), lumped port, finite conductivity, a radome in a relative coordinate system, all mesh operations, three setups (single, multi-frequency, broadband), Interpolating / Fast / Discrete sweeps, two far-field spheres, output variables, Fields Calculator expressions and functions, every report type of a driven antenna, field overlays on objects, faces and cut planes, an optimization and a parametric sweep."
+   "notes": "Driven antenna: 2x1 inset-fed patch array on a dispersive laminate with a DC-block chip capacitor (Lumped RLC, grouped with its body), lumped port, finite conductivity, a radome in a relative coordinate system, all mesh operations, three setups (single, multi-frequency, broadband), Interpolating / Fast / Discrete sweeps, two far-field spheres, output variables, Fields Calculator expressions and functions, every report type of a driven antenna, field overlays on objects, faces and cut planes, a conjugate-gradient optimization, a Derivative Trust Region optimization with goals on S-parameters and antenna parameters, reports plotted against a design variable (derivative tuning model), report axis settings, bandwidth and delta markers, selected parametric families, SPARTA matrix solvers and two parametric sweeps."
   },
   {
    "name": "B_WaveguideIrisFilter_Half",
@@ -1410,7 +1669,8 @@
     "AutoOpenBoundary": "Auto",
     "AutoOpenPadding": "",
     "FilterAirMargin": "12mm",
-    "MaterialOverride": "True"
+    "MaterialOverride": "True",
+    "OutputVariables": "IL = -dB(S(2,1))\nZ21_mag = mag(Z(2,1))\nS11_phase = ang_deg(S(1,1))"
    },
    "variables": {
     "a": "22.86mm",
@@ -1731,7 +1991,7 @@
      "kind": "Wave Port",
      "props": {
       "PortNumber": "1",
-      "NumberOfModes": "2",
+      "NumberOfModes": "1",
       "ModeType": "TE",
       "ImpedanceDefinition": "Zpi",
       "Renormalize": "False",
@@ -1845,6 +2105,63 @@
       }
      ],
      "eigen": false
+    },
+    {
+     "name": "Setup_PortsOnly",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "10GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "PortsOnly": "True",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "PortSweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Discrete",
+        "Distribution": "Linear Count",
+        "Start": "8.5GHz",
+        "Stop": "11.5GHz",
+        "Step": "0.1GHz",
+        "Count": "7",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
     }
    ],
    "spheres": [],
@@ -1855,8 +2172,7 @@
      "solution": "Setup1 : Sweep",
      "traces": [
       "dB(S(1,1))",
-      "dB(S(2,1))",
-      "dB(S(1:2,1:1))"
+      "dB(S(2,1))"
      ],
      "props": {}
     },
@@ -1865,7 +2181,30 @@
      "kind": "Rectangular",
      "solution": "Setup1 : Sweep",
      "traces": [
-      "GroupDelay(2,1)"
+      "GroupDelay(S(2,1))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Insertion Loss",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "IL",
+      "S11_phase",
+      "Z21_mag"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Port Impedance",
+     "kind": "Rectangular",
+     "solution": "Setup_PortsOnly : PortSweep",
+     "traces": [
+      "re(Zo(1))",
+      "re(Zo(2))",
+      "im(Gamma(1))",
+      "im(Gamma(2))"
      ],
      "props": {}
     },
@@ -2008,7 +2347,7 @@
     }
    ],
    "working_cs": "Global",
-   "notes": "WR-90 two-cavity iris filter, half model: the full guide is cut with Split, the symmetry plane x = a/2 is a Perfect H Symmetry boundary. Wave ports with two modes, renormalization and de-embedding, an impedance wall, a dielectric tuning post (Unite with a clone, KeepOriginals), Perfect E / Perfect H assignments, a parametric family over the iris width and an eigen-free driven sweep."
+   "notes": "WR-90 two-cavity iris filter, half model: the full guide is cut with Split, the symmetry plane x = a/2 is a Perfect H Symmetry boundary. Wave ports with renormalization and de-embedding, an impedance wall, a dielectric tuning post, Perfect E / Perfect H assignments, output variables, a ports-only setup (Zo and Gamma without the 3D solve) and a parametric family over the iris width."
   },
   {
    "name": "C_DielectricResonator_Eigen",
@@ -2255,7 +2594,9 @@
     "AutoOpenBoundary": "Auto",
     "AutoOpenPadding": "",
     "FilterAirMargin": "12mm",
-    "MaterialOverride": "True"
+    "MaterialOverride": "True",
+    "Sources": "{\"PlaneWave\": {\"mag\": 1.0, \"phase\": 0.0}, \"PlaneWave_Cartesian\": {\"mag\": 0.5, \"phase\": 90.0}}",
+    "FieldType": "Scattered"
    },
    "variables": {
     "sp": "40mm",
@@ -2295,7 +2636,7 @@
       }
      ],
      "material": "Showcase_PEC",
-     "solve_inside": true,
+     "solve_inside": false,
      "model": true,
      "color": "#bebebe",
      "transparency": 0.0,
@@ -2542,7 +2883,8 @@
        "props": {
         "Axis": "Z",
         "Angle": "270deg",
-        "Center": "(2)*sp,(-1)*sp,0"
+        "Center": "(2)*sp,(-1)*sp,0",
+        "CoordinateSystem": "Global"
        },
        "suppressed": false
       }
@@ -2557,6 +2899,42 @@
      "consumed_by": null,
      "group": "",
      "orientation": "Global"
+    },
+    {
+     "name": "Ring_RevolvedInCS",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "s,0,0",
+        "Axis": "Y",
+        "XSize": "s/6",
+        "YSize": "1",
+        "ZSize": "s/6"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "SweepAroundAxis",
+       "props": {
+        "Axis": "X",
+        "Angle": "180deg",
+        "Center": "s,0,-s/4",
+        "CoordinateSystem": "CS_Zoo"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "pec",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "CS_Zoo"
     },
     {
      "name": "Polyline_Mixed",
@@ -2805,7 +3183,7 @@
        "kind": "CreateSphere",
        "props": {
         "CenterPosition": "(-1)*sp+s,(1)*sp+s,s/2",
-        "Radius": "s/2",
+        "Radius": "s/2-0.5mm",
         "NumberOfVertices": "0"
        },
        "suppressed": false
@@ -2997,13 +3375,12 @@
      "name": "LoftTop",
      "history": [
       {
-       "kind": "CreateRectangle",
+       "kind": "CreateEllipse",
        "props": {
-        "Position": "(2)*sp-s/4,(1)*sp-s/4,s",
+        "CenterPosition": "(2)*sp+s/8,(1)*sp,s",
         "Axis": "Z",
-        "XSize": "s/2",
-        "YSize": "s/2",
-        "ZSize": "1"
+        "MajorRadius": "s/3",
+        "Ratio": "0.5"
        },
        "suppressed": false
       }
@@ -3331,7 +3708,18 @@
        "props": {
         "Axis": "Z",
         "Angle": "30deg",
-        "Center": "(0)*sp,(3)*sp,0"
+        "Center": "(0)*sp,(3)*sp,0",
+        "CoordinateSystem": "Global"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Rotate",
+       "props": {
+        "Axis": "X",
+        "Angle": "10deg",
+        "Center": "0,0,0",
+        "CoordinateSystem": "CS_Zoo"
        },
        "suppressed": false
       },
@@ -4605,6 +4993,974 @@
    "parametrics": [],
    "working_cs": "Global",
    "notes": "Periodic unit cell (the infinite array) of a cross on a grounded RO3003 spacer: Primary / Secondary pairs in x and y with the scan angles theta = scan_theta, phi = 0 and a Floquet port with TE00 and TM00 above. The ground reflects everything; the result is the reflection phase over frequency (a reflectarray element)."
+  },
+  {
+   "name": "G_DiffPair_Terminal",
+   "units": "mm",
+   "settings": {
+    "SolutionType": "Terminal",
+    "AutoOpen": "Off",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "DifferentialPairs": "[{\"pos\": 1, \"neg\": 2, \"zdiff\": \"100ohm\", \"zcomm\": \"25ohm\"}, {\"pos\": 3, \"neg\": 4}]",
+    "OutputVariables": "Sdd11 = dB(S(Diff1,Diff1))\nSdd21 = dB(S(Diff2,Diff1))\nScd21 = dB(S(Comm2,Diff1))\nNEXT = dB(S(P1_TraceN,P1_TraceP))\nZdiff = re(Z(Diff1,Diff1))\nVSWR_diff = VSWR(Diff1)\nY11_mag = mag(Y(1,1))",
+    "Sources": "{\"P1_TraceP\": {\"mag\": 1.0, \"phase\": 0.0}, \"P1_TraceN\": {\"mag\": 1.0, \"phase\": 180.0}}"
+   },
+   "variables": {
+    "h": "0.508mm",
+    "w": "0.8mm",
+    "s_gap": "0.4mm",
+    "L": "20mm",
+    "Wbox": "6mm",
+    "Hair": "3mm"
+   },
+   "objects": [
+    {
+     "name": "Substrate",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-Wbox/2,0,0",
+        "XSize": "Wbox",
+        "YSize": "L",
+        "ZSize": "h"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "Rogers RO4350B (tm)",
+     "solve_inside": true,
+     "model": true,
+     "color": "#6a7f3a",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Air",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-Wbox/2,0,h",
+        "XSize": "Wbox",
+        "YSize": "L",
+        "ZSize": "Hair"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "air",
+     "solve_inside": true,
+     "model": true,
+     "color": "#e6f2ff",
+     "transparency": 0.85,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "TraceP",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-s_gap/2-w,0,h",
+        "Axis": "Z",
+        "XSize": "w",
+        "YSize": "L",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#d4a017",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "TraceN",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "s_gap/2,0,h",
+        "Axis": "Z",
+        "XSize": "w",
+        "YSize": "L",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#d4a017",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port1Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-Wbox/2,0,0",
+        "Axis": "Y",
+        "XSize": "Wbox",
+        "YSize": "1",
+        "ZSize": "h+Hair"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port2Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-Wbox/2,L,0",
+        "Axis": "Y",
+        "XSize": "Wbox",
+        "YSize": "1",
+        "ZSize": "h+Hair"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [
+    {
+     "name": "PerfE_Traces",
+     "kind": "Perfect E",
+     "props": {
+      "InfGroundPlane": "False"
+     },
+     "faces": [],
+     "objects": [
+      "TraceP",
+      "TraceN"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "excitations": [
+    {
+     "name": "P1",
+     "kind": "Wave Port",
+     "props": {
+      "PortNumber": "1",
+      "NumberOfModes": "1",
+      "ModeType": "Auto",
+      "ImpedanceDefinition": "Zpv",
+      "Renormalize": "False",
+      "RenormImpedance": "50ohm",
+      "Deembed": "False",
+      "DeembedDistance": "0",
+      "ReferenceConductor": "Outer"
+     },
+     "faces": [],
+     "objects": [
+      "Port1Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "P2",
+     "kind": "Wave Port",
+     "props": {
+      "PortNumber": "2",
+      "NumberOfModes": "1",
+      "ModeType": "Auto",
+      "ImpedanceDefinition": "Zpv",
+      "Renormalize": "True",
+      "RenormImpedance": "50ohm",
+      "Deembed": "False",
+      "DeembedDistance": "0",
+      "ReferenceConductor": "Outer"
+     },
+     "faces": [],
+     "objects": [
+      "Port2Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "10GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "PortsOnly": "False",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "PARDISO",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Interpolating",
+        "Distribution": "Linear Count",
+        "Start": "1GHz",
+        "Stop": "12GHz",
+        "Step": "0.1GHz",
+        "Count": "111",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    },
+    {
+     "name": "Setup_PortsOnly",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "10GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "PortsOnly": "True",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "SPARTA (GPU)",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "PortSweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Discrete",
+        "Distribution": "Linear Count",
+        "Start": "1GHz",
+        "Stop": "12GHz",
+        "Step": "0.1GHz",
+        "Count": "12",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [
+    {
+     "name": "Differential S",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "Sdd11",
+      "Sdd21"
+     ],
+     "props": {
+      "markers": "1e10"
+     }
+    },
+    {
+     "name": "Mode Conversion",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "Scd21",
+      "dB(S(Comm1,Diff1))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Single-Ended S",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "dB(S(P1_TraceP,P1_TraceP))",
+      "dB(S(P2_TraceP,P1_TraceP))",
+      "NEXT",
+      "dB(S(P2_TraceN,P1_TraceP))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Differential Impedance",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "Zdiff",
+      "VSWR_diff",
+      "Y11_mag"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Line Impedance",
+     "kind": "Rectangular",
+     "solution": "Setup_PortsOnly : PortSweep",
+     "traces": [
+      "re(Zo(P1_TraceP))",
+      "re(Zo(P1_TraceN))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Propagation Constant",
+     "kind": "Rectangular",
+     "solution": "Setup_PortsOnly : PortSweep",
+     "traces": [
+      "im(Gamma(1))",
+      "im(Gamma(2))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Mixed-Mode Smith",
+     "kind": "Smith Chart",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "S(Diff1,Diff1)",
+      "S(Comm1,Comm1)"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Gap Families",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "Sdd11"
+     ],
+     "props": {
+      "families": "GapSweep"
+     }
+    }
+   ],
+   "field_plots": [
+    {
+     "name": "E_PortPlane",
+     "quantity": "Mag_E",
+     "solution": "Setup1 : LastAdaptive",
+     "faces": [],
+     "objects": [],
+     "plane": "XZ@L/2",
+     "props": {}
+    },
+    {
+     "name": "Jsurf_Traces",
+     "quantity": "Mag_Jsurf",
+     "solution": "Setup1 : LastAdaptive",
+     "faces": [],
+     "objects": [
+      "TraceP",
+      "TraceN"
+     ],
+     "plane": "",
+     "props": {}
+    }
+   ],
+   "coord_systems": [],
+   "field_exprs": [
+    {
+     "name": "Sdd21_calc",
+     "expr": "dB(S(Diff2,Diff1))",
+     "description": "differential insertion loss"
+    },
+    {
+     "name": "Ploss_traces",
+     "expr": "flux(TraceP, re(S)) + flux(TraceN, re(S))",
+     "description": "power through the trace sheets"
+    }
+   ],
+   "field_funcs": [],
+   "optimetrics": [
+    {
+     "name": "Optim_Zdiff_DTR",
+     "solution": "Setup1 : Sweep",
+     "variables": [
+      {
+       "name": "w",
+       "include": true,
+       "min": "0.6mm",
+       "max": "1mm"
+      },
+      {
+       "name": "s_gap",
+       "include": true,
+       "min": "0.25mm",
+       "max": "0.6mm"
+      }
+     ],
+     "goals": [
+      {
+       "calc": "Sdd11",
+       "start": "1GHz",
+       "stop": "12GHz",
+       "cond": "<=",
+       "value": "-20",
+       "weight": "1"
+      },
+      {
+       "calc": "Scd21",
+       "start": "1GHz",
+       "stop": "12GHz",
+       "cond": "<=",
+       "value": "-30",
+       "weight": "0.5"
+      }
+     ],
+     "props": {
+      "Optimizer": "Derivative Trust Region",
+      "CostFunction": "Worst Case",
+      "MaxEvaluations": "3000",
+      "ParallelEvaluations": "6",
+      "DifferenceStep": "0.05",
+      "InitialStep": "0.1",
+      "GradientTolerance": "0.0001",
+      "MaxLineTrials": "16",
+      "TrustRadius": "0.6",
+      "MaxRounds": "10",
+      "TuningPoints": "51"
+     }
+    }
+   ],
+   "parametrics": [
+    {
+     "name": "GapSweep",
+     "sweeps": [
+      {
+       "variable": "s_gap",
+       "type": "Linear count",
+       "start": "0.3mm",
+       "stop": "0.6mm",
+       "step": "4",
+       "sync": ""
+      }
+     ],
+     "setups": [
+      "Setup1"
+     ],
+     "calcs": [
+      {
+       "calc": "Zdiff",
+       "solution": "Setup1 : Sweep",
+       "func": "Mean",
+       "start": "1GHz",
+       "stop": "12GHz"
+      },
+      {
+       "calc": "Sdd11",
+       "solution": "Setup1 : Sweep",
+       "func": "Max",
+       "start": "1GHz",
+       "stop": "12GHz"
+      }
+     ],
+     "props": {
+      "SaveFields": "False",
+      "ParallelVariations": "1"
+     }
+    }
+   ],
+   "working_cs": "Global",
+   "notes": "Terminal solution with multi-conductor wave ports: an edge-coupled microstrip pair on RO4350B in a shielded box. Each wave port carries two terminals (even and odd mode, each absorbed with its own propagation constant); the shield is named as the reference conductor. Differential pairs give the mixed-mode S-parameters; output variables use S, Y, Z and VSWR of the terminals; a ports-only setup checks Zo and Gamma without the 3D solve; Edit Sources drives the odd mode."
+  },
+  {
+   "name": "H_TwoModeWaveguide",
+   "units": "mm",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Off",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "OutputVariables": "Conv_10_01 = dB(S(WP2_M2,WP1_M1))\nThru_10 = dB(S(WP2_M1,WP1_M1))\nPowerSum = mag(S(WP1_M1,WP1_M1))^2 + mag(S(WP1_M2,WP1_M1))^2 + mag(S(WP2_M1,WP1_M1))^2 + mag(S(WP2_M2,WP1_M1))^2"
+   },
+   "variables": {
+    "a": "22.86mm",
+    "b": "15mm",
+    "L": "40mm",
+    "tilt": "35deg",
+    "wp": "3mm"
+   },
+   "objects": [
+    {
+     "name": "Guide",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-a/2,0,-b/2",
+        "XSize": "a",
+        "YSize": "L",
+        "ZSize": "b"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#e6f2ff",
+     "transparency": 0.8,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "TiltedPost",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-wp/2,L/2-wp/2,-b/2",
+        "XSize": "wp",
+        "YSize": "wp",
+        "ZSize": "b"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Rotate",
+       "props": {
+        "Axis": "Y",
+        "Angle": "tilt",
+        "Center": "0,L/2,0",
+        "CoordinateSystem": "Global"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Intersect",
+       "props": {
+        "Tools": "GuideClip",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "Al2_O3_ceramic",
+     "solve_inside": true,
+     "model": true,
+     "color": "#f7f7ef",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "GuideClip",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-a/2,0,-b/2",
+        "XSize": "a",
+        "YSize": "L",
+        "ZSize": "b"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#e6f2ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "TiltedPost",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "WP1Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-a/2,0,-b/2",
+        "Axis": "Y",
+        "XSize": "a",
+        "YSize": "1",
+        "ZSize": "b"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "WP2Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-a/2,L,-b/2",
+        "Axis": "Y",
+        "XSize": "a",
+        "YSize": "1",
+        "ZSize": "b"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [],
+   "excitations": [
+    {
+     "name": "WP1",
+     "kind": "Wave Port",
+     "props": {
+      "PortNumber": "1",
+      "NumberOfModes": "2",
+      "ModeType": "Auto",
+      "ImpedanceDefinition": "Zpv",
+      "Renormalize": "False",
+      "RenormImpedance": "50ohm",
+      "Deembed": "False",
+      "DeembedDistance": "0",
+      "ReferenceConductor": ""
+     },
+     "faces": [],
+     "objects": [
+      "WP1Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "WP2",
+     "kind": "Wave Port",
+     "props": {
+      "PortNumber": "2",
+      "NumberOfModes": "2",
+      "ModeType": "Auto",
+      "ImpedanceDefinition": "Zpv",
+      "Renormalize": "False",
+      "RenormImpedance": "50ohm",
+      "Deembed": "True",
+      "DeembedDistance": "5mm",
+      "ReferenceConductor": ""
+     },
+     "faces": [],
+     "objects": [
+      "WP2Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "12GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "PortsOnly": "False",
+      "MaximumPasses": "8",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Interpolating",
+        "Distribution": "Linear Count",
+        "Start": "10.5GHz",
+        "Stop": "13GHz",
+        "Step": "0.1GHz",
+        "Count": "126",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    },
+    {
+     "name": "Setup_PortsOnly",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "12GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "PortsOnly": "True",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "PortSweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Discrete",
+        "Distribution": "Linear Count",
+        "Start": "10.5GHz",
+        "Stop": "13GHz",
+        "Step": "0.1GHz",
+        "Count": "6",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [
+    {
+     "name": "Mode Conversion",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "Conv_10_01",
+      "Thru_10",
+      "dB(S(WP2_M1,WP1_M2))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Mode Reflection",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "dB(S(WP1_M1,WP1_M1))",
+      "dB(S(WP1_M2,WP1_M2))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Power Balance",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "PowerSum"
+     ],
+     "props": {
+      "ymin": "0",
+      "ymax": "1.1"
+     }
+    },
+    {
+     "name": "Mode Impedance",
+     "kind": "Rectangular",
+     "solution": "Setup_PortsOnly : PortSweep",
+     "traces": [
+      "re(Zo(WP1_M1))",
+      "re(Zo(WP1_M2))",
+      "im(Gamma(WP1_M1))",
+      "im(Gamma(WP1_M2))"
+     ],
+     "props": {}
+    }
+   ],
+   "field_plots": [
+    {
+     "name": "E_Mid",
+     "quantity": "Vector_E",
+     "solution": "Setup1 : LastAdaptive",
+     "faces": [],
+     "objects": [],
+     "plane": "XZ@L/2",
+     "props": {}
+    }
+   ],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": "Modal wave ports with two modes each: a 22.86 x 15 mm guide carries TE10 and TE01 between 10 and 13.1 GHz, each port mode absorbed with its own propagation constant. A tilted dielectric post couples them; the mode rows of S are named WP1_M1, WP1_M2, WP2_M1, WP2_M2 and used in reports and output variables (mode conversion)."
   }
  ],
  "variables": {

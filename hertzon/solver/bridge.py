@@ -93,8 +93,14 @@ def box_quadrature(bounds, panel: float, skip=()) -> tuple[np.ndarray, np.ndarra
 # --------------------------------------------------------------------------------------------
 # Frequency helpers
 # --------------------------------------------------------------------------------------------
+EIGEN_SEARCHES = 8      # eigenmode: searches with a rising search frequency
+EIGEN_STEP = 1.4        # factor between two search frequencies
+
+
 def adaptive_frequencies(setup: Setup, ev: Evaluator) -> list[float]:
     p = setup.props
+    if setup.eigen:     # an eigenmode setup has no solution frequency: its minimum frequency sizes the mesh
+        return [ev.freq(p.get("MinimumFrequency", "1GHz") or "1GHz")]
     mode = p.get("SolutionFrequencyMode", "Single")
     if mode == "Multi-Frequencies":
         return sorted(ev.freq(x) for x in p.get("MultiFrequencies", "").split(",") if x.strip())
@@ -261,6 +267,35 @@ class Bridge:
         self.step("Initial meshing", t)
 
     def solve(self) -> None:
+        try:
+            self._solve()
+        except Exception as exc:
+            missing = self.missing_port_modes()
+            if missing:
+                raise RuntimeError("; ".join(missing)) from exc
+            raise
+
+    def missing_port_modes(self) -> list[str]:
+        """Wave ports that ask for more modes than their face carries: the mode analysis finds fewer, and
+        the S-parameters fail (zero power of the missing modes). One message per such port."""
+        out = []
+        try:
+            from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+            bcs = self.m.mw.bc.oftype(ModalPort)
+        except Exception:  # noqa: BLE001
+            return out
+        names = {m["number"]: m["name"] for m in self.port_map}
+        for bc in bcs:
+            want = int(getattr(bc, "_desired_number_of_modes", 0) or 0)
+            have = len(getattr(bc, "available_modes", None) or [])
+            if want > 1 and 0 < have < want:
+                name = names.get(getattr(bc, "port_number", None), f"port {getattr(bc, 'port_number', '?')}")
+                out.append(f"Wave port '{name}': {want} modes requested, the port face carries only {have} "
+                           f"(the others are below cutoff or excluded by the mode type); set Number of modes "
+                           f"to {have} or widen the port")
+        return out
+
+    def _solve(self) -> None:
         if self.setup.eigen or self.design.settings.get("SolutionType") == "Eigenmode":
             self.run_eigen()
         elif self.plane_wave() is not None:
@@ -800,6 +835,8 @@ class Bridge:
         self.port_map = []
         global TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS
         TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS = None, {}, False
+        BETA.clear()            # records of an earlier solve in the same process (tests, tuning)
+        PORT_RECORDS.clear()
         term = None
         if self.design.settings.get("SolutionType") == "Terminal" and self.plane_wave() is None:
             from .terminals import Terminals
@@ -822,13 +859,14 @@ class Bridge:
                              f"{len(tp['terminals'])} mode(s)")
                     nmodes = len(tp["terminals"])
                 zdef = {"Zpv": "PV", "Zpi": "PI", "Zvi": "VI"}[p.get("ImpedanceDefinition", "Zpv")]
-                if term is not None and nmodes > 1:
-                    # several signal conductors: every mode is absorbed with its own propagation constant
-                    # (even and odd mode of coupled lines), modes solved at every frequency
-                    # without the end faces of the conductors: the port block couples all port unknowns,
-                    # and those of a face inside metal would have nothing else (singular matrix)
-                    sel = em.FaceSelection(self.faces_off_metal(tags))
-                    MULTI_TERMINAL_PORTS = True
+                if nmodes > 1:
+                    # several modes: every mode is absorbed with its own propagation constant (TE10 and TE01
+                    # of a waveguide, even and odd mode of coupled lines), modes solved at every frequency
+                    if term is not None:
+                        # without the end faces of the conductors: the port block couples all port unknowns,
+                        # and those of a face inside metal would have nothing else (singular matrix)
+                        sel = em.FaceSelection(self.faces_off_metal(tags))
+                        MULTI_TERMINAL_PORTS = True
                     port = mw.bc.MultiModeWavePort(sel, num, number_of_modes=nmodes,
                                                    modetype=None if mt == "Auto" else mt,
                                                    impedance_definition=zdef)
@@ -2082,17 +2120,35 @@ class Bridge:
         return gf, Sm
 
     def run_eigen(self) -> None:
+        """The lowest NumberOfModes eigenmodes at or above MinimumFrequency. The eigen solver returns the
+        modes closest to its search frequency; below the first mode those are the static null space modes
+        of the curl operator (f = 0), which EMerge drops. So the search frequency climbs from the minimum
+        frequency until the modes found cover NumberOfModes modes below it."""
         p = self.setup.props
         fmin = self.ev.freq(p.get("MinimumFrequency", "1GHz"))
-        n = int(p.get("NumberOfModes", "3"))
+        n = max(1, int(p.get("NumberOfModes", "3")))
         t = time.time()
-        emit("progress", value=30, text="Eigenmode solve")
-        data = self.m.mw.eigenmode(search_frequency=fmin, nmodes=n)
-        modes = []
-        for fld in data.field:
-            f = complex(getattr(fld, "freq", 0))
-            q = f.real / (2 * f.imag) if f.imag else float("inf")
-            modes.append({"freq": f.real, "Q": q})
+        found: list[complex] = []
+        fs = fmin
+        for k in range(EIGEN_SEARCHES):
+            emit("progress", value=30 + 60 * k / EIGEN_SEARCHES,
+                 text=f"Eigenmode solve, search at {fs / 1e9:.4g} GHz")
+            data = self.m.mw.eigenmode(search_frequency=fs, nmodes=n)
+            for fld in data.field:      # the data set collects the modes of every search
+                f = complex(getattr(fld, "freq", 0))
+                if f.real >= fmin * (1 - 1e-6) and all(abs(f - g) > 1e-6 * abs(f) for g in found):
+                    found.append(f)
+            found.sort(key=lambda f: f.real)
+            if len(found) >= n and found[n - 1].real <= fs:
+                break
+            # not enough modes yet, or the highest wanted one lies above the search frequency (modes between
+            # may be missing): search higher, at least just above the modes found so far
+            fs = max(fs * EIGEN_STEP, found[min(n, len(found)) - 1].real * 1.01 if found else 0.0)
+        else:
+            if len(found) < n:
+                warn(f"Eigenmode: {len(found)} of {n} modes found above {fmin / 1e9:.4g} GHz "
+                     f"(searched up to {fs / 1e9:.4g} GHz)")
+        modes = [{"freq": f.real, "Q": f.real / (2 * f.imag) if f.imag else float("inf")} for f in found[:n]]
         self.store.write_json("eigenmodes.json", modes)
         self.save_mesh()
         self.step("Eigenmode", t)
@@ -2207,7 +2263,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
                     z0 = np.asarray(data.scalar[-1].Z0)
             except Exception:  # noqa: BLE001
                 pass
-            _record_port_data(data.scalar[-1], sf)
+            _record_port_data(data.scalar[-1], sf, m)
             if TERMINALS is not None:
                 # convergence and results on the terminal S-parameters (unique for degenerate port modes)
                 Ss[-1] = TERMINALS.transform([sf], Ss[-1][None], list(data.scalar[-1]._portnumbers), DEEMBED)[0]
@@ -3178,7 +3234,7 @@ def _solve_at(m, freqs, **kw):
     S = np.array([np.asarray(e.Sp) for e in entries])
     z0 = np.asarray(entries[0].Z0) if entries and entries[0].Z0 is not None else np.array([50.0])
     for e, fk in zip(entries, f):
-        _record_port_data(e, fk)
+        _record_port_data(e, fk, m)
     if TERMINALS is not None and len(entries):
         S, z0 = TERMINALS.transform(f, S, list(entries[0]._portnumbers), DEEMBED), TERMINALS.zref
     return f, S, z0, data
@@ -3191,16 +3247,37 @@ MULTI_TERMINAL_PORTS = False           # a port with several signal conductors i
 DEEMBED: dict[int, float] = {}         # port number -> de-embedding distance (terminal designs)
 
 
-def _record_port_data(entry, freq: float) -> None:
+def _record_port_data(entry, freq: float, m=None) -> None:
     """Propagation constant and port impedance of every port mode of one solved frequency."""
     try:
         if entry.beta is not None:
             beta = np.asarray(entry.beta, complex).ravel()
-            BETA[float(freq)] = beta
             z = np.asarray(entry.Z0, complex).ravel() if entry.Z0 is not None else np.full(len(beta), np.nan)
+            if m is not None:
+                beta, z = _mode_constants(m, freq, beta.copy(), z.copy())
+            BETA[float(freq)] = beta
             PORT_RECORDS[float(freq)] = (1j * beta, z)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _mode_constants(m, freq: float, beta: np.ndarray, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """EMerge records the propagation constant and impedance of a port's first mode for all its S-matrix
+    rows; a wave port with several modes (each absorbed with its own propagation constant) gets those of
+    each mode here, in the order of the S-matrix rows."""
+    from emerge._emerge.physics.microwave.bcs.port_bcs import MultiModeWavePort
+    k0 = 2 * np.pi * float(freq) / C0
+    for i, (port, _, mode_nr) in enumerate(m.mw.bc.iter_port_modes()):
+        if i >= len(beta) or not isinstance(port, MultiModeWavePort):
+            continue
+        try:
+            beta[i] = port.get_beta(k0, mode_nr)
+            md = port.get_modes(k0)[mode_nr - 1]
+            if md.Z0 is not None and np.isfinite(md.Z0):
+                z[i] = md.Z0
+        except Exception:  # noqa: BLE001
+            pass
+    return beta, z
 
 
 
