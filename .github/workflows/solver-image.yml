@@ -4,10 +4,14 @@
 #  - push to dev:  :dev and :dev-<short sha>
 #  - push to main: :<version> and :latest
 #  - by hand from the Actions tab (Run workflow) on any branch: :dev-<short sha>
+#  - pull requests to dev or main: built (with the warm-up solves) but not published
 name: Solver image
 
 on:
   push:
+    branches: [dev, main]
+    paths: ["hertzon/**", "pyproject.toml", "packaging/docker/**", ".github/workflows/solver-image.yml"]
+  pull_request:
     branches: [dev, main]
     paths: ["hertzon/**", "pyproject.toml", "packaging/docker/**", ".github/workflows/solver-image.yml"]
   workflow_dispatch:
@@ -37,6 +41,7 @@ jobs:
           echo "version=$VER" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -45,7 +50,7 @@ jobs:
         with:
           context: .
           file: packaging/docker/Dockerfile
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
