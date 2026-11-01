@@ -5,6 +5,22 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.3.0 (2026-11-01)
+
+### Highlights
+- **Tune with sliders, live**: compute the derivatives once, then move design variables with sliders and every
+  open report (S-parameters, Smith chart, radiation pattern, antenna parameters) follows in real time. It works
+  with Hertzon's own mesh deformation instead of remeshing, which suits optimization very well; more built on it is coming.
+  (Introduced in 0.2.9.)
+- **New optimizer, Derivative Trust Region**: minimizes the goals on the derivative tuning model and checks each
+  step with one solve. The patch antenna wizard (Tools > Antenna Design > Rectangular Patch) starts from the
+  textbook design formulas and is optimized after only 2-3 simulations.
+- **Solving in the cloud**: Hertzon starts a cloud server, solves there and deletes it again. Tested with Hetzner
+  Cloud; Amazon Web Services, Google Cloud and Microsoft Azure are implemented but untested, feedback welcome.
+  Large servers and HPC clusters for studies are in progress.
+- **Apply to Design keeps the solution**, and Solution Data lists every variation and optimization evaluation.
+- **Wave ports with several modes** and **eigenmode setups** fixed.
+
 ### Added
 - **Showcase project** brought up to date: Derivative Trust Region optimizations (goals on S-parameters, antenna parameters and output variables), output variables with S, Y, Z and VSWR, reports against a design variable, report axis settings, bandwidth and delta markers, SPARTA matrix solvers, ports-only setups, Edit Sources, Rotate / Sweep Around Axis in a coordinate system, and two new designs: a terminal differential pair (reference conductor, mixed-mode S-parameters) and a waveguide with two-mode wave ports (TE10 and TE01). The iris filter's first port has one mode again (the half model has no second mode, the solve failed) and the geometry zoo solves again (loft to an ellipse, a gap around the kept Subtract tool).
 - **Tools > Antenna Design > Rectangular Patch** optimizes patch length and inset at the design frequency
@@ -40,6 +56,9 @@ the GitHub release notes.
   size with vCPUs, cores, memory and the pay-as-you-go price in EUR. Hertzon creates the network once per
   region and per server an address, a network card and an Ubuntu machine that installs Docker and the solver
   image; deleting the machine deletes the rest. The server deletes itself with the service principal.
+- **S Parameter menu on the Equation page** (Fields Calculator, new Network group): lists S(i, j) for every
+  port pair, with Y, Z and VSWR in submenus, from the solved data or the design's ports; a click inserts the
+  term into the equation.
 - **Optimizer "Derivative Trust Region"**: every round solves the design, computes its derivative tuning
   model and minimizes the goals on the model (milliseconds per evaluation) within a part of the tuning
   range; the step is checked with a solve, and the region grows or shrinks with the agreement. On the patch
