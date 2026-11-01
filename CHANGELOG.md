@@ -6,9 +6,11 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
-- **Tools > Antenna Design > Rectangular Patch** now adds its optimization of patch length and inset with
-  the Derivative Trust Region optimizer instead of Conjugate Gradient (the start design is close to the
-  goal; the optimization is named PatchOpt).
+- **Tools > Antenna Design > Rectangular Patch** optimizes patch length and inset at the design frequency
+  only, on the adaptive solution (no sweep is solved per evaluation), with the Derivative Trust Region
+  instead of Conjugate Gradient (named PatchOpt). The dialog no longer asks for a bandwidth, a return loss
+  over the band and the sweep span: they only served the band goal; the ±15 % sweep stays for looking at
+  the resonance.
 - **Solver image for cloud computers**: `ghcr.io/c8501024/hertzon-solver` (`:<version>`, `:dev`) holds the
   headless solver with the remote service and precompiled kernels; a Linux computer with Docker solves for
   the GUI without a Hertzon installation (`docker run ... -e HERTZON_TOKEN=...`, see docs/REMOTE.md). Built
@@ -18,6 +20,8 @@ the GitHub release notes.
   deletes it when it closes and the server deletes itself when idle, hung or without a GUI (watchdog). The
   connection is an SSH tunnel with a host key known in advance. **Solve on** offers the cloud next to this
   computer and a remote computer. See docs/REMOTE.md.
+- **Amazon Web Services, Google Cloud and Microsoft Azure are marked *(untested)***: only Hetzner Cloud has
+  been tried with a real account; the Cloud tab warns to use the others at your own risk.
 - **Solving in the cloud on Amazon Web Services**: Tools > Options > Cloud > Provider *Amazon Web Services*
   with the access key of an IAM user (policy in docs/REMOTE.md), region and instance type with vCPUs,
   physical cores, memory and on-demand price. Hertzon starts an Ubuntu instance in the default VPC that
@@ -50,6 +54,10 @@ the GitHub release notes.
 - **Results > Solution Data** has a *Design Variation* list: next to the current design it shows every
   solved parametric variation and every optimization evaluation, with its passes (Convergence), Matrix
   Data, Profile and Mesh Statistics, without changing the design.
+- **Tools > Options** opens at once. It used to wait for the check whether this computer's remote service
+  runs (on Windows a refused connection to this computer alone takes about two seconds), for the host name
+  lookup of the share addresses and for the scan of the installed SPARTA version. These now run in the
+  background; their fields show "Checking ..." for a moment and the buttons that depend on them wait.
 - A parallel frequency sweep with the matrix solver set to PARDISO warned for every frequency that
   the solver "cannot be used in MultiThreading as it does not release the GIL". The worker threads use
   PARDISO through the automatic choice anyway; the warning is gone and the results are unchanged.

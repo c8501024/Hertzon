@@ -790,6 +790,7 @@ class OptionsDialog(QDialog):
     """Tools > Options: HPC and analysis, modeler and general settings (stored per user)."""
     from PySide6.QtCore import Signal as _Signal
     remoteInfo = _Signal(object)          # info dict of the remote computer, or the error text
+    _bgDone = _Signal(object, object)     # (callback, result) of work done in a background thread
 
     def __init__(self, win, parent=None):
         super().__init__(parent)
@@ -797,6 +798,9 @@ class OptionsDialog(QDialog):
         from PySide6.QtWidgets import QSpinBox
         self.setWindowTitle("Options")
         self.win = win
+        # Everything that may wait for the network or the disk (the local remote service, the network
+        # addresses, the installed SPARTA version) runs in background threads: the dialog opens at once.
+        self._bgDone.connect(self._bg_done)
         s = win.settings
         ncpu = os.cpu_count() or 1
         tabs = QTabWidget()
@@ -959,8 +963,17 @@ class OptionsDialog(QDialog):
         lay.addWidget(bb)
 
     def _sparta_status(self, note: str = "") -> None:
+        """The installed SPARTA version, looked up in the background (it scans the installed packages)."""
         from ..solver import sparta_setup
-        v = sparta_setup.installed_version()
+        self.sparta_state.setText(note or "Checking ...")
+        self.sparta_install.setText("Install SPARTA")
+        self.sparta_install.setEnabled(False)
+        self._background(sparta_setup.installed_version, lambda v: self._sparta_show(v, note))
+
+    def _sparta_show(self, v: str | None, note: str = "") -> None:
+        from ..solver import sparta_setup
+        if self._sparta_proc is None:
+            self.sparta_install.setEnabled(True)
         self.sparta_state.setText(note or (f"SPARTA {v} installed" if v else "Not installed"))
         self.sparta_install.setText("Update SPARTA" if v and v != sparta_setup.VERSION else
                                     "Reinstall SPARTA" if v else "Install SPARTA")
@@ -997,20 +1010,56 @@ class OptionsDialog(QDialog):
     def _share_status(self, info: dict | None = None, checked: bool = False) -> None:
         from ..remote import local
         from ..remote.__main__ import autostart_enabled
-        if not checked:
-            info = local.status()
-        self._share_running = info is not None
-        self.share_state.setText(f"Running: Hertzon {info.get('hertzon')}, {info.get('cores')} cores"
-                                 + (", solving" if info.get("busy") else "") if info else "Not running")
-        self.share_btn.setText("Stop Service" if info else "Start Service")
-        self.share_addr.setText("  or  ".join(local.share_addresses()))
-        self.share_token.setText(local.token())
-        code = local.pairing_code() if info else ""
-        self.share_code.setText(f"<b style='font-size:14pt; letter-spacing:3px'>{code[:3]} {code[3:]}</b>"
-                                if code else "(shown while the service runs)")
         if not hasattr(self, "_share_auto0"):
             self._share_auto0 = autostart_enabled()
             self.share_auto.setChecked(self._share_auto0)
+            self.share_token.setText(local.token())
+        if not checked:
+            # asking the service can take seconds (on Windows a refused connection to this computer
+            # alone takes about two), and so can the host name lookup of the addresses
+            self.share_state.setText("Checking ...")
+            self.share_btn.setEnabled(False)
+            if not getattr(self, "_share_addrs", None):
+                self.share_addr.setText("...")
+            self._background(lambda: (local.status(), local.share_addresses()),
+                             lambda r: self._share_show(*r))
+            return
+        self._share_show(info)
+
+    def _share_show(self, info: dict | None, addrs: list[str] | None = None) -> None:
+        from ..remote import local
+        if addrs is not None:
+            self._share_addrs = addrs
+        self._share_running = info is not None
+        self.share_btn.setEnabled(True)
+        self.share_state.setText(f"Running: Hertzon {info.get('hertzon')}, {info.get('cores')} cores"
+                                 + (", solving" if info.get("busy") else "") if info else "Not running")
+        self.share_btn.setText("Stop Service" if info else "Start Service")
+        self.share_addr.setText("  or  ".join(getattr(self, "_share_addrs", None) or local.share_addresses()))
+        code = local.pairing_code() if info else ""
+        self.share_code.setText(f"<b style='font-size:14pt; letter-spacing:3px'>{code[:3]} {code[3:]}</b>"
+                                if code else "(shown while the service runs)")
+
+    def _background(self, work, done) -> None:
+        """Run WORK() in a thread and DONE(result) in the GUI thread afterwards (not when the dialog is gone)."""
+        import threading
+
+        def run():
+            try:
+                res = work()
+            except Exception:  # noqa: BLE001  (the field keeps "Checking ..."; never from this thread to the GUI)
+                return
+            try:
+                self._bgDone.emit(done, res)
+            except RuntimeError:                       # the dialog is closed meanwhile
+                pass
+        threading.Thread(target=run, daemon=True).start()
+
+    def _bg_done(self, done, res) -> None:
+        try:
+            done(res)
+        except RuntimeError:                           # a widget of the closed dialog is gone
+            pass
 
     def _toggle_share(self) -> None:
         from PySide6.QtCore import Qt as _Qt
@@ -1099,7 +1148,7 @@ class OptionsDialog(QDialog):
                                      "location": loc, "type": stype}
         self.cloud_provider = QComboBox()
         for key, name in providers.NAMES.items():
-            self.cloud_provider.addItem(name, key)
+            self.cloud_provider.addItem(f"{name} (untested)" if key in providers.UNTESTED else name, key)
         f.addRow("Provider", self.cloud_provider)
         self.cloud_token = QLineEdit()
         self.cloud_secret = QLineEdit()
@@ -1228,7 +1277,9 @@ class OptionsDialog(QDialog):
         self.cloud_token_label.setText({"aws": "Access key", "gcp": "Key file",
                                         "azure": "Service principal"}.get(key, "API token"))
         self.cloud_location_label.setText({"aws": "Region", "gcp": "Zone", "azure": "Region"}.get(key, "Location"))
-        self.cloud_how.setText(self.HOW[key])
+        from ..remote.cloud import providers
+        warn = f'<p style="color:#c0392b">{providers.WARNING}</p>' if key in providers.UNTESTED else ""
+        self.cloud_how.setText(warn + self.HOW[key])
         self._cloud_types = []
         for box, val in ((self.cloud_location, v["location"]), (self.cloud_type, v["type"])):
             box.blockSignals(True)
