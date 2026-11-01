@@ -80,8 +80,36 @@ then on your laptop `ssh -L 47820:localhost:47820 user@server`, and in Tools > O
 through the SSH tunnel. Cores and parallel sweep processes: all cores and 2 by default; to change them, append
 the command `python -m hertzon.remote serve --cores 16 --sweep-workers 4` to `docker run`.
 
-Creating and removing such servers from the GUI (the API key of a cloud account in Tools > Options, a
-server per session that removes itself when idle) builds on this image and is in progress.
+## Solving in the cloud (Hetzner Cloud)
+
+Hertzon can create such a server itself, use it for the analyses of a session and delete it again; you pay
+the provider per hour of the server and install nothing. Amazon Web Services, Google Cloud and Microsoft Azure
+follow.
+
+1. At [console.hetzner.cloud](https://console.hetzner.cloud/) create a project only for Hertzon, then
+   Security > API tokens > Generate API token with *Read & Write*.
+2. Tools > Options > **Cloud**: paste the token, press **Check Account** (loads locations and server types
+   with their prices), choose location and server type (for example ccx33: 8 dedicated vCPUs, 32 GB), tick
+   **Solve in the cloud**. **Solve on** in the status bar switches between this computer, a remote computer
+   and the cloud at any time.
+
+The first analysis creates the server and waits for it (one to three minutes: the server starts and pulls
+the solver image); the progress window shows the steps. Further analyses use it at once. The server is
+deleted
+
+- when Hertzon closes,
+- by itself, when no analysis ran for *idle* minutes (30), when the solver showed no progress for some hours
+  (2: hung), or when no Hertzon was connected for some hours (48: a crashed or disconnected GUI),
+- with **Delete Cloud Servers** in the Cloud tab (every server Hertzon created in this project).
+
+For the self-deletion the server gets the API token; that is why a project only for Hertzon is recommended
+(the token can do nothing outside it). Hertzon keeps the token in its settings of this user.
+
+The connection is an SSH tunnel: Hertzon creates an SSH key for this computer (in the work folder,
+`cloud/id_ed25519`) and a host key for every server, which the server receives at its creation, so the
+connection is encrypted and checked from the first packet. The remote service listens only inside the server.
+Hertzon uses the `ssh` and `ssh-keygen` programs of the operating system (Windows 10 and later: *OpenSSH
+Client*, normally installed; Linux: `openssh-client`).
 
 To build the image yourself: `docker build -f packaging/docker/Dockerfile -t hertzon-solver .` in the
 repository folder.

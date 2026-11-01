@@ -920,6 +920,7 @@ class OptionsDialog(QDialog):
         f.addRow(share)
         self._share_status()
         tabs.addTab(rem, "Remote")
+        tabs.addTab(self._cloud_tab(s), "Cloud")
         self._ask_remote() if self.remote_on.isChecked() else self._hpc_remote_state()
 
         mod = QWidget()
@@ -1074,6 +1075,157 @@ class OptionsDialog(QDialog):
         self.remote_addr.setText(sel["address"])          # the name does not resolve here: use the address
         self._test_remote()
 
+    # ---- Cloud tab ----------------------------------------------------------------------------------
+    def _cloud_tab(self, s) -> QWidget:
+        from PySide6.QtWidgets import QDoubleSpinBox
+        from ..remote.cloud.hetzner import DEFAULT_LOCATION, DEFAULT_TYPE
+        w = QWidget()
+        f = QFormLayout(w)
+        self.cloud_on = QCheckBox("Solve in the cloud")
+        self.cloud_on.setToolTip("The first analysis creates a server at the cloud provider (one to three "
+                                 "minutes);\nfurther analyses use it at once. It is deleted when Hertzon closes "
+                                 "or when it is idle.")
+        self.cloud_on.setChecked(s.value("cloud/enabled", False, type=bool))
+        self.cloud_on.toggled.connect(lambda on: on and self.remote_on.setChecked(False))
+        self.remote_on.toggled.connect(lambda on: on and self.cloud_on.setChecked(False))
+        self.cloud_on.toggled.connect(lambda _on: self._hpc_remote_state())
+        f.addRow("", self.cloud_on)
+        self.cloud_provider = QComboBox()
+        self.cloud_provider.addItem("Hetzner Cloud", "hetzner")
+        self.cloud_provider.setToolTip("Amazon Web Services, Google Cloud and Microsoft Azure follow")
+        f.addRow("Provider", self.cloud_provider)
+        self.cloud_token = QLineEdit(s.value("cloud/hetzner_token", ""))
+        self.cloud_token.setEchoMode(QLineEdit.Password)
+        self.cloud_token.setPlaceholderText("API token (Read & Write)")
+        check = QPushButton("Check Account")
+        check.clicked.connect(self._cloud_check)
+        row = QHBoxLayout()
+        row.addWidget(self.cloud_token, 1)
+        row.addWidget(check)
+        f.addRow("API token", row)
+        how = QLabel('<a href="https://console.hetzner.cloud/">console.hetzner.cloud</a>: create a project '
+                     'only for Hertzon, then Security &gt; API tokens &gt; Generate (Read &amp; Write). The '
+                     "servers get the token to delete themselves; it can do nothing outside this project.")
+        how.setOpenExternalLinks(True)
+        how.setWordWrap(True)
+        f.addRow(how)
+        self.cloud_location = QComboBox()
+        self.cloud_location.setEditable(True)
+        self.cloud_location.addItem(s.value("cloud/location", DEFAULT_LOCATION))
+        self.cloud_type = QComboBox()
+        self.cloud_type.setEditable(True)
+        self.cloud_type.addItem(s.value("cloud/server_type", DEFAULT_TYPE))
+        self._cloud_types: list[dict] = []
+        self.cloud_location.currentIndexChanged.connect(lambda _i: self._cloud_fill_types())
+        f.addRow("Location", self.cloud_location)
+        f.addRow("Server type", self.cloud_type)
+
+        def spin(value, lo, hi, suffix, decimals=0):
+            sp = QDoubleSpinBox()
+            sp.setRange(lo, hi)
+            sp.setDecimals(decimals)
+            sp.setSuffix(suffix)
+            sp.setValue(float(value))
+            return sp
+        self.cloud_idle = spin(s.value("cloud/idle_min", 30), 5, 1440, " min")
+        self.cloud_quiet = spin(s.value("cloud/quiet_h", 2), 0.5, 48, " h", 1)
+        self.cloud_contact = spin(s.value("cloud/contact_h", 48), 1, 720, " h")
+        f.addRow("Delete the server when idle for", self.cloud_idle)
+        f.addRow("... when the solver shows no progress for", self.cloud_quiet)
+        f.addRow("... when no Hertzon is connected for", self.cloud_contact)
+        self.cloud_state = QLabel("Check Account lists them")
+        self.cloud_state.setWordWrap(True)
+        self.cloud_state.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        delete = QPushButton("Delete Cloud Servers")
+        delete.setToolTip("Deletes every server Hertzon created in this project (also those of other computers)")
+        delete.clicked.connect(self._cloud_delete_all)
+        f.addRow("Servers", self.cloud_state)
+        f.addRow("", delete)
+        note = QLabel("Billing is per hour of the server, from its creation to its deletion. Hertzon deletes "
+                      "it when it closes; the server also deletes itself in the cases above, so a crashed or "
+                      "disconnected Hertzon leaves nothing running. The connection is an SSH tunnel (encrypted, "
+                      "the server's key is known in advance). Cores and sweep processes: all of the server and 2.")
+        note.setWordWrap(True)
+        f.addRow(note)
+        return w
+
+    def _cloud_provider(self):
+        from ..remote.cloud.hetzner import Hetzner
+        return Hetzner(self.cloud_token.text())
+
+    def _cloud_check(self) -> None:
+        """Check the token, load locations and server types with prices, list Hertzon's servers."""
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QApplication
+        from ..remote.client import RemoteError
+        QApplication.setOverrideCursor(_Qt.WaitCursor)
+        try:
+            prov = self._cloud_provider()
+            locs = prov.locations()
+            self._cloud_types = prov.server_types()
+            servers = prov.servers()
+        except RemoteError as ex:
+            self.cloud_state.setText(str(ex))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        cur = self.cloud_location.currentText().split()[0] if self.cloud_location.currentText() else ""
+        self.cloud_location.blockSignals(True)
+        self.cloud_location.clear()
+        for loc in locs:
+            self.cloud_location.addItem(f"{loc['name']}  ({loc['city']}, {loc['country']})", loc["name"])
+        i = self.cloud_location.findData(cur)
+        self.cloud_location.setCurrentIndex(max(0, i))
+        self.cloud_location.blockSignals(False)
+        self._cloud_fill_types()
+        self._cloud_servers(servers)
+
+    def _cloud_fill_types(self) -> None:
+        if not self._cloud_types:
+            return
+        loc = self.cloud_location.currentData() or self.cloud_location.currentText().split()[0]
+        cur = self.cloud_type.currentData() or self.cloud_type.currentText().split()[0]
+        self.cloud_type.clear()
+        for t in self._cloud_types:
+            price = t["prices"].get(loc)
+            if price is None:
+                continue
+            kind = "dedicated" if t["dedicated"] else "shared"
+            self.cloud_type.addItem(f"{t['name']}  ({t['cores']} {kind} vCPU, {t['memory']:g} GB, "
+                                    f"{price:.3f} EUR/h)", t["name"])
+        i = self.cloud_type.findData(cur)
+        self.cloud_type.setCurrentIndex(max(0, i))
+
+    def _cloud_servers(self, servers: list[dict]) -> None:
+        if not servers:
+            self.cloud_state.setText("Connected; no Hertzon server is running.")
+            return
+        self.cloud_state.setText("Running: " + ", ".join(
+            f"{x['name']} ({x['type']}, {x['status']}, from {x['client'] or '?'})" for x in servers))
+
+    def _cloud_delete_all(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+        from ..remote.client import RemoteError
+        try:
+            prov = self._cloud_provider()
+            servers = prov.servers()
+            if not servers:
+                self._cloud_servers([])
+                return
+            names = ", ".join(x["name"] for x in servers)
+            if QMessageBox.question(self, "Delete Cloud Servers",
+                                    f"Delete {names}? Analyses running there are lost.") != QMessageBox.Yes:
+                return
+            for x in servers:
+                prov.delete(x["id"])
+            cloud = getattr(self.win, "_cloud", None)
+            if cloud is not None:
+                cloud[1].tunnel.close()
+                cloud[1].state_file.unlink(missing_ok=True)
+            self._cloud_servers(prov.servers())
+        except RemoteError as ex:
+            self.cloud_state.setText(str(ex))
+
     def _ask_remote(self) -> None:
         """Fetch the HPC settings of the remote computer in the background (shown on the HPC tab)."""
         import threading
@@ -1099,12 +1251,19 @@ class OptionsDialog(QDialog):
         the fields here are greyed out and the note shows the remote computer's values."""
         if info is not None:
             self._remote_info = info
-        on = self.remote_on.isChecked() and bool(self.remote_addr.text().strip())
+        cloud = getattr(self, "cloud_on", None) is not None and self.cloud_on.isChecked()
+        on = cloud or (self.remote_on.isChecked() and bool(self.remote_addr.text().strip()))
         for w in (self.all_cores, self.workers):
             w.setEnabled(not on)
         self.cores.setEnabled(not on and not self.all_cores.isChecked())
         self.hpc_remote.setVisible(on)
         if not on:
+            return
+        if cloud:
+            self.hpc_remote.setText(
+                "\u24d8 Analyses run on a cloud server (Cloud tab). They use all of its cores and 2 parallel "
+                "sweep processes. A setup's <i>Solver threads</i> and matrix solver travel with the project and "
+                "still apply.<br>The fields below are for analyses on this computer.")
             return
         addr = self.remote_addr.text().strip()
         info = self._remote_info
@@ -1152,6 +1311,15 @@ class OptionsDialog(QDialog):
         s.setValue("remote/enabled", self.remote_on.isChecked())
         s.setValue("remote/address", self.remote_addr.text().strip())
         s.setValue("remote/token", self.remote_token.text().strip())
+        s.setValue("cloud/enabled", self.cloud_on.isChecked() and bool(self.cloud_token.text().strip()))
+        s.setValue("cloud/hetzner_token", self.cloud_token.text().strip())
+        s.setValue("cloud/location", self.cloud_location.currentData() or
+                   (self.cloud_location.currentText().split() or ["fsn1"])[0])
+        s.setValue("cloud/server_type", self.cloud_type.currentData() or
+                   (self.cloud_type.currentText().split() or ["ccx33"])[0])
+        s.setValue("cloud/idle_min", self.cloud_idle.value())
+        s.setValue("cloud/quiet_h", self.cloud_quiet.value())
+        s.setValue("cloud/contact_h", self.cloud_contact.value())
         if self.share_auto.isChecked() != self._share_auto0:
             import contextlib
             import io

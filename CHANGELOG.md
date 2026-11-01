@@ -10,6 +10,11 @@ the GitHub release notes.
   headless solver with the remote service and precompiled kernels; a Linux computer with Docker solves for
   the GUI without a Hertzon installation (`docker run ... -e HERTZON_TOKEN=...`, see docs/REMOTE.md). Built
   by `.github/workflows/solver-image.yml`.
+- **Solving in the cloud (Hetzner Cloud)**: Tools > Options > Cloud with the project's API token; the first
+  analysis creates a server (location and type with prices from the account), further ones use it, Hertzon
+  deletes it when it closes and the server deletes itself when idle, hung or without a GUI (watchdog). The
+  connection is an SSH tunnel with a host key known in advance. **Solve on** offers the cloud next to this
+  computer and a remote computer. See docs/REMOTE.md.
 - **Optimizer "Derivative Trust Region"**: every round solves the design, computes its derivative tuning
   model and minimizes the goals on the model (milliseconds per evaluation) within a part of the tuning
   range; the step is checked with a solve, and the region grows or shrinks with the agreement. On the patch

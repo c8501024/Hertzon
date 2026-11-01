@@ -162,8 +162,8 @@ class MainWindow(QMainWindow):
         self.hint = QLabel("Ready")
         sb.addWidget(self.hint, 1)
         self.solve_on = QComboBox()
-        self.solve_on.setToolTip("Where analyses run: this computer or a remote computer in the network\n"
-                                 "(Tools > Options > Remote)")
+        self.solve_on.setToolTip("Where analyses run: this computer, a remote computer in the network\n"
+                                 "(Tools > Options > Remote) or a cloud server (Tools > Options > Cloud)")
         self.solve_on.activated.connect(self._solve_on_chosen)
         sb.addPermanentWidget(QLabel("Solve on:"))
         sb.addPermanentWidget(self.solve_on)
@@ -1318,30 +1318,39 @@ class MainWindow(QMainWindow):
         self.settings.setValue("edit_new_primitives", v)
 
     def _fill_solve_on(self) -> None:
-        """Status bar: This computer / the remote computer / Set up ..."""
+        """Status bar: This computer / the remote computer / the cloud / Set up ..."""
         box = getattr(self, "solve_on", None)
         if box is None:
             return
-        addr = str(self.settings.value("remote/address", "") or "")
+        s = self.settings
+        addr = str(s.value("remote/address", "") or "")
         box.blockSignals(True)
         box.clear()
-        box.addItem("This computer")
+        box.addItem("This computer", "local")
         if addr:
-            box.addItem(addr)
-        box.addItem("Remote computer ..." if not addr else "Other remote computer ...")
-        box.setCurrentIndex(1 if addr and self.solver.remote is not None else 0)
+            box.addItem(addr, "remote")
+        if s.value("cloud/hetzner_token", ""):
+            box.addItem(f"Hetzner Cloud ({s.value('cloud/server_type', 'ccx33')})", "cloud")
+        box.addItem("Remote computer ..." if not addr else "Other remote computer ...", "setup-remote")
+        box.addItem("Cloud ...", "setup-cloud")
+        r = self.solver.remote
+        now = "local" if r is None else ("cloud" if hasattr(r, "ensure") else "remote")
+        box.setCurrentIndex(max(0, box.findData(now)))
         box.blockSignals(False)
 
     def _solve_on_chosen(self, i: int) -> None:
-        addr = str(self.settings.value("remote/address", "") or "")
-        if i == self.solve_on.count() - 1:          # set up a remote computer
-            self.options(tab="Remote")
+        what = self.solve_on.itemData(i)
+        if what in ("setup-remote", "setup-cloud"):
+            self.options(tab="Remote" if what == "setup-remote" else "Cloud")
             self._fill_solve_on()
             return
-        self.settings.setValue("remote/enabled", i == 1 and bool(addr))
+        self.settings.setValue("remote/enabled", what == "remote")
+        self.settings.setValue("cloud/enabled", what == "cloud")
         self.apply_hpc_settings()
-        self.msgs.add("info", f"Analyses run on {addr}" if self.solver.remote is not None else
-                      "Analyses run on this computer")
+        r = self.solver.remote
+        self.msgs.add("info", "Analyses run on this computer" if r is None else f"Analyses run on {r.address}"
+                      + (" (the server is created with the first analysis and deleted when idle)"
+                         if hasattr(r, "ensure") else ""))
 
     def options(self, tab: str = "") -> None:
         from .dialogs import OptionsDialog
@@ -1471,11 +1480,33 @@ class MainWindow(QMainWindow):
         except Exception:  # noqa: BLE001
             pass
         self.solver.remote = None
-        addr = str(self.settings.value("remote/address", "") or "")
-        if self.settings.value("remote/enabled", False, type=bool) and addr:
+        s = self.settings
+        addr = str(s.value("remote/address", "") or "")
+        if s.value("cloud/enabled", False, type=bool) and s.value("cloud/hetzner_token", ""):
+            from ..remote.cloud import CloudHost
+            self.solver.remote = CloudHost(self.cloud_session())
+        elif s.value("remote/enabled", False, type=bool) and addr:
             from ..remote.client import RemoteHost
-            self.solver.remote = RemoteHost(addr, str(self.settings.value("remote/token", "") or ""))
+            self.solver.remote = RemoteHost(addr, str(s.value("remote/token", "") or ""))
         self._fill_solve_on()
+
+    def cloud_session(self):
+        """The cloud session of the settings in Tools > Options > Cloud (kept while they do not change, so
+        its server and SSH tunnel are reused)."""
+        from ..remote.cloud import CloudSession
+        from ..remote.cloud.hetzner import DEFAULT_LOCATION, DEFAULT_TYPE, Hetzner
+        s = self.settings
+        key = (str(s.value("cloud/hetzner_token", "") or "").strip(), str(s.value("cloud/server_type", DEFAULT_TYPE)),
+               str(s.value("cloud/location", DEFAULT_LOCATION)), float(s.value("cloud/idle_min", 30)),
+               float(s.value("cloud/contact_h", 48)), float(s.value("cloud/quiet_h", 2)))
+        old = getattr(self, "_cloud", None)
+        if old is not None and old[0] == key:
+            return old[1]
+        if old is not None:
+            old[1].tunnel.close()
+        session = CloudSession(Hetzner(key[0]), key[1], key[2], idle_min=key[3], contact_h=key[4], quiet_h=key[5])
+        self._cloud = (key, session)
+        return session
 
     def _restore_settings(self) -> None:
         s = self.settings
@@ -1879,11 +1910,29 @@ class MainWindow(QMainWindow):
             self._save_window_settings()
             if self.solver.busy:
                 self.solver.abort()
+            self._delete_cloud_server()
             self._drop_autosave()
             self.ai_link.stop()
             ev.accept()
         else:
             ev.ignore()
+
+    def _delete_cloud_server(self) -> None:
+        """Hertzon closes: delete the cloud server of this session (its watchdog would do it when idle)."""
+        cloud = getattr(self, "_cloud", None)
+        if cloud is None or not cloud[1].state():
+            return
+        import threading
+        done = threading.Event()
+
+        def run():
+            try:
+                cloud[1].delete()
+            except Exception:  # noqa: BLE001
+                pass                    # the server's watchdog deletes it when idle
+            done.set()
+        threading.Thread(target=run, daemon=True).start()
+        done.wait(15)
 
     def import_geometry(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Import", "", "CAD (*.step *.stp *.iges *.igs *.brep *.stl);;STL (*.stl)")
