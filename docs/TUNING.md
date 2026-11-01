@@ -6,6 +6,7 @@ values. Sliders then move design variables, and every open report follows live. 
 Smith charts, data tables, radiation patterns and antenna parameters. A report can also plot a quantity
 against a variable instead of frequency.
 
+The same model can drive an optimizer ([Optimize with the tuning model](#optimize-with-the-tuning-model)).
 A step-by-step example (patch length and inset of a patch antenna) is in the
 [tutorial](TUTORIAL.md#10-tune-a-patch-antenna-with-sliders). This page describes the workflow in
 detail, then the method, its accuracy and its limits.
@@ -66,6 +67,48 @@ their slider values (their solved values while the panel is closed).
 
 This works without the tuning panel open, from the stored model. An S-parameter plot has 101 points.
 An Antenna Parameters plot has 41, because every point needs its own far field.
+
+## Optimize with the tuning model
+
+The optimizer **Derivative Trust Region** (Optimization > Add Optimization > Optimizer tab) uses the tuning
+model instead of many solves. Goals, variables and cost function are the same as for Conjugate Gradient.
+Every round:
+
+1. **Solve** the design.
+2. **Compute its tuning model** on the adaptive mesh of that solve, with the included variables (at most 6).
+3. **Minimize the goals on the model.** One model evaluation costs a few milliseconds, so a search over the
+   variables (Powell's method from several starting points) takes about a second. The step stays within
+   the *trust region*: a fraction of each variable's tuning range, 60 % at the start, and within Min and
+   Max.
+4. **Check the step with a solve.** The ratio of the actual to the predicted improvement decides:
+   - at least 0.1: the step is taken, and the next round computes a new model around the new design;
+   - at least 0.75 with the step at the edge of the region: the region doubles (up to the whole range);
+   - below 0.25: the region halves. A rejected step reuses the current model.
+
+The optimizer stops when every goal is met (cost 0), when the model finds no further improvement, when the
+region becomes too small, or after *Maximum rounds*. A round costs one solve, plus one tuning model when
+the step is taken.
+
+Two examples on the patch antenna (variables Lp and inset, discrete sweep 2.2 to 2.7 GHz):
+
+- Lp = 28.5 mm, inset = 8 mm: the dip was at 2.475 GHz, S11 = −12.6 dB at 2.45 GHz. With the goal
+  dB(S(1,1)) ≤ −10 from 2.43 to 2.47 GHz, the first model step (Lp +0.18 mm, inset +0.36 mm) moved the dip to
+  2.45 GHz with −20.9 dB: two solves and one tuning model.
+- Lp = 31 mm, inset = 4 mm: the dip was at 2.275 GHz (−9.3 dB), S11 = −1.9 dB at 2.45 GHz. With the goal
+  ≤ −15 dB from 2.43 to 2.47 GHz, the first step shortened Lp by 2.4 mm, the next ones raised the inset to
+  8.8 mm. After six solves and five tuning models the dip was at 2.45 GHz with −34.9 dB (Lp = 28.79 mm). In
+  every round the solve confirmed the predicted improvement (ratio 0.5 to 1.2). The last two rounds were
+  small corrections: every solve refines its own mesh, so the solved cost moves a little from mesh to mesh.
+
+**Apply to Design** on an evaluation (Optimization results) sets its variables and takes its solution over as
+the solution of the setup, without solving again: S-parameters, reports, Solution Data and the adaptive
+passes, and for the best evaluation also the mesh and the fields at the adaptive frequency, so field overlays
+and **Derivative Tuning** work on it as after an analysis. **Results > Solution Data > Design Variation** lists
+every evaluation with its passes; while an optimization runs, it follows the evaluation being solved. The wizard **Tools > Antenna Design > Rectangular Patch** uses this optimizer with a goal at
+the design frequency only, on the adaptive solution, so no sweep is solved per round.
+
+Use it for designs that are near their goals already, for example from a design formula or a wizard. A
+variable that changes the topology, or a step beyond the tuning range, needs Conjugate Gradient.
 
 ## Method
 

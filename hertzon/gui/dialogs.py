@@ -790,6 +790,7 @@ class OptionsDialog(QDialog):
     """Tools > Options: HPC and analysis, modeler and general settings (stored per user)."""
     from PySide6.QtCore import Signal as _Signal
     remoteInfo = _Signal(object)          # info dict of the remote computer, or the error text
+    _bgDone = _Signal(object, object)     # (callback, result) of work done in a background thread
 
     def __init__(self, win, parent=None):
         super().__init__(parent)
@@ -797,6 +798,9 @@ class OptionsDialog(QDialog):
         from PySide6.QtWidgets import QSpinBox
         self.setWindowTitle("Options")
         self.win = win
+        # Everything that may wait for the network or the disk (the local remote service, the network
+        # addresses, the installed SPARTA version) runs in background threads: the dialog opens at once.
+        self._bgDone.connect(self._bg_done)
         s = win.settings
         ncpu = os.cpu_count() or 1
         tabs = QTabWidget()
@@ -920,6 +924,7 @@ class OptionsDialog(QDialog):
         f.addRow(share)
         self._share_status()
         tabs.addTab(rem, "Remote")
+        tabs.addTab(self._cloud_tab(s), "Cloud")
         self._ask_remote() if self.remote_on.isChecked() else self._hpc_remote_state()
 
         mod = QWidget()
@@ -958,8 +963,17 @@ class OptionsDialog(QDialog):
         lay.addWidget(bb)
 
     def _sparta_status(self, note: str = "") -> None:
+        """The installed SPARTA version, looked up in the background (it scans the installed packages)."""
         from ..solver import sparta_setup
-        v = sparta_setup.installed_version()
+        self.sparta_state.setText(note or "Checking ...")
+        self.sparta_install.setText("Install SPARTA")
+        self.sparta_install.setEnabled(False)
+        self._background(sparta_setup.installed_version, lambda v: self._sparta_show(v, note))
+
+    def _sparta_show(self, v: str | None, note: str = "") -> None:
+        from ..solver import sparta_setup
+        if self._sparta_proc is None:
+            self.sparta_install.setEnabled(True)
         self.sparta_state.setText(note or (f"SPARTA {v} installed" if v else "Not installed"))
         self.sparta_install.setText("Update SPARTA" if v and v != sparta_setup.VERSION else
                                     "Reinstall SPARTA" if v else "Install SPARTA")
@@ -996,20 +1010,56 @@ class OptionsDialog(QDialog):
     def _share_status(self, info: dict | None = None, checked: bool = False) -> None:
         from ..remote import local
         from ..remote.__main__ import autostart_enabled
-        if not checked:
-            info = local.status()
-        self._share_running = info is not None
-        self.share_state.setText(f"Running: Hertzon {info.get('hertzon')}, {info.get('cores')} cores"
-                                 + (", solving" if info.get("busy") else "") if info else "Not running")
-        self.share_btn.setText("Stop Service" if info else "Start Service")
-        self.share_addr.setText("  or  ".join(local.share_addresses()))
-        self.share_token.setText(local.token())
-        code = local.pairing_code() if info else ""
-        self.share_code.setText(f"<b style='font-size:14pt; letter-spacing:3px'>{code[:3]} {code[3:]}</b>"
-                                if code else "(shown while the service runs)")
         if not hasattr(self, "_share_auto0"):
             self._share_auto0 = autostart_enabled()
             self.share_auto.setChecked(self._share_auto0)
+            self.share_token.setText(local.token())
+        if not checked:
+            # asking the service can take seconds (on Windows a refused connection to this computer
+            # alone takes about two), and so can the host name lookup of the addresses
+            self.share_state.setText("Checking ...")
+            self.share_btn.setEnabled(False)
+            if not getattr(self, "_share_addrs", None):
+                self.share_addr.setText("...")
+            self._background(lambda: (local.status(), local.share_addresses()),
+                             lambda r: self._share_show(*r))
+            return
+        self._share_show(info)
+
+    def _share_show(self, info: dict | None, addrs: list[str] | None = None) -> None:
+        from ..remote import local
+        if addrs is not None:
+            self._share_addrs = addrs
+        self._share_running = info is not None
+        self.share_btn.setEnabled(True)
+        self.share_state.setText(f"Running: Hertzon {info.get('hertzon')}, {info.get('cores')} cores"
+                                 + (", solving" if info.get("busy") else "") if info else "Not running")
+        self.share_btn.setText("Stop Service" if info else "Start Service")
+        self.share_addr.setText("  or  ".join(getattr(self, "_share_addrs", None) or local.share_addresses()))
+        code = local.pairing_code() if info else ""
+        self.share_code.setText(f"<b style='font-size:14pt; letter-spacing:3px'>{code[:3]} {code[3:]}</b>"
+                                if code else "(shown while the service runs)")
+
+    def _background(self, work, done) -> None:
+        """Run WORK() in a thread and DONE(result) in the GUI thread afterwards (not when the dialog is gone)."""
+        import threading
+
+        def run():
+            try:
+                res = work()
+            except Exception:  # noqa: BLE001  (the field keeps "Checking ..."; never from this thread to the GUI)
+                return
+            try:
+                self._bgDone.emit(done, res)
+            except RuntimeError:                       # the dialog is closed meanwhile
+                pass
+        threading.Thread(target=run, daemon=True).start()
+
+    def _bg_done(self, done, res) -> None:
+        try:
+            done(res)
+        except RuntimeError:                           # a widget of the closed dialog is gone
+            pass
 
     def _toggle_share(self) -> None:
         from PySide6.QtCore import Qt as _Qt
@@ -1074,6 +1124,273 @@ class OptionsDialog(QDialog):
         self.remote_addr.setText(sel["address"])          # the name does not resolve here: use the address
         self._test_remote()
 
+    # ---- Cloud tab ----------------------------------------------------------------------------------
+    def _cloud_tab(self, s) -> QWidget:
+        from PySide6.QtWidgets import QDoubleSpinBox
+        from ..remote.cloud import providers
+        w = QWidget()
+        f = QFormLayout(w)
+        self.cloud_on = QCheckBox("Solve in the cloud")
+        self.cloud_on.setToolTip("The first analysis creates a server at the cloud provider (one to three "
+                                 "minutes);\nfurther analyses use it at once. It is deleted when Hertzon closes "
+                                 "or when it is idle.")
+        self.cloud_on.setChecked(s.value("cloud/enabled", False, type=bool))
+        self.cloud_on.toggled.connect(lambda on: on and self.remote_on.setChecked(False))
+        self.remote_on.toggled.connect(lambda on: on and self.cloud_on.setChecked(False))
+        self.cloud_on.toggled.connect(lambda _on: self._hpc_remote_state())
+        f.addRow("", self.cloud_on)
+        get = s.value
+        self._cloud_vals = {}                  # provider -> the fields, kept while another provider is shown
+        for key in providers.NAMES:
+            creds = providers.credentials(get, key)
+            stype, loc = providers.placement(get, key)
+            self._cloud_vals[key] = {"token": creds[0], "secret": creds[1] if len(creds) > 1 else "",
+                                     "location": loc, "type": stype}
+        self.cloud_provider = QComboBox()
+        for key, name in providers.NAMES.items():
+            self.cloud_provider.addItem(f"{name} (untested)" if key in providers.UNTESTED else name, key)
+        f.addRow("Provider", self.cloud_provider)
+        self.cloud_token = QLineEdit()
+        self.cloud_secret = QLineEdit()
+        self.cloud_secret.setEchoMode(QLineEdit.Password)
+        self.cloud_secret.setPlaceholderText("Secret access key")
+        self.cloud_browse = QPushButton("Browse ...")
+        self.cloud_browse.clicked.connect(self._cloud_browse_key)
+        check = QPushButton("Check Account")
+        check.clicked.connect(self._cloud_check)
+        row = QHBoxLayout()
+        row.addWidget(self.cloud_token, 1)
+        row.addWidget(self.cloud_secret, 1)
+        row.addWidget(self.cloud_browse)
+        row.addWidget(check)
+        self.cloud_token_label = QLabel("API token")
+        f.addRow(self.cloud_token_label, row)
+        self.cloud_how = QLabel()
+        self.cloud_how.setOpenExternalLinks(True)
+        self.cloud_how.setWordWrap(True)
+        f.addRow(self.cloud_how)
+        self.cloud_location = QComboBox()
+        self.cloud_location.setEditable(True)
+        self.cloud_type = QComboBox()
+        self.cloud_type.setEditable(True)
+        self._cloud_types: list[dict] = []
+        self.cloud_location.currentIndexChanged.connect(lambda _i: self._cloud_fill_types())
+        self.cloud_location_label = QLabel("Location")
+        f.addRow(self.cloud_location_label, self.cloud_location)
+        f.addRow("Server type", self.cloud_type)
+        self._cloud_shown = ""
+        self.cloud_provider.setCurrentIndex(max(0, self.cloud_provider.findData(providers.current(get))))
+        self.cloud_provider.currentIndexChanged.connect(lambda _i: self._cloud_show())
+        self._cloud_show()
+
+        def spin(value, lo, hi, suffix, decimals=0):
+            sp = QDoubleSpinBox()
+            sp.setRange(lo, hi)
+            sp.setDecimals(decimals)
+            sp.setSuffix(suffix)
+            sp.setValue(float(value))
+            return sp
+        self.cloud_idle = spin(s.value("cloud/idle_min", 30), 5, 1440, " min")
+        self.cloud_quiet = spin(s.value("cloud/quiet_h", 2), 0.5, 48, " h", 1)
+        self.cloud_contact = spin(s.value("cloud/contact_h", 48), 1, 720, " h")
+        f.addRow("Delete the server when idle for", self.cloud_idle)
+        f.addRow("... when the solver shows no progress for", self.cloud_quiet)
+        f.addRow("... when no Hertzon is connected for", self.cloud_contact)
+        self.cloud_state = QLabel("Check Account lists them")
+        self.cloud_state.setWordWrap(True)
+        self.cloud_state.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        delete = QPushButton("Delete Cloud Servers")
+        delete.setToolTip("Deletes every server Hertzon created in this project or region (also those of other "
+                          "computers)")
+        delete.clicked.connect(self._cloud_delete_all)
+        f.addRow("Servers", self.cloud_state)
+        f.addRow("", delete)
+        note = QLabel("Billing is for the time the server exists (Hetzner per hour, the others per second or "
+                      "minute). Hertzon deletes "
+                      "it when it closes; the server also deletes itself in the cases above, so a crashed or "
+                      "disconnected Hertzon leaves nothing running. The connection is an SSH tunnel (encrypted, "
+                      "the server's key is known in advance). Cores and sweep processes: all of the server and 2.")
+        note.setWordWrap(True)
+        f.addRow(note)
+        return w
+
+    HOW = {
+        "hetzner": ('<a href="https://console.hetzner.cloud/">console.hetzner.cloud</a>: create a project only '
+                    "for Hertzon, then Security &gt; API tokens &gt; Generate (Read &amp; Write). The servers get "
+                    "the token to delete themselves; it can do nothing outside this project."),
+        "aws": ('<a href="https://console.aws.amazon.com/iam/">AWS console &gt; IAM</a>: create a user only for '
+                "Hertzon with the policy in the Hertzon documentation (Remote computers &gt; AWS), then Security "
+                "credentials &gt; Create access key. The key stays on this computer; the servers delete "
+                "themselves by shutting down. New accounts may start only a few vCPUs: Service Quotas &gt; "
+                "Amazon EC2 &gt; Running On-Demand Standard instances."),
+        "gcp": ('<a href="https://console.cloud.google.com/">console.cloud.google.com</a>: create a project only '
+                "for Hertzon and enable the Compute Engine API; IAM &amp; Admin &gt; Service accounts &gt; Create, "
+                "with the roles Compute Instance Admin (v1) and Service Account User; then Keys &gt; Add key &gt; "
+                "JSON. If the project forbids keys: install the gcloud CLI, run <tt>gcloud auth "
+                "application-default login</tt> once (its file is found by itself) and enter the project ID. "
+                "The key stays on this computer; the servers delete themselves with their own account."),
+        "azure": ('<a href="https://portal.azure.com/">portal.azure.com</a>: create the resource group '
+                  "<b>hertzon</b>, then a service principal with the role Contributor on it only (Cloud Shell: "
+                  "<tt>az ad sp create-for-rbac --role Contributor --scopes /subscriptions/&lt;ID&gt;/"
+                  "resourceGroups/hertzon</tt>). Paste what it prints (or choose a file with it) and the "
+                  "subscription ID. The servers get it to delete themselves; it can do nothing outside the "
+                  "resource group."),
+    }
+
+    def _cloud_browse_key(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Credentials", self.cloud_token.text(),
+                                              "Key file (*.json);;All files (*)")
+        if path:
+            self.cloud_token.setText(path)
+
+    def _cloud_key(self) -> str:
+        return self.cloud_provider.currentData() or "hetzner"
+
+    def _cloud_field(self, box) -> str:
+        return box.currentData() or (box.currentText().split() or [""])[0]
+
+    def _cloud_store(self) -> None:
+        """Keep the fields of the provider shown now."""
+        if self._cloud_shown:
+            self._cloud_vals[self._cloud_shown] = {
+                "token": self.cloud_token.text().strip(), "secret": self.cloud_secret.text().strip(),
+                "location": self._cloud_field(self.cloud_location), "type": self._cloud_field(self.cloud_type)}
+
+    def _cloud_show(self) -> None:
+        """Show the fields of the chosen provider."""
+        self._cloud_store()
+        key = self._cloud_key()
+        v = self._cloud_vals[key]
+        aws, gcp, azure = key == "aws", key == "gcp", key == "azure"
+        self.cloud_token.setText(v["token"])
+        self.cloud_token.setEchoMode(QLineEdit.Normal if aws or gcp else QLineEdit.Password)
+        self.cloud_token.setPlaceholderText({
+            "aws": "Access key ID (AKIA...)", "gcp": "Service account key (JSON) or the gcloud login's file",
+            "azure": '{"appId": ..., "password": ..., "tenant": ...} or its file'}.get(key, "API token (Read & Write)"))
+        self.cloud_secret.setText(v["secret"])
+        self.cloud_secret.setVisible(aws or gcp or azure)
+        self.cloud_secret.setEchoMode(QLineEdit.Normal if azure or gcp else QLineEdit.Password)
+        self.cloud_secret.setPlaceholderText({"azure": "Subscription ID", "gcp": "Project ID (only for the gcloud login)"}
+                                             .get(key, "Secret access key"))
+        self.cloud_browse.setVisible(gcp or azure)
+        self.cloud_token_label.setText({"aws": "Access key", "gcp": "Key file",
+                                        "azure": "Service principal"}.get(key, "API token"))
+        self.cloud_location_label.setText({"aws": "Region", "gcp": "Zone", "azure": "Region"}.get(key, "Location"))
+        from ..remote.cloud import providers
+        warn = f'<p style="color:#c0392b">{providers.WARNING}</p>' if key in providers.UNTESTED else ""
+        self.cloud_how.setText(warn + self.HOW[key])
+        self._cloud_types = []
+        for box, val in ((self.cloud_location, v["location"]), (self.cloud_type, v["type"])):
+            box.blockSignals(True)
+            box.clear()
+            box.addItem(val, val)
+            box.blockSignals(False)
+        self._cloud_shown = key
+        if hasattr(self, "cloud_state"):
+            self.cloud_state.setText("Check Account lists them")
+
+    def _cloud_provider(self, location: str = ""):
+        from ..remote.cloud import providers
+        return providers.make(self._cloud_key(), (self.cloud_token.text(), self.cloud_secret.text()),
+                              location or self._cloud_field(self.cloud_location))
+
+    def _cloud_check(self) -> None:
+        """Check the token, load locations and server types with prices, list Hertzon's servers."""
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QApplication
+        from ..remote.client import RemoteError
+        QApplication.setOverrideCursor(_Qt.WaitCursor)
+        try:
+            prov = self._cloud_provider()
+            locs = prov.locations()
+            self._cloud_types = prov.server_types()
+            self._cloud_types_at = self._cloud_field(self.cloud_location)
+            servers = prov.servers()
+        except RemoteError as ex:
+            self.cloud_state.setText(str(ex))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        cur = self.cloud_location.currentText().split()[0] if self.cloud_location.currentText() else ""
+        self.cloud_location.blockSignals(True)
+        self.cloud_location.clear()
+        for loc in locs:
+            where = ", ".join(x for x in (loc["city"], loc["country"]) if x)
+            self.cloud_location.addItem(f"{loc['name']}  ({where})" if where else loc["name"], loc["name"])
+        i = self.cloud_location.findData(cur)
+        self.cloud_location.setCurrentIndex(max(0, i))
+        self.cloud_location.blockSignals(False)
+        self._cloud_fill_types()
+        self._cloud_servers(servers)
+
+    def _cloud_fill_types(self) -> None:
+        if not self._cloud_types:
+            return
+        loc = self._cloud_field(self.cloud_location)
+        key = self._cloud_key()
+        aws = key in ("aws", "gcp", "azure")
+        if aws and loc != getattr(self, "_cloud_types_at", loc):      # the types (and prices) of the region or zone
+            from PySide6.QtCore import Qt as _Qt
+            from PySide6.QtWidgets import QApplication
+            from ..remote.client import RemoteError
+            QApplication.setOverrideCursor(_Qt.WaitCursor)
+            try:
+                self._cloud_types = self._cloud_provider(loc).server_types()
+                self._cloud_types_at = loc
+            except RemoteError as ex:
+                self.cloud_state.setText(str(ex))
+                return
+            finally:
+                QApplication.restoreOverrideCursor()
+        cur = self._cloud_field(self.cloud_type)
+        self.cloud_type.clear()
+        for t in self._cloud_types:
+            if loc not in t["prices"]:
+                continue
+            price = t["prices"].get(loc)
+            if aws:
+                cores = f"{t['cores']} vCPU" + (f" = {t['physical']} cores" if t.get("physical") != t["cores"]
+                                                else ", one core each")
+                cost = (f", {price:.3f} {t.get('currency', 'USD')}/h" if price else
+                        (", price: see AWS" if key == "aws" else ""))
+            else:
+                cores = f"{t['cores']} {'dedicated' if t['dedicated'] else 'shared'} vCPU"
+                cost = f", {price:.3f} EUR/h"
+            self.cloud_type.addItem(f"{t['name']}  ({cores}, {t['memory']:g} GB{cost})", t["name"])
+        i = self.cloud_type.findData(cur)
+        self.cloud_type.setCurrentIndex(max(0, i))
+
+    def _cloud_servers(self, servers: list[dict]) -> None:
+        if not servers:
+            self.cloud_state.setText("Connected; no Hertzon server is running.")
+            return
+        self.cloud_state.setText("Running: " + ", ".join(
+            f"{x['name']} ({x['type']}, {x['status']}, from {x['client'] or '?'})" for x in servers))
+
+    def _cloud_delete_all(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+        from ..remote.client import RemoteError
+        try:
+            prov = self._cloud_provider()
+            servers = prov.servers()
+            if not servers:
+                self._cloud_servers([])
+                return
+            names = ", ".join(x["name"] for x in servers)
+            if QMessageBox.question(self, "Delete Cloud Servers",
+                                    f"Delete {names}? Analyses running there are lost.") != QMessageBox.Yes:
+                return
+            for x in servers:
+                prov.delete(x["id"])
+            cloud = getattr(self.win, "_cloud", None)
+            if cloud is not None:
+                cloud[1].tunnel.close()
+                cloud[1].state_file.unlink(missing_ok=True)
+            self._cloud_servers(prov.servers())
+        except RemoteError as ex:
+            self.cloud_state.setText(str(ex))
+
     def _ask_remote(self) -> None:
         """Fetch the HPC settings of the remote computer in the background (shown on the HPC tab)."""
         import threading
@@ -1099,12 +1416,19 @@ class OptionsDialog(QDialog):
         the fields here are greyed out and the note shows the remote computer's values."""
         if info is not None:
             self._remote_info = info
-        on = self.remote_on.isChecked() and bool(self.remote_addr.text().strip())
+        cloud = getattr(self, "cloud_on", None) is not None and self.cloud_on.isChecked()
+        on = cloud or (self.remote_on.isChecked() and bool(self.remote_addr.text().strip()))
         for w in (self.all_cores, self.workers):
             w.setEnabled(not on)
         self.cores.setEnabled(not on and not self.all_cores.isChecked())
         self.hpc_remote.setVisible(on)
         if not on:
+            return
+        if cloud:
+            self.hpc_remote.setText(
+                "\u24d8 Analyses run on a cloud server (Cloud tab). They use all of its cores and 2 parallel "
+                "sweep processes. A setup's <i>Solver threads</i> and matrix solver travel with the project and "
+                "still apply.<br>The fields below are for analyses on this computer.")
             return
         addr = self.remote_addr.text().strip()
         info = self._remote_info
@@ -1152,6 +1476,30 @@ class OptionsDialog(QDialog):
         s.setValue("remote/enabled", self.remote_on.isChecked())
         s.setValue("remote/address", self.remote_addr.text().strip())
         s.setValue("remote/token", self.remote_token.text().strip())
+        self._cloud_store()
+        h, a, g = self._cloud_vals["hetzner"], self._cloud_vals["aws"], self._cloud_vals["gcp"]
+        z = self._cloud_vals["azure"]
+        s.setValue("cloud/provider", self._cloud_key())
+        s.setValue("cloud/hetzner_token", h["token"])
+        s.setValue("cloud/location", h["location"] or "fsn1")
+        s.setValue("cloud/server_type", h["type"] or "ccx33")
+        s.setValue("cloud/aws_key_id", a["token"])
+        s.setValue("cloud/aws_secret", a["secret"])
+        s.setValue("cloud/aws_region", a["location"] or "eu-central-1")
+        s.setValue("cloud/aws_type", a["type"] or "m7a.2xlarge")
+        s.setValue("cloud/gcp_key_file", g["token"])
+        s.setValue("cloud/gcp_project", g["secret"])
+        s.setValue("cloud/gcp_zone", g["location"] or "europe-west3-a")
+        s.setValue("cloud/gcp_type", g["type"] or "c3d-standard-8")
+        s.setValue("cloud/azure_credentials", z["token"])
+        s.setValue("cloud/azure_subscription", z["secret"])
+        s.setValue("cloud/azure_location", z["location"] or "germanywestcentral")
+        s.setValue("cloud/azure_type", z["type"] or "Standard_D8as_v5")
+        from ..remote.cloud import providers
+        s.setValue("cloud/enabled", self.cloud_on.isChecked() and providers.configured(s.value))
+        s.setValue("cloud/idle_min", self.cloud_idle.value())
+        s.setValue("cloud/quiet_h", self.cloud_quiet.value())
+        s.setValue("cloud/contact_h", self.cloud_contact.value())
         if self.share_auto.isChecked() != self._share_auto0:
             import contextlib
             import io

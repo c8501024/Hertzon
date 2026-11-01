@@ -53,7 +53,11 @@ def default_workdir() -> Path:
 
 
 def load_token(workdir: Path) -> str:
-    """The service token; created on the first start (readable only by this user where the OS allows)."""
+    """The service token; created on the first start (readable only by this user where the OS allows).
+    HERTZON_TOKEN sets it instead (a cloud computer gets the token of the GUI that created it)."""
+    env = os.environ.get("HERTZON_TOKEN", "").strip()
+    if env:
+        return env
     f = workdir / "token"
     if f.is_file():
         tok = f.read_text(encoding="utf-8").strip()
@@ -123,6 +127,8 @@ class Service:
         self.queue: list[Job] = []
         self.cond = threading.Condition()
         self.stopping = False
+        # activity, for the watchdog of a cloud computer (idle, GUI gone, solver hung): see cloud/watchdog.py
+        self.last_contact = self.last_done = self.last_output = time.time()
         # pairing: another GUI gets the token with this short code (shown in Options > Remote on this computer)
         self.pairing = f"{secrets.randbelow(1_000_000):06d}"
         self._pair_failures: list[float] = []
@@ -280,6 +286,7 @@ class Service:
                     return
                 job = self.queue.pop(0)
                 job.state = "running"
+                self.last_output = time.time()
                 self.cond.notify_all()
             self._run(job)
 
@@ -290,6 +297,7 @@ class Service:
                 job.progress, job.text = float(msg.get("value", 0)), str(msg.get("text", ""))
             except (ValueError, AttributeError):
                 pass
+        self.last_output = time.time()
         with self.cond:
             job.lines.append(line)
             if len(job.lines) > MAX_LINES:
@@ -320,6 +328,7 @@ class Service:
             job.code = code
             job.proc = None
             job.state = "aborted" if job.aborted else ("done" if code == 0 else "failed")
+            self.last_done = time.time()
             self.cond.notify_all()
 
     def pair(self, code: str) -> str | None:
@@ -341,7 +350,17 @@ class Service:
             run = self.running()
             return {"service": "hertzon-remote", "protocol": PROTOCOL, "hertzon": __version__,
                     "host": socket.gethostname(), "platform": platform.platform(), "cores": self.cores,
-                    "sweep_workers": self.sweep_workers, "cpus": os.cpu_count() or 1, "python": platform.python_version(), "busy": run is not None, "queued": len(self.queue)}
+                    "sweep_workers": self.sweep_workers, "cpus": os.cpu_count() or 1,
+                    "python": platform.python_version(), "busy": run is not None, "queued": len(self.queue),
+                    **self.activity(run)}
+
+    def activity(self, run: Job | None = None) -> dict:
+        """Seconds without work (idle), without a GUI request (contact) and without solver output (quiet)."""
+        now = time.time()
+        work = run is not None or bool(self.queue)
+        return {"idle": 0.0 if work else now - max(self.last_contact, self.last_done),
+                "contact": now - self.last_contact,
+                "quiet": now - self.last_output if run is not None else 0.0}
 
     def stop(self) -> None:
         with self.cond:
@@ -376,6 +395,8 @@ class Handler(BaseHTTPRequestHandler):
         got = self.headers.get("Authorization", "")
         want = "Bearer " + self.service.token
         if hmac.compare_digest(got.encode("utf-8"), want.encode("utf-8")):
+            if not self.headers.get("X-Hertzon-Watchdog"):       # the watchdog's own polls are no activity
+                self.service.last_contact = time.time()
             return True
         self._drain()
         self._error(401, "wrong or missing token")

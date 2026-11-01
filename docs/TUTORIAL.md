@@ -883,6 +883,8 @@ tuned. See [TUNING.md](TUNING.md) for the details and the limits.
   derivatives, reduced model), its accuracy and its limits.
 * [MESHER.md](MESHER.md) explains how adaptive meshing works. [FEATURE_MATRIX.md](FEATURE_MATRIX.md)
   shows what is implemented.
+* **Solve on** in the status bar sends the analyses to another computer in your network or to a cloud
+  server that Hertzon creates for the session (experimental, [REMOTE.md](REMOTE.md)).
 * **Tools > Solver Benchmark** times the projects of `examples/benchmark/scaling` on your computer and
   suggests the number of cores and sweep processes; its *Solver Comparison* tab times the matrix solvers
   (e.g. PARDISO, SPARTA on the CPU and on the GPU) with all cores, optionally also with parallel frequencies

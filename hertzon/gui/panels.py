@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -496,7 +497,14 @@ class SolutionDataDialog(QDialog):
         self.sim.setCurrentText(setup)
         self.sim.currentTextChanged.connect(self._load)
         top.addRow("Simulation:", self.sim)
-        top.addRow("Design Variation:", QLabel("Nominal"))
+        # the current design, every solved parametric variation and every optimization evaluation with
+        # results: their passes, matrix data and mesh statistics without changing the design
+        self.var = QComboBox()
+        self.var.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.var.setMinimumContentsLength(40)
+        self.var.activated.connect(self._variation_chosen)
+        self._chosen = False                  # the user picked an entry (else it follows a running study)
+        top.addRow("Design Variation:", self.var)
         lay.addLayout(top)
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs)
@@ -505,14 +513,85 @@ class SolutionDataDialog(QDialog):
         bb.button(QDialogButtonBox.Close).clicked.connect(self.accept)
         lay.addWidget(bb)
         self.resize(960, 620)
+        self._sig = None
         self._load(setup)
+        # an optimization or parametric run solves in its own processes, without pass signals for this window:
+        # look for new evaluations and passes every two seconds and show them
+        from PySide6.QtCore import QTimer
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._poll)
+        self._timer.start(2000)
 
     def reload(self, *_args) -> None:
-        self._load(self.sim.currentText())
+        self._load(self.sim.currentText(), keep_variation=True)
 
-    def _load(self, setup: str) -> None:
+    def _variation_chosen(self, *_args) -> None:
+        self._chosen = True
+        self._load(self.sim.currentText(), keep_variation=True)
+
+    def _signature(self, setup: str):
+        from ..solver.parametric import solution_variations
+        try:
+            labels = tuple(lbl for lbl, _ in solution_variations(self.doc.project, self.doc.design, setup))
+        except Exception:  # noqa: BLE001
+            labels = ()
+        times = []
+        if self.st is not None:
+            for name in ("convergence.json", "status.json", "profile.json"):
+                try:
+                    times.append((self.st.folder / name).stat().st_mtime_ns)
+                except OSError:
+                    times.append(0)
+        return labels, tuple(times)
+
+    def _poll(self) -> None:
+        if not self.isVisible() or not self.doc.project.path:
+            return
+        if self._signature(self.sim.currentText()) != self._sig:
+            self.reload()
+
+    def _variations(self, setup: str, keep: bool) -> Path | None:
+        """Fill the Design Variation list for `setup`; the result folder of the chosen entry. The first entry
+        is the current design (the solution the model window shows)."""
+        from ..solver.parametric import solution_variations
         doc = self.doc
-        self.st = ResultStore(result_dir(doc, setup)) if doc.project.path else None
+        if not doc.project.path:
+            self.var.clear()
+            self.var.setEnabled(False)
+            return None
+        shown = result_dir(doc, setup)
+        try:
+            others = solution_variations(doc.project, doc.design, setup)
+        except Exception:  # noqa: BLE001  (a run is writing its table right now)
+            others = []
+        nominal = results_dir(doc.project.path, doc.design.name, setup)
+        first = "Nominal" if shown == nominal else \
+            "Current design: " + next((lbl for lbl, f in others if f == shown), str(shown))
+        old = self.var.currentData() if keep and self.var.currentIndex() > 0 else None
+        self.var.blockSignals(True)
+        self.var.clear()
+        self.var.addItem(first, None)
+        self.var.setItemData(0, first, Qt.ToolTipRole)
+        for lbl, f in others:
+            self.var.addItem(lbl, str(f))
+            self.var.setItemData(self.var.count() - 1, lbl, Qt.ToolTipRole)
+        i = self.var.findData(old) if old else 0
+        if not self._chosen and not (shown / "convergence.json").exists() and others:
+            # nothing solved for the current design (an optimization is running, say): show the evaluation
+            # being solved, else the best one, else the first variation
+            solving = [k for k, (lbl, _) in enumerate(others) if lbl.endswith("(solving)")]
+            best = [k for k, (lbl, _) in enumerate(others) if "(best)" in lbl]
+            i = 1 + (solving[-1] if solving else best[0] if best else 0)
+        self.var.setCurrentIndex(max(0, i))
+        self.var.setEnabled(self.var.count() > 1)
+        self.var.blockSignals(False)
+        data = self.var.currentData()
+        return Path(data) if data else shown
+
+    def _load(self, setup: str, keep_variation: bool = False) -> None:
+        folder = self._variations(setup, keep_variation)
+        self.st = ResultStore(folder) if folder is not None else None
+        self._sig = self._signature(setup)
         cur = self.tabs.currentIndex()
         old = [self.tabs.widget(i) for i in range(self.tabs.count())]
         self.tabs.clear()

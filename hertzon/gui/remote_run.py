@@ -97,6 +97,10 @@ class RemoteRun(QObject):
 
     def _job(self) -> tuple[int, Mirror]:
         host = self.host
+        if hasattr(host, "ensure"):          # a cloud computer: created (or found again) on the first analysis
+            host.ensure(lambda text: self.status.emit(0, text), self._abort)
+            st = host.session.state()
+            self.note.emit("info", f"Cloud server {st.get('name')}: {st.get('type')} in {st.get('location')}")
         self.status.emit(0, f"Connecting to {host.address}")
         info = host.info()
         if info.get("hertzon") != __version__:

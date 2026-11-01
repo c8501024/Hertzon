@@ -122,7 +122,8 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
 5. **Validation Check** (also checks overlapping solids exactly: partial overlaps of different
    materials are errors, except a metal in a dielectric with the design setting *Material override*; one
    click resolves them), then **Analyze All** (F5). The progress window shows each adaptive pass;
-   **Solution Data** shows the convergence table and plot, matrix data and mesh statistics.
+   **Solution Data** shows the convergence table and plot, matrix data and mesh statistics, also of every
+   solved parametric variation and optimization evaluation (*Design Variation*).
 6. **Results**: rectangular plots, Smith chart, data table, radiation pattern, 3D polar plot;
    **Fields**: magnitude, complex magnitude and vector plots of E, H and surface current on faces,
    objects, cut planes or drawn planes, with phase animation and **Export GIF** of the animation as
@@ -131,7 +132,9 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    (`RL = -dB(S(1,1))`) or the fields (`P_in = flux(Port1, re(S))`, losses, energies, Q), typed in a
    typeset formula editor, shown in reports, **Fields reports** and field plots
    ([tutorial](docs/TUTORIAL.md#8-your-own-quantities-with-equations)).
-   **Optimization** (conjugate gradient on report goals) and **Parametric** sweeps of design variables.
+   **Optimization** (conjugate gradient on report goals, or the **Derivative Trust Region**, which minimizes
+   the goals on the derivative tuning model and checks each step with a solve) and **Parametric** sweeps of
+   design variables. **Apply to Design** on an evaluation shows its solution without solving again.
    **Derivative tuning**: sliders for design variables, and S-parameters, patterns and antenna parameters
    follow live in the reports from one solve ([how it works](docs/TUNING.md),
    [tutorial](docs/TUTORIAL.md#10-tune-a-patch-antenna-with-sliders)).
@@ -175,7 +178,7 @@ reports and field plots ready: after **Analyze All** (F5) double-click a report,
 | `examples/FSS_UnitCell.hzn` | Frequency selective surface: a cross dipole on RO3003 as the **periodic unit cell** of an infinite array (Primary / Secondary boundaries, scan angle `scan_theta`), **Floquet ports** below and above with TE00 and TM00, transmission and reflection 6-18 GHz |
 | `examples/GerberTestBoard.hzn` | Two-layer board with copper shapes, cut-outs, a via (grouped with its pad) and holes: the test case of **File > Export > Gerber** ([docs](docs/GERBER_EXPORT.md)) |
 | `examples/SphereRCS.hzn` | RCS of a 100 mm PEC sphere at 1 GHz, plane wave, **Auto Open**, bistatic and monostatic RCS reports, checked against the Mie series ([tutorial](docs/TUTORIAL.md#4-radar-cross-section-of-a-sphere)) |
-| `examples/Showcase_AllFeatures.hzn` | Test project that uses nearly every feature in six designs: patch array (all report types, field overlays, Fields Calculator, optimization, parametric sweeps, three setups, all sweep types, all mesh operations, coordinate systems), half-model iris filter (Symmetry, wave ports with modes, de-embedding and renormalization), eigenmode cavity, a geometry zoo with every create command and operation under a plane wave (RCS), a terminal coax monopole with PML and a periodic unit cell (grounded cross with a Floquet port, reflection phase). Built by `python examples/make_showcase.py` |
+| `examples/Showcase_AllFeatures.hzn` | Test project that uses nearly every feature in eight designs: patch array (all report types, reports against a design variable, field overlays, Fields Calculator, output variables with S, Y, Z and VSWR, conjugate-gradient and Derivative Trust Region optimizations with goals on antenna parameters, parametric sweeps, setups with every matrix solver family, all sweep types, all mesh operations, coordinate systems), half-model iris filter (Symmetry, de-embedding, renormalization, ports-only setup), eigenmode cavity, a geometry zoo with every create command and operation under a plane wave (RCS), a terminal coax monopole with PML, a periodic unit cell (Floquet port, scan angles), a terminal differential pair (two terminals per wave port, reference conductor, mixed-mode S-parameters) and an over-moded waveguide (two-mode wave ports with TE10 and TE01, mode conversion). Built by `python examples/make_showcase.py` |
 
 `examples/benchmark/` holds the validation and timing cases (patch antenna, waveguide post against a reference,
 sphere RCS against the Mie series, scaling from small to large models) with their scripts.
@@ -196,8 +199,11 @@ region, ports, radiation boundaries) are left out. See [docs/GERBER_EXPORT.md](d
   model (geometry, materials, boundaries, ports, initial mesh) and runs the setup, or stops after
   meshing with `--prepare-only` so you can continue in plain EMerge.
 * Solve without the GUI: `python -m hertzon.solver.run Project.hzn DesignName Setup1 out_folder`.
-* Solve on another computer in your network (experimental; servers and cloud machines are in progress):
-  run `hertzon-serve` there and enter it in Tools > Options > Remote. See [docs/REMOTE.md](docs/REMOTE.md).
+* Solve on another computer (experimental): a computer in your network runs `hertzon-serve` (or Tools >
+  Options > Remote > Share this computer) and the laptop pairs with it in Tools > Options > Remote; or
+  Hertzon creates a cloud server for the session in Tools > Options > Cloud (Hetzner Cloud; Amazon Web
+  Services, Google Cloud and Microsoft Azure are marked *untested*) and deletes it again. **Solve on** in the
+  status bar switches between this computer, the remote one and the cloud. See [docs/REMOTE.md](docs/REMOTE.md).
 * Project files (`.hzn`) are plain JSON; results go to `<project>.hznresults/<design>/<setup>/`
   (`sparams_*.npz`, Touchstone `*.sNp`, `fields_*.npz`, `farfield_*.npz`, `convergence.json`); their layout,
   units and status values are in [docs/RESULT_FILES.md](docs/RESULT_FILES.md).

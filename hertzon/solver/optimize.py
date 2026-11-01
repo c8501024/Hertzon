@@ -4,6 +4,14 @@ Every evaluation is a copy of the project with the variables set, solved by its 
 (hertzon.solver.run) in OUTDIR/evals/<n>. The gradient samples run in parallel (ParallelEvaluations,
 the cores are shared). Progress goes to stdout in the solver's @@HZN protocol; the evaluations are in
 OUTDIR/history.json, the best one in OUTDIR/best.json. A file OUTDIR/ABORT stops the run.
+
+Every evaluation keeps its S-parameters, convergence and log; the best one also keeps its mesh and the
+fields at the adaptive frequency, so that 'Apply to Design' shows its solution without solving again
+(hertzon.solver.parametric.matching_evaluation).
+
+The optimizer "Derivative Trust Region" (hertzon.solver.trust_region) computes the derivative tuning model
+of a solved design in its evaluation folder and minimizes the goals on the model; each step is checked
+with a solve.
 """
 from __future__ import annotations
 
@@ -22,8 +30,11 @@ from ..model.design import Project
 from .expressions import output_variables
 from .optimetrics import ConjugateGradient, Variables, antenna_data, check_antenna_goals, evaluate_goals, uses_antenna
 from .results import ResultStore, running_status
+from . import trust_region as TR
 
 TAG = "@@HZN "
+TRUST_REGION = "Derivative Trust Region"
+TUNING_MAX_VARIABLES = 6
 ROOT = Path(__file__).resolve().parents[2]
 _LOCK = threading.Lock()
 
@@ -111,6 +122,12 @@ class Optimizer:
         self.best: dict | None = None
         self.n = 0
         self.t0 = time.time()
+        self.folders: dict[int, Path] = {}
+        self.keep_mesh = False          # the trust region computes the tuning model on an evaluation's mesh
+        self.trust = self.props.get("Optimizer", "Conjugate Gradient") == TRUST_REGION
+        if self.trust and len(self.vars) > TUNING_MAX_VARIABLES:
+            raise ValueError(f"Derivative Trust Region: at most {TUNING_MAX_VARIABLES} variables (the tuning "
+                             f"model), {len(self.vars)} are included")
 
     # ---- one evaluation ---------------------------------------------------------------------
     def _project_for(self, texts: dict) -> Project:
@@ -122,7 +139,8 @@ class Optimizer:
         for st in d.setups:
             if st.name != self.setup:
                 continue
-            st.props["SaveFields"] = "False"
+            # the setup keeps its own Save fields (the fields at the adaptive frequency): the best evaluation
+            # keeps them, the others are removed after their cost is known (cleanup)
             for sw in st.sweeps:
                 on = sw.name == self.sol
                 sw.props["Enabled"] = "True" if on else "False"
@@ -138,6 +156,10 @@ class Optimizer:
         path = folder / "design.hzn"
         p.save(path)
         res = folder / "results"
+        cmd = [sys.executable, "-m", "hertzon.solver.run", str(path), self.des.name, self.setup, str(res)]
+        return Evaluation(self.n, x, texts, folder, cmd, self._env(workers))
+
+    def _env(self, workers: int, tuning: str = "") -> dict:
         env = dict(os.environ)
         env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
         env["PYTHONUNBUFFERED"] = "1"
@@ -149,12 +171,13 @@ class Optimizer:
         env["HERTZON_SWEEP_WORKERS"] = "1" if workers > 1 else env.get("HERTZON_SWEEP_WORKERS", "2")
         env["HERTZON_MESH_ONLY"] = "0"
         env["HERTZON_ONLY_SWEEP"] = ""
-        cmd = [sys.executable, "-m", "hertzon.solver.run", str(path), self.des.name, self.setup, str(res)]
-        return Evaluation(self.n, x, texts, folder, cmd, env)
+        env["HERTZON_TUNING"] = tuning
+        return env
 
     def finish(self, e: Evaluation, phase: str) -> float:
         st = ResultStore(e.folder / "results")
         row = {"eval": e.n, "phase": phase, "variables": e.texts, "x": e.x, "time": time.time() - self.t0}
+        self.folders[e.n] = e.folder
         cost = float("inf")
         try:
             data = st.sparams(self.sol)
@@ -172,16 +195,18 @@ class Optimizer:
         except Exception as ex:  # noqa: BLE001
             row.update(cost=None, error=str(ex))
             log(f"Evaluation {e.n} failed: {ex}", "warning")
-        for f in list(st.folder.glob("solution_*.npz")) + list(st.folder.glob("fields_*.npz")) + \
-                [st.folder / "mesh.npz", st.folder / "amr_state.npz"]:
-            try:
-                f.unlink(missing_ok=True)          # keep S-parameters, convergence and the log only
-            except OSError:
-                pass
         self.history.append(row)
+        previous = self.best
         if np.isfinite(cost) and (self.best is None or cost < self.best["cost"]):
             self.best = row
             (self.out / "best.json").write_text(json.dumps(row, indent=1), encoding="utf-8")
+        if not self.keep_mesh:
+            # mesh and fields of the best evaluation only (its solution is shown after Apply to Design)
+            if self.best is row:
+                if previous is not None:
+                    self.discard(previous["eval"])
+            else:
+                self.cleanup(e.folder)
         (self.out / "history.json").write_text(json.dumps({"variables": self.vars.names, "evaluations": self.history},
                                                           indent=1, default=str), encoding="utf-8")
         emit("optim", eval=e.n, cost=row.get("cost"), best=self.best["cost"] if self.best else None)
@@ -190,11 +215,30 @@ class Optimizer:
             log(msg + "   " + ", ".join(f"{k}={v}" for k, v in e.texts.items()))
         return cost
 
+    def discard(self, n: int) -> None:
+        """Remove mesh and fields of evaluation n unless it is the best one."""
+        if n in self.folders and not (self.best and self.best.get("eval") == n):
+            self.cleanup(self.folders[n])
+
+    @staticmethod
+    def cleanup(folder: Path) -> None:
+        """Keep the S-parameters, the convergence and the log of an evaluation only."""
+        res = folder / "results"
+        for f in list(res.glob("solution_*.npz")) + list(res.glob("fields_*.npz")) + \
+                list(res.glob("huygens_*.npz")) + list(res.glob("tuning_*.npz")) + \
+                [res / "mesh.npz", res / "amr_state.npz"]:
+            try:
+                f.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     # ---- loop -------------------------------------------------------------------------------
     def aborted(self) -> bool:
         return (self.out / "ABORT").exists()
 
     def run(self) -> bool:
+        if self.trust:
+            return self.run_trust_region()
         cg = ConjugateGradient(self.vars.x0(), self.props)
         log(f"Optimization '{self.opt.name}': conjugate gradient over {len(self.vars)} variable(s) "
             f"({', '.join(self.vars.names)}), goals on {self.opt.solution}, up to {self.parallel} design(s) at once")
@@ -217,8 +261,13 @@ class Optimizer:
             for p, c in zip(todo, costs):
                 self.cache[tuple(np.round(p, 9))] = c
                 cg.observe(p, c)
+        return self._end(cg.reason or "Maximum number of evaluations reached")
+
+    def _end(self, reason: str) -> bool:
         stopped = self.aborted()
-        reason = "Aborted" if stopped else (cg.reason or "Maximum number of evaluations reached")
+        for n in list(self.folders):
+            self.discard(n)
+        reason = "Aborted" if stopped else reason
         summary = {"reason": reason, "evaluations": self.n, "best": self.best, "elapsed": time.time() - self.t0,
                    "variables": self.vars.names}
         (self.out / "summary.json").write_text(json.dumps(summary, indent=1, default=str), encoding="utf-8")
@@ -234,6 +283,112 @@ class Optimizer:
         emit("progress", value=100, text=f"Done: {reason}")
         emit("done", elapsed=time.time() - self.t0)
         return True
+
+    # ---- derivative trust region ----------------------------------------------------------------
+    def run_trust_region(self) -> bool:
+        p = self.props
+        radius = min(TR.MAX_RADIUS, max(TR.MIN_RADIUS, float(p.get("TrustRadius", 0.6))))
+        rounds = max(1, int(float(p.get("MaxRounds", 10))))
+        points = max(3, int(float(p.get("TuningPoints", 51))))
+        self.keep_mesh = True
+        log(f"Optimization '{self.opt.name}': derivative trust region over {len(self.vars)} variable(s) "
+            f"({', '.join(self.vars.names)}), goals on {self.opt.solution}: every round solves the design, "
+            "computes its tuning model and minimizes the goals on the model")
+        (self.out / "ABORT").unlink(missing_ok=True)
+        x = self.vars.x0()
+        costs = self._solve_batch([x], "start design", 0)
+        if costs is None:
+            return self._end("Aborted")
+        cost, cur = costs[0], self.n
+        if not np.isfinite(cost):
+            raise ValueError("The starting design could not be evaluated")
+        model = None
+        reason = f"{rounds} round(s) done"
+        for it in range(rounds):
+            if cost == 0:
+                reason = "All goals are met (cost 0)"
+                break
+            if self.n >= self.max_evals:
+                reason = "Maximum number of evaluations reached"
+                break
+            if model is None:
+                try:
+                    model = self._tuning_model(cur, it, points)
+                except Exception as ex:  # noqa: BLE001
+                    log(f"Round {it + 1}: {ex}", "warning")
+                    reason = f"The tuning model of evaluation {cur} failed (see the log); the best design so far"
+                    break
+                if model is None:
+                    return self._end("Aborted")
+                base = model.cost(np.zeros(len(self.vars)))
+            v = self.vars.values(x)
+            blo, bhi = TR.step_bounds(model.m.ranges, radius, self.vars.lo, self.vars.hi, v)
+            t = time.time()
+            dp, pred_cost, nev = TR.minimize_box(model.cost, blo, bhi)
+            predicted = base - pred_cost
+            log(f"Round {it + 1}: model optimum in the region {radius:.0%} of the tuning range: cost "
+                f"{pred_cost:.6g} (solved {cost:.6g}, model at the solved design {base:.6g}), {nev} model "
+                f"evaluations in {time.time() - t:.1f} s; step " +
+                ", ".join(f"{n} {d:+.4g} {u}" for n, d, u in zip(self.vars.names, dp, self.vars.units)))
+            if predicted <= 1e-9 * max(base, 1e-30):
+                if radius > TR.MIN_RADIUS and at_any_bound(dp, blo, bhi):
+                    radius *= 0.5
+                    continue
+                reason = "The tuning model finds no further improvement"
+                break
+            xn = np.clip((v + dp - self.vars.lo) / (self.vars.hi - self.vars.lo), 0, 1)
+            costs = self._solve_batch([xn], f"round {it + 1}", it + 1)
+            if costs is None:
+                return self._end("Aborted")
+            new = costs[0]
+            self.history[-1].update(predicted=pred_cost, radius=radius)
+            taken, radius, rho = TR.update(radius, cost - new if np.isfinite(new) else -np.inf, predicted,
+                                           TR.at_edge(dp, blo, bhi))
+            log(f"Round {it + 1}: solved cost {new:.6g}, predicted {pred_cost:.6g} (actual / predicted "
+                f"improvement {rho:.2f}): step {'taken' if taken else 'rejected'}, region now {radius:.0%}")
+            if taken:
+                self.discard(cur)
+                x, cost, cur, model = xn, new, self.n, None
+            else:
+                self.discard(self.n)
+            if radius < TR.MIN_RADIUS:
+                reason = "The trust region became too small (the model no longer predicts the solves)"
+                break
+        else:
+            reason = f"Maximum number of rounds ({rounds}) reached"
+        if cost == 0:
+            reason = "All goals are met (cost 0)"
+        return self._end(reason)
+
+    def _tuning_model(self, n: int, it: int, points: int):
+        """Compute the tuning model of evaluation n on its adaptive mesh; None when aborted."""
+        from .tuning import TuningModel, tuning_path
+        folder = self.folders[n]
+        res = folder / "results"
+        work = folder / "tuning"
+        work.mkdir(exist_ok=True)
+        spec = json.dumps({"sweep": self.sol, "variables": self.vars.names, "points": points})
+        cmd = [sys.executable, "-m", "hertzon.solver.run", str(folder / "design.hzn"), self.des.name, self.setup,
+               str(res)]
+        e = Evaluation(n, [], {}, work, cmd, self._env(1, spec))
+        last = 0.0
+        while not e.finished():
+            if self.aborted():
+                e.kill()
+                return None
+            now = time.time()
+            if now - last > 0.5:
+                last = now
+                emit("progress", value=e.progress,
+                     text=f"Round {it + 1}: derivatives of evaluation {n} (tuning model)")
+            time.sleep(0.2)
+        path = tuning_path(res, self.sol)
+        if e.proc.returncode != 0 or not path.exists():
+            why = e.error or (f"the solver process ended with code {e.proc.returncode}, for example out of "
+                              f"memory; see {work / 'solver.log'}")
+            raise RuntimeError(f"The tuning model of evaluation {n} failed: {why}")
+        log(f"Round {it + 1}: tuning model of evaluation {n} ready")
+        return SurrogateCost(self, TuningModel(path), ResultStore(res))
 
     def _solve_batch(self, points, phase: str, iteration: int):
         """Solve the points (at most ParallelEvaluations at once); None when aborted."""
@@ -268,6 +423,47 @@ class Optimizer:
                           f"(evaluation {self.n}){best}")
             time.sleep(0.2)
         return costs
+
+
+def at_any_bound(dp, blo, bhi) -> bool:
+    return TR.at_edge(np.asarray(dp, float), np.asarray(blo, float), np.asarray(bhi, float))
+
+
+class SurrogateCost:
+    """The cost of the goals on a tuning model at variable offsets (the same goals and cost function as
+    for a solved design)."""
+
+    def __init__(self, opt: Optimizer, model, st: ResultStore):
+        from .expressions import with_pairs
+        self.o, self.m = opt, model
+        self.base = with_pairs(st.sparams(opt.sol) or {}, opt.des)
+        self.grid = None
+        self.f_antenna = None
+        if opt.antenna_goals:
+            from .farfield_post import farfield
+            if model.ff is None:
+                raise ValueError("Goals on antenna parameters: the tuning model has no far field")
+            ff = farfield(st, opt.des, opt.des.spheres[0].name, opt.sol, opt.ev)
+            if ff is None:
+                raise ValueError("Goals on antenna parameters: the solved design has no far field")
+            self.grid = (np.asarray(ff["theta"], float), np.asarray(ff["phi"], float))
+            self.f_antenna = antenna_data(st, opt.des, opt.sol, opt.ev)["freq"]
+
+    def __call__(self, dp) -> float:
+        return self.cost(dp)
+
+    def cost(self, dp) -> float:
+        from .tuning import tuned_data
+        dp = np.asarray(dp, float)
+        data = tuned_data(self.m, dp, self.base)
+        antenna = None
+        if self.grid is not None:
+            f, vals = self.m.antenna_series(self.f_antenna, 0, dp, *self.grid)
+            antenna = {"freq": f, "solved": f, "antenna": vals}
+        try:
+            return evaluate_goals(self.o.opt, data, self.o.ev, self.o.outvars, antenna)[0]
+        except Exception:  # noqa: BLE001
+            return float("inf")
 
 
 def main() -> int:
