@@ -1099,7 +1099,7 @@ class OptionsDialog(QDialog):
                                      "location": loc, "type": stype}
         self.cloud_provider = QComboBox()
         for key, name in providers.NAMES.items():
-            self.cloud_provider.addItem(name, key)
+            self.cloud_provider.addItem(f"{name} (untested)" if key in providers.UNTESTED else name, key)
         f.addRow("Provider", self.cloud_provider)
         self.cloud_token = QLineEdit()
         self.cloud_secret = QLineEdit()
@@ -1228,7 +1228,9 @@ class OptionsDialog(QDialog):
         self.cloud_token_label.setText({"aws": "Access key", "gcp": "Key file",
                                         "azure": "Service principal"}.get(key, "API token"))
         self.cloud_location_label.setText({"aws": "Region", "gcp": "Zone", "azure": "Region"}.get(key, "Location"))
-        self.cloud_how.setText(self.HOW[key])
+        from ..remote.cloud import providers
+        warn = f'<p style="color:#c0392b">{providers.WARNING}</p>' if key in providers.UNTESTED else ""
+        self.cloud_how.setText(warn + self.HOW[key])
         self._cloud_types = []
         for box, val in ((self.cloud_location, v["location"]), (self.cloud_type, v["type"])):
             box.blockSignals(True)
