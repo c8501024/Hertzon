@@ -11,8 +11,8 @@ from .filter_tool import _float, _num
 
 
 class PatchAntennaDialog(QDialog):
-    """Inset-fed rectangular patch from the transmission line model, with setup, sweep, far-field sphere and a
-    conjugate gradient optimization of the patch length and the inset on the return loss."""
+    """Inset-fed rectangular patch from the transmission line model, with setup, sweep, far-field sphere and an
+    optimization (Derivative Trust Region) of the patch length and the inset on the return loss."""
 
     def __init__(self, parent, project):
         super().__init__(parent)
@@ -60,7 +60,7 @@ class PatchAntennaDialog(QDialog):
         g = QGroupBox("Analysis")
         f = QFormLayout(g)
         self.sw = _num(d.sweep, 1, 90, 1, "%")
-        self.opt = QCheckBox("Add the optimization (conjugate gradient of patch length and inset)")
+        self.opt = QCheckBox("Add the optimization of patch length and inset (Derivative Trust Region)")
         self.opt.setChecked(True)
         self.name = QLineEdit("")
         f.addRow("Sweep around the frequency (+-)", self.sw)
