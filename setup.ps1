@@ -3,6 +3,10 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $Host.UI.RawUI.WindowTitle = 'Hertzon setup'
+# everything shown in this window also goes to setup.log next to this script, so a failed setup can be
+# diagnosed after the window is closed (the installer's error message points to it)
+$log = Join-Path $PSScriptRoot 'setup.log'
+try { Start-Transcript -LiteralPath $log -Force | Out-Null } catch {}
 
 function Find-Python {
     try { $p = & py -3.13 -c "import sys; print(sys.executable)" 2>$null; if ($LASTEXITCODE -eq 0 -and $p) { return $p.Trim() } } catch {}
@@ -42,11 +46,14 @@ try {
     Set-Content -LiteralPath (Join-Path $PSScriptRoot '.venv\hertzon_installed.txt') -Value (Get-Date)
     Write-Host ''
     Write-Host 'Hertzon is installed. Start it with Hertzon.exe.' -ForegroundColor Green
+    try { Stop-Transcript | Out-Null } catch {}
     Start-Sleep -Seconds 3
     exit 0
 } catch {
     Write-Host ''
     Write-Host "ERROR: $_" -ForegroundColor Red
+    Write-Host "Full log: $log"
+    try { Stop-Transcript | Out-Null } catch {}
     if (-not $env:CI) { Read-Host 'Press Enter to close' }   # the release check runs it unattended
     exit 1
 }
