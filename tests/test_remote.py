@@ -285,3 +285,12 @@ def test_hpc_settings_of_the_solving_computer(tmp_path):
         fixed.stop()
     finally:
         svc.stop()
+
+
+def test_token_from_environment(tmp_path, monkeypatch):
+    """A cloud computer gets the token of the GUI that created it (HERTZON_TOKEN), none is generated."""
+    from hertzon.remote.server import load_token
+    monkeypatch.setenv("HERTZON_TOKEN", " given-token ")
+    assert load_token(tmp_path / "w") == "given-token" and not (tmp_path / "w" / "token").exists()
+    monkeypatch.delenv("HERTZON_TOKEN")
+    assert load_token(tmp_path / "w") != "given-token"

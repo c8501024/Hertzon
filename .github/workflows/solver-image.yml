@@ -1,0 +1,60 @@
+# Headless solver image with the remote service (packaging/docker/Dockerfile), published on the GitHub
+# Container Registry as ghcr.io/<owner>/hertzon-solver. Cloud computers pull it instead of installing
+# Hertzon (docs/REMOTE.md, "Cloud computers").
+#  - push to dev:  :dev and :dev-<short sha>
+#  - push to main: :<version> and :latest
+#  - by hand from the Actions tab (Run workflow) on any branch: :dev-<short sha>
+name: Solver image
+
+on:
+  push:
+    branches: [dev, main]
+    paths: ["hertzon/**", "pyproject.toml", "packaging/docker/**", ".github/workflows/solver-image.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: solver-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tags
+        id: tags
+        run: |
+          IMG="ghcr.io/$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')/hertzon-solver"
+          VER=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          TAGS="$IMG:dev-${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF_NAME" = main ]; then TAGS="$IMG:$VER,$IMG:latest"; fi
+          if [ "$GITHUB_REF_NAME" = dev ]; then TAGS="$TAGS,$IMG:dev"; fi
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/docker/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.tags.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=GPL-2.0-or-later
+            org.opencontainers.image.description=Headless Hertzon solver with the remote service
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Summary
+        run: |
+          echo "Image: \`${{ steps.tags.outputs.tags }}\`" >> "$GITHUB_STEP_SUMMARY"
