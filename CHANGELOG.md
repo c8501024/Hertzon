@@ -23,6 +23,11 @@ the GitHub release notes.
   fails (for example out of memory) ends the run with the best design so far. See
   [docs/TUNING.md](docs/TUNING.md#optimize-with-the-tuning-model).
 
+### Fixed
+- A parallel frequency sweep with the matrix solver set to PARDISO warned for every frequency that
+  the solver "cannot be used in MultiThreading as it does not release the GIL". The worker threads use
+  PARDISO through the automatic choice anyway; the warning is gone and the results are unchanged.
+
 ## 0.2.9 (2026-10-31)
 
 ### Added

@@ -3151,6 +3151,12 @@ def _solve_at(m, freqs, **kw):
             if note not in _PAR_NOTE:          # once per setting (an interpolating sweep solves in batches)
                 _PAR_NOTE.append(note)
                 info(f"Parallel sweep: {nw} frequencies at a time, PARDISO with {note[1]} cores each")
+    # EMerge refuses a solver chosen with set_solver() in its worker threads unless it is marked
+    # thread-safe, and warns for every frequency; the automatic choice (mt_pardiso) gives PARDISO there
+    routine = getattr(m.mw, "solveroutine", None)
+    forced = None
+    if kw.get("parallel") and routine is not None and getattr(routine, "forced_solver", None):
+        forced, routine.forced_solver = routine.forced_solver, []
     try:
         data = m.mw.run_sweep(**kw)
     except Exception as e:  # noqa: BLE001
@@ -3164,6 +3170,8 @@ def _solve_at(m, freqs, **kw):
         data = m.mw.run_sweep(**dict(kw, parallel=False))
     finally:
         mt_pardiso.WORKER_THREADS = 0
+        if forced is not None:
+            routine.forced_solver = forced
     entries = [data.scalar[i] for i in range(n0, data.scalar.n)]
     entries.sort(key=lambda e: float(np.real(e.freq)))
     f = np.array([float(np.real(e.freq)) for e in entries])
