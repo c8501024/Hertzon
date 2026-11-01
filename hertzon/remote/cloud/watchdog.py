@@ -3,7 +3,7 @@
 Runs on the cloud server itself (outside the solver container, Python standard library only; cloud-init
 installs this file as /etc/hertzon/watchdog.py with its settings in /etc/hertzon/watchdog.json). Every minute
 it asks the remote service for its activity and deletes the server (through the provider's API, or on AWS
-by shutting down an instance that terminates on shutdown) when
+by shutting down an instance that terminates on shutdown; on Google Cloud with the instance's own token) when
 
 - no analysis ran or waited and no GUI asked anything for IDLE_MIN minutes,
 - an analysis runs but no GUI asked anything for CONTACT_H hours (the GUI is gone: cost limit),
@@ -64,7 +64,22 @@ def _shutdown(cfg: dict) -> None:
         raise OSError("shutdown failed")
 
 
-DELETE = {"hetzner": _hetzner_delete, "aws": _shutdown}
+def _gcp_delete(cfg: dict) -> None:
+    """Google Cloud: delete this instance with the token of its service account (metadata server)."""
+    def meta(path):
+        req = urllib.request.Request(f"http://metadata.google.internal/computeMetadata/v1/{path}",
+                                     headers={"Metadata-Flavor": "Google"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.read().decode()
+    token = json.loads(meta("instance/service-accounts/default/token"))["access_token"]
+    project, zone = meta("project/project-id"), meta("instance/zone").rsplit("/", 1)[-1]
+    name = meta("instance/name")
+    req = urllib.request.Request(f"https://compute.googleapis.com/compute/v1/projects/{project}/zones/{zone}/"
+                                 f"instances/{name}", method="DELETE", headers={"Authorization": f"Bearer {token}"})
+    urllib.request.urlopen(req, timeout=30).close()
+
+
+DELETE = {"hetzner": _hetzner_delete, "aws": _shutdown, "gcp": _gcp_delete}
 
 
 def delete(cfg: dict, reason: str) -> None:
