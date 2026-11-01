@@ -4,7 +4,8 @@ The start dimensions come from the transmission line model (Balanis, Antenna The
 good radiation efficiency, length from the effective permittivity and the fringing extension, the edge
 resistance from the slot conductances G1 and G12, and the inset depth that matches it to the feed. The
 design comes with setup, sweep, far-field sphere and an optimization of the patch length and the inset
-on the return loss around the design frequency.
+on the return loss around the design frequency (Derivative Trust Region: the start values are close, so a
+few solves with the derivative tuning model are enough).
 
 No Qt here: used by the dialog, the example generator and scripts.
 """
@@ -134,7 +135,8 @@ def patch_design(spec: PatchSpec) -> tuple[Design, dict]:
     d.setups.append(st)
     d.spheres.append(InfiniteSphere("Infinite Sphere1"))
     if spec.optimization:
-        op = Optimization("PatchCG", "Setup1 : Sweep")
+        # the start design is close to the goal: the tuning model finds the step in a few solves
+        op = Optimization("PatchOpt", "Setup1 : Sweep", props={"Optimizer": "Derivative Trust Region"})
         lp, ins = nom["Lp"], nom["inset"]
         di = max(min(0.5 * ins, 0.45 * lp - ins), 0.1 * ins)     # start in the middle, notch inside the patch
         op.variables = [{"name": "Lp", "include": True, "min": _mm(0.94 * lp), "max": _mm(1.06 * lp)},

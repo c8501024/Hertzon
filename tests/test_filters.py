@@ -121,6 +121,7 @@ def test_patch_synthesis_and_build():
     tess = K.tessellate(ctx)
     assert not [c for c in validate(p, d, tess, ctx.errors) if c.level == "error"]
     v = Variables(d, d.optimetrics[0], d.evaluator(p))
+    assert d.optimetrics[0].props["Optimizer"] == "Derivative Trust Region" and len(v) <= 6
     assert v.names == ["Lp", "inset"] and np.allclose(v.x0(), [0.5, 0.5], atol=0.01)
 
 

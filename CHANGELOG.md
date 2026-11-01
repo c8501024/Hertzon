@@ -6,6 +6,9 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Tools > Antenna Design > Rectangular Patch** now adds its optimization of patch length and inset with
+  the Derivative Trust Region optimizer instead of Conjugate Gradient (the start design is close to the
+  goal; the optimization is named PatchOpt).
 - **Solver image for cloud computers**: `ghcr.io/c8501024/hertzon-solver` (`:<version>`, `:dev`) holds the
   headless solver with the remote service and precompiled kernels; a Linux computer with Docker solves for
   the GUI without a Hertzon installation (`docker run ... -e HERTZON_TOKEN=...`, see docs/REMOTE.md). Built
