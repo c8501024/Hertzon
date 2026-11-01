@@ -74,14 +74,8 @@ class TuningState(QObject):
     def data(self, base: dict | None) -> dict:
         """Solution data of the tuned design, like the stored data of the solution (base: its ports, pairs)."""
         if self._data is None:
-            S, z = self.model.sparams(self.dp)
-            d = {k: v for k, v in (base or {}).items()
-                 if k not in ("freq", "S", "z0", "solved", "gamma", "zo")}
-            d.update(freq=np.asarray(self.model.freq_out, float), S=S, z0=z,
-                     solved=np.asarray(self.model.freq, float))
-            if "ports" not in d:
-                d["ports"] = self.model.meta.get("ports") or []
-            self._data = d
+            from ..solver.tuning import tuned_data
+            self._data = tuned_data(self.model, self.dp, base)
         return self._data
 
 

@@ -3,6 +3,17 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Optimizer "Derivative Trust Region"**: every round solves the design, computes its derivative tuning
+  model and minimizes the goals on the model (milliseconds per evaluation) within a part of the tuning
+  range; the step is checked with a solve, and the region grows or shrinks with the agreement. On the patch
+  antenna (Lp, inset) from Lp = 31 mm, inset = 4 mm (dip at 2.275 GHz) to S11 ≤ −15 dB from 2.43 to 2.47 GHz:
+  six solves and five tuning models, dip at 2.45 GHz with −34.9 dB. At most 6 variables. A tuning model that
+  fails (for example out of memory) ends the run with the best design so far. See
+  [docs/TUNING.md](docs/TUNING.md#optimize-with-the-tuning-model).
+
 ## 0.2.9 (2026-10-31)
 
 ### Added
