@@ -4,8 +4,9 @@ The start dimensions come from the transmission line model (Balanis, Antenna The
 good radiation efficiency, length from the effective permittivity and the fringing extension, the edge
 resistance from the slot conductances G1 and G12, and the inset depth that matches it to the feed. The
 design comes with setup, sweep, far-field sphere and an optimization of the patch length and the inset
-on the return loss around the design frequency (Derivative Trust Region: the start values are close, so a
-few solves with the derivative tuning model are enough).
+on the return loss at the design frequency: on the adaptive solution (LastAdaptive), so no sweep is solved
+while optimizing, with the Derivative Trust Region (the start values are close, so a few solves with the
+derivative tuning model are enough). The sweep (+-15 %) is only there to look at the resonance afterwards.
 
 No Qt here: used by the dialog, the example generator and scripts.
 """
@@ -26,9 +27,7 @@ from .microstrip import C0, engine, synthesize
 @dataclass
 class PatchSpec:
     f0: float = 2.45                    # GHz
-    bandwidth: float = 2.0              # % of f0 where S11 <= match
-    match: float = 10.0                 # dB return loss over the band
-    match_f0: float = 20.0              # dB return loss at f0
+    match_f0: float = 20.0              # dB return loss at f0 (goal of the optimization)
     material: str = "FR4_epoxy"
     er: float = 4.4
     tand: float = 0.02
@@ -36,7 +35,7 @@ class PatchSpec:
     t: float = 35.0                     # um copper
     z_feed: float = 50.0
     margin: float = 0.0                 # mm ground beyond the patch; 0 = automatic (max(6h, lambda0/10))
-    sweep: float = 15.0                 # +- % around f0
+    sweep: float = 15.0                 # +- % around f0 (for looking at the resonance; not optimized)
     optimization: bool = True
     name: str = ""
     sigma: float = 5.8e7
@@ -135,17 +134,15 @@ def patch_design(spec: PatchSpec) -> tuple[Design, dict]:
     d.setups.append(st)
     d.spheres.append(InfiniteSphere("Infinite Sphere1"))
     if spec.optimization:
-        # the start design is close to the goal: the tuning model finds the step in a few solves
-        op = Optimization("PatchOpt", "Setup1 : Sweep", props={"Optimizer": "Derivative Trust Region"})
+        # one frequency, on the adaptive solution: no sweep per evaluation; the start design is close to the
+        # goal, so the tuning model finds the step in a few solves
+        op = Optimization("PatchOpt", "Setup1 : LastAdaptive", props={"Optimizer": "Derivative Trust Region"})
         lp, ins = nom["Lp"], nom["inset"]
         di = max(min(0.5 * ins, 0.45 * lp - ins), 0.1 * ins)     # start in the middle, notch inside the patch
         op.variables = [{"name": "Lp", "include": True, "min": _mm(0.94 * lp), "max": _mm(1.06 * lp)},
                         {"name": "inset", "include": ins > 0, "min": _mm(ins - di), "max": _mm(ins + di)},
                         {"name": "Wp", "include": False, "min": _mm(0.9 * nom["Wp"]), "max": _mm(1.1 * nom["Wp"])}]
-        lo, hi = f0 * (1 - spec.bandwidth / 200), f0 * (1 + spec.bandwidth / 200)
-        op.goals = [{"calc": "dB(S(1,1))", "start": f"{lo:.6g}GHz", "stop": f"{hi:.6g}GHz", "cond": "<=",
-                     "value": f"{-spec.match:g}", "weight": "1"},
-                    {"calc": "dB(S(1,1))", "start": f"{f0:g}GHz", "stop": f"{f0:g}GHz", "cond": "<=",
+        op.goals = [{"calc": "dB(S(1,1))", "start": f"{f0:g}GHz", "stop": f"{f0:g}GHz", "cond": "<=",
                      "value": f"{-spec.match_f0:g}", "weight": "1"}]
         d.optimetrics.append(op)
     return d, nom

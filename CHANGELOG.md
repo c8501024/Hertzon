@@ -6,9 +6,11 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
-- **Tools > Antenna Design > Rectangular Patch** now adds its optimization of patch length and inset with
-  the Derivative Trust Region optimizer instead of Conjugate Gradient (the start design is close to the
-  goal; the optimization is named PatchOpt).
+- **Tools > Antenna Design > Rectangular Patch** optimizes patch length and inset at the design frequency
+  only, on the adaptive solution (no sweep is solved per evaluation), with the Derivative Trust Region
+  instead of Conjugate Gradient (named PatchOpt). The dialog no longer asks for a bandwidth, a return loss
+  over the band and the sweep span: they only served the band goal; the ±15 % sweep stays for looking at
+  the resonance.
 - **Solver image for cloud computers**: `ghcr.io/c8501024/hertzon-solver` (`:<version>`, `:dev`) holds the
   headless solver with the remote service and precompiled kernels; a Linux computer with Docker solves for
   the GUI without a Hertzon installation (`docker run ... -e HERTZON_TOKEN=...`, see docs/REMOTE.md). Built
