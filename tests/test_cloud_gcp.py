@@ -14,7 +14,7 @@ from typing import ClassVar
 import pytest
 
 from hertzon.remote.client import RemoteError
-from hertzon.remote.cloud import providers, watchdog
+from hertzon.remote.cloud import gcp, providers, watchdog
 from hertzon.remote.cloud.gcp import GCP, rs256
 from hertzon.remote.cloud.hetzner import PlacementError
 
@@ -80,6 +80,11 @@ class FakeGoogle(BaseHTTPRequestHandler):
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
         if self.path == "/token":
             form = dict(urllib.parse.parse_qsl(raw.decode()))
+            if form["grant_type"] == "refresh_token":                   # the gcloud login
+                if (form["client_id"], form["client_secret"], form["refresh_token"]) != ("cid", "csec", "rt-1"):
+                    return self._send(400, {"error": "invalid_grant", "error_description": "Token has been expired "
+                                            "or revoked."})
+                return self._send(200, {"access_token": "tok-1", "expires_in": 3599})
             _head, claim, sig = form["assertion"].split(".")
             c = json.loads(base64.urlsafe_b64decode(claim + "=="))
             assert form["grant_type"].endswith("jwt-bearer") and len(base64.urlsafe_b64decode(sig + "==")) == 256
@@ -254,5 +259,47 @@ def test_gcp_settings(tmp_path):
         prov.locations()
     (tmp_path / "k.json").write_text(json.dumps({"type": "authorized_user"}))
     vals["cloud/gcp_key_file"] = str(tmp_path / "k.json")
-    with pytest.raises(RemoteError, match="not a service account key"):
+    with pytest.raises(RemoteError, match="neither a service account key"):
         providers.from_settings(get)[0].locations()
+
+
+def _login(tmp_path, base, refresh="rt-1", **extra):
+    path = tmp_path / "application_default_credentials.json"
+    path.write_text(json.dumps({"type": "authorized_user", "client_id": "cid", "client_secret": "csec",
+                                "refresh_token": refresh, **extra}))
+    return path
+
+
+def test_gcp_gcloud_login(gcloud, tmp_path):
+    """Signed in with `gcloud auth application-default login`: the refresh token, the project from the
+    settings (or the login's quota project)."""
+    base = FakeGoogle.base
+    path = _login(tmp_path, base)
+    g = GCP(str(path), api=f"{base}/compute/v1", token_url=f"{base}/token", project="proj")
+    assert g.user_login and "europe-west3-a" in [z["name"] for z in g.locations()]
+    s = g.create("hz-1", "c3d-standard-8", "europe-west3-a", "#cloud-config\n", "ssh-ed25519 AAAA x", "pc")
+    assert g.get(s["id"])["name"] == "hz-1"
+    g.delete(s["id"])
+    assert g.servers() == []
+    g = GCP(str(_login(tmp_path, base, quota_project_id="proj")), api=f"{base}/compute/v1",
+            token_url=f"{base}/token")
+    assert g.project == "proj" and g.locations()
+    with pytest.raises(RemoteError, match="enter the project ID"):
+        GCP(str(_login(tmp_path, base)), api=f"{base}/compute/v1", token_url=f"{base}/token").locations()
+    with pytest.raises(RemoteError, match="run `gcloud auth application-default login` again"):
+        GCP(str(_login(tmp_path, base, refresh="old")), api=f"{base}/compute/v1", token_url=f"{base}/token",
+            project="proj").locations()
+
+
+def test_gcp_finds_the_gcloud_login(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(tmp_path))
+    vals = {"cloud/provider": "gcp"}
+    get = lambda k, d=None: vals.get(k, d)
+    assert gcp.default_credentials() == "" and not providers.configured(get)
+    with pytest.raises(RemoteError, match="application-default login"):
+        GCP().locations()
+    path = _login(tmp_path, "")
+    vals["cloud/gcp_project"] = "proj"
+    assert providers.configured(get) and providers.credentials(get) == (str(path), "proj")
+    prov = providers.from_settings(get)[0]
+    assert prov.key_file == str(path) and prov.project == "proj" and prov.user_login

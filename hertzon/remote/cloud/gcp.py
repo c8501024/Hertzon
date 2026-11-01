@@ -1,8 +1,10 @@
-"""Google Cloud (Compute Engine): create, find and delete the servers Hertzon solves on (REST API with a
-service account key, standard library only; the key's RS256 signature is computed here).
+"""Google Cloud (Compute Engine): create, find and delete the servers Hertzon solves on (REST API, standard
+library only). It signs in with a service account key (its RS256 signature is computed here) or with the
+user's own Google login from `gcloud auth application-default login` (where a project's rules forbid service
+account keys).
 
 The service account needs the roles "Compute Instance Admin (v1)" and "Service Account User" in a project only
-for Hertzon (docs/REMOTE.md). The key stays on this computer: the server deletes itself with the token of the
+for Hertzon (docs/REMOTE.md). The key or login stays on this computer: the server deletes itself with the token of the
 project's default compute service account, which Google gives it through its metadata server.
 """
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import time
 import urllib.error
 import urllib.parse
@@ -107,7 +110,22 @@ def _label(text: str) -> str:
 
 
 class AccessDenied(RemoteError):
-    """The service account lacks a permission."""
+    """The account lacks a permission."""
+
+
+LOGIN = "gcloud auth application-default login"
+
+
+def default_credentials() -> str:
+    """The file of the gcloud login (`gcloud auth application-default login`) if there is one, else ''."""
+    if os.environ.get("CLOUDSDK_CONFIG"):
+        folder = Path(os.environ["CLOUDSDK_CONFIG"])
+    elif os.name == "nt" and os.environ.get("APPDATA"):
+        folder = Path(os.environ["APPDATA"]) / "gcloud"
+    else:
+        folder = Path.home() / ".config" / "gcloud"
+    path = folder / "application_default_credentials.json"
+    return str(path) if path.is_file() else ""
 
 
 class GCP:
@@ -118,8 +136,9 @@ class GCP:
     own_host_key = False                # Google's guest agent makes the host keys; they are read from the API
 
     def __init__(self, key_file: str = "", zone: str = DEFAULT_ZONE, info: dict | None = None, api: str = API,
-                 token_url: str = TOKEN_URL):
-        self.key_file = (key_file or "").strip()
+                 token_url: str = TOKEN_URL, project: str = ""):
+        self.key_file = (key_file or "").strip() or (default_credentials() if info is None else "")
+        self.project_id = (project or "").strip()
         self.zone = (zone or DEFAULT_ZONE).strip()
         self._info = info
         self.api, self.token_url = api.rstrip("/"), token_url
@@ -130,36 +149,57 @@ class GCP:
     def info(self) -> dict:
         if self._info is None:
             if not self.key_file:
-                raise RemoteError("No Google Cloud service account key is set (Tools > Options > Cloud)")
+                raise RemoteError("No Google Cloud key file is set (Tools > Options > Cloud): choose a service "
+                                  f"account key, or sign in once with `{LOGIN}`")
             try:
-                self._info = json.loads(Path(self.key_file).read_text(encoding="utf-8"))
+                info = json.loads(Path(self.key_file).read_text(encoding="utf-8"))
             except (OSError, ValueError) as ex:
                 raise RemoteError(f"Google Cloud: the key file {self.key_file} cannot be read ({ex})") from None
-            if self._info.get("type") != "service_account" or "private_key" not in self._info:
-                raise RemoteError("Google Cloud: the key file is not a service account key (JSON)")
+            kind = info.get("type") if isinstance(info, dict) else None
+            if not ((kind == "service_account" and "private_key" in info) or
+                    (kind == "authorized_user" and "refresh_token" in info)):
+                raise RemoteError("Google Cloud: the file is neither a service account key (JSON) nor the "
+                                  f"file of `{LOGIN}`")
+            self._info = info
         return self._info
 
     @property
+    def user_login(self) -> bool:
+        """Signed in with the user's own Google account (gcloud), not a service account."""
+        return self.info.get("type") == "authorized_user"
+
+    @property
     def project(self) -> str:
-        return self.info["project_id"]
+        p = self.project_id or self.info.get("project_id") or self.info.get("quota_project_id") or ""
+        if not p:
+            raise RemoteError("Google Cloud: enter the project ID (Tools > Options > Cloud); the gcloud login "
+                              "does not name a project")
+        return p
 
     # ---- requests -----------------------------------------------------------------------------------
     def _token(self) -> str:
         if self._access and self._access[1] > time.time() + 60:
             return self._access[0]
         info, now = self.info, int(time.time())
+        if self.user_login:
+            return self._fetch_token({"grant_type": "refresh_token", "client_id": info.get("client_id", ""),
+                                      "client_secret": info.get("client_secret", ""),
+                                      "refresh_token": info["refresh_token"]},
+                                     f"the gcloud login was not accepted; run `{LOGIN}` again")
         head = _b64(json.dumps({"alg": "RS256", "typ": "JWT", "kid": info.get("private_key_id", "")}).encode())
         claim = _b64(json.dumps({"iss": info["client_email"], "scope": SCOPE, "aud": self.token_url,
                                  "iat": now, "exp": now + 3600}).encode())
         jwt = f"{head}.{claim}.{_b64(rs256(info['private_key'], f'{head}.{claim}'.encode()))}"
-        body = urllib.parse.urlencode({"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-                                       "assertion": jwt}).encode()
+        return self._fetch_token({"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
+                                 "the service account key was not accepted")
+
+    def _fetch_token(self, form: dict, refused: str) -> str:
+        body = urllib.parse.urlencode(form).encode()
         try:
             with urllib.request.urlopen(urllib.request.Request(self.token_url, data=body), timeout=30) as r:
                 tok = json.loads(r.read())
         except urllib.error.HTTPError as ex:
-            raise RemoteError("Google Cloud: the service account key was not accepted "
-                              f"({_message(ex.read()) or ex.reason})") from None
+            raise RemoteError(f"Google Cloud: {refused} ({_message(ex.read()) or ex.reason})") from None
         except (urllib.error.URLError, OSError) as ex:
             raise RemoteError(f"Google Cloud not reachable ({getattr(ex, 'reason', ex)})") from None
         self._access = (tok["access_token"], time.time() + float(tok.get("expires_in", 3600)))
@@ -182,7 +222,7 @@ class GCP:
                 if "has not been used" in msg or "is disabled" in msg:
                     raise RemoteError("Google Cloud: the Compute Engine API is not enabled for the project; "
                                       "enable it in the console (APIs & Services > Compute Engine API)") from None
-                raise AccessDenied(f"Google Cloud: the service account may not do this ({msg}); see the roles "
+                raise AccessDenied(f"Google Cloud: the account may not do this ({msg}); see the roles "
                                   "in the Hertzon documentation (docs/REMOTE.md)") from None
             if reason in ("ZONE_RESOURCE_POOL_EXHAUSTED", "resourceExhausted") or "does not have enough resources" in msg:
                 raise PlacementError(f"Google Cloud: {msg}") from None

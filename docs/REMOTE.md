@@ -161,8 +161,14 @@ tagged `hertzon=1`.
    (German console: *Compute-Instanzadministrator (v1)*, `roles/compute.instanceAdmin.v1`) and *Service
    Account User* (*Dienstkontonutzer*, `roles/iam.serviceAccountUser`). *Compute Admin* works as well but may
    do much more. Then the account > Keys > Add key > **JSON**: the browser saves the key file.
-3. Tools > Options > **Cloud**: Provider *Google Cloud*, choose the key file with **Browse**, press **Check
-   Account**, choose the zone (for example europe-west3-a, Frankfurt) and the machine type. Google's types have
+   If the project forbids service account keys (the organisation policy
+   `iam.disableServiceAccountKeyCreation`, on by default in newer organisations), skip the keys and sign in
+   with your own Google account instead: install the [gcloud CLI](https://cloud.google.com/sdk/docs/install)
+   and run `gcloud auth application-default login` once. Your account needs the same roles in the project
+   (the project's owner has them).
+3. Tools > Options > **Cloud**: Provider *Google Cloud*, choose the key file with **Browse** (with the gcloud
+   login Hertzon finds its file, `application_default_credentials.json` in the gcloud folder, by itself; then
+   enter the project ID next to it), press **Check Account**, choose the zone (for example europe-west3-a, Frankfurt) and the machine type. Google's types have
    two vCPUs per core: `c3d-standard-8` is 4 AMD cores with 32 GB, `c3d-standard-16` 8 cores with 64 GB. The
    Compute Engine API has no prices; see [cloud.google.com/compute/vm-instance-pricing](https://cloud.google.com/compute/vm-instance-pricing).
 
@@ -171,7 +177,7 @@ Hertzon starts an Ubuntu 24.04 instance in the project's default network with a 
 `hertzon-client`; the first start installs Docker. SSH comes in through the default network's rule
 `default-allow-ssh`; if the account also has *Compute Security Admin*, Hertzon adds its own rule `hertzon-ssh`
 (SSH to instances tagged `hertzon`), which keeps working when the default rule is removed. If the zone has no capacity, the other zones of the region
-are tried. The key file stays on this computer. The instance runs as the project's default compute service
+are tried. The key file (or the gcloud login) stays on this computer. The instance runs as the project's default compute service
 account, and its watchdog deletes it with that account's token from the metadata server; that is why a
 project only for Hertzon is recommended. The server's SSH host key is made by Google's guest agent and read
 through the API before the first connection, so the tunnel is checked as on the other providers.
