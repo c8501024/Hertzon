@@ -47,6 +47,10 @@ the GitHub release notes.
   [docs/TUNING.md](docs/TUNING.md#optimize-with-the-tuning-model).
 
 ### Fixed
+- **Tools > Options** opens at once. It used to wait for the check whether this computer's remote service
+  runs (on Windows a refused connection to this computer alone takes about two seconds), for the host name
+  lookup of the share addresses and for the scan of the installed SPARTA version. These now run in the
+  background; their fields show "Checking ..." for a moment and the buttons that depend on them wait.
 - A parallel frequency sweep with the matrix solver set to PARDISO warned for every frequency that
   the solver "cannot be used in MultiThreading as it does not release the GIL". The worker threads use
   PARDISO through the automatic choice anyway; the warning is gone and the results are unchanged.
