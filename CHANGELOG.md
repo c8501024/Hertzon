@@ -6,6 +6,7 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Showcase project** brought up to date: Derivative Trust Region optimizations (goals on S-parameters, antenna parameters and output variables), output variables with S, Y, Z and VSWR, reports against a design variable, report axis settings, bandwidth and delta markers, SPARTA matrix solvers, ports-only setups, Edit Sources, Rotate / Sweep Around Axis in a coordinate system, and two new designs: a terminal differential pair (reference conductor, mixed-mode S-parameters) and a square waveguide with two-mode wave ports. The iris filter's first port has one mode again (the half model has no second mode, the solve failed) and the geometry zoo solves again (loft to an ellipse, a gap around the kept Subtract tool).
 - **Tools > Antenna Design > Rectangular Patch** now adds its optimization of patch length and inset with
   the Derivative Trust Region optimizer instead of Conjugate Gradient (the start design is close to the
   goal; the optimization is named PatchOpt).
