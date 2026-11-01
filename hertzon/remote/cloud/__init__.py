@@ -181,7 +181,8 @@ class CloudSession:
                                  host_private=host_priv, host_public=host_pub, client_public=client_pub,
                                  image=image, fallback=fallback, idle_min=self.idle_min,
                                  contact_h=self.contact_h, quiet_h=self.quiet_h,
-                                 install_docker=getattr(self.provider, "install_docker", False))
+                                 install_docker=getattr(self.provider, "install_docker", False),
+                                 host_key=getattr(self.provider, "own_host_key", True))
         key_id = self.provider.ssh_key(client_pub, self.client)
         name = f"hertzon-{secrets.token_hex(3)}"
         srv, where = self._place(name, ud, key_id, say)
@@ -238,6 +239,17 @@ class CloudSession:
             if srv.get("status") == "running":
                 break
             time.sleep(3)
+        host_key = getattr(self.provider, "host_key", None)
+        if host_key is not None and not st.get("host_key_checked"):
+            while True:                         # the provider made the host key: read it through its API
+                check()
+                key = host_key(st["id"])
+                if key:
+                    st["host_key"], st["host_key_checked"] = key, True
+                    self._save(st)
+                    break
+                say(f"Waiting for the host key of {st.get('name')} ({time.monotonic() - t0:.0f} s)")
+                time.sleep(5)
         while True:                             # sshd comes up with the host key cloud-init installs
             check()
             try:

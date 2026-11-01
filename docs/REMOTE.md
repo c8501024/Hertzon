@@ -84,7 +84,12 @@ the command `python -m hertzon.remote serve --cores 16 --sweep-workers 4` to `do
 
 Hertzon can create such a server itself, use it for the analyses of a session and delete it again; you pay
 the provider for the time the server exists and install nothing. Providers: Hetzner Cloud and Amazon Web
-Services ([below](#amazon-web-services-aws)); Google Cloud and Microsoft Azure follow.
+Services ([below](#amazon-web-services-aws)), Google Cloud ([below](#google-cloud)) and Microsoft Azure
+([below](#microsoft-azure)).
+
+> **Untested providers:** only Hetzner Cloud has been tried with a real account so far. Amazon Web Services,
+> Google Cloud and Microsoft Azure are checked only against stand-ins of their APIs; Hertzon marks them
+> *(untested)*. Use them at your own risk and check in the provider's console that no server is left running.
 
 1. At [console.hetzner.cloud](https://console.hetzner.cloud/) create a project only for Hertzon, then
    Security > API tokens > Generate API token with *Read & Write*.
@@ -112,6 +117,8 @@ Hertzon uses the `ssh` and `ssh-keygen` programs of the operating system (Window
 Client*, normally installed; Linux: `openssh-client`).
 
 ### Amazon Web Services (AWS)
+
+*Untested with a real account; see the note above.*
 
 1. In the [IAM console](https://console.aws.amazon.com/iam/) create a user only for Hertzon (no console
    access) with the policy below, then Security credentials > **Create access key** (use case: application
@@ -151,6 +158,65 @@ Policy of the Hertzon user (IAM > Policies > Create policy > JSON):
 
 Without `pricing:GetProducts` the types are listed without prices. The user can terminate only instances
 tagged `hertzon=1`.
+
+### Google Cloud
+
+*Untested with a real account; see the note above.*
+
+1. In the [Google Cloud console](https://console.cloud.google.com/) create a project only for Hertzon (with
+   billing) and enable the **Compute Engine API** (APIs & Services > Library).
+2. IAM & Admin > Service accounts > **Create service account**, with the roles *Compute Instance Admin (v1)*
+   (German console: *Compute-Instanzadministrator (v1)*, `roles/compute.instanceAdmin.v1`) and *Service
+   Account User* (*Dienstkontonutzer*, `roles/iam.serviceAccountUser`). *Compute Admin* works as well but may
+   do much more. Then the account > Keys > Add key > **JSON**: the browser saves the key file.
+   If the project forbids service account keys (the organisation policy
+   `iam.disableServiceAccountKeyCreation`, on by default in newer organisations), skip the keys and sign in
+   with your own Google account instead: install the [gcloud CLI](https://cloud.google.com/sdk/docs/install)
+   and run `gcloud auth application-default login` once. Your account needs the same roles in the project
+   (the project's owner has them).
+3. Tools > Options > **Cloud**: Provider *Google Cloud*, choose the key file with **Browse** (with the gcloud
+   login Hertzon finds its file, `application_default_credentials.json` in the gcloud folder, by itself; then
+   enter the project ID next to it), press **Check Account**, choose the zone (for example europe-west3-a, Frankfurt) and the machine type. Google's types have
+   two vCPUs per core: `c3d-standard-8` is 4 AMD cores with 32 GB, `c3d-standard-16` 8 cores with 64 GB. The
+   Compute Engine API has no prices; see [cloud.google.com/compute/vm-instance-pricing](https://cloud.google.com/compute/vm-instance-pricing).
+
+Hertzon starts an Ubuntu 24.04 instance in the project's default network with a 30 GB disk and the labels
+`hertzon=1` and
+`hertzon-client`; the first start installs Docker. SSH comes in through the default network's rule
+`default-allow-ssh`; if the account also has *Compute Security Admin*, Hertzon adds its own rule `hertzon-ssh`
+(SSH to instances tagged `hertzon`), which keeps working when the default rule is removed. If the zone has no capacity, the other zones of the region
+are tried. The key file (or the gcloud login) stays on this computer. The instance runs as the project's default compute service
+account, and its watchdog deletes it with that account's token from the metadata server; that is why a
+project only for Hertzon is recommended. The server's SSH host key is made by Google's guest agent and read
+through the API before the first connection, so the tunnel is checked as on the other providers.
+
+New projects have small CPU quotas per region; raise them in IAM & Admin > Quotas if the analysis reports one.
+
+### Microsoft Azure
+
+*Untested with a real account; see the note above.*
+
+1. In the [Azure portal](https://portal.azure.com/) create the resource group **hertzon** (Resource groups >
+   Create; its region does not matter) and note the subscription ID (Subscriptions).
+2. Create a service principal with the role *Contributor* on that resource group only, for example in the
+   Cloud Shell of the portal:
+   `az ad sp create-for-rbac --name hertzon --role Contributor --scopes /subscriptions/<subscription ID>/resourceGroups/hertzon`.
+   It prints JSON with `appId`, `password` and `tenant`.
+3. Tools > Options > **Cloud**: Provider *Microsoft Azure*, paste that JSON into *Service principal* (or choose
+   a file holding it with **Browse**), enter the subscription ID, press **Check Account**, choose the region
+   (for example germanywestcentral, Frankfurt) and the size. The list shows vCPUs, cores, memory and the
+   pay-as-you-go Linux price in EUR from Azure's public price list. The D/E/F sizes have two vCPUs per core;
+   the HPC sizes (HB) one core per vCPU, but new subscriptions usually need a quota for them first.
+
+Hertzon creates, in the resource group, the network `hertzon-<region>` with the security group
+`hertzon-ssh-<region>` (SSH only) once per region, and per server a public address, a network card and an
+Ubuntu 24.04 virtual machine (30 GB disk, user `hertzon`, tags `hertzon=1` and `hertzon-client`); the first
+start installs Docker. Deleting the machine deletes its disk, card and address. Azure keeps billing a machine
+that was only shut down, so the server deletes itself through the API: like on Hetzner it gets the service
+principal, which can do nothing outside the resource group.
+
+If Azure reports a quota: Subscriptions > Usage + quotas. If it reports a resource provider that is not
+registered: Subscriptions > Resource providers > Microsoft.Compute and Microsoft.Network > Register.
 
 To build the image yourself: `docker build -f packaging/docker/Dockerfile -t hertzon-solver .` in the
 repository folder.

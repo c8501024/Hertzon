@@ -7,9 +7,11 @@ the GitHub release notes.
 
 ### Added
 - **Showcase project** brought up to date: Derivative Trust Region optimizations (goals on S-parameters, antenna parameters and output variables), output variables with S, Y, Z and VSWR, reports against a design variable, report axis settings, bandwidth and delta markers, SPARTA matrix solvers, ports-only setups, Edit Sources, Rotate / Sweep Around Axis in a coordinate system, and two new designs: a terminal differential pair (reference conductor, mixed-mode S-parameters) and a waveguide with two-mode wave ports (TE10 and TE01). The iris filter's first port has one mode again (the half model has no second mode, the solve failed) and the geometry zoo solves again (loft to an ellipse, a gap around the kept Subtract tool).
-- **Tools > Antenna Design > Rectangular Patch** now adds its optimization of patch length and inset with
-  the Derivative Trust Region optimizer instead of Conjugate Gradient (the start design is close to the
-  goal; the optimization is named PatchOpt).
+- **Tools > Antenna Design > Rectangular Patch** optimizes patch length and inset at the design frequency
+  only, on the adaptive solution (no sweep is solved per evaluation), with the Derivative Trust Region
+  instead of Conjugate Gradient (named PatchOpt). The dialog no longer asks for a bandwidth, a return loss
+  over the band and the sweep span: they only served the band goal; the ±15 % sweep stays for looking at
+  the resonance.
 - **Solver image for cloud computers**: `ghcr.io/c8501024/hertzon-solver` (`:<version>`, `:dev`) holds the
   headless solver with the remote service and precompiled kernels; a Linux computer with Docker solves for
   the GUI without a Hertzon installation (`docker run ... -e HERTZON_TOKEN=...`, see docs/REMOTE.md). Built
@@ -19,12 +21,24 @@ the GitHub release notes.
   deletes it when it closes and the server deletes itself when idle, hung or without a GUI (watchdog). The
   connection is an SSH tunnel with a host key known in advance. **Solve on** offers the cloud next to this
   computer and a remote computer. See docs/REMOTE.md.
+- **Amazon Web Services, Google Cloud and Microsoft Azure are marked *(untested)***: only Hetzner Cloud has
+  been tried with a real account; the Cloud tab warns to use the others at your own risk.
 - **Solving in the cloud on Amazon Web Services**: Tools > Options > Cloud > Provider *Amazon Web Services*
   with the access key of an IAM user (policy in docs/REMOTE.md), region and instance type with vCPUs,
   physical cores, memory and on-demand price. Hertzon starts an Ubuntu instance in the default VPC that
   installs Docker and the solver image; the access key stays on this computer, the instance deletes itself
   by shutting down (terminate on shutdown). A sold-out zone is retried in the other zones of the region; the
   vCPU limit of new accounts gets a clear message.
+- **Solving in the cloud on Google Cloud**: Provider *Google Cloud* with the JSON key of a service account
+  (roles in docs/REMOTE.md), zone and machine type with vCPUs, cores and memory. Hertzon signs in with the key
+  itself (no extra package), starts an Ubuntu instance that installs Docker and the solver image, reads its SSH
+  host key through the API and tries the other zones of the region when a zone is full. The key stays on this
+  computer; the instance deletes itself with its own service account.
+- **Solving in the cloud on Microsoft Azure**: Provider *Microsoft Azure* with a service principal (the JSON of
+  `az ad sp create-for-rbac`, Contributor on the resource group `hertzon`) and the subscription ID; region and
+  size with vCPUs, cores, memory and the pay-as-you-go price in EUR. Hertzon creates the network once per
+  region and per server an address, a network card and an Ubuntu machine that installs Docker and the solver
+  image; deleting the machine deletes the rest. The server deletes itself with the service principal.
 - **Optimizer "Derivative Trust Region"**: every round solves the design, computes its derivative tuning
   model and minimizes the goals on the model (milliseconds per evaluation) within a part of the tuning
   range; the step is checked with a solve, and the region grows or shrinks with the agreement. On the patch
@@ -37,6 +51,17 @@ the GitHub release notes.
 - **Wave ports with several modes** (modal solution) absorb every mode with its own propagation constant, as terminal ports already did. Before, all modes used the first mode's constant: in an empty 22.86 x 15 mm guide at 12 GHz, TE01 was reflected with |S22| = 0.34. Gamma and Zo of every mode row are now the mode's own (they showed the first mode's for all rows), which also corrects their de-embedding.
 - **Eigenmode** setups solve again: the mesh is sized at the minimum frequency (the solve stopped with 'Frequency'), and the eigen search climbs from the minimum frequency until the wanted number of modes is found. A search below the first resonance returned only the static null space, so no modes were listed.
 - A **wave port with more modes than its face carries** (for example two TE modes on a WR-90 port at 10 GHz) now stops with a message naming the port and the number of modes it has, instead of a division by zero in the S-parameters.
+- **Optimization > Apply to Design** now shows the solution of the applied evaluation without solving
+  again: S-parameters, reports and the adaptive passes of every evaluation, and for the best evaluation
+  also the mesh and the fields at the adaptive frequency (it keeps them; the other evaluations still keep
+  only S-parameters, convergence and log). Before, the design had to be analyzed again.
+- **Results > Solution Data** has a *Design Variation* list: next to the current design it shows every
+  solved parametric variation and every optimization evaluation, with its passes (Convergence), Matrix
+  Data, Profile and Mesh Statistics, without changing the design.
+- **Tools > Options** opens at once. It used to wait for the check whether this computer's remote service
+  runs (on Windows a refused connection to this computer alone takes about two seconds), for the host name
+  lookup of the share addresses and for the scan of the installed SPARTA version. These now run in the
+  background; their fields show "Checking ..." for a moment and the buttons that depend on them wait.
 - A parallel frequency sweep with the matrix solver set to PARDISO warned for every frequency that
   the solver "cannot be used in MultiThreading as it does not release the GIL". The worker threads use
   PARDISO through the automatic choice anyway; the warning is gone and the results are unchanged.

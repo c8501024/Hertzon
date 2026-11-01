@@ -49,7 +49,7 @@ exec docker run -d --name hertzon --hostname "$(hostname)" --restart unless-stop
 def user_data(*, provider: str, token: str, api_token: str, host_private: str, host_public: str,
               client_public: str, image: str, fallback: str, idle_min: float = 30, contact_h: float = 48,
               quiet_h: float = 2, start_min: float = 20, args: list[str] | None = None,
-              install_docker: bool = False) -> str:
+              install_docker: bool = False, host_key: bool = True) -> str:
     watchdog = (Path(__file__).with_name("watchdog.py")).read_text(encoding="utf-8")
     wcfg = {"provider": provider, "token": token, "api_token": api_token, "port": PORT, "idle_min": idle_min,
             "contact_h": contact_h, "quiet_h": quiet_h, "start_min": start_min}
@@ -72,6 +72,9 @@ def user_data(*, provider: str, token: str, api_token: str, host_private: str, h
         "runcmd": [["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", "hertzon-watchdog"],
                    ["/etc/hertzon/start.sh"]],
     }
+    if not host_key:                    # the provider makes the host keys and tells them through its API
+        for k in ("ssh_deletekeys", "ssh_genkeytypes", "ssh_keys"):
+            cfg.pop(k)
     if install_docker:                  # a plain Ubuntu image: Docker from its packages (before runcmd)
         cfg["package_update"] = True
         cfg["packages"] = ["docker.io"]
