@@ -1,0 +1,11 @@
+.git
+**/__pycache__
+**/*.pyc
+*.hznresults
+docs
+site
+tests
+notes
+*.exe
+build
+dist

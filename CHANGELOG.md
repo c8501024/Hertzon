@@ -6,6 +6,10 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Solver image for cloud computers**: `ghcr.io/c8501024/hertzon-solver` (`:<version>`, `:dev`) holds the
+  headless solver with the remote service and precompiled kernels; a Linux computer with Docker solves for
+  the GUI without a Hertzon installation (`docker run ... -e HERTZON_TOKEN=...`, see docs/REMOTE.md). Built
+  by `.github/workflows/solver-image.yml`.
 - **Optimizer "Derivative Trust Region"**: every round solves the design, computes its derivative tuning
   model and minimizes the goals on the model (milliseconds per evaluation) within a part of the tuning
   range; the step is checked with a solve, and the region grows or shrinks with the agreement. On the patch

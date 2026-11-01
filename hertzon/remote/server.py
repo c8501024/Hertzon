@@ -53,7 +53,11 @@ def default_workdir() -> Path:
 
 
 def load_token(workdir: Path) -> str:
-    """The service token; created on the first start (readable only by this user where the OS allows)."""
+    """The service token; created on the first start (readable only by this user where the OS allows).
+    HERTZON_TOKEN sets it instead (a cloud computer gets the token of the GUI that created it)."""
+    env = os.environ.get("HERTZON_TOKEN", "").strip()
+    if env:
+        return env
     f = workdir / "token"
     if f.is_file():
         tok = f.read_text(encoding="utf-8").strip()

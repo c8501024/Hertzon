@@ -59,5 +59,29 @@ press Abort to stop it.
 - Closing the GUI aborts a running remote analysis, as it does locally.
 - Job folders the GUI did not remove (for example after a lost connection) are deleted by the service after
   seven days.
-- Servers and cloud machines that are created for a job and removed afterwards will build on this service;
-  this is in progress (see the roadmap).
+
+## Cloud computers (solver image)
+
+Every Hertzon version is also published as a headless container image with the solver and this service,
+`ghcr.io/c8501024/hertzon-solver:<version>` (`:dev` for the current development state). A cloud computer
+then needs no Hertzon installation, only Docker: it pulls the image and solves at native speed (the
+container adds no measurable overhead to the solver; only the first start pulls the image). The numba
+kernels are compiled into the image, so the first analysis starts at full speed as well.
+
+By hand, on any Linux computer with Docker (a cloud server of any provider, or a workstation):
+
+```
+docker run -d --name hertzon --restart unless-stopped -p 127.0.0.1:47820:47820 \
+    -e HERTZON_TOKEN=<a long random token> -v hertzon-work:/work ghcr.io/c8501024/hertzon-solver:<version>
+```
+
+then on your laptop `ssh -L 47820:localhost:47820 user@server`, and in Tools > Options > Remote the computer
+`localhost` with that token. The service listens only on the server's loopback here, so it is reached only
+through the SSH tunnel. Cores and parallel sweep processes: all cores and 2 by default; to change them, append
+the command `python -m hertzon.remote serve --cores 16 --sweep-workers 4` to `docker run`.
+
+Creating and removing such servers from the GUI (the API key of a cloud account in Tools > Options, a
+server per session that removes itself when idle) builds on this image and is in progress.
+
+To build the image yourself: `docker build -f packaging/docker/Dockerfile -t hertzon-solver .` in the
+repository folder.
