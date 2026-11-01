@@ -121,3 +121,104 @@ def test_optimetrics_saved_and_not_in_model_key():
     q = project_from_dict(p.to_dict())
     assert q.designs[0].optimetrics[0].name == "Opt1"
     assert q.designs[0].optimetrics[0].props["DifferenceStep"] == "0.05"
+
+
+def _patch_optimization(tmp_path):
+    from pathlib import Path
+    ex = Path(__file__).resolve().parents[1] / "examples"
+    p = Project.load(ex / "PatchAntenna.hzn")
+    d = p.designs[0]
+    d.optimetrics.append(Optimization(
+        "Opt1", "Setup1 : Sweep", variables=[{"name": "Lp", "include": True, "min": "24mm", "max": "32mm"}],
+        goals=[{"calc": "dB(S(1,1))", "start": "2.4GHz", "stop": "2.5GHz", "cond": "<=", "value": "-10"}]))
+    p.save(tmp_path / "p.hzn")
+    return Project.load(tmp_path / "p.hzn")
+
+
+def test_the_best_evaluation_keeps_its_mesh_and_fields(tmp_path):
+    from types import SimpleNamespace
+    from hertzon.solver import optimize as O
+    from hertzon.solver.results import ResultStore
+    p = _patch_optimization(tmp_path)
+    opt = O.Optimizer(p.path, p.designs[0].name, "Opt1", tmp_path / "out")
+    # the evaluation copy keeps the setup's own Save fields (fields at the adaptive frequency), sweeps without
+    st = opt._project_for({"Lp": "28mm"}).designs[0].setup("Setup1")
+    assert st.props["SaveFields"] == "True" and all(sw.props["SaveFields"] == "False" for sw in st.sweeps)
+    f = np.linspace(2.3e9, 2.6e9, 7)
+
+    def evaluation(n, s11):
+        folder = tmp_path / "out" / "evals" / f"{n:04d}"
+        res = ResultStore(folder / "results")
+        res.save_sparams("Sweep", f, np.full((len(f), 1, 1), s11, complex), [50.0], [])
+        for name in ("mesh.npz", "solution_LastAdaptive.npz", "amr_state.npz"):
+            (res.folder / name).write_bytes(b"x")
+        (res.folder / "convergence.json").write_text("{}")
+        opt.n = n
+        return SimpleNamespace(n=n, x=[0.5], texts={"Lp": f"{27 + n}mm"}, folder=folder, error="")
+
+    kept = lambda n: (tmp_path / "out" / "evals" / f"{n:04d}" / "results" / "mesh.npz").exists()  # noqa: E731
+    opt.finish(evaluation(1, 0.5), "start design")           # -6 dB: violated, the best so far
+    assert kept(1)
+    opt.finish(evaluation(2, 0.9), "gradient")               # worse: mesh and fields removed
+    assert kept(1) and not kept(2)
+    assert (tmp_path / "out" / "evals" / "0002" / "results" / "convergence.json").exists()
+    opt.finish(evaluation(3, 0.1), "line search")            # better: the previous best is removed
+    assert kept(3) and not kept(1)
+    assert opt.best["eval"] == 3
+    opt._end("done")
+    assert kept(3)
+
+
+def test_applied_evaluation_shows_its_solution(tmp_path):
+    import json
+    from hertzon.solver.parametric import (_variation_keys, evaluation_dir, solution_dir, solution_variations)
+    from hertzon.solver.results import results_dir
+    p = _patch_optimization(tmp_path)
+    d = p.designs[0]
+    out = evaluation_dir(p.path, d.name, "Opt1", 2)
+    out.mkdir(parents=True)
+    rows = [{"eval": 1, "variables": {"Lp": "28.5mm"}, "cost": 1.0},
+            {"eval": 2, "variables": {"Lp": "29mm"}, "cost": 0.5}]
+    (out.parents[2] / "history.json").write_text(json.dumps({"variables": ["Lp"], "evaluations": rows}))
+    nominal = results_dir(p.path, d.name, "Setup1")
+    d.variables["Lp"] = "29mm"
+    (out / "status.json").write_text(json.dumps({"state": "done", **_variation_keys(p, d, "Setup1", False)}))
+    labels = [lbl for lbl, f in solution_variations(p, d, "Setup1") if f == out]
+    assert labels and "evaluation 2 (best)" in labels[0]
+    assert solution_dir(p, d, "Setup1") == out                # after Apply: the evaluation, no new solve
+    d.variables["Lp"] = "28.5mm"                              # evaluation 1 has no stored solution
+    assert solution_dir(p, d, "Setup1") == nominal
+    d.variables["Lp"] = "29mm"
+    d.setup("Setup1").props["BasisOrder"] = "First Order"     # another problem: not the evaluation
+    assert solution_dir(p, d, "Setup1") == nominal
+
+
+def test_solution_data_shows_the_passes_of_an_evaluation(tmp_path):
+    import json
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel
+    from hertzon.gui.doc import Document
+    from hertzon.gui.panels import SolutionDataDialog
+    from hertzon.solver.parametric import evaluation_dir
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    p = _patch_optimization(tmp_path)
+    d = p.designs[0]
+    out = evaluation_dir(p.path, d.name, "Opt1", 1)
+    out.mkdir(parents=True)
+    (out.parents[2] / "history.json").write_text(json.dumps(
+        {"variables": ["Lp"], "evaluations": [{"eval": 1, "variables": {"Lp": "29mm"}, "cost": 0.5}]}))
+    (out / "status.json").write_text(json.dumps({"state": "done"}))
+    (out / "convergence.json").write_text(json.dumps({"converged": True, "max_delta_s": 0.02, "passes": [
+        {"pass": 1, "tets": 1000, "delta_s": 0.1}, {"pass": 2, "tets": 1500, "delta_s": 0.01, "passed": True}]}))
+    dlg = SolutionDataDialog(Document(p), "Setup1")
+    assert dlg.var.itemText(0) == "Nominal" and dlg.var.count() == 2
+    assert "evaluation 1 (best)" in dlg.var.itemText(1)
+    dlg.var.setCurrentIndex(1)
+    dlg.var.activated.emit(1)
+    assert dlg.st.folder == out
+    texts = [lbl.text() for lbl in dlg.tabs.widget(1).findChildren(QLabel)]
+    assert any("Solved Passes: 2" in t for t in texts)
+    dlg.reload()                                              # a pass of a running solve: the choice stays
+    assert dlg.st.folder == out
+    dlg.close()
