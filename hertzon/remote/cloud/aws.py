@@ -42,6 +42,10 @@ REGIONS = {"us-east-1": "N. Virginia", "us-east-2": "Ohio", "us-west-1": "N. Cal
            "ap-southeast-1": "Singapore", "ap-southeast-2": "Sydney", "ap-south-1": "Mumbai",
            "sa-east-1": "Sao Paulo"}
 
+class AccessDenied(RemoteError):
+    """The key, or a service control policy of the account's organization, does not allow the call."""
+
+
 CAPACITY = ("InsufficientInstanceCapacity", "InsufficientCapacity", "Unsupported")
 
 
@@ -127,11 +131,14 @@ class AWS:
 
     # ---- catalogue ----------------------------------------------------------------------------------
     def locations(self) -> list[dict]:
-        out = []
-        for r in _items(self._call("DescribeRegions"), "regionInfo/item"):
-            name = r.findtext("regionName", "")
-            out.append({"name": name, "city": REGIONS.get(name, ""), "country": ""})
-        return sorted(out, key=lambda x: x["name"])
+        """The regions enabled for the account; the known ones when the account may not list them (a service
+        control policy may deny DescribeRegions but allow the chosen region)."""
+        try:
+            names = [r.findtext("regionName", "") for r in _items(self._call("DescribeRegions"), "regionInfo/item")]
+        except AccessDenied:
+            names = list(REGIONS)
+        return sorted(({"name": n, "city": REGIONS.get(n, ""), "country": ""} for n in names),
+                      key=lambda x: x["name"])
 
     def server_types(self, location: str = "") -> list[dict]:
         """The instance types of TYPES offered in this region: cores, memory (GB), price per hour (USD, on
@@ -314,8 +321,13 @@ def _translate(code: str, msg: str, http: int) -> Exception:
                 "IncompleteSignature"):
         return RemoteError("AWS: the access key is wrong or was removed")
     if code in ("UnauthorizedOperation", "AccessDeniedException", "AccessDenied"):
-        return RemoteError(f"AWS: the access key may not do this ({msg.split('Encoded')[0].strip()}); "
-                           "see the IAM policy in the Hertzon documentation (docs/REMOTE.md)")
+        what = msg.split("Encoded")[0].strip()
+        if "service control policy" in what:
+            return AccessDenied(f"AWS: the organization the account belongs to forbids this ({what}). Its "
+                                "administrator can allow it (AWS console > Organizations > Policies); IAM "
+                                "permissions of the user cannot")
+        return AccessDenied(f"AWS: the access key may not do this ({what}); see the IAM policy in the Hertzon "
+                            "documentation (docs/REMOTE.md)")
     if code.startswith("InvalidInstanceID"):
         return LookupError(msg)
     if code in ("VcpuLimitExceeded", "InstanceLimitExceeded"):

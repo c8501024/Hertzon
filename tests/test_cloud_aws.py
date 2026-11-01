@@ -42,6 +42,7 @@ class FakeEC2(BaseHTTPRequestHandler):
     runs: ClassVar[list] = []
     full_zones: ClassVar[set] = set()
     vcpu_limit: ClassVar[bool] = False
+    scp_deny: ClassVar[bool] = False
 
     def log_message(self, *a):
         pass
@@ -68,6 +69,10 @@ class FakeEC2(BaseHTTPRequestHandler):
 
     def do_POST(self):
         raw = self.rfile.read(int(self.headers["Content-Length"]))
+        if self.scp_deny and b"Action=DescribeRegions" in raw:
+            return self._err("UnauthorizedOperation", "You are not authorized to perform this operation. User: x "
+                             "is not authorized to perform: ec2:DescribeRegions with an explicit deny in a "
+                             "service control policy: arn:aws:organizations::1:policy/p")
         auth = self.headers.get("Authorization", "")
         if "Credential=AKIAGOOD/" not in auth:
             return self._err("AuthFailure", "AWS was not able to validate the provided access credentials", 401)
@@ -143,6 +148,7 @@ class FakeEC2(BaseHTTPRequestHandler):
 @pytest.fixture
 def ec2():
     FakeEC2.instances, FakeEC2.groups, FakeEC2.runs, FakeEC2.full_zones, FakeEC2.vcpu_limit = {}, [], [], set(), False
+    FakeEC2.scp_deny = False
     srv = ThreadingHTTPServer(("127.0.0.1", 0), FakeEC2)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -162,6 +168,9 @@ def test_aws_catalogue(ec2):
     assert types["m7a.2xlarge"]["price"] == pytest.approx(0.4637) and types["m7a.2xlarge"]["memory"] == 32
     assert types["m7i.2xlarge"]["physical"] == 4 and types["m7i.2xlarge"]["price"] is None   # no price: shown so
     assert list(types["c7a.2xlarge"]["prices"]) == ["eu-central-1"]
+    FakeEC2.scp_deny = True                     # an organization denies listing the regions: the known ones
+    regions = [r["name"] for r in a.locations()]
+    assert "eu-central-1" in regions and "us-east-1" in regions and len(regions) > 10
 
 
 def test_aws_servers(ec2):
