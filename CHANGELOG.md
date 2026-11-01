@@ -15,6 +15,12 @@ the GitHub release notes.
   deletes it when it closes and the server deletes itself when idle, hung or without a GUI (watchdog). The
   connection is an SSH tunnel with a host key known in advance. **Solve on** offers the cloud next to this
   computer and a remote computer. See docs/REMOTE.md.
+- **Solving in the cloud on Amazon Web Services**: Tools > Options > Cloud > Provider *Amazon Web Services*
+  with the access key of an IAM user (policy in docs/REMOTE.md), region and instance type with vCPUs,
+  physical cores, memory and on-demand price. Hertzon starts an Ubuntu instance in the default VPC that
+  installs Docker and the solver image; the access key stays on this computer, the instance deletes itself
+  by shutting down (terminate on shutdown). A sold-out zone is retried in the other zones of the region; the
+  vCPU limit of new accounts gets a clear message.
 - **Optimizer "Derivative Trust Region"**: every round solves the design, computes its derivative tuning
   model and minimizes the goals on the model (milliseconds per evaluation) within a part of the tuning
   range; the step is checked with a solve, and the region grows or shrinks with the agreement. On the patch

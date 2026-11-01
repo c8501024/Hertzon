@@ -1329,8 +1329,10 @@ class MainWindow(QMainWindow):
         box.addItem("This computer", "local")
         if addr:
             box.addItem(addr, "remote")
-        if s.value("cloud/hetzner_token", ""):
-            box.addItem(f"Hetzner Cloud ({s.value('cloud/server_type', 'ccx33')})", "cloud")
+        from ..remote.cloud import providers
+        if providers.configured(s.value):
+            prov = providers.current(s.value)
+            box.addItem(f"{providers.SHORT[prov]} ({providers.placement(s.value, prov)[0]})", "cloud")
         box.addItem("Remote computer ..." if not addr else "Other remote computer ...", "setup-remote")
         box.addItem("Cloud ...", "setup-cloud")
         r = self.solver.remote
@@ -1482,7 +1484,8 @@ class MainWindow(QMainWindow):
         self.solver.remote = None
         s = self.settings
         addr = str(s.value("remote/address", "") or "")
-        if s.value("cloud/enabled", False, type=bool) and s.value("cloud/hetzner_token", ""):
+        from ..remote.cloud import providers
+        if s.value("cloud/enabled", False, type=bool) and providers.configured(s.value):
             from ..remote.cloud import CloudHost
             self.solver.remote = CloudHost(self.cloud_session())
         elif s.value("remote/enabled", False, type=bool) and addr:
@@ -1493,18 +1496,19 @@ class MainWindow(QMainWindow):
     def cloud_session(self):
         """The cloud session of the settings in Tools > Options > Cloud (kept while they do not change, so
         its server and SSH tunnel are reused)."""
-        from ..remote.cloud import CloudSession
-        from ..remote.cloud.hetzner import DEFAULT_LOCATION, DEFAULT_TYPE, Hetzner
+        from ..remote.cloud import CloudSession, providers
         s = self.settings
-        key = (str(s.value("cloud/hetzner_token", "") or "").strip(), str(s.value("cloud/server_type", DEFAULT_TYPE)),
-               str(s.value("cloud/location", DEFAULT_LOCATION)), float(s.value("cloud/idle_min", 30)),
-               float(s.value("cloud/contact_h", 48)), float(s.value("cloud/quiet_h", 2)))
+        prov = providers.current(s.value)
+        key = (prov, providers.credentials(s.value, prov), *providers.placement(s.value, prov),
+               float(s.value("cloud/idle_min", 30)), float(s.value("cloud/contact_h", 48)),
+               float(s.value("cloud/quiet_h", 2)))
         old = getattr(self, "_cloud", None)
         if old is not None and old[0] == key:
             return old[1]
         if old is not None:
             old[1].tunnel.close()
-        session = CloudSession(Hetzner(key[0]), key[1], key[2], idle_min=key[3], contact_h=key[4], quiet_h=key[5])
+        session = CloudSession(providers.make(prov, key[1], key[3]), key[2], key[3], idle_min=key[4],
+                               contact_h=key[5], quiet_h=key[6])
         self._cloud = (key, session)
         return session
 

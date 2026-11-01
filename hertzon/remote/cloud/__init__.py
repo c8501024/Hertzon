@@ -63,10 +63,10 @@ def free_port() -> int:
 
 
 class Tunnel:
-    """ssh -L <local port>:127.0.0.1:47820 root@<server>, checked against the known host key."""
+    """ssh -L <local port>:127.0.0.1:47820 <user>@<server>, checked against the known host key."""
 
-    def __init__(self, folder: Path, key: Path):
-        self.folder, self.key = Path(folder), Path(key)
+    def __init__(self, folder: Path, key: Path, user: str = "root"):
+        self.folder, self.key, self.user = Path(folder), Path(key), user
         self.proc: subprocess.Popen | None = None
         self.port = 0
         self.ip = ""
@@ -84,7 +84,7 @@ class Tunnel:
         cmd = [tool("ssh"), "-N", "-i", str(self.key), "-L", f"127.0.0.1:{self.port}:127.0.0.1:{PORT}",
                "-o", f"UserKnownHostsFile={known}", "-o", "StrictHostKeyChecking=yes", "-p", str(self.ssh_port), "-o", "BatchMode=yes",
                "-o", "IdentitiesOnly=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15",
-               "-o", "ServerAliveCountMax=4", "-o", "ConnectTimeout=10", f"root@{ip}"]
+               "-o", "ServerAliveCountMax=4", "-o", "ConnectTimeout=10", f"{self.user}@{ip}"]
         with open(self.folder / "ssh.log", "wb") as log:
             self.proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=log, stderr=log, **_no_window())
         end = time.monotonic() + timeout
@@ -123,7 +123,7 @@ class CloudSession:
         self.folder = Path(workdir or default_workdir()) / "cloud"
         self.folder.mkdir(parents=True, exist_ok=True)
         self.state_file = self.folder / f"{provider.key}.json"
-        self.tunnel = Tunnel(self.folder, self.folder / "id_ed25519")
+        self.tunnel = Tunnel(self.folder, self.folder / "id_ed25519", getattr(provider, "ssh_user", "root"))
         self.lock = threading.RLock()
         self.client = socket.gethostname()
 
@@ -180,7 +180,8 @@ class CloudSession:
         ud = cloudinit.user_data(provider=self.provider.key, token=token, api_token=self.provider.token,
                                  host_private=host_priv, host_public=host_pub, client_public=client_pub,
                                  image=image, fallback=fallback, idle_min=self.idle_min,
-                                 contact_h=self.contact_h, quiet_h=self.quiet_h)
+                                 contact_h=self.contact_h, quiet_h=self.quiet_h,
+                                 install_docker=getattr(self.provider, "install_docker", False))
         key_id = self.provider.ssh_key(client_pub, self.client)
         name = f"hertzon-{secrets.token_hex(3)}"
         srv, where = self._place(name, ud, key_id, say)

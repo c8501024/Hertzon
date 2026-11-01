@@ -1078,7 +1078,7 @@ class OptionsDialog(QDialog):
     # ---- Cloud tab ----------------------------------------------------------------------------------
     def _cloud_tab(self, s) -> QWidget:
         from PySide6.QtWidgets import QDoubleSpinBox
-        from ..remote.cloud.hetzner import DEFAULT_LOCATION, DEFAULT_TYPE
+        from ..remote.cloud import providers
         w = QWidget()
         f = QFormLayout(w)
         self.cloud_on = QCheckBox("Solve in the cloud")
@@ -1090,35 +1090,47 @@ class OptionsDialog(QDialog):
         self.remote_on.toggled.connect(lambda on: on and self.cloud_on.setChecked(False))
         self.cloud_on.toggled.connect(lambda _on: self._hpc_remote_state())
         f.addRow("", self.cloud_on)
+        get = s.value
+        self._cloud_vals = {}                  # provider -> the fields, kept while another provider is shown
+        for key in providers.NAMES:
+            creds = providers.credentials(get, key)
+            stype, loc = providers.placement(get, key)
+            self._cloud_vals[key] = {"token": creds[0], "secret": creds[1] if len(creds) > 1 else "",
+                                     "location": loc, "type": stype}
         self.cloud_provider = QComboBox()
-        self.cloud_provider.addItem("Hetzner Cloud", "hetzner")
-        self.cloud_provider.setToolTip("Amazon Web Services, Google Cloud and Microsoft Azure follow")
+        for key, name in providers.NAMES.items():
+            self.cloud_provider.addItem(name, key)
+        self.cloud_provider.setToolTip("Google Cloud and Microsoft Azure follow")
         f.addRow("Provider", self.cloud_provider)
-        self.cloud_token = QLineEdit(s.value("cloud/hetzner_token", ""))
-        self.cloud_token.setEchoMode(QLineEdit.Password)
-        self.cloud_token.setPlaceholderText("API token (Read & Write)")
+        self.cloud_token = QLineEdit()
+        self.cloud_secret = QLineEdit()
+        self.cloud_secret.setEchoMode(QLineEdit.Password)
+        self.cloud_secret.setPlaceholderText("Secret access key")
         check = QPushButton("Check Account")
         check.clicked.connect(self._cloud_check)
         row = QHBoxLayout()
         row.addWidget(self.cloud_token, 1)
+        row.addWidget(self.cloud_secret, 1)
         row.addWidget(check)
-        f.addRow("API token", row)
-        how = QLabel('<a href="https://console.hetzner.cloud/">console.hetzner.cloud</a>: create a project '
-                     'only for Hertzon, then Security &gt; API tokens &gt; Generate (Read &amp; Write). The '
-                     "servers get the token to delete themselves; it can do nothing outside this project.")
-        how.setOpenExternalLinks(True)
-        how.setWordWrap(True)
-        f.addRow(how)
+        self.cloud_token_label = QLabel("API token")
+        f.addRow(self.cloud_token_label, row)
+        self.cloud_how = QLabel()
+        self.cloud_how.setOpenExternalLinks(True)
+        self.cloud_how.setWordWrap(True)
+        f.addRow(self.cloud_how)
         self.cloud_location = QComboBox()
         self.cloud_location.setEditable(True)
-        self.cloud_location.addItem(s.value("cloud/location", DEFAULT_LOCATION))
         self.cloud_type = QComboBox()
         self.cloud_type.setEditable(True)
-        self.cloud_type.addItem(s.value("cloud/server_type", DEFAULT_TYPE))
         self._cloud_types: list[dict] = []
         self.cloud_location.currentIndexChanged.connect(lambda _i: self._cloud_fill_types())
-        f.addRow("Location", self.cloud_location)
+        self.cloud_location_label = QLabel("Location")
+        f.addRow(self.cloud_location_label, self.cloud_location)
         f.addRow("Server type", self.cloud_type)
+        self._cloud_shown = ""
+        self.cloud_provider.setCurrentIndex(max(0, self.cloud_provider.findData(providers.current(get))))
+        self.cloud_provider.currentIndexChanged.connect(lambda _i: self._cloud_show())
+        self._cloud_show()
 
         def spin(value, lo, hi, suffix, decimals=0):
             sp = QDoubleSpinBox()
@@ -1137,11 +1149,12 @@ class OptionsDialog(QDialog):
         self.cloud_state.setWordWrap(True)
         self.cloud_state.setTextInteractionFlags(Qt.TextSelectableByMouse)
         delete = QPushButton("Delete Cloud Servers")
-        delete.setToolTip("Deletes every server Hertzon created in this project (also those of other computers)")
+        delete.setToolTip("Deletes every server Hertzon created in this project or region (also those of other "
+                          "computers)")
         delete.clicked.connect(self._cloud_delete_all)
         f.addRow("Servers", self.cloud_state)
         f.addRow("", delete)
-        note = QLabel("Billing is per hour of the server, from its creation to its deletion. Hertzon deletes "
+        note = QLabel("Billing is per hour (AWS: per second) of the server, from its creation to its deletion. Hertzon deletes "
                       "it when it closes; the server also deletes itself in the cases above, so a crashed or "
                       "disconnected Hertzon leaves nothing running. The connection is an SSH tunnel (encrypted, "
                       "the server's key is known in advance). Cores and sweep processes: all of the server and 2.")
@@ -1149,9 +1162,58 @@ class OptionsDialog(QDialog):
         f.addRow(note)
         return w
 
-    def _cloud_provider(self):
-        from ..remote.cloud.hetzner import Hetzner
-        return Hetzner(self.cloud_token.text())
+    HOW = {
+        "hetzner": ('<a href="https://console.hetzner.cloud/">console.hetzner.cloud</a>: create a project only '
+                    "for Hertzon, then Security &gt; API tokens &gt; Generate (Read &amp; Write). The servers get "
+                    "the token to delete themselves; it can do nothing outside this project."),
+        "aws": ('<a href="https://console.aws.amazon.com/iam/">AWS console &gt; IAM</a>: create a user only for '
+                "Hertzon with the policy in the Hertzon documentation (Remote computers &gt; AWS), then Security "
+                "credentials &gt; Create access key. The key stays on this computer; the servers delete "
+                "themselves by shutting down. New accounts may start only a few vCPUs: Service Quotas &gt; "
+                "Amazon EC2 &gt; Running On-Demand Standard instances."),
+    }
+
+    def _cloud_key(self) -> str:
+        return self.cloud_provider.currentData() or "hetzner"
+
+    def _cloud_field(self, box) -> str:
+        return box.currentData() or (box.currentText().split() or [""])[0]
+
+    def _cloud_store(self) -> None:
+        """Keep the fields of the provider shown now."""
+        if self._cloud_shown:
+            self._cloud_vals[self._cloud_shown] = {
+                "token": self.cloud_token.text().strip(), "secret": self.cloud_secret.text().strip(),
+                "location": self._cloud_field(self.cloud_location), "type": self._cloud_field(self.cloud_type)}
+
+    def _cloud_show(self) -> None:
+        """Show the fields of the chosen provider."""
+        self._cloud_store()
+        key = self._cloud_key()
+        v = self._cloud_vals[key]
+        aws = key == "aws"
+        self.cloud_token.setText(v["token"])
+        self.cloud_token.setEchoMode(QLineEdit.Normal if aws else QLineEdit.Password)
+        self.cloud_token.setPlaceholderText("Access key ID (AKIA...)" if aws else "API token (Read & Write)")
+        self.cloud_secret.setText(v["secret"])
+        self.cloud_secret.setVisible(aws)
+        self.cloud_token_label.setText("Access key" if aws else "API token")
+        self.cloud_location_label.setText("Region" if aws else "Location")
+        self.cloud_how.setText(self.HOW[key])
+        self._cloud_types = []
+        for box, val in ((self.cloud_location, v["location"]), (self.cloud_type, v["type"])):
+            box.blockSignals(True)
+            box.clear()
+            box.addItem(val, val)
+            box.blockSignals(False)
+        self._cloud_shown = key
+        if hasattr(self, "cloud_state"):
+            self.cloud_state.setText("Check Account lists them")
+
+    def _cloud_provider(self, location: str = ""):
+        from ..remote.cloud import providers
+        return providers.make(self._cloud_key(), (self.cloud_token.text(), self.cloud_secret.text()),
+                              location or self._cloud_field(self.cloud_location))
 
     def _cloud_check(self) -> None:
         """Check the token, load locations and server types with prices, list Hertzon's servers."""
@@ -1163,6 +1225,7 @@ class OptionsDialog(QDialog):
             prov = self._cloud_provider()
             locs = prov.locations()
             self._cloud_types = prov.server_types()
+            self._cloud_types_at = self._cloud_field(self.cloud_location)
             servers = prov.servers()
         except RemoteError as ex:
             self.cloud_state.setText(str(ex))
@@ -1173,7 +1236,8 @@ class OptionsDialog(QDialog):
         self.cloud_location.blockSignals(True)
         self.cloud_location.clear()
         for loc in locs:
-            self.cloud_location.addItem(f"{loc['name']}  ({loc['city']}, {loc['country']})", loc["name"])
+            where = ", ".join(x for x in (loc["city"], loc["country"]) if x)
+            self.cloud_location.addItem(f"{loc['name']}  ({where})" if where else loc["name"], loc["name"])
         i = self.cloud_location.findData(cur)
         self.cloud_location.setCurrentIndex(max(0, i))
         self.cloud_location.blockSignals(False)
@@ -1183,16 +1247,35 @@ class OptionsDialog(QDialog):
     def _cloud_fill_types(self) -> None:
         if not self._cloud_types:
             return
-        loc = self.cloud_location.currentData() or self.cloud_location.currentText().split()[0]
-        cur = self.cloud_type.currentData() or self.cloud_type.currentText().split()[0]
+        loc = self._cloud_field(self.cloud_location)
+        aws = self._cloud_key() == "aws"
+        if aws and loc != getattr(self, "_cloud_types_at", loc):      # AWS: the types and prices of the region
+            from PySide6.QtCore import Qt as _Qt
+            from PySide6.QtWidgets import QApplication
+            from ..remote.client import RemoteError
+            QApplication.setOverrideCursor(_Qt.WaitCursor)
+            try:
+                self._cloud_types = self._cloud_provider(loc).server_types()
+                self._cloud_types_at = loc
+            except RemoteError as ex:
+                self.cloud_state.setText(str(ex))
+                return
+            finally:
+                QApplication.restoreOverrideCursor()
+        cur = self._cloud_field(self.cloud_type)
         self.cloud_type.clear()
         for t in self._cloud_types:
-            price = t["prices"].get(loc)
-            if price is None:
+            if loc not in t["prices"]:
                 continue
-            kind = "dedicated" if t["dedicated"] else "shared"
-            self.cloud_type.addItem(f"{t['name']}  ({t['cores']} {kind} vCPU, {t['memory']:g} GB, "
-                                    f"{price:.3f} EUR/h)", t["name"])
+            price = t["prices"].get(loc)
+            if aws:
+                cores = f"{t['cores']} vCPU" + (f" = {t['physical']} cores" if t.get("physical") != t["cores"]
+                                                else ", one core each")
+                cost = f", {price:.3f} USD/h" if price else ", price: see AWS"
+            else:
+                cores = f"{t['cores']} {'dedicated' if t['dedicated'] else 'shared'} vCPU"
+                cost = f", {price:.3f} EUR/h"
+            self.cloud_type.addItem(f"{t['name']}  ({cores}, {t['memory']:g} GB{cost})", t["name"])
         i = self.cloud_type.findData(cur)
         self.cloud_type.setCurrentIndex(max(0, i))
 
@@ -1311,12 +1394,18 @@ class OptionsDialog(QDialog):
         s.setValue("remote/enabled", self.remote_on.isChecked())
         s.setValue("remote/address", self.remote_addr.text().strip())
         s.setValue("remote/token", self.remote_token.text().strip())
-        s.setValue("cloud/enabled", self.cloud_on.isChecked() and bool(self.cloud_token.text().strip()))
-        s.setValue("cloud/hetzner_token", self.cloud_token.text().strip())
-        s.setValue("cloud/location", self.cloud_location.currentData() or
-                   (self.cloud_location.currentText().split() or ["fsn1"])[0])
-        s.setValue("cloud/server_type", self.cloud_type.currentData() or
-                   (self.cloud_type.currentText().split() or ["ccx33"])[0])
+        self._cloud_store()
+        h, a = self._cloud_vals["hetzner"], self._cloud_vals["aws"]
+        s.setValue("cloud/provider", self._cloud_key())
+        s.setValue("cloud/hetzner_token", h["token"])
+        s.setValue("cloud/location", h["location"] or "fsn1")
+        s.setValue("cloud/server_type", h["type"] or "ccx33")
+        s.setValue("cloud/aws_key_id", a["token"])
+        s.setValue("cloud/aws_secret", a["secret"])
+        s.setValue("cloud/aws_region", a["location"] or "eu-central-1")
+        s.setValue("cloud/aws_type", a["type"] or "m7a.2xlarge")
+        from ..remote.cloud import providers
+        s.setValue("cloud/enabled", self.cloud_on.isChecked() and providers.configured(s.value))
         s.setValue("cloud/idle_min", self.cloud_idle.value())
         s.setValue("cloud/quiet_h", self.cloud_quiet.value())
         s.setValue("cloud/contact_h", self.cloud_contact.value())
