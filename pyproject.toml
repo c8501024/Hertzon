@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hertzon"
-version = "0.3.0"
+version = "0.2.10"
 description = "3D full-wave FEM simulator with an adaptive-meshing workflow, built on EMerge"
 readme = "README.md"
 license = {text = "GPL-2.0-or-later"}

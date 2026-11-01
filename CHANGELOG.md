@@ -5,7 +5,7 @@ the GitHub release notes.
 
 ## Unreleased
 
-## 0.3.0 (2026-11-01)
+## 0.2.10 (2026-11-01)
 
 ### Highlights
 - **Tune with sliders, live**: compute the derivatives once, then move design variables with sliders and every
