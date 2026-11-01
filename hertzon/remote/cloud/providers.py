@@ -2,7 +2,8 @@
 
 Settings (QSettings keys): cloud/provider ("hetzner", "aws", "gcp" or "azure"); Hetzner: cloud/hetzner_token,
 cloud/location, cloud/server_type; AWS: cloud/aws_key_id, cloud/aws_secret, cloud/aws_region, cloud/aws_type;
-Google Cloud: cloud/gcp_key_file (service account key, JSON), cloud/gcp_zone, cloud/gcp_type; Azure:
+Google Cloud: cloud/gcp_key_file (service account key, JSON, or the file of the gcloud login; empty: the
+gcloud login's default file), cloud/gcp_project (only needed with the gcloud login), cloud/gcp_zone, cloud/gcp_type; Azure:
 cloud/azure_credentials (service principal JSON or its file), cloud/azure_subscription, cloud/azure_location,
 cloud/azure_type.
 """
@@ -26,7 +27,8 @@ def credentials(get: Callable, key: str | None = None) -> tuple[str, ...]:
     if key == "aws":
         return (str(get("cloud/aws_key_id", "") or "").strip(), str(get("cloud/aws_secret", "") or "").strip())
     if key == "gcp":
-        return (str(get("cloud/gcp_key_file", "") or "").strip(),)
+        return (str(get("cloud/gcp_key_file", "") or "").strip() or gcp.default_credentials(),
+                str(get("cloud/gcp_project", "") or "").strip())
     if key == "azure":
         return (str(get("cloud/azure_credentials", "") or "").strip(),
                 str(get("cloud/azure_subscription", "") or "").strip())
@@ -34,7 +36,8 @@ def credentials(get: Callable, key: str | None = None) -> tuple[str, ...]:
 
 
 def configured(get: Callable) -> bool:
-    return all(credentials(get))
+    creds = credentials(get)
+    return all(creds[:1] if current(get) == "gcp" else creds)    # Google: the project ID is optional
 
 
 def placement(get: Callable, key: str | None = None) -> tuple[str, str]:
@@ -58,7 +61,7 @@ def make(key: str, creds: tuple[str, ...], location: str = ""):
     if key == "aws":
         return aws.AWS(creds[0], creds[1], location or aws.DEFAULT_REGION)
     if key == "gcp":
-        return gcp.GCP(creds[0], location or gcp.DEFAULT_ZONE)
+        return gcp.GCP(creds[0], location or gcp.DEFAULT_ZONE, project=creds[1] if len(creds) > 1 else "")
     if key == "azure":
         return azure.Azure(creds[0], creds[1], location or azure.DEFAULT_LOCATION)
     return hetzner.Hetzner(creds[0])

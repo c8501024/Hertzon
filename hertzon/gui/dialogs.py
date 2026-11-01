@@ -1177,8 +1177,9 @@ class OptionsDialog(QDialog):
         "gcp": ('<a href="https://console.cloud.google.com/">console.cloud.google.com</a>: create a project only '
                 "for Hertzon and enable the Compute Engine API; IAM &amp; Admin &gt; Service accounts &gt; Create, "
                 "with the roles Compute Instance Admin (v1) and Service Account User; then Keys &gt; Add key &gt; "
-                "JSON. The key file stays on this computer; the servers delete themselves with their own "
-                "account."),
+                "JSON. If the project forbids keys: install the gcloud CLI, run <tt>gcloud auth "
+                "application-default login</tt> once (its file is found by itself) and enter the project ID. "
+                "The key stays on this computer; the servers delete themselves with their own account."),
         "azure": ('<a href="https://portal.azure.com/">portal.azure.com</a>: create the resource group '
                   "<b>hertzon</b>, then a service principal with the role Contributor on it only (Cloud Shell: "
                   "<tt>az ad sp create-for-rbac --role Contributor --scopes /subscriptions/&lt;ID&gt;/"
@@ -1216,12 +1217,13 @@ class OptionsDialog(QDialog):
         self.cloud_token.setText(v["token"])
         self.cloud_token.setEchoMode(QLineEdit.Normal if aws or gcp else QLineEdit.Password)
         self.cloud_token.setPlaceholderText({
-            "aws": "Access key ID (AKIA...)", "gcp": "Service account key file (JSON)",
+            "aws": "Access key ID (AKIA...)", "gcp": "Service account key (JSON) or the gcloud login's file",
             "azure": '{"appId": ..., "password": ..., "tenant": ...} or its file'}.get(key, "API token (Read & Write)"))
         self.cloud_secret.setText(v["secret"])
-        self.cloud_secret.setVisible(aws or azure)
-        self.cloud_secret.setEchoMode(QLineEdit.Normal if azure else QLineEdit.Password)
-        self.cloud_secret.setPlaceholderText("Subscription ID" if azure else "Secret access key")
+        self.cloud_secret.setVisible(aws or gcp or azure)
+        self.cloud_secret.setEchoMode(QLineEdit.Normal if azure or gcp else QLineEdit.Password)
+        self.cloud_secret.setPlaceholderText({"azure": "Subscription ID", "gcp": "Project ID (only for the gcloud login)"}
+                                             .get(key, "Secret access key"))
         self.cloud_browse.setVisible(gcp or azure)
         self.cloud_token_label.setText({"aws": "Access key", "gcp": "Key file",
                                         "azure": "Service principal"}.get(key, "API token"))
@@ -1435,6 +1437,7 @@ class OptionsDialog(QDialog):
         s.setValue("cloud/aws_region", a["location"] or "eu-central-1")
         s.setValue("cloud/aws_type", a["type"] or "m7a.2xlarge")
         s.setValue("cloud/gcp_key_file", g["token"])
+        s.setValue("cloud/gcp_project", g["secret"])
         s.setValue("cloud/gcp_zone", g["location"] or "europe-west3-a")
         s.setValue("cloud/gcp_type", g["type"] or "c3d-standard-8")
         s.setValue("cloud/azure_credentials", z["token"])
