@@ -152,7 +152,7 @@ def ec2():
     srv = ThreadingHTTPServer(("127.0.0.1", 0), FakeEC2)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_address[1]}"
-    yield lambda key="AKIAGOOD": AWS(key, "secret", "eu-central-1", endpoint=url, pricing_endpoint=url)
+    yield lambda key="AKIAGOOD": AWS(key, "wJalrSECRETvalue", "eu-central-1", endpoint=url, pricing_endpoint=url)
     srv.shutdown()
     srv.server_close()
 
@@ -217,7 +217,7 @@ def test_aws_session_keeps_the_key_at_home(ec2, tmp_path):
     assert cfg["packages"] == ["docker.io"] and cfg["ssh_keys"]["ed25519_public"] == st["host_key"]
     files = {f["path"]: f["content"] for f in cfg["write_files"]}
     wcfg = json.loads(files["/etc/hertzon/watchdog.json"])
-    assert wcfg["provider"] == "aws" and wcfg["api_token"] == "" and "secret" not in ud
+    assert wcfg["provider"] == "aws" and wcfg["api_token"] == "" and "wJalrSECRETvalue" not in ud
     assert "aws" in watchdog.DELETE
     assert s.delete() and FakeEC2.instances[st["id"]]["state"] == "terminated"
 

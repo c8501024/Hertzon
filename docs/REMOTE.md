@@ -84,7 +84,8 @@ the command `python -m hertzon.remote serve --cores 16 --sweep-workers 4` to `do
 
 Hertzon can create such a server itself, use it for the analyses of a session and delete it again; you pay
 the provider for the time the server exists and install nothing. Providers: Hetzner Cloud and Amazon Web
-Services ([below](#amazon-web-services-aws)) and Google Cloud ([below](#google-cloud)); Microsoft Azure follows.
+Services ([below](#amazon-web-services-aws)), Google Cloud ([below](#google-cloud)) and Microsoft Azure
+([below](#microsoft-azure)).
 
 1. At [console.hetzner.cloud](https://console.hetzner.cloud/) create a project only for Hertzon, then
    Security > API tokens > Generate API token with *Read & Write*.
@@ -172,6 +173,30 @@ project only for Hertzon is recommended. The server's SSH host key is made by Go
 through the API before the first connection, so the tunnel is checked as on the other providers.
 
 New projects have small CPU quotas per region; raise them in IAM & Admin > Quotas if the analysis reports one.
+
+### Microsoft Azure
+
+1. In the [Azure portal](https://portal.azure.com/) create the resource group **hertzon** (Resource groups >
+   Create; its region does not matter) and note the subscription ID (Subscriptions).
+2. Create a service principal with the role *Contributor* on that resource group only, for example in the
+   Cloud Shell of the portal:
+   `az ad sp create-for-rbac --name hertzon --role Contributor --scopes /subscriptions/<subscription ID>/resourceGroups/hertzon`.
+   It prints JSON with `appId`, `password` and `tenant`.
+3. Tools > Options > **Cloud**: Provider *Microsoft Azure*, paste that JSON into *Service principal* (or choose
+   a file holding it with **Browse**), enter the subscription ID, press **Check Account**, choose the region
+   (for example germanywestcentral, Frankfurt) and the size. The list shows vCPUs, cores, memory and the
+   pay-as-you-go Linux price in EUR from Azure's public price list. The D/E/F sizes have two vCPUs per core;
+   the HPC sizes (HB) one core per vCPU, but new subscriptions usually need a quota for them first.
+
+Hertzon creates, in the resource group, the network `hertzon-<region>` with the security group
+`hertzon-ssh-<region>` (SSH only) once per region, and per server a public address, a network card and an
+Ubuntu 24.04 virtual machine (30 GB disk, user `hertzon`, tags `hertzon=1` and `hertzon-client`); the first
+start installs Docker. Deleting the machine deletes its disk, card and address. Azure keeps billing a machine
+that was only shut down, so the server deletes itself through the API: like on Hetzner it gets the service
+principal, which can do nothing outside the resource group.
+
+If Azure reports a quota: Subscriptions > Usage + quotas. If it reports a resource provider that is not
+registered: Subscriptions > Resource providers > Microsoft.Compute and Microsoft.Network > Register.
 
 To build the image yourself: `docker build -f packaging/docker/Dockerfile -t hertzon-solver .` in the
 repository folder.
