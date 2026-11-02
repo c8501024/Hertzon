@@ -29,7 +29,7 @@ class _Model:
 
 def _csv(path):
     import csv
-    with open(path) as fh:
+    with open(path, encoding="utf-8-sig", newline="") as fh:
         head = next(csv.reader(fh))
     return head, np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2)
 

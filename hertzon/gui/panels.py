@@ -859,7 +859,8 @@ class SolutionDataDialog(QDialog):
             for j in range(n):
                 for i in range(n):
                     cols += [M[:, i, j].real, M[:, i, j].imag]
-            np.savetxt(path, np.column_stack(cols), delimiter=",", header=",".join(hdr), comments="")
+            from ..export.table import write_csv
+            write_csv(path, hdr, np.column_stack(cols))
 
         sol.currentTextChanged.connect(load_freqs)
         fsel.currentIndexChanged.connect(fill)
