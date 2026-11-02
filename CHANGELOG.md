@@ -5,6 +5,12 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Automatic tests**: the test suite runs on Linux for every pull request and every push to `dev` and `main`
+  (`.github/workflows/tests.yml`).
+- **CONTRIBUTING.md**: how to report problems, ask questions, set up a development environment, run the tests
+  and open a pull request.
+
 ## 0.2.11 (2026-11-02)
 
 ### Fixed
