@@ -1748,6 +1748,67 @@ def _thin_tube(e, model_diag: float) -> bool:
     return abs(k) * max(10 * float(np.linalg.norm(b[3:] - b[:3])), model_diag) > 400
 
 
+def _plain_tube(e) -> list[int]:
+    """The rim circles of an uncut cylinder face (two full circles and the seam), else []. Such a face of a thin
+    wire gets a display mesh of its own (_tube_strip): round like any cylinder, but without the isotropic
+    curvature sizing that fills its whole length with tiny triangles."""
+    if gmsh.model.getType(*e) != "Cylinder":
+        return []
+    rims = []
+    for _, c in gmsh.model.getBoundary([e], combined=False, oriented=False):
+        c = abs(c)
+        typ = gmsh.model.getType(1, c)
+        if typ == "Circle":
+            lo, hi = gmsh.model.getParametrizationBounds(1, c)
+            if abs(hi[0] - lo[0] - 2 * np.pi) > 1e-6:
+                return []
+            if c not in rims:
+                rims.append(c)
+        elif typ != "Line":
+            return []
+    return rims if len(rims) == 2 else []
+
+
+def _tube_strip(rims: list[int]) -> tuple[np.ndarray, np.ndarray]:
+    """Display triangles of an uncut cylinder face: one band of triangles between the meshed rim circles, so
+    the face meets the end caps node for node and its outline is as round as theirs."""
+    A, B = (_curve_polyline(c) for c in rims)
+    A, B = A[:-1], B[:-1]                        # closed polylines: the last point repeats the first
+    ca, cb = A.mean(axis=0), B.mean(axis=0)
+    ax = (cb - ca) / max(float(np.linalg.norm(cb - ca)), 1e-300)
+    u = A[0] - ca
+    u -= ax * float(u @ ax)
+    u /= max(float(np.linalg.norm(u)), 1e-300)
+    v = np.cross(ax, u)
+
+    def ring(P, c):
+        d = P - c
+        a = np.mod(np.arctan2(d @ v, d @ u), 2 * np.pi)
+        o = np.argsort(a)
+        return o, a[o]
+    ia, aa = ring(A, ca)
+    ib, ab = ring(B, cb)
+    na, nb = len(A), len(B)
+    aa, ab = np.r_[aa, aa[0] + 2 * np.pi], np.r_[ab, ab[0] + 2 * np.pi]
+    tris, i, j = [], 0, 0
+    while i < na or j < nb:                      # walk both rims by angle (equal or unequal node counts)
+        if j >= nb or (i < na and aa[i + 1] <= ab[j + 1]):
+            tris.append((ia[i % na], ia[(i + 1) % na], na + ib[j % nb]))
+            i += 1
+        else:
+            tris.append((ia[i % na], na + ib[(j + 1) % nb], na + ib[j % nb]))
+            j += 1
+    X = np.vstack([A, B])
+    T = np.asarray(tris, np.int64).reshape(-1, 3)
+    # outward normals
+    a, b, c = X[T[:, 0]], X[T[:, 1]], X[T[:, 2]]
+    m = (a + b + c) / 3 - ca
+    m -= np.outer(m @ ax, ax)
+    flip = np.einsum("ij,ij->i", np.cross(b - a, c - a), m) < 0
+    T[flip] = T[flip][:, [0, 2, 1]]
+    return X, T
+
+
 def _generate_planar_first() -> None:
     """Display mesh in passes. Thin tubes (helix wire, swept pipes, wires, bondwires: see _thin_tube) get a
     coarser curvature sizing: it is isotropic, so the thin tube radius would also set the size along the
@@ -1759,10 +1820,18 @@ def _generate_planar_first() -> None:
     curv = gmsh.option.getNumber("Mesh.MeshSizeFromCurvature")
     diag = float(np.linalg.norm(np.subtract(*np.reshape(_bbox(S), (2, 3))[::-1]))) if S else 0.0
     swept = [e for e in S if _thin_tube(e, diag)]
-    rest = [e for e in S if e not in swept]
+    # straight wires (a dipole arm, a monopole, a coax inner conductor): their rims get the full number of
+    # segments per turn and the face one band of triangles between them, not the coarse sizing of pipes
+    tubes = {e: r for e in swept for r in [_plain_tube(e)] if r}
+    swept = [e for e in swept if e not in tubes]
+    rest = [e for e in S if e not in swept and e not in tubes]
     # lines and points outside every face (wires, helix lines) go with the last pass
-    in_faces = set(_closure(S)) if S else set()
+    in_faces = set(_closure(swept + rest)) if swept or rest else set()
     loose = [e for e in gmsh.model.getEntities(1) + gmsh.model.getEntities(0) if e not in in_faces]
+    n_rim = max(int(np.ceil(curv)), 3)
+    for rims in tubes.values():
+        for c in rims:
+            gmsh.model.mesh.setTransfiniteCurve(c, n_rim + 1)
     try:
         if swept and rest:
             _mesh_faces(swept, min(curv, 8), last=False)
@@ -1773,7 +1842,10 @@ def _generate_planar_first() -> None:
                 gmsh.model.mesh.setTransfiniteCurve(t, len(_PASS_CACHE[(1, t)]))
             _mesh_faces(rest, curv, last=True, loose=loose, fixed=seam)
         else:
-            _mesh_faces(S, min(curv, 8) if swept else curv, last=True, loose=loose, alone=True)
+            _mesh_faces(swept or rest, min(curv, 8) if swept else curv, last=True, loose=loose,
+                        alone=not tubes)
+        for e, rims in tubes.items():
+            _PASS_CACHE[e] = _tube_strip(rims)
     finally:
         gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", curv)
         gmsh.option.setNumber("Mesh.MeshOnlyVisible", 0)

@@ -1523,3 +1523,33 @@ def test_thin_wires_get_a_coarse_display_mesh():
     rim = np.asarray(t["Can"].points)
     top = rim[np.isclose(rim[:, 2], 0.02)]
     assert len(np.unique(np.round(top, 7), axis=0)) >= 30
+
+
+@pytest.mark.parametrize("quality", ["coarse", "normal", "fine"])
+def test_straight_wire_is_round(quality):
+    """A dipole arm (1 mm radius, 70 mm long) is a thin tube, but a plain cylinder: its rims keep the full
+    number of segments per turn (it was drawn as an octagon) and the face is one band of triangles between
+    them, closed with the end caps."""
+    from hertzon.kernel import occ as K
+    p = Project()
+    d = p.designs[0]
+    d.units = "mm"
+    d.add_object("CreateCylinder", name="Arm", CenterPosition="0,0,1", Axis="Z", Radius="1", Height="70")
+    K.ensure_gmsh("test_core")
+    t = K.tessellate(K.build_design(d, d.evaluator(p)), quality)["Arm"]
+    P = np.asarray(t.points)
+    rim = P[np.isclose(np.hypot(P[:, 0], P[:, 1]), np.hypot(P[:, 0], P[:, 1]).max())
+            & np.isclose(P[:, 2], P[:, 2].max())]
+    assert len(np.unique(np.round(rim, 9), axis=0)) >= {"coarse": 18, "normal": 36, "fine": 64}[quality]
+    assert len(t.tris) < 2000
+    # watertight: every edge between two triangles, the volume of the closed surface is the cylinder's
+    _, inv = np.unique(np.round(P, 9), axis=0, return_inverse=True)
+    T = inv.ravel()[t.tris]
+    E = np.sort(np.vstack([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]]), axis=1)
+    assert set(np.unique(E, axis=0, return_counts=True)[1]) == {2}
+    # the band of the curved face points outwards
+    side = t.tri_face == np.argmax(t.face_area)
+    a, b, c = (P[t.tris[side, k]] for k in range(3))
+    n = np.cross(b - a, c - a)
+    m = (a + b + c) / 3
+    assert np.all(n[:, 0] * m[:, 0] + n[:, 1] * m[:, 1] > 0)

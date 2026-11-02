@@ -11,6 +11,9 @@ the GitHub release notes.
   show Ω and ° correctly), and a failed export leaves no empty or half-written file behind.
 - **Export Data header**: every column name is quoted the same way, so `S(1,1)` no longer looks different from
   the others. Export Matrix Data quotes its names too; before, names like `re(S(1,1))` were split at the comma.
+- **Thin straight cylinders look round again** in the 3D view: dipole arms, monopoles and coax inner conductors were
+  drawn as octagons since 0.2.10. Only the display is affected; the solver mesh never was. Helices and swept
+  pipes are unchanged.
 
 ## 0.2.10 (2026-11-01)
 
