@@ -47,7 +47,7 @@ RANGES = {
 ER_RANGE = (1.0, 15.0)
 ER_UNUSUAL = (1.9, 12.0)
 TAND_MAX = 0.05
-TOTAL_WARN, TOTAL_INFO = 0.10, 0.03          # relative deviation of the sum from the nominal thickness
+TOTAL_WARN = 0.10                            # deviation of the sum from the stated thickness, shown in colour
 # unit mix-ups: true value = read value * factor
 UNIT_FACTORS = (1e-3, 1e3, 0.0254, 1 / 0.0254)  # um/mm both ways, mil read as mm, mm read as mil
 # values a KiCad board gets without anybody opening its stackup editor
@@ -238,6 +238,15 @@ def fill_of(st: Stackup, i: int) -> str:
     return pick.material or f"layer:{pick.name}"
 
 
+def total_deviation(st: Stackup, ev: Evaluator) -> float | None:
+    """(sum - stated) / stated, None without a valid stated board thickness."""
+    try:
+        nom = ev.length(st.nominal_thickness) if str(st.nominal_thickness or "").strip() else None
+    except ExprError:
+        return None
+    return (total_thickness(st, ev) - nom) / nom if nom else None
+
+
 def total_thickness(st: Stackup, ev: Evaluator) -> float:
     """Sum of the known thicknesses."""
     return sum(t for L in st.layers for t in [thickness_m(L, ev)] if t is not None)
@@ -390,28 +399,14 @@ def check(st: Stackup, ev: Evaluator, project=None) -> list[Issue]:
             continue
         out += _check_dielectric(i, L, ev, project, st)
     # ---- whole stack --------------------------------------------------------------------------
-    nom = None
     if str(st.nominal_thickness or "").strip():
         try:
-            nom = ev.length(st.nominal_thickness)
+            ev.length(st.nominal_thickness)
         except ExprError:
             out.append(Issue("error", "bad-nominal", f"The board thickness '{st.nominal_thickness}' cannot be "
                              "evaluated."))
-    tot = total_thickness(st, ev)
-    if nom and tot > 0:
-        dev = (tot - nom) / nom
-        if abs(dev) > TOTAL_INFO:
-            lvl = "warning" if abs(dev) > TOTAL_WARN else "info"
-            text = (f"The layers add up to {fmt_thickness(tot)}, the stated board thickness is "
-                    f"{fmt_thickness(nom)} ({dev * 100:+.1f} %).")
-            if any(i.code in ("thickness-range", "no-thickness", "bad-thickness") for i in out):
-                # scaling around a wrong layer would spread its error over the good ones
-                out.append(Issue(lvl, "total", text + " Fix the thickness problems above first."))
-            else:
-                out.append(Issue(lvl, "total", text, fix=scale_dielectrics(st, ev, nom)))
-                alt = adjust_core(st, ev, nom)
-                if alt:
-                    out.append(Issue(lvl, "total-core", "Alternative: " + alt.label + ".", fix=alt))
+    # the sum against the stated board thickness is no problem of the list: the editor shows both and the
+    # deviation, and the user decides (see total_deviation, scale_dielectrics, adjust_core)
     ncu = len(st.copper())
     if st.copper_files >= 0 and st.copper_files != ncu:
         out.append(Issue("warning", "copper-files", f"The stackup has {ncu} copper layers, the files hold "

@@ -117,17 +117,15 @@ def test_fix_changes_only_after_apply_and_marks_origin():
     assert st.layers[0].thickness == "35um" and st.layers[0].origin_of("thickness") == "suggestion"
 
 
-def test_total_mismatch_offers_scaling_and_core():
+def test_total_is_shown_not_listed_and_fit_tools():
     st = S.template(4, "1.6mm")
     st.nominal_thickness = "2.0mm"
-    iss = S.check(st, EV)
-    tot = by_code(iss, "total")
-    assert tot.level == "warning"
-    S.apply_fix(st, tot.fix)
+    assert "total" not in codes(S.check(st, EV))           # the editor shows the sum; the user decides
+    assert S.total_deviation(st, EV) == pytest.approx(-0.2)
+    S.apply_fix(st, S.scale_dielectrics(st, EV, 2.0e-3))
     assert S.total_thickness(st, EV) == pytest.approx(2.0e-3, rel=1e-4)
     st2 = S.template(4, "1.6mm")
-    st2.nominal_thickness = "1.7mm"
-    S.apply_fix(st2, by_code(S.check(st2, EV), "total-core").fix)
+    S.apply_fix(st2, S.adjust_core(st2, EV, 1.7e-3))
     assert S.total_thickness(st2, EV) == pytest.approx(1.7e-3, rel=1e-4)
 
 
@@ -267,15 +265,13 @@ def test_editor_dialog(tmp_path):
     dlg.load_job(str(f))
     ok = dlg.buttons.button(QDialogButtonBox.Ok)
     assert dlg.table.rowCount() == 7
-    row = next(r for r, i in enumerate(dlg.issues) if i.code == "thickness-range")
-    dlg.issue_list.setCurrentRow(row)
-    assert dlg.sel == 0 and dlg.apply_btn.isEnabled()
-    dlg._apply_selected()
+    iss = next(i for i in dlg.issues if i.code == "thickness-range")
+    assert iss.layer == 0 and "Right-click: Use 35um" in dlg.table.item(0, 2).toolTip()
+    dlg.apply(iss.fix)
     assert dlg.st.layers[0].thickness == "35um"
-    dlg.table.item(0, 2).setText("")                      # an error blocks OK
-    assert not ok.isEnabled()
+    dlg.table.item(0, 2).setText("")                      # marked, but nothing is blocked: the user decides
+    assert ok.isEnabled() and "no thickness" in dlg.table.item(0, 2).toolTip()
     dlg.table.item(0, 2).setText("1oz")
-    assert ok.isEnabled()
     dlg._read_model()                                     # copper of the test board in the top view
     assert len(dlg.model_layers.layers) == 2
     dlg._select(2)
@@ -290,10 +286,3 @@ def test_editor_dialog(tmp_path):
     assert nice_step(40e-3) == 5e-3 and ruler_unit(5e-3)[0] == "mm" and ruler_unit(0.2)[0] == "m" and ruler_unit(1e-3)[0] == "mm"
     assert size_text(62e-3, 48.5e-3) == "62 × 48.5 mm"
     dlg.close()
-
-
-def test_no_scaling_offered_around_a_wrong_layer():
-    st = S.template(2, "1.6mm")
-    st.layers[0].thickness = "35mm"
-    tot = by_code(S.check(st, EV), "total")
-    assert tot.fix is None and "first" in tot.text

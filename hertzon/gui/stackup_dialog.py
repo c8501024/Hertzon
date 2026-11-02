@@ -14,7 +14,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QRadioButton,
+                               QMenu, QMessageBox, QPushButton, QRadioButton,
                                QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from ..model import stackup as S
@@ -508,24 +508,21 @@ class StackupDialog(QDialog):
         self.table.itemChanged.connect(self._item_changed)
         self.table.currentCellChanged.connect(lambda r, *_: self._select(r) if r >= 0 else None)
         bl.addWidget(self.table, 2)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._table_menu)
         hb = QHBoxLayout()
-        self.issue_label = QLabel()
-        hb.addWidget(self.issue_label)
+        self.hint = QLabel("Coloured values look suspicious or were assumed: hover for details, right-click for a "
+                           "suggestion. You decide; nothing is blocked.")
+        self.hint.setStyleSheet("color: #606060")
+        hb.addWidget(self.hint)
         hb.addStretch(1)
-        self.apply_btn = QPushButton("Apply suggestion")
-        self.apply_btn.clicked.connect(self._apply_selected)
-        hb.addWidget(self.apply_btn)
         self.confirm_btn = QPushButton("Confirm assumed values")
         self.confirm_btn.setToolTip("Mark the assumed values of the selected layer as checked by you")
         self.confirm_btn.clicked.connect(self._confirm)
         hb.addWidget(self.confirm_btn)
         bl.addLayout(hb)
-        self.issue_list = QListWidget()
-        self.issue_list.itemDoubleClicked.connect(lambda *_: self._apply_selected())
-        self.issue_list.currentRowChanged.connect(self._issue_selected)
-        bl.addWidget(self.issue_list, 1)
         split.addWidget(bottom)
-        split.setSizes([430, 390])
+        split.setSizes([480, 340])
         lay.addWidget(split, 1)
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -538,22 +535,17 @@ class StackupDialog(QDialog):
     def _refresh(self) -> None:
         self.issues = S.check(self.st, self.ev, self.mats)
         self._fill_table()
-        self._fill_issues()
         self._refresh_views()
         tot = S.total_thickness(self.st, self.ev)
         unit = self.unit.currentText()
-        txt = f"Sum {_fmt(tot, unit)}"
-        try:
-            nom = self.ev.length(self.st.nominal_thickness) if self.st.nominal_thickness.strip() else None
-        except Exception:  # noqa: BLE001
-            nom = None
-        if nom:
-            txt += f"  ({(tot - nom) / nom * 100:+.1f} %)"
+        dev = S.total_deviation(self.st, self.ev)
+        txt = f"Sum {_fmt(tot, unit)}" + (f"  ({dev * 100:+.1f} %)" if dev is not None else "")
         self.total.setText(txt)
-        self.source.setText(f"Source: {self.st.source}" + (f" ({self.st.generator})" if self.st.generator else ""))
-        errors = [i for i in self.issues if i.level == "error"]
-        self.buttons.button(QDialogButtonBox.Ok).setEnabled(not errors)
-        self.buttons.button(QDialogButtonBox.Ok).setToolTip("Fix the errors first" if errors else "")
+        self.total.setStyleSheet("color: #d68910; font-weight: bold" if dev is not None and abs(dev) > S.TOTAL_WARN
+                                 else "")
+        notes = [LEVEL_ICONS[i.level] + " " + i.text for i in self.issues if i.layer < 0 and i.level != "info"]
+        self.source.setText(f"Source: {self.st.source}" + (f" ({self.st.generator})" if self.st.generator else "")
+                            + ("     " + "   ".join(notes) if notes else ""))
 
     def _refresh_views(self, *_) -> None:
         self.cross.true_scale = self.r_true.isChecked()
@@ -566,10 +558,15 @@ class StackupDialog(QDialog):
         t = self.table
         t.setRowCount(0)                     # drops the combo boxes of the last fill
         t.setRowCount(len(self.st.layers))
-        flagged = {}
+        flagged: dict = {}
         for i in self.issues:
             if i.layer >= 0 and i.level != "info":
                 flagged.setdefault((i.layer, i.field), i.level)
+        tips: dict = {}
+        for i in self.issues:
+            if i.layer >= 0:
+                tips.setdefault((i.layer, i.field), []).append(
+                    i.text + (f"\nRight-click: {i.fix.label}" if i.fix else ""))
         for r, L in enumerate(self.st.layers):
             er, td = S.layer_er_tand(L, self.ev, self.mats)
             vals = [L.name, L.kind + (f" ({L.subtype})" if L.subtype else ""), L.thickness, L.material,
@@ -593,6 +590,9 @@ class StackupDialog(QDialog):
                     it.setBackground(QBrush(QColor("#fff3cd")))
                 if (r, f) in flagged:
                     it.setBackground(QBrush(QColor("#f8d7da" if flagged[(r, f)] == "error" else "#ffe5b4")))
+                tip = tips.get((r, f), []) + (tips.get((r, ""), []) if c == 0 else [])
+                if tip:
+                    it.setToolTip("\n\n".join(tip))
                 t.setItem(r, c, it)
             t.setCellWidget(r, 3, self._material_combo(r, L))
             if L.kind == S.COPPER:
@@ -632,19 +632,6 @@ class StackupDialog(QDialog):
         cb.activated.connect(lambda i, r=r, cb=cb: (lambda v: QTimer.singleShot(0, lambda: self._set(r, "material", v)))(
             cb.itemData(i) or ""))
         return cb
-
-    def _fill_issues(self) -> None:
-        self.issue_list.clear()
-        n = {k: 0 for k in LEVEL_ICONS}
-        for i in self.issues:
-            n[i.level] += 1
-            it = QListWidgetItem(f"{LEVEL_ICONS[i.level]}  {i.text}" + (f"   → {i.fix.label}" if i.fix else ""))
-            it.setForeground(QBrush(QColor(LEVEL_COLORS[i.level])))
-            self.issue_list.addItem(it)
-        self.issue_label.setText(f"Problems:  ✖ {n['error']}   ⚠ {n['warning']}   ℹ {n['info']}"
-                                 + ("   (double-click a suggestion to apply it)" if any(i.fix for i in self.issues)
-                                    else ""))
-        self.apply_btn.setEnabled(False)
 
     # ---- top view -----------------------------------------------------------------------------
     def _show_layer(self) -> None:
@@ -779,17 +766,19 @@ class StackupDialog(QDialog):
             S.apply_fix(self.st, fx)
             self._refresh()
 
-    def _apply_selected(self) -> None:
-        r = self.issue_list.currentRow()
-        if 0 <= r < len(self.issues) and self.issues[r].fix:
-            S.apply_fix(self.st, self.issues[r].fix)
-            self._refresh()
+    def _table_menu(self, pos) -> None:
+        r = self.table.rowAt(pos.y())
+        fixes = [i.fix for i in self.issues if i.layer == r and i.fix]
+        if r < 0 or not fixes:
+            return
+        m = QMenu(self)
+        for fx in fixes:
+            m.addAction(fx.label, lambda fx=fx: self.apply(fx))
+        m.exec(self.table.viewport().mapToGlobal(pos))
 
-    def _issue_selected(self, r: int) -> None:
-        ok = 0 <= r < len(self.issues)
-        self.apply_btn.setEnabled(ok and self.issues[r].fix is not None)
-        if ok and self.issues[r].layer >= 0:
-            self._select(self.issues[r].layer)
+    def apply(self, fx: S.Fix) -> None:
+        S.apply_fix(self.st, fx)
+        self._refresh()
 
     def _confirm(self) -> None:
         if 0 <= self.sel < len(self.st.layers):
