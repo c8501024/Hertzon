@@ -361,6 +361,7 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu("&Modeler")
         m.addAction("Import...", self.import_geometry)
+        m.addAction("PCB Stackup...", self.edit_stackup)
         b = m.addMenu("Boolean")
         for a in (self.a_unite, self.a_subtract, self.a_intersect):
             b.addAction(a)
@@ -2085,6 +2086,20 @@ class MainWindow(QMainWindow):
         K.build_design(self.des, self.doc.evaluator())
         gmsh.write(path)
         self.msgs.add("info", f"Exported {path}")
+
+    def edit_stackup(self) -> None:
+        """Modeler > PCB Stackup: layers, thicknesses and materials of the board of this design."""
+        from .stackup_dialog import StackupDialog
+        dlg = StackupDialog(self, self.doc)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        st, mats = dlg.result()
+        if st == self.des.stackup and not mats:
+            return
+        self.doc.checkpoint()
+        self.doc.project.materials.extend(mats)
+        self.des.stackup = st
+        self.doc.commit("stackup", geometry=False)
 
     def export_gerber(self) -> None:
         """File > Export > Gerber: copper layers (Gerber X2), board outline and Excellon drill files."""
