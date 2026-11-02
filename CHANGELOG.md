@@ -14,6 +14,9 @@ the GitHub release notes.
 - **Thin straight cylinders look round again** in the 3D view: dipole arms, monopoles and coax inner conductors were
   drawn as octagons since 0.2.10. Only the display is affected; the solver mesh never was. Helices and swept
   pipes are unchanged.
+- **Function *<none>* for complex quantities** (S, Y, Z, Gamma, Port Zo, propagation constant) drew the
+  magnitude under the bare name, so it was not clear what was plotted. It is no longer offered for them; traces
+  such as `S(1,1)` in existing projects are shown as `mag(S(1,1))`. The Smith chart is unchanged.
 
 ## 0.2.10 (2026-11-01)
 
