@@ -628,7 +628,8 @@ def test_export_data_writes_the_curves_as_drawn(tmp_path):
     assert a[:, 0] == pytest.approx([1, 1.5, 2])
     assert a[:, 1] == pytest.approx(20 * np.log10([0.5, 0.1, 0.25]))
     assert a[:, 2] == pytest.approx([0.5, 0.1, 0.25])                  # no function: |S11|, as plotted
-    line = next(ln for ln in w.fig.axes[0].get_lines() if ln.get_label() == "S(1,1)")
+    assert w.report.traces == ["dB(S(1,1))", "mag(S(1,1))"] and head[2] == "mag(S(1,1))"  # ... and named so
+    line = next(ln for ln in w.fig.axes[0].get_lines() if ln.get_label() == "mag(S(1,1))")
     assert line.get_ydata() == pytest.approx(a[:, 2])
     raw = (tmp_path / "s.csv").read_bytes()
     assert raw.startswith(b"\xef\xbb\xbf")                          # UTF-8, marked for spreadsheets
@@ -670,6 +671,39 @@ def test_export_data_writes_the_curves_as_drawn(tmp_path):
     assert "Export failed" in w.info.text() and not (tmp_path / "x.csv").exists()
 
 
+def test_complex_quantities_need_a_function():
+    """A complex quantity (S, Y, Z, Gamma, Zo, propagation constant) without a function was drawn as its
+    magnitude under the bare name: Function offers no '<none>' for them, and old bare traces become mag(...)."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from hertzon.gui.doc import Document
+    from hertzon.gui.reports import ReportWindow, explicit_magnitude
+    from hertzon.model.design import Report
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    assert explicit_magnitude("S(1,1)") == "mag(S(1,1))"
+    assert explicit_magnitude("Z(Diff1,Comm1) @ Setup1 : Sweep") == "mag(Z(Diff1,Comm1)) @ Setup1 : Sweep"
+    assert explicit_magnitude("Zo(2)") == "mag(Zo(2))"
+    for t in ("dB(S(1,1))", "VSWR(1)", "GroupDelay(S(2,1))", "myvar", "S(1,1)*2"):
+        assert explicit_magnitude(t) == t
+    doc = Document(Project.load(EX / "PatchAntenna.hzn"))
+    w = ReportWindow(doc, Report("XY", "Rectangular Plot", "Setup1 : Sweep", ["S(1,1)"]))
+    assert w.report.traces == ["mag(S(1,1))"]
+    funcs = lambda: [w.func.itemText(i) for i in range(w.func.count())]  # noqa: E731
+    for cat in ("S Parameter", "Y Parameter", "Z Parameter", "Gamma", "Port Zo", "Propagation Constant"):
+        w.cat.setCurrentText(cat)
+        assert "<none>" not in funcs() and "mag" in funcs(), cat
+    for cat in ("VSWR", "Group Delay"):
+        w.cat.setCurrentText(cat)
+        assert "<none>" in funcs(), cat
+    w.cat.setCurrentText("S Parameter")
+    w.func.setCurrentText("re")
+    w.cat.setCurrentText("Z Parameter")
+    assert w.func.currentText() == "re"                               # the choice survives a category change
+    smith = ReportWindow(doc, Report("Sm", "Smith Chart", "Setup1 : Sweep", ["S(1,1)"]))
+    assert smith.report.traces == ["S(1,1)"]                           # the Smith chart draws the complex values
+
+
 def test_port_zo_of_a_sweep_is_drawn_and_exported(tmp_path):
     """Zo of a TEM port over a sweep (#125) is constant up to rounding: the plot shows the flat line around
     its value (not the rounding noise zoomed to full height), and Export Data writes it per frequency."""
@@ -697,7 +731,7 @@ def test_port_zo_of_a_sweep_is_drawn_and_exported(tmp_path):
     assert lo == pytest.approx(50.52429357 * 0.99) and hi == pytest.approx(50.52429357 * 1.01)
     w.export_to(str(tmp_path / "zo.csv"))
     head, a = _csv(tmp_path / "zo.csv")
-    assert head[0] == "Freq [GHz]" and head[1].startswith("Zo(1)")
+    assert head[0] == "Freq [GHz]" and head[1].startswith("mag(Zo(1))")
     assert a[:, 0] == pytest.approx([1, 3, 5, 7, 9]) and a[:, 1] == pytest.approx(np.abs(zo[:, 0]))
     # a Zo that changes over frequency keeps the autoscale
     zo[:, 0] = np.linspace(400, 500, 5)

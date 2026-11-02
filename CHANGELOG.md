@@ -11,6 +11,9 @@ the GitHub release notes.
   show Ω and ° correctly), and a failed export leaves no empty or half-written file behind.
 - **Export Data header**: every column name is quoted the same way, so `S(1,1)` no longer looks different from
   the others. Export Matrix Data quotes its names too; before, names like `re(S(1,1))` were split at the comma.
+- **Function *<none>* for complex quantities** (S, Y, Z, Gamma, Port Zo, propagation constant) drew the
+  magnitude under the bare name, so it was not clear what was plotted. It is no longer offered for them; traces
+  such as `S(1,1)` in existing projects are shown as `mag(S(1,1))`. The Smith chart is unchanged.
 
 ## 0.2.10 (2026-11-01)
 
