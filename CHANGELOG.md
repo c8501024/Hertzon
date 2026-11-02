@@ -5,6 +5,8 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.2.11 (2026-11-02)
+
 ### Fixed
 - **Export Data with units like Ω** (e.g. re/im of Z(1,1)) failed on Windows with a "charmap" error and left an
   empty file. Report and matrix data are now written as UTF-8 (with a byte order mark, so spreadsheet programs
