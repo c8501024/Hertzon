@@ -19,6 +19,12 @@ the GitHub release notes.
 - **Function *<none>* for complex quantities** (S, Y, Z, Gamma, Port Zo, propagation constant) drew the
   magnitude under the bare name, so it was not clear what was plotted. It is no longer offered for them; traces
   such as `S(1,1)` in existing projects are shown as `mag(S(1,1))`. The Smith chart is unchanged.
+- **Windows update with Hertzon still running in the background**: the installer only checked the Hertzon
+  window, so an MCP server started by an AI app or the remote server (`hertzon.remote serve`) could keep files
+  of the Python environment open, and the installer then reported "The Python environment could not be set
+  up". The setup now lists such processes and waits until they are closed (or stops them on request).
+- The Windows setup writes its output to `setup.log` in the installation folder, and the installer's error
+  message names that file, so a failed setup can be diagnosed after its window is closed.
 
 ## 0.2.10 (2026-11-01)
 
