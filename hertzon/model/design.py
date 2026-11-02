@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import schema
 from .expr import Evaluator
+from .stackup import Stackup
 from .materials import Material, default_color, library_material, library_materials, normalize_color
 
 FILE_VERSION = 2     # 2: integration lines and U vectors in the coordinates of their object
@@ -229,6 +230,7 @@ class Design:
     parametrics: list[ParametricSetup] = field(default_factory=list)
     working_cs: str = "Global"
     notes: str = ""
+    stackup: Stackup | None = None        # PCB layer stack (hertzon.model.stackup), None: no board
 
     def cs(self, name: str) -> CoordSys:
         for c in self.coord_systems:
@@ -453,6 +455,7 @@ def design_from_dict(d: dict) -> Design:
         des.parametrics.append(ps)
     des.working_cs = d.get("working_cs", "Global")
     des.notes = d.get("notes", "")
+    des.stackup = Stackup.from_dict(d["stackup"]) if d.get("stackup") else None
     return des
 
 
