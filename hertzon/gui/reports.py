@@ -327,6 +327,20 @@ def load_antenna(doc, solution: str, sphere: str) -> dict:
 
 
 FAMILY_KINDS = ("Rectangular", "Smith Chart", "Data Table")
+# complex quantities: a plot needs a function (mag, dB, re, im, ...), a bare one would silently be its magnitude
+COMPLEX_CATEGORIES = ("S Parameter", "Y Parameter", "Z Parameter", "Gamma", "Port Zo", "Propagation Constant")
+_BARE_COMPLEX = re.compile(r"^(?:S|Y|Z|Zo|Gamma)\([^()]+\)$")
+
+
+def explicit_magnitude(trace: str) -> str:
+    """'S(1,1)' -> 'mag(S(1,1))' (also with ' @ solution'): a complex quantity without a function was drawn as
+    its magnitude; the name now says so in the legend and the exported header. Other traces stay as they are."""
+    expr, sol = split_trace(trace)
+    if not _BARE_COMPLEX.match(expr):
+        return trace
+    return f"mag({expr})" + (f" @ {sol}" if sol else "")
+
+
 XVAR_POINTS = 101                 # points of a plot against a design variable (tuning model)
 XVAR_POINTS_FF = 41               # ... of antenna parameters (a far field per point)
 
@@ -545,6 +559,9 @@ class ReportWindow(QWidget):
         super().__init__(parent)
         self.doc = doc
         self.report = report
+        if report.kind not in ("Smith Chart", "Radiation Pattern", "3D Polar Plot", "Near Field Line") \
+                + ANTENNA_KINDS and not report.kind.startswith("Monostatic RCS"):
+            report.traces[:] = [explicit_magnitude(t) for t in report.traces]
         self.markers: list[float] = [float(x) for x in report.props.get("markers", "").split(",") if x.strip()]
         lay = QHBoxLayout(self)
         split = QSplitter()
@@ -1011,9 +1028,25 @@ class ReportWindow(QWidget):
             if getattr(self, "numbering", None) is not None:
                 self._show_numbering(self.cat.currentText())
 
+    def _fill_func_items(self, cat: str) -> None:
+        """No '<none>' for complex quantities (it would draw the magnitude under the bare name); the Smith
+        chart draws the complex values whatever the function says."""
+        want = FUNCS if cat in COMPLEX_CATEGORIES and self.report.kind != "Smith Chart" else FUNCS + ["<none>"]
+        have = [self.func.itemText(i) for i in range(self.func.count())]
+        if have == want:
+            return
+        cur = self.func.currentText()
+        self.func.blockSignals(True)
+        self.func.clear()
+        self.func.addItems(want)
+        self.func.setCurrentText(cur if cur in want else "mag")
+        self.func.blockSignals(False)
+
     def _fill_qty_items(self) -> None:
         n = self._ports()
         cat = self.cat.currentText()
+        if self.cat.findText("S Parameter") >= 0:       # the network categories (not antenna, fields, ...)
+            self._fill_func_items(cat)
         if cat == "Equations":
             from .calc_bridge import value_names
             self.qty.addItems(value_names(self.doc, fields=is_fields_report(self.doc, self.report)))
