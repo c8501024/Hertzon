@@ -5,7 +5,18 @@ the GitHub release notes.
 
 ## Unreleased
 
-### Fixes
+### Fixed
+- **Export Data with units like Ω** (e.g. re/im of Z(1,1)) failed on Windows with a "charmap" error and left an
+  empty file. Report and matrix data are now written as UTF-8 (with a byte order mark, so spreadsheet programs
+  show Ω and ° correctly), and a failed export leaves no empty or half-written file behind.
+- **Export Data header**: every column name is quoted the same way, so `S(1,1)` no longer looks different from
+  the others. Export Matrix Data quotes its names too; before, names like `re(S(1,1))` were split at the comma.
+- **Thin straight cylinders look round again** in the 3D view: dipole arms, monopoles and coax inner conductors were
+  drawn as octagons since 0.2.10. Only the display is affected; the solver mesh never was. Helices and swept
+  pipes are unchanged.
+- **Function *<none>* for complex quantities** (S, Y, Z, Gamma, Port Zo, propagation constant) drew the
+  magnitude under the bare name, so it was not clear what was plotted. It is no longer offered for them; traces
+  such as `S(1,1)` in existing projects are shown as `mag(S(1,1))`. The Smith chart is unchanged.
 - **Windows update with Hertzon still running in the background**: the installer only checked the Hertzon
   window, so an MCP server started by an AI app or the remote server (`hertzon.remote serve`) could keep files
   of the Python environment open, and the installer then reported "The Python environment could not be set

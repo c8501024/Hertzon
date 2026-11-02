@@ -595,7 +595,7 @@ def test_radiation_pattern_of_a_sweep_frequency_and_rectangular(tmp_path):
 
 def _csv(path):
     import csv
-    with open(path) as fh:
+    with open(path, encoding="utf-8-sig", newline="") as fh:
         rows = list(csv.reader(fh))
     return rows[0], np.array(rows[1:], float)
 
@@ -628,8 +628,28 @@ def test_export_data_writes_the_curves_as_drawn(tmp_path):
     assert a[:, 0] == pytest.approx([1, 1.5, 2])
     assert a[:, 1] == pytest.approx(20 * np.log10([0.5, 0.1, 0.25]))
     assert a[:, 2] == pytest.approx([0.5, 0.1, 0.25])                  # no function: |S11|, as plotted
-    line = next(ln for ln in w.fig.axes[0].get_lines() if ln.get_label() == "S(1,1)")
+    assert w.report.traces == ["dB(S(1,1))", "mag(S(1,1))"] and head[2] == "mag(S(1,1))"  # ... and named so
+    line = next(ln for ln in w.fig.axes[0].get_lines() if ln.get_label() == "mag(S(1,1))")
     assert line.get_ydata() == pytest.approx(a[:, 2])
+    raw = (tmp_path / "s.csv").read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")                          # UTF-8, marked for spreadsheets
+    assert raw.splitlines()[0].decode("utf-8-sig").startswith('"Freq [GHz]","dB(S(1,1))')  # all quoted alike
+    # Z(1,1) re/im carries the unit Ohm: written as UTF-8 on every platform (charmap error on Windows)
+    w = ReportWindow(doc, Report("Z", "Rectangular Plot", "Setup1 : Sweep", ["re(Z(1,1))", "im(Z(1,1))"]))
+    w.export_to(str(tmp_path / "z.csv"))
+    head, a = _csv(tmp_path / "z.csv")
+    assert head[1].startswith("re(Z(1,1))") and "\u03a9" in head[1] and a.shape == (3, 3)
+    z = 50 * (1 + S[:, 0, 0]) / (1 - S[:, 0, 0])
+    assert a[:, 1] == pytest.approx(z.real) and a[:, 2] == pytest.approx(z.imag)
+    # a failing write leaves no file, and an existing file untouched
+    import unittest.mock as um
+    from hertzon.export import table
+    with um.patch.object(table, "ENCODING", "cp1252"), pytest.raises(UnicodeEncodeError):
+        table.write_csv(tmp_path / "bad.csv", ["Z [\u03a9]"], [[1.0]])
+    assert not (tmp_path / "bad.csv").exists()
+    with um.patch.object(table.os, "replace", side_effect=OSError("disk full")), pytest.raises(OSError):
+        table.write_csv(tmp_path / "z.csv", ["x"], [[1.0]])
+    assert _csv(tmp_path / "z.csv")[0] == head and len(list(tmp_path.glob(".*.tmp"))) == 0
     # a far-field cut over the angle, polar plot or not
     n = 40
     rng = np.random.default_rng(1)
@@ -649,6 +669,39 @@ def test_export_data_writes_the_curves_as_drawn(tmp_path):
     with um.patch.object(QFileDialog, "getSaveFileName", return_value=(str(tmp_path / "x.csv"), "")):
         w.export()
     assert "Export failed" in w.info.text() and not (tmp_path / "x.csv").exists()
+
+
+def test_complex_quantities_need_a_function():
+    """A complex quantity (S, Y, Z, Gamma, Zo, propagation constant) without a function was drawn as its
+    magnitude under the bare name: Function offers no '<none>' for them, and old bare traces become mag(...)."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from hertzon.gui.doc import Document
+    from hertzon.gui.reports import ReportWindow, explicit_magnitude
+    from hertzon.model.design import Report
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    assert explicit_magnitude("S(1,1)") == "mag(S(1,1))"
+    assert explicit_magnitude("Z(Diff1,Comm1) @ Setup1 : Sweep") == "mag(Z(Diff1,Comm1)) @ Setup1 : Sweep"
+    assert explicit_magnitude("Zo(2)") == "mag(Zo(2))"
+    for t in ("dB(S(1,1))", "VSWR(1)", "GroupDelay(S(2,1))", "myvar", "S(1,1)*2"):
+        assert explicit_magnitude(t) == t
+    doc = Document(Project.load(EX / "PatchAntenna.hzn"))
+    w = ReportWindow(doc, Report("XY", "Rectangular Plot", "Setup1 : Sweep", ["S(1,1)"]))
+    assert w.report.traces == ["mag(S(1,1))"]
+    funcs = lambda: [w.func.itemText(i) for i in range(w.func.count())]  # noqa: E731
+    for cat in ("S Parameter", "Y Parameter", "Z Parameter", "Gamma", "Port Zo", "Propagation Constant"):
+        w.cat.setCurrentText(cat)
+        assert "<none>" not in funcs() and "mag" in funcs(), cat
+    for cat in ("VSWR", "Group Delay"):
+        w.cat.setCurrentText(cat)
+        assert "<none>" in funcs(), cat
+    w.cat.setCurrentText("S Parameter")
+    w.func.setCurrentText("re")
+    w.cat.setCurrentText("Z Parameter")
+    assert w.func.currentText() == "re"                               # the choice survives a category change
+    smith = ReportWindow(doc, Report("Sm", "Smith Chart", "Setup1 : Sweep", ["S(1,1)"]))
+    assert smith.report.traces == ["S(1,1)"]                           # the Smith chart draws the complex values
 
 
 def test_port_zo_of_a_sweep_is_drawn_and_exported(tmp_path):
@@ -678,7 +731,7 @@ def test_port_zo_of_a_sweep_is_drawn_and_exported(tmp_path):
     assert lo == pytest.approx(50.52429357 * 0.99) and hi == pytest.approx(50.52429357 * 1.01)
     w.export_to(str(tmp_path / "zo.csv"))
     head, a = _csv(tmp_path / "zo.csv")
-    assert head[0] == "Freq [GHz]" and head[1].startswith("Zo(1)")
+    assert head[0] == "Freq [GHz]" and head[1].startswith("mag(Zo(1))")
     assert a[:, 0] == pytest.approx([1, 3, 5, 7, 9]) and a[:, 1] == pytest.approx(np.abs(zo[:, 0]))
     # a Zo that changes over frequency keeps the autoscale
     zo[:, 0] = np.linspace(400, 500, 5)
@@ -1504,3 +1557,33 @@ def test_thin_wires_get_a_coarse_display_mesh():
     rim = np.asarray(t["Can"].points)
     top = rim[np.isclose(rim[:, 2], 0.02)]
     assert len(np.unique(np.round(top, 7), axis=0)) >= 30
+
+
+@pytest.mark.parametrize("quality", ["coarse", "normal", "fine"])
+def test_straight_wire_is_round(quality):
+    """A dipole arm (1 mm radius, 70 mm long) is a thin tube, but a plain cylinder: its rims keep the full
+    number of segments per turn (it was drawn as an octagon) and the face is one band of triangles between
+    them, closed with the end caps."""
+    from hertzon.kernel import occ as K
+    p = Project()
+    d = p.designs[0]
+    d.units = "mm"
+    d.add_object("CreateCylinder", name="Arm", CenterPosition="0,0,1", Axis="Z", Radius="1", Height="70")
+    K.ensure_gmsh("test_core")
+    t = K.tessellate(K.build_design(d, d.evaluator(p)), quality)["Arm"]
+    P = np.asarray(t.points)
+    rim = P[np.isclose(np.hypot(P[:, 0], P[:, 1]), np.hypot(P[:, 0], P[:, 1]).max())
+            & np.isclose(P[:, 2], P[:, 2].max())]
+    assert len(np.unique(np.round(rim, 9), axis=0)) >= {"coarse": 18, "normal": 36, "fine": 64}[quality]
+    assert len(t.tris) < 2000
+    # watertight: every edge between two triangles, the volume of the closed surface is the cylinder's
+    _, inv = np.unique(np.round(P, 9), axis=0, return_inverse=True)
+    T = inv.ravel()[t.tris]
+    E = np.sort(np.vstack([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]]), axis=1)
+    assert set(np.unique(E, axis=0, return_counts=True)[1]) == {2}
+    # the band of the curved face points outwards
+    side = t.tri_face == np.argmax(t.face_area)
+    a, b, c = (P[t.tris[side, k]] for k in range(3))
+    n = np.cross(b - a, c - a)
+    m = (a + b + c) / 3
+    assert np.all(n[:, 0] * m[:, 0] + n[:, 1] * m[:, 1] > 0)
