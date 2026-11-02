@@ -5,6 +5,19 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **PCB stackup** (Modeler > PCB Stackup): the layer stack of a board, with copper, dielectric and solder mask
+  layers, thicknesses as expressions (also `1oz`), materials from the library or new ones, and for copper the
+  choice between sheet and solid (with the material that fills the gaps between the traces). The editor shows
+  the cross-section (schematic or true scale, with a z ruler) and the top view of the selected layer with
+  rulers, the detected board size and a two-click measurement. Every value shows where it came from (file,
+  assumed, template, suggestion, user). Checks find missing values, unit mix-ups (mm/µm, mil, ounces, loss
+  tangent in percent), implausible values, layers in a wrong order, a sum that does not match the stated board
+  thickness and layer counts that do not match the files, each with a suggestion that changes nothing until it
+  is applied. Matching materials are suggested by name or by εr and tan δ. Gerber job files (.gbrjob) are read
+  with their stackup; what a job file lacks is filled with marked assumptions, and legend and paste layers are
+  not loaded (and the notes say so). Stackups can be saved and opened as `.hzstack` files.
+
 ## 0.2.11 (2026-11-02)
 
 ### Fixed

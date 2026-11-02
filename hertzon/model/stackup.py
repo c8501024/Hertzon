@@ -221,6 +221,25 @@ def evaluate(st: Stackup, ev: Evaluator) -> list[LayerZ]:
     return out
 
 
+def fill_of(st: Stackup, i: int) -> str:
+    """What fills the gaps between the traces of copper layer ``i`` modelled as a solid: its own ``fill``
+    material, else the prepreg (or other dielectric) next to it, on an outer layer the solder mask, else air.
+    Returned as a material name, or as "layer:<name>" for a layer that carries its own values."""
+    L = st.layers[i]
+    if L.fill:
+        return L.fill
+    nb = [st.layers[j] for j in (i - 1, i + 1) if 0 <= j < len(st.layers)]
+    diel = [x for x in nb if x.kind == DIELECTRIC]
+    outer = len(diel) < 2
+    if outer:
+        mask = [x for x in nb if x.kind == MASK]
+        if mask:
+            return mask[0].material or f"layer:{mask[0].name}"
+        return "air"
+    pick = next((x for x in diel if x.subtype == PREPREG), diel[0])
+    return pick.material or f"layer:{pick.name}"
+
+
 def total_thickness(st: Stackup, ev: Evaluator, with_mask: bool = False) -> float:
     """Sum of the known thicknesses; the board thickness a fab states excludes the solder mask."""
     return sum(t for L in st.layers if (with_mask or L.kind != MASK)
@@ -399,11 +418,21 @@ def check(st: Stackup, ev: Evaluator, project=None) -> list[Issue]:
             lvl = "warning" if abs(dev) > TOTAL_WARN else "info"
             text = (f"The layers add up to {fmt_thickness(tot)}, the stated board thickness is "
                     f"{fmt_thickness(nom)} ({dev * 100:+.1f} %).")
-            fx = scale_dielectrics(st, ev, nom)
-            out.append(Issue(lvl, "total", text, fix=fx))
-            alt = adjust_core(st, ev, nom)
-            if alt:
-                out.append(Issue(lvl, "total-core", "Alternative: " + alt.label + ".", fix=alt))
+            if any(i.code in ("thickness-range", "no-thickness", "bad-thickness") for i in out):
+                # scaling around a wrong layer would spread its error over the good ones
+                out.append(Issue(lvl, "total", text + " Fix the thickness problems above first."))
+            else:
+                out.append(Issue(lvl, "total", text, fix=scale_dielectrics(st, ev, nom)))
+                alt = adjust_core(st, ev, nom)
+                if alt:
+                    out.append(Issue(lvl, "total-core", "Alternative: " + alt.label + ".", fix=alt))
+    masks = [(i, thickness_m(L, ev)) for i, L in enumerate(Ls) if L.kind == MASK]
+    if masks:
+        thin = min((t for _, t in masks if t), default=None)
+        out.append(Issue("info", "mask-cost", "The solder mask is simulated as a thin body"
+                         + (f" ({fmt_thickness(thin)})" if thin else "") + ": the mesh needs small elements there, "
+                         "which makes the simulation larger. Delete the mask layers to simulate without it.",
+                         masks[0][0]))
     ncu = len(st.copper())
     if st.copper_files >= 0 and st.copper_files != ncu:
         out.append(Issue("warning", "copper-files", f"The stackup has {ncu} copper layers, the files hold "

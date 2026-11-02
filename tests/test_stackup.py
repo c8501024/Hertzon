@@ -226,3 +226,71 @@ def test_job_file_without_stackup():
     st, notes = S.read_gbrjob({})
     assert len(st.copper()) == 2 and "job-no-thickness" in codes(notes)
     assert not math.isnan(S.evaluate(st, EV)[0].z1)
+
+
+def test_fill_material_of_solid_copper():
+    st = S.template(4, "1.6mm")
+    cu = st.copper()
+    assert S.fill_of(st, cu[1]) == "FR4_epoxy"                   # inner: the prepreg next to it
+    assert S.fill_of(st, cu[0]) == "layer:Top Solder Mask"        # outer: the mask (own values)
+    st2 = S.template(2, "1.6mm", mask=False)
+    assert S.fill_of(st2, 0) == "air"
+    st2.layers[0].fill = "Rogers RO4350B (tm)"
+    assert S.fill_of(st2, 0) == "Rogers RO4350B (tm)"
+
+
+# ---- editor -----------------------------------------------------------------------------------
+def test_editor_dialog(tmp_path):
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QDialogButtonBox
+    from hertzon.gui.stackup_dialog import StackupDialog, nice_step, ruler_unit, size_text
+    sys_path = __import__("sys").path
+    sys_path.insert(0, str(__import__("pathlib").Path(__file__).parent))
+    from test_gerber import board_project
+    app = QApplication.instance() or QApplication([])
+
+    class Doc:
+        def __init__(self, p):
+            self.project, self.design = p, p.designs[0]
+
+    p = board_project()
+    job = json.loads(json.dumps(KICAD_JOB))
+    job["MaterialStackup"][3]["Thickness"] = 35          # top copper "35 mm"
+    f = tmp_path / "b.gbrjob"
+    f.write_text(json.dumps(job), encoding="utf-8")
+    dlg = StackupDialog(None, Doc(p))
+    from PySide6.QtWidgets import QMessageBox
+    QMessageBox.information = staticmethod(lambda *a, **k: None)
+    dlg.load_job(str(f))
+    ok = dlg.buttons.button(QDialogButtonBox.Ok)
+    assert dlg.table.rowCount() == 9
+    row = next(r for r, i in enumerate(dlg.issues) if i.code == "thickness-range")
+    dlg.issue_list.setCurrentRow(row)
+    assert dlg.sel == 1 and dlg.apply_btn.isEnabled()
+    dlg._apply_selected()
+    assert dlg.st.layers[1].thickness == "35um"
+    dlg.table.item(1, 2).setText("")                      # an error blocks OK
+    assert not ok.isEnabled()
+    dlg.table.item(1, 2).setText("1oz")
+    assert ok.isEnabled()
+    dlg._read_model()                                     # copper of the test board in the top view
+    assert len(dlg.model_layers.layers) == 2
+    dlg._select(1)
+    assert dlg.view.polys
+    dlg.resize(1250, 820)
+    dlg.show()
+    app.processEvents()
+    dlg.grab().save(str(os.environ.get("HERTZON_SHOT_DIR", tmp_path)) + "/stackup.png")
+    st, mats = dlg.result()
+    assert st.layers[1].origin_of("thickness") == "user" and mats == []
+    assert nice_step(40e-3) == 5e-3 and ruler_unit(5e-3)[0] == "mm" and ruler_unit(0.2)[0] == "m" and ruler_unit(1e-3)[0] == "mm"
+    assert size_text(62e-3, 48.5e-3) == "62 × 48.5 mm"
+    dlg.close()
+
+
+def test_no_scaling_offered_around_a_wrong_layer():
+    st = S.template(2, "1.6mm", mask=False)
+    st.layers[0].thickness = "35mm"
+    tot = by_code(S.check(st, EV), "total")
+    assert tot.fix is None and "first" in tot.text
