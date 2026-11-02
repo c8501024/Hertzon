@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QComboBox, QDial
 from ..model import stackup as S
 from ..model.materials import Material
 
-KIND_COLORS = {S.COPPER: "#c8892b", S.MASK: "#2f6b3a"}
+KIND_COLORS = {S.COPPER: "#c8892b"}
 DIEL_COLORS = {S.CORE: "#6f9a5a", S.PREPREG: "#a9c48a", "": "#8fb070"}
 LEVEL_COLORS = {"error": "#c0392b", "warning": "#d68910", "info": "#1f618d"}
 LEVEL_ICONS = {"error": "✖", "warning": "⚠", "info": "ℹ"}
@@ -92,7 +92,7 @@ class CrossSection(QWidget):
         if self.true_scale:
             tot = sum(ts) or 1.0
             return [avail * t / tot for t in ts]
-        fixed = {S.COPPER: 12.0, S.MASK: 8.0}
+        fixed = {S.COPPER: 12.0}
         h = [fixed.get(z.layer.kind, 0.0) for z in zs]
         free = max(avail - sum(h), 20.0)
         dts = [t for z, t in zip(zs, ts) if z.layer.kind == S.DIELECTRIC]
@@ -468,7 +468,7 @@ class StackupDialog(QDialog):
         bl.setContentsMargins(0, 0, 0, 0)
         hb = QHBoxLayout()
         for text, fn in (("Add copper", lambda: self._add(S.COPPER)), ("Add dielectric", lambda: self._add(S.DIELECTRIC)),
-                         ("Add solder mask", lambda: self._add(S.MASK)), ("Delete", self._delete),
+                         ("Delete", self._delete),
                          ("Up", lambda: self._move(-1)), ("Down", lambda: self._move(1)),
                          ("New material...", self._new_material)):
             b = QPushButton(text)
@@ -528,7 +528,7 @@ class StackupDialog(QDialog):
             nom = None
         if nom:
             txt += f"  ({(tot - nom) / nom * 100:+.1f} %)"
-        self.total.setText(txt + "  (without solder mask)")
+        self.total.setText(txt)
         self.source.setText(f"Source: {self.st.source}" + (f" ({self.st.generator})" if self.st.generator else ""))
         errors = [i for i in self.issues if i.level == "error"]
         self.buttons.button(QDialogButtonBox.Ok).setEnabled(not errors)
@@ -700,14 +700,12 @@ class StackupDialog(QDialog):
 
     def _add(self, kind: str) -> None:
         i = max(self.sel, 0)
-        L = S.StackLayer({S.COPPER: "New copper", S.DIELECTRIC: "New dielectric", S.MASK: "Solder mask"}[kind],
+        L = S.StackLayer({S.COPPER: "New copper", S.DIELECTRIC: "New dielectric"}[kind],
                          kind, S.DEFAULT_THICKNESS.get(kind, "0.2mm"))
         if kind == S.COPPER:
             L.material = S.DEFAULT_COPPER_MATERIAL
         elif kind == S.DIELECTRIC:
             L.material, L.subtype = S.DEFAULT_DIELECTRIC, S.PREPREG
-        else:
-            L.permittivity, L.loss_tangent = S.DEFAULT_MASK_ER, S.DEFAULT_MASK_TAND
         self.st.layers.insert(i + 1 if self.st.layers else 0, L)
         self.sel = i + 1 if len(self.st.layers) > 1 else 0
         self._refresh()
@@ -782,7 +780,7 @@ class StackupDialog(QDialog):
 
     def _new_material(self) -> None:
         if not (0 <= self.sel < len(self.st.layers)) or self.st.layers[self.sel].kind == S.COPPER:
-            QMessageBox.information(self, "PCB Stackup", "Select a dielectric or solder mask layer first.")
+            QMessageBox.information(self, "PCB Stackup", "Select a dielectric layer first.")
             return
         from .dialogs import MaterialEditDialog
         L = self.st.layers[self.sel]

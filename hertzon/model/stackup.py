@@ -5,11 +5,10 @@ design. It is plain data (round-trips through the project JSON) and holds no geo
 
 Rules
 -----
-* Layers are listed from the top to the bottom. Kinds: copper, dielectric and solder mask. Legend
+* Layers are listed from the top to the bottom. Kinds: copper and dielectric. Solder mask, legend
   (silkscreen) and solder paste are never loaded: everything that is loaded is also simulated, and
-  those two are not. A job file that lists them gets a note saying so.
-* z = 0 is the bottom face of the lowest copper layer. A bottom solder mask lies below it (negative z),
-  so copper heights do not move when the mask changes.
+  those are not. A job file that lists them gets a note saying so.
+* z = 0 is the bottom face of the lowest copper layer.
 * Every value is an expression with a unit, as everywhere in Hertzon (``35um``, ``1.4mil``, ``h_core``).
   Copper thicknesses also accept ounces (``1oz`` = 34.79 um).
 * Every value remembers where it came from (:data:`ORIGINS`): read from a file, assumed (a default
@@ -27,24 +26,22 @@ from pathlib import Path
 
 from .expr import Evaluator, ExprError
 
-COPPER, DIELECTRIC, MASK = "Copper", "Dielectric", "Solder Mask"
-KINDS = (COPPER, DIELECTRIC, MASK)
+COPPER, DIELECTRIC = "Copper", "Dielectric"
+KINDS = (COPPER, DIELECTRIC)
 CORE, PREPREG = "Core", "Prepreg"
 SHEET, SOLID = "Sheet", "Solid"            # how a copper layer is modelled
 ORIGINS = ("file", "assumed", "template", "suggestion", "user")
 FIELDS = ("thickness", "material", "permittivity", "loss_tangent")
 
 OZ = 34.79e-6                                # copper thickness of 1 oz/ft^2 in metres
-DEFAULT_THICKNESS = {COPPER: "35um", MASK: "20um"}
+DEFAULT_THICKNESS = {COPPER: "35um"}
 DEFAULT_COPPER_MATERIAL = "copper"
 DEFAULT_DIELECTRIC = "FR4_epoxy"
-DEFAULT_MASK_ER, DEFAULT_MASK_TAND = "3.5", "0.02"
 
 # plausible thickness in metres: (lowest, highest, typical values)
 RANGES = {
     COPPER: (5e-6, 210e-6, (12e-6, 18e-6, 35e-6, 70e-6, 105e-6)),
     DIELECTRIC: (25e-6, 6.4e-3, (0.1e-3, 0.2e-3, 0.5e-3, 0.8e-3, 1.0e-3, 1.5e-3)),
-    MASK: (5e-6, 60e-6, (10e-6, 20e-6, 30e-6)),
 }
 ER_RANGE = (1.0, 15.0)
 ER_UNUSUAL = (1.9, 12.0)
@@ -65,13 +62,13 @@ class StackLayer:
     kind: str = DIELECTRIC
     thickness: str = ""                  # expression with unit; "" = unknown
     material: str = ""                   # material of the project or the library; "" = values below
-    permittivity: str = ""               # dielectric / mask: overrides the material when not empty
+    permittivity: str = ""               # dielectric: overrides the material when not empty
     loss_tangent: str = ""
     subtype: str = ""                    # dielectric: "Core" or "Prepreg"
     representation: str = SHEET          # copper: "Sheet" (boundary) or "Solid" (body with thickness)
     fill: str = ""                       # copper as a solid: material between the traces; "" = the dielectric
-                                         # next to it towards the board centre (prepreg resin), or the solder
-                                         # mask / air on an outer layer
+                                         # next to it towards the board centre (prepreg resin), or air on an
+                                         # outer layer
     origin: dict[str, str] = field(default_factory=dict)   # field -> one of ORIGINS
     file_material: str = ""              # material name as written in the file it was read from
 
@@ -186,7 +183,7 @@ def _num(text: str, ev: Evaluator) -> float | None:
 
 
 def layer_er_tand(L: StackLayer, ev: Evaluator, project=None) -> tuple[float | None, float | None]:
-    """Permittivity and loss tangent of a dielectric or mask: own values, else those of its material."""
+    """Permittivity and loss tangent of a dielectric: own values, else those of its material."""
     er, td = _num(L.permittivity, ev), _num(L.loss_tangent, ev)
     if (er is None or td is None) and L.material:
         mat = _find_material(L.material, project)
@@ -223,33 +220,28 @@ def evaluate(st: Stackup, ev: Evaluator) -> list[LayerZ]:
 
 def fill_of(st: Stackup, i: int) -> str:
     """What fills the gaps between the traces of copper layer ``i`` modelled as a solid: its own ``fill``
-    material, else the prepreg (or other dielectric) next to it, on an outer layer the solder mask, else air.
+    material, else the prepreg (or other dielectric) next to it, on an outer layer air.
     Returned as a material name, or as "layer:<name>" for a layer that carries its own values."""
     L = st.layers[i]
     if L.fill:
         return L.fill
     nb = [st.layers[j] for j in (i - 1, i + 1) if 0 <= j < len(st.layers)]
     diel = [x for x in nb if x.kind == DIELECTRIC]
-    outer = len(diel) < 2
-    if outer:
-        mask = [x for x in nb if x.kind == MASK]
-        if mask:
-            return mask[0].material or f"layer:{mask[0].name}"
+    if len(diel) < 2:
         return "air"
     pick = next((x for x in diel if x.subtype == PREPREG), diel[0])
     return pick.material or f"layer:{pick.name}"
 
 
-def total_thickness(st: Stackup, ev: Evaluator, with_mask: bool = False) -> float:
-    """Sum of the known thicknesses; the board thickness a fab states excludes the solder mask."""
-    return sum(t for L in st.layers if (with_mask or L.kind != MASK)
-               for t in [thickness_m(L, ev)] if t is not None)
+def total_thickness(st: Stackup, ev: Evaluator) -> float:
+    """Sum of the known thicknesses."""
+    return sum(t for L in st.layers for t in [thickness_m(L, ev)] if t is not None)
 
 
 # ================================================================================================
 # templates
 # ================================================================================================
-def template(n_copper: int = 2, total: str = "1.6mm", mask: bool = True, origin: str = "template",
+def template(n_copper: int = 2, total: str = "1.6mm", origin: str = "template",
              ev: Evaluator | None = None) -> Stackup:
     """A usual symmetric stack: prepreg next to the outer layers, cores inside, prepreg 0.2 mm,
     35 um copper; the cores take the rest of the board thickness."""
@@ -266,9 +258,6 @@ def template(n_copper: int = 2, total: str = "1.6mm", mask: bool = True, origin:
                 L.origin[f] = origin
         layers.append(L)
 
-    if mask:
-        add("Top Solder Mask", MASK, DEFAULT_THICKNESS[MASK], permittivity=DEFAULT_MASK_ER,
-            loss_tangent=DEFAULT_MASK_TAND)
     if n == 1:
         add("L1 Top", COPPER, "35um", material=DEFAULT_COPPER_MATERIAL)
         add("Core", DIELECTRIC, fmt_thickness(max(T - cu, 25e-6)), material=DEFAULT_DIELECTRIC, subtype=CORE)
@@ -289,9 +278,6 @@ def template(n_copper: int = 2, total: str = "1.6mm", mask: bool = True, origin:
                 k = kinds[i]
                 add(f"{k} {i + 1}-{i + 2}", DIELECTRIC, fmt_thickness(pp if k == PREPREG else core),
                     material=DEFAULT_DIELECTRIC, subtype=k)
-    if mask:
-        add("Bottom Solder Mask", MASK, DEFAULT_THICKNESS[MASK], permittivity=DEFAULT_MASK_ER,
-            loss_tangent=DEFAULT_MASK_TAND)
     return Stackup(layers=layers, nominal_thickness=total, source="template")
 
 
@@ -304,7 +290,7 @@ def apply_fix(st: Stackup, fix: Fix) -> None:
 
 
 def scale_dielectrics(st: Stackup, ev: Evaluator, target: float) -> Fix | None:
-    """Scale all dielectric thicknesses by one factor so the board (without mask) gets ``target``."""
+    """Scale all dielectric thicknesses by one factor so the board gets ``target``."""
     fixed = sum(t for L in st.layers if L.kind == COPPER for t in [thickness_m(L, ev)] if t)
     diel = [(i, thickness_m(L, ev)) for i, L in enumerate(st.layers) if L.kind == DIELECTRIC]
     have = sum(t for _, t in diel if t)
@@ -357,14 +343,9 @@ def check(st: Stackup, ev: Evaluator, project=None) -> list[Issue]:
             out.append(Issue("error", "copper-copper",
                              f"'{Ls[i].name}' and '{Ls[i + 1].name}' are copper layers without a dielectric "
                              "between them.", i + 1))
-    for i, L in enumerate(Ls):
-        if L.kind == MASK and 0 < i < len(Ls) - 1 and Ls[i - 1].kind != MASK and Ls[i + 1].kind != MASK:
-            out.append(Issue("error", "mask-inside", f"Solder mask '{L.name}' lies inside the board; a solder "
-                             "mask can only be the outermost layer.", i))
-    inner = [i for i, L in enumerate(Ls) if L.kind != MASK]
-    for i in (inner[:1] + inner[-1:]) if inner and len(st.copper()) > 1 else []:
+    for i in ([0, len(Ls) - 1] if Ls and len(st.copper()) > 1 else []):
         if Ls[i].kind == DIELECTRIC:
-            out.append(Issue("warning", "outer-dielectric", f"The outermost layer below the mask, '{Ls[i].name}', "
+            out.append(Issue("warning", "outer-dielectric", f"The outermost layer '{Ls[i].name}' "
                              "is a dielectric, not copper.", i))
     # ---- per layer ----------------------------------------------------------------------------
     for i, L in enumerate(Ls):
@@ -426,13 +407,6 @@ def check(st: Stackup, ev: Evaluator, project=None) -> list[Issue]:
                 alt = adjust_core(st, ev, nom)
                 if alt:
                     out.append(Issue(lvl, "total-core", "Alternative: " + alt.label + ".", fix=alt))
-    masks = [(i, thickness_m(L, ev)) for i, L in enumerate(Ls) if L.kind == MASK]
-    if masks:
-        thin = min((t for _, t in masks if t), default=None)
-        out.append(Issue("info", "mask-cost", "The solder mask is simulated as a thin body"
-                         + (f" ({fmt_thickness(thin)})" if thin else "") + ": the mesh needs small elements there, "
-                         "which makes the simulation larger. Delete the mask layers to simulate without it.",
-                         masks[0][0]))
     ncu = len(st.copper())
     if st.copper_files >= 0 and st.copper_files != ncu:
         out.append(Issue("warning", "copper-files", f"The stackup has {ncu} copper layers, the files hold "
@@ -453,9 +427,7 @@ def _check_dielectric(i: int, L: StackLayer, ev: Evaluator, project, st: Stackup
     er, td = layer_er_tand(L, ev, project)
     if er is None:
         out.append(Issue("error", "no-permittivity", f"'{L.name}' has neither a material nor a permittivity.",
-                         i, "material", Fix(f"Use {DEFAULT_DIELECTRIC}", [(i, "material", DEFAULT_DIELECTRIC)])
-                         if L.kind == DIELECTRIC else
-                         Fix(f"Assume er = {DEFAULT_MASK_ER}", [(i, "permittivity", DEFAULT_MASK_ER)])))
+                         i, "material", Fix(f"Use {DEFAULT_DIELECTRIC}", [(i, "material", DEFAULT_DIELECTRIC)])))
     elif not ER_RANGE[0] <= er <= ER_RANGE[1]:
         out.append(Issue("warning", "er-range", f"'{L.name}': er = {er:g} lies outside {ER_RANGE[0]:g} to "
                          f"{ER_RANGE[1]:g}.", i, "permittivity"))
@@ -608,9 +580,7 @@ def read_gbrjob(src: str | Path | dict) -> tuple[Stackup, list[Issue]]:
                 kind = COPPER
             elif typ in ("dielectric", "core", "prepreg"):
                 kind = DIELECTRIC
-            elif typ in ("soldermask", "mask"):
-                kind = MASK
-            else:
+            else:                                          # solder mask, legend, paste: not simulated
                 skipped.append(name or typ or "?")
                 continue
             L = StackLayer(name or kind, kind)
@@ -628,12 +598,7 @@ def read_gbrjob(src: str | Path | dict) -> tuple[Stackup, list[Issue]]:
                 L.file_material = mat
                 sub = " ".join(str(x) for x in (typ, name, mat, _get(e, "Notes") or "")).lower()
                 L.subtype = PREPREG if "prepreg" in sub else (CORE if "core" in sub else "")
-                if kind == MASK:
-                    if er is None:
-                        L.set("permittivity", DEFAULT_MASK_ER, "assumed")
-                    if td is None:
-                        L.set("loss_tangent", DEFAULT_MASK_TAND, "assumed")
-                elif mat or er is not None:
+                if mat or er is not None:
                     sug = suggest_materials(L, Evaluator())
                     if mat and sug and sug[0][1].startswith("name"):
                         L.set("material", sug[0][0], "file")
@@ -658,7 +623,7 @@ def read_gbrjob(src: str | Path | dict) -> tuple[Stackup, list[Issue]]:
 
 
 def _fill_missing(st: Stackup, board_t_mm: float | None) -> None:
-    """Missing thicknesses: defaults for copper and mask; the dielectrics share what is left of the board
+    """Missing thicknesses: defaults for copper; the dielectrics share what is left of the board
     thickness (or 1.5 mm). All marked as assumed."""
     ev = Evaluator()
     for L in st.layers:

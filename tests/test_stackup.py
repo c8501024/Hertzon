@@ -68,7 +68,6 @@ def test_z_zero_is_bottom_of_lowest_copper():
     cu = [z for z in zs if z.layer.kind == S.COPPER]
     assert cu[-1].z0 == pytest.approx(0.0, abs=1e-15)
     assert cu[0].z1 == pytest.approx(1.6e-3)
-    assert zs[-1].layer.kind == S.MASK and zs[-1].z1 == pytest.approx(0.0, abs=1e-15) and zs[-1].z0 < 0
 
 
 def test_ounces_and_expressions():
@@ -98,7 +97,7 @@ def test_round_trip_through_project(tmp_path):
 
 # ---- checks -----------------------------------------------------------------------------------
 def test_unit_mixups_get_a_fix():
-    st = S.template(2, "1.6mm", mask=False)
+    st = S.template(2, "1.6mm")
     st.layers[0].thickness = "35mm"                 # copper in mm instead of um
     st.layers[2].thickness = "1"                    # bare number: ounces
     st.layers[1].thickness = "63"                   # 63 mil typed into a mm field
@@ -110,7 +109,7 @@ def test_unit_mixups_get_a_fix():
 
 
 def test_fix_changes_only_after_apply_and_marks_origin():
-    st = S.template(2, "1.6mm", mask=False)
+    st = S.template(2, "1.6mm")
     st.layers[0].thickness = "35mm"
     iss = S.check(st, EV)
     assert st.layers[0].thickness == "35mm"        # check never changes the stackup
@@ -119,14 +118,14 @@ def test_fix_changes_only_after_apply_and_marks_origin():
 
 
 def test_total_mismatch_offers_scaling_and_core():
-    st = S.template(4, "1.6mm", mask=False)
+    st = S.template(4, "1.6mm")
     st.nominal_thickness = "2.0mm"
     iss = S.check(st, EV)
     tot = by_code(iss, "total")
     assert tot.level == "warning"
     S.apply_fix(st, tot.fix)
     assert S.total_thickness(st, EV) == pytest.approx(2.0e-3, rel=1e-4)
-    st2 = S.template(4, "1.6mm", mask=False)
+    st2 = S.template(4, "1.6mm")
     st2.nominal_thickness = "1.7mm"
     S.apply_fix(st2, by_code(S.check(st2, EV), "total-core").fix)
     assert S.total_thickness(st2, EV) == pytest.approx(1.7e-3, rel=1e-4)
@@ -134,15 +133,14 @@ def test_total_mismatch_offers_scaling_and_core():
 
 def test_order_errors():
     st = S.Stackup([S.StackLayer("a", S.COPPER, "35um", "copper"), S.StackLayer("b", S.COPPER, "35um", "copper"),
-                    S.StackLayer("m", S.MASK, "20um", permittivity="3.5"),
                     S.StackLayer("c", S.DIELECTRIC, "1mm", "FR4_epoxy")])
     c = codes(S.check(st, EV))
-    assert "copper-copper" in c and "mask-inside" in c and "outer-dielectric" in c
+    assert "copper-copper" in c and "outer-dielectric" in c
     assert "no-copper" in codes(S.check(S.Stackup([S.StackLayer("c", S.DIELECTRIC, "1mm", "FR4_epoxy")]), EV))
 
 
 def test_missing_values_and_percent_loss_tangent():
-    st = S.template(2, "1.6mm", mask=False)
+    st = S.template(2, "1.6mm")
     st.layers[0].thickness = ""
     st.layers[1].material = ""
     st.layers[2].thickness = "35um"
@@ -186,11 +184,12 @@ def test_kicad_job_file(tmp_path):
     f = tmp_path / "rf-job.gbrjob"
     f.write_text(json.dumps(KICAD_JOB), encoding="utf-8")
     st, notes = S.read_gbrjob(f)
-    assert [L.kind for L in st.layers] == [S.MASK] + [S.COPPER, S.DIELECTRIC] * 3 + [S.COPPER, S.MASK]
+    assert [L.kind for L in st.layers] == [S.COPPER, S.DIELECTRIC] * 3 + [S.COPPER]
     assert st.copper_files == 4 and st.file_layer_count == 4
-    assert by_code(notes, "job-not-loaded").text.count("Silk") == 2       # said, not silently dropped
-    assert st.layers[1].thickness == "35um" and st.layers[1].origin_of("thickness") == "file"
-    assert st.layers[2].material == "FR4_epoxy" and st.layers[2].permittivity == "4.5"
+    nl = by_code(notes, "job-not-loaded").text                            # said, not silently dropped
+    assert nl.count("Silk") == 2 and nl.count("Solder Mask") == 2
+    assert st.layers[0].thickness == "35um" and st.layers[0].origin_of("thickness") == "file"
+    assert st.layers[1].material == "FR4_epoxy" and st.layers[1].permittivity == "4.5"
     assert S.total_thickness(st, EV) == pytest.approx(1.58e-3)
     iss = S.check(st, EV)
     assert "kicad-default" in codes(iss)
@@ -206,12 +205,12 @@ def test_job_file_with_wrong_and_missing_values():
     ms[6]["Thickness"] = "1,24"                # decimal comma as text
     ms[4]["LossTangent"] = 2                   # percent
     st, _ = S.read_gbrjob(job)
-    # layers: 0 mask, 1 F.Cu, 2 diel, 3 In1.Cu, 4 diel, ...
-    assert st.layers[3].thickness == "35um" and st.layers[3].origin_of("thickness") == "assumed"
-    assert S.thickness_m(st.layers[4], EV) == pytest.approx(1.24e-3)
+    # layers: 0 F.Cu, 1 diel, 2 In1.Cu, 3 diel, ...
+    assert st.layers[2].thickness == "35um" and st.layers[2].origin_of("thickness") == "assumed"
+    assert S.thickness_m(st.layers[3], EV) == pytest.approx(1.24e-3)
     iss = S.check(st, EV)
     rng = [i for i in iss if i.code == "thickness-range"]
-    assert rng and rng[0].layer == 1 and rng[0].fix.changes[0][2] == "35um"
+    assert rng and rng[0].layer == 0 and rng[0].fix.changes[0][2] == "35um"
     assert "assumed" in codes(iss) and "tand-range" in codes(iss)
 
 
@@ -232,8 +231,8 @@ def test_fill_material_of_solid_copper():
     st = S.template(4, "1.6mm")
     cu = st.copper()
     assert S.fill_of(st, cu[1]) == "FR4_epoxy"                   # inner: the prepreg next to it
-    assert S.fill_of(st, cu[0]) == "layer:Top Solder Mask"        # outer: the mask (own values)
-    st2 = S.template(2, "1.6mm", mask=False)
+    assert S.fill_of(st, cu[0]) == "air"                          # outer layer
+    st2 = S.template(2, "1.6mm")
     assert S.fill_of(st2, 0) == "air"
     st2.layers[0].fill = "Rogers RO4350B (tm)"
     assert S.fill_of(st2, 0) == "Rogers RO4350B (tm)"
@@ -264,33 +263,34 @@ def test_editor_dialog(tmp_path):
     QMessageBox.information = staticmethod(lambda *a, **k: None)
     dlg.load_job(str(f))
     ok = dlg.buttons.button(QDialogButtonBox.Ok)
-    assert dlg.table.rowCount() == 9
+    assert dlg.table.rowCount() == 7
     row = next(r for r, i in enumerate(dlg.issues) if i.code == "thickness-range")
     dlg.issue_list.setCurrentRow(row)
-    assert dlg.sel == 1 and dlg.apply_btn.isEnabled()
+    assert dlg.sel == 0 and dlg.apply_btn.isEnabled()
     dlg._apply_selected()
-    assert dlg.st.layers[1].thickness == "35um"
-    dlg.table.item(1, 2).setText("")                      # an error blocks OK
+    assert dlg.st.layers[0].thickness == "35um"
+    dlg.table.item(0, 2).setText("")                      # an error blocks OK
     assert not ok.isEnabled()
-    dlg.table.item(1, 2).setText("1oz")
+    dlg.table.item(0, 2).setText("1oz")
     assert ok.isEnabled()
     dlg._read_model()                                     # copper of the test board in the top view
     assert len(dlg.model_layers.layers) == 2
-    dlg._select(1)
+    dlg._select(2)
+    dlg._select(0)
     assert dlg.view.polys
     dlg.resize(1250, 820)
     dlg.show()
     app.processEvents()
     dlg.grab().save(str(os.environ.get("HERTZON_SHOT_DIR", tmp_path)) + "/stackup.png")
     st, mats = dlg.result()
-    assert st.layers[1].origin_of("thickness") == "user" and mats == []
+    assert st.layers[0].origin_of("thickness") == "user" and mats == []
     assert nice_step(40e-3) == 5e-3 and ruler_unit(5e-3)[0] == "mm" and ruler_unit(0.2)[0] == "m" and ruler_unit(1e-3)[0] == "mm"
     assert size_text(62e-3, 48.5e-3) == "62 × 48.5 mm"
     dlg.close()
 
 
 def test_no_scaling_offered_around_a_wrong_layer():
-    st = S.template(2, "1.6mm", mask=False)
+    st = S.template(2, "1.6mm")
     st.layers[0].thickness = "35mm"
     tot = by_code(S.check(st, EV), "total")
     assert tot.fix is None and "first" in tot.text
