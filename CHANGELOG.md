@@ -5,6 +5,13 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- **Export Data with units like Ω** (e.g. re/im of Z(1,1)) failed on Windows with a "charmap" error and left an
+  empty file. Report and matrix data are now written as UTF-8 (with a byte order mark, so spreadsheet programs
+  show Ω and ° correctly), and a failed export leaves no empty or half-written file behind.
+- **Export Data header**: every column name is quoted the same way, so `S(1,1)` no longer looks different from
+  the others. Export Matrix Data quotes its names too; before, names like `re(S(1,1))` were split at the comma.
+
 ## 0.2.10 (2026-11-01)
 
 ### Highlights

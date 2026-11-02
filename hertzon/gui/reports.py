@@ -2443,6 +2443,6 @@ class ReportWindow(QWidget):
             st.write_touchstone(sol, data["freq"], data["S"], data["z0"], path)
             return
         header, rows = self._export_rows()
-        np.savetxt(path, np.array(rows, float).reshape(len(rows), len(header)), delimiter=",", fmt="%.10g",
-                   header=",".join(f'"{h}"' if "," in h else h for h in header), comments="")
+        from ..export.table import write_csv
+        write_csv(path, header, rows)
         self.info.setText(f"Exported {len(rows)} rows to {path}")
