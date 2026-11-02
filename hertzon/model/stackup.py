@@ -28,6 +28,7 @@ from .expr import Evaluator, ExprError
 
 COPPER, DIELECTRIC = "Copper", "Dielectric"
 KINDS = (COPPER, DIELECTRIC)
+MASK = "Solder Mask"                         # shown in the editor, not simulated yet (not implemented)
 CORE, PREPREG = "Core", "Prepreg"
 SHEET, SOLID = "Sheet", "Solid"            # how a copper layer is modelled
 ORIGINS = ("file", "assumed", "template", "suggestion", "user")
@@ -90,6 +91,9 @@ class Stackup:
     copper_files: int = -1               # copper layers in the files that came with it (-1: unknown)
     file_layer_count: int = -1           # layer count the file states (-1: unknown)
     generator: str = ""                  # application that wrote the file
+    # solder mask layers the file lists; shown in the editor as "not implemented yet", never simulated:
+    # {"name": ..., "side": "top" | "bottom", "thickness": expression or ""}
+    not_simulated: list[dict] = field(default_factory=list)
 
     def copper(self) -> list[int]:
         return [i for i, L in enumerate(self.layers) if L.kind == COPPER]
@@ -100,6 +104,7 @@ class Stackup:
     @staticmethod
     def from_dict(d: dict) -> "Stackup":
         st = Stackup(**{k: v for k, v in d.items() if k in Stackup.__dataclass_fields__ and k != "layers"})
+        st.not_simulated = [dict(x) for x in d.get("not_simulated", [])]
         st.layers = [StackLayer(**{k: v for k, v in L.items() if k in StackLayer.__dataclass_fields__})
                      for L in d.get("layers", [])]
         for L in st.layers:
@@ -582,6 +587,9 @@ def read_gbrjob(src: str | Path | dict) -> tuple[Stackup, list[Issue]]:
                 kind = DIELECTRIC
             else:                                          # solder mask, legend, paste: not simulated
                 skipped.append(name or typ or "?")
+                if typ in ("soldermask", "mask"):
+                    st.not_simulated.append({"name": name or MASK, "side": "bottom" if st.copper() else "top",
+                                             "thickness": fmt_thickness(t * 1e-3) if t else ""})
                 continue
             L = StackLayer(name or kind, kind)
             if t is not None and t > 0:

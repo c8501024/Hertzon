@@ -188,6 +188,9 @@ def test_kicad_job_file(tmp_path):
     assert st.copper_files == 4 and st.file_layer_count == 4
     nl = by_code(notes, "job-not-loaded").text                            # said, not silently dropped
     assert nl.count("Silk") == 2 and nl.count("Solder Mask") == 2
+    assert st.not_simulated == [{"name": "Top Solder Mask", "side": "top", "thickness": "10um"},
+                                {"name": "Bottom Solder Mask", "side": "bottom", "thickness": "10um"}]
+    assert S.Stackup.from_dict(st.to_dict()) == st
     assert st.layers[0].thickness == "35um" and st.layers[0].origin_of("thickness") == "file"
     assert st.layers[1].material == "FR4_epoxy" and st.layers[1].permittivity == "4.5"
     assert S.total_thickness(st, EV) == pytest.approx(1.58e-3)

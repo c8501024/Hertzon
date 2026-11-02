@@ -14,8 +14,9 @@ the GitHub release notes.
   tangent in percent), implausible values, layers in a wrong order, a sum that does not match the stated board
   thickness and layer counts that do not match the files, each with a suggestion that changes nothing until it
   is applied. Matching materials are suggested by name or by εr and tan δ. Gerber job files (.gbrjob) are read
-  with their stackup; what a job file lacks is filled with marked assumptions, and solder mask, legend and paste
-  layers are not loaded (and the notes say so). Stackups can be saved and opened as `.hzstack` files.
+  with their stackup; what a job file lacks is filled with marked assumptions, legend and paste layers are not
+  loaded (and the notes say so). Solder mask layers of a job file are shown in the cross-section, marked as
+  not implemented yet, and are not simulated. Stackups can be saved and opened as `.hzstack` files.
 
 ## 0.2.11 (2026-11-02)
 

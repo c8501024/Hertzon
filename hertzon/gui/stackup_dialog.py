@@ -110,8 +110,10 @@ class CrossSection(QWidget):
             p.drawText(self.rect(), Qt.AlignCenter, "No layers")
             return
         zs = S.evaluate(self.st, self.ev)
-        top, left = 14.0, 70.0
-        avail = self.height() - 2 * top
+        ghosts = {side: [g for g in self.st.not_simulated if g.get("side") == side] for side in ("top", "bottom")}
+        gh = 12.0
+        top, left = 14.0 + gh * len(ghosts["top"]), 70.0
+        avail = self.height() - 2 * 14.0 - gh * (len(ghosts["top"]) + len(ghosts["bottom"]))
         hs = self._heights(zs, avail)
         k = avail / max(sum(hs), 1.0)
         hs = [h * k for h in hs]
@@ -156,6 +158,20 @@ class CrossSection(QWidget):
                 p.drawText(QRectF(left + w + 8, y + h / 2 - 9, self.width() - left - w - 10, 18),
                            Qt.AlignVCenter | Qt.AlignLeft, txt)
             y += h
+        # solder mask from the file: shown, not simulated (not implemented yet)
+        w0 = w
+        for side, y0 in (("top", top - gh * len(ghosts["top"])), ("bottom", y)):
+            for g in ghosts[side]:
+                r = QRectF(left, y0, w0, gh - 2)
+                p.setPen(QPen(QColor("#9e9e9e"), 1, Qt.DashLine))
+                p.setBrush(QBrush(QColor("#bdbdbd"), Qt.Dense6Pattern))
+                p.drawRect(r)
+                p.setPen(QColor("#757575"))
+                t = f"  {g.get('thickness')}" if g.get("thickness") else ""
+                p.drawText(QRectF(left + w0 + 8, y0 - 3, self.width() - left - w0 - 10, gh + 4),
+                           Qt.AlignVCenter | Qt.AlignLeft, f"{g.get('name')}{t}  (not implemented yet)")
+                y0 += gh
+        p.setBrush(Qt.NoBrush)
         # z ruler: heights of the layer boundaries (true heights in every scale)
         p.setPen(QColor("#303030"))
         p.drawLine(QPointF(left - 6, top), QPointF(left - 6, y))
@@ -468,11 +484,16 @@ class StackupDialog(QDialog):
         bl.setContentsMargins(0, 0, 0, 0)
         hb = QHBoxLayout()
         for text, fn in (("Add copper", lambda: self._add(S.COPPER)), ("Add dielectric", lambda: self._add(S.DIELECTRIC)),
-                         ("Delete", self._delete),
+                         ("Add solder mask", None), ("Delete", self._delete),
                          ("Up", lambda: self._move(-1)), ("Down", lambda: self._move(1)),
                          ("New material...", self._new_material)):
             b = QPushButton(text)
-            b.clicked.connect(fn)
+            if fn is None:            # solder mask: not implemented yet
+                b.setEnabled(False)
+                b.setToolTip("Solder mask: not implemented yet. It is shown when a file lists it, but not "
+                             "simulated.")
+            else:
+                b.clicked.connect(fn)
             hb.addWidget(b)
         hb.addStretch(1)
         bl.addLayout(hb)
