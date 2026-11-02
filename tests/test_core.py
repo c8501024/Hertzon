@@ -595,7 +595,7 @@ def test_radiation_pattern_of_a_sweep_frequency_and_rectangular(tmp_path):
 
 def _csv(path):
     import csv
-    with open(path) as fh:
+    with open(path, encoding="utf-8-sig", newline="") as fh:
         rows = list(csv.reader(fh))
     return rows[0], np.array(rows[1:], float)
 
@@ -630,6 +630,25 @@ def test_export_data_writes_the_curves_as_drawn(tmp_path):
     assert a[:, 2] == pytest.approx([0.5, 0.1, 0.25])                  # no function: |S11|, as plotted
     line = next(ln for ln in w.fig.axes[0].get_lines() if ln.get_label() == "S(1,1)")
     assert line.get_ydata() == pytest.approx(a[:, 2])
+    raw = (tmp_path / "s.csv").read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")                          # UTF-8, marked for spreadsheets
+    assert raw.splitlines()[0].decode("utf-8-sig").startswith('"Freq [GHz]","dB(S(1,1))')  # all quoted alike
+    # Z(1,1) re/im carries the unit Ohm: written as UTF-8 on every platform (charmap error on Windows)
+    w = ReportWindow(doc, Report("Z", "Rectangular Plot", "Setup1 : Sweep", ["re(Z(1,1))", "im(Z(1,1))"]))
+    w.export_to(str(tmp_path / "z.csv"))
+    head, a = _csv(tmp_path / "z.csv")
+    assert head[1].startswith("re(Z(1,1))") and "\u03a9" in head[1] and a.shape == (3, 3)
+    z = 50 * (1 + S[:, 0, 0]) / (1 - S[:, 0, 0])
+    assert a[:, 1] == pytest.approx(z.real) and a[:, 2] == pytest.approx(z.imag)
+    # a failing write leaves no file, and an existing file untouched
+    import unittest.mock as um
+    from hertzon.export import table
+    with um.patch.object(table, "ENCODING", "cp1252"), pytest.raises(UnicodeEncodeError):
+        table.write_csv(tmp_path / "bad.csv", ["Z [\u03a9]"], [[1.0]])
+    assert not (tmp_path / "bad.csv").exists()
+    with um.patch.object(table.os, "replace", side_effect=OSError("disk full")), pytest.raises(OSError):
+        table.write_csv(tmp_path / "z.csv", ["x"], [[1.0]])
+    assert _csv(tmp_path / "z.csv")[0] == head and len(list(tmp_path.glob(".*.tmp"))) == 0
     # a far-field cut over the angle, polar plot or not
     n = 40
     rng = np.random.default_rng(1)
