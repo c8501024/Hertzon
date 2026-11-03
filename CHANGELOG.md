@@ -5,6 +5,8 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.2.12 (2026-11-03)
+
 ### Added
 - **PCB stackup** (Modeler > PCB Stackup): the layer stack of a board, with copper and dielectric layers, thicknesses as expressions (also `1oz`), materials from the library or new ones, and for copper the
   choice between sheet and solid (with the material that fills the gaps between the traces). The editor shows

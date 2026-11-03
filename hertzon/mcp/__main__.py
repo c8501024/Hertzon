@@ -46,7 +46,7 @@ def _version() -> str:
         from importlib.metadata import version
         return version("hertzon")
     except Exception:  # noqa: BLE001
-        return "0.2.11"
+        return "0.2.12"
 
 
 if __name__ == "__main__":
