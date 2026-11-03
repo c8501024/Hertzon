@@ -1658,7 +1658,8 @@
     }
    ],
    "working_cs": "CS_Array",
-   "notes": "Driven antenna: 2x1 inset-fed patch array on a dispersive laminate with a DC-block chip capacitor (Lumped RLC, grouped with its body), lumped port, finite conductivity, a radome in a relative coordinate system, all mesh operations, three setups (single, multi-frequency, broadband), Interpolating / Fast / Discrete sweeps, two far-field spheres, output variables, Fields Calculator expressions and functions, every report type of a driven antenna, field overlays on objects, faces and cut planes, a conjugate-gradient optimization, a Derivative Trust Region optimization with goals on S-parameters and antenna parameters, reports plotted against a design variable (derivative tuning model), report axis settings, bandwidth and delta markers, selected parametric families, SPARTA matrix solvers and two parametric sweeps."
+   "notes": "Driven antenna: 2x1 inset-fed patch array on a dispersive laminate with a DC-block chip capacitor (Lumped RLC, grouped with its body), lumped port, finite conductivity, a radome in a relative coordinate system, all mesh operations, three setups (single, multi-frequency, broadband), Interpolating / Fast / Discrete sweeps, two far-field spheres, output variables, Fields Calculator expressions and functions, every report type of a driven antenna, field overlays on objects, faces and cut planes, a conjugate-gradient optimization, a Derivative Trust Region optimization with goals on S-parameters and antenna parameters, reports plotted against a design variable (derivative tuning model), report axis settings, bandwidth and delta markers, selected parametric families, SPARTA matrix solvers and two parametric sweeps.",
+   "stackup": null
   },
   {
    "name": "B_WaveguideIrisFilter_Half",
@@ -2347,7 +2348,8 @@
     }
    ],
    "working_cs": "Global",
-   "notes": "WR-90 two-cavity iris filter, half model: the full guide is cut with Split, the symmetry plane x = a/2 is a Perfect H Symmetry boundary. Wave ports with renormalization and de-embedding, an impedance wall, a dielectric tuning post, Perfect E / Perfect H assignments, output variables, a ports-only setup (Zo and Gamma without the 3D solve) and a parametric family over the iris width."
+   "notes": "WR-90 two-cavity iris filter, half model: the full guide is cut with Split, the symmetry plane x = a/2 is a Perfect H Symmetry boundary. Wave ports with renormalization and de-embedding, an impedance wall, a dielectric tuning post, Perfect E / Perfect H assignments, output variables, a ports-only setup (Zo and Gamma without the 3D solve) and a parametric family over the iris width.",
+   "stackup": null
   },
   {
    "name": "C_DielectricResonator_Eigen",
@@ -2583,7 +2585,8 @@
    "optimetrics": [],
    "parametrics": [],
    "working_cs": "Global",
-   "notes": "Eigenmode solution: a cylindrical copper cavity with a ceramic puck on a faceted cone support and a ferrite tuning disc; finite conductivity walls, field overlays on cut planes."
+   "notes": "Eigenmode solution: a cylindrical copper cavity with a ceramic puck on a faceted cone support and a ferrite tuning disc; finite conductivity walls, field overlays on cut planes.",
+   "stackup": null
   },
   {
    "name": "D_GeometryZoo_RCS",
@@ -4090,7 +4093,8 @@
    "optimetrics": [],
    "parametrics": [],
    "working_cs": "Global",
-   "notes": "Every create command and every operation of the modeler on a grid of objects (pitch 'sp'), inside an explicit Region with a Radiation boundary, illuminated by an incident plane wave (monostatic and bistatic RCS). Also: groups, an object in a relative coordinate system, a suppressed history command, hidden / wireframe / non-model objects and project materials (Debye, anisotropic, ferrite, brass, project PEC)."
+   "notes": "Every create command and every operation of the modeler on a grid of objects (pitch 'sp'), inside an explicit Region with a Radiation boundary, illuminated by an incident plane wave (monostatic and bistatic RCS). Also: groups, an object in a relative coordinate system, a suppressed history command, hidden / wireframe / non-model objects and project materials (Debye, anisotropic, ferrite, brass, project PEC).",
+   "stackup": null
   },
   {
    "name": "E_CoaxMonopole_PML",
@@ -4590,7 +4594,8 @@
    "optimetrics": [],
    "parametrics": [],
    "working_cs": "Global",
-   "notes": "Terminal solution type, units cm: a quarter-wave monopole fed through the ground disc by a 50 ohm PTFE coax (the inner conductor continues as the monopole, the outer wall is a Perfect E face) with an annular wave port; explicit air box with PML on its five open faces, a Perfect E infinite ground plane, Length Based On Edges mesh refinement and a far-field sphere."
+   "notes": "Terminal solution type, units cm: a quarter-wave monopole fed through the ground disc by a 50 ohm PTFE coax (the inner conductor continues as the monopole, the outer wall is a Perfect E face) with an annular wave port; explicit air box with PML on its five open faces, a Perfect E infinite ground plane, Length Based On Edges mesh refinement and a far-field sphere.",
+   "stackup": null
   },
   {
    "name": "F_UnitCell_Periodic",
@@ -4992,7 +4997,8 @@
    "optimetrics": [],
    "parametrics": [],
    "working_cs": "Global",
-   "notes": "Periodic unit cell (the infinite array) of a cross on a grounded RO3003 spacer: Primary / Secondary pairs in x and y with the scan angles theta = scan_theta, phi = 0 and a Floquet port with TE00 and TM00 above. The ground reflects everything; the result is the reflection phase over frequency (a reflectarray element)."
+   "notes": "Periodic unit cell (the infinite array) of a cross on a grounded RO3003 spacer: Primary / Secondary pairs in x and y with the scan angles theta = scan_theta, phi = 0 and a Floquet port with TE00 and TM00 above. The ground reflects everything; the result is the reflection phase over frequency (a reflectarray element).",
+   "stackup": null
   },
   {
    "name": "G_DiffPair_Terminal",
@@ -5565,7 +5571,8 @@
     }
    ],
    "working_cs": "Global",
-   "notes": "Terminal solution with multi-conductor wave ports: an edge-coupled microstrip pair on RO4350B in a shielded box. Each wave port carries two terminals (even and odd mode, each absorbed with its own propagation constant); the shield is named as the reference conductor. Differential pairs give the mixed-mode S-parameters; output variables use S, Y, Z and VSWR of the terminals; a ports-only setup checks Zo and Gamma without the 3D solve; Edit Sources drives the odd mode."
+   "notes": "Terminal solution with multi-conductor wave ports: an edge-coupled microstrip pair on RO4350B in a shielded box. Each wave port carries two terminals (even and odd mode, each absorbed with its own propagation constant); the shield is named as the reference conductor. Differential pairs give the mixed-mode S-parameters; output variables use S, Y, Z and VSWR of the terminals; a ports-only setup checks Zo and Gamma without the 3D solve; Edit Sources drives the odd mode.",
+   "stackup": null
   },
   {
    "name": "H_TwoModeWaveguide",
@@ -5785,7 +5792,7 @@
      "props": {
       "Enabled": "True",
       "SolutionFrequencyMode": "Single",
-      "Frequency": "12GHz",
+      "Frequency": "11.2GHz",
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
@@ -5822,10 +5829,10 @@
         "Enabled": "True",
         "SweepType": "Interpolating",
         "Distribution": "Linear Count",
-        "Start": "10.5GHz",
-        "Stop": "13GHz",
+        "Start": "10.3GHz",
+        "Stop": "11.8GHz",
         "Step": "0.1GHz",
-        "Count": "126",
+        "Count": "151",
         "SamplesPerDecade": "20",
         "Points": "1GHz,2GHz",
         "SaveFields": "False",
@@ -5842,7 +5849,7 @@
      "props": {
       "Enabled": "True",
       "SolutionFrequencyMode": "Single",
-      "Frequency": "12GHz",
+      "Frequency": "11.2GHz",
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
@@ -5879,8 +5886,8 @@
         "Enabled": "True",
         "SweepType": "Discrete",
         "Distribution": "Linear Count",
-        "Start": "10.5GHz",
-        "Stop": "13GHz",
+        "Start": "10.3GHz",
+        "Stop": "11.8GHz",
         "Step": "0.1GHz",
         "Count": "6",
         "SamplesPerDecade": "20",
@@ -5960,7 +5967,8 @@
    "optimetrics": [],
    "parametrics": [],
    "working_cs": "Global",
-   "notes": "Modal wave ports with two modes each: a 22.86 x 15 mm guide carries TE10 and TE01 between 10 and 13.1 GHz, each port mode absorbed with its own propagation constant. A tilted dielectric post couples them; the mode rows of S are named WP1_M1, WP1_M2, WP2_M1, WP2_M2 and used in reports and output variables (mode conversion)."
+   "notes": "Modal wave ports with two modes each: a 22.86 x 15 mm guide carries exactly TE10 and TE01 between 10.0 and 11.95 GHz (TE11/TM11 cut off above), each port mode absorbed with its own propagation constant. A tilted dielectric post couples them; the mode rows of S are named WP1_M1, WP1_M2, WP2_M1, WP2_M2 and used in reports and output variables (mode conversion).",
+   "stackup": null
   }
  ],
  "variables": {

@@ -5,6 +5,15 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- **Interpolating sweep**: the rational model of the solved frequencies now uses the fewest pole pairs that
+  reproduce them, instead of a pole count from the number of samples. Smooth responses (waveguides, lines)
+  no longer get surplus poles far off the band, which made the fit singular ("Ill Conditioned Matrix" warning)
+  and let the model follow solver noise between the samples. Same number of solutions on the examples, equal or
+  lower interpolation error.
+- **Showcase H_TwoModeWaveguide**: the band is now 10.3 to 11.8 GHz. Above 11.95 GHz TE11 and TM11 propagate
+  in the 22.86 x 15 mm guide as well, which the two-mode ports do not absorb.
+
 ## 0.2.12 (2026-11-03)
 
 ### Added
