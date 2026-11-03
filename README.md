@@ -260,7 +260,9 @@ pip install -e ".[test]" && python -m pytest tests
 ```
 
 Run the install again whenever `packaging/emerge-commit` changes: the tests stop with a message when the
-installed EMerge is not the pinned commit.
+installed EMerge is not the pinned commit. The tests run on every pull request and push to `dev` and `main`
+(`.github/workflows/tests.yml`). How to report problems, ask questions and contribute:
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Branches and releases
 

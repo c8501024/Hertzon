@@ -9,11 +9,24 @@ $log = Join-Path $PSScriptRoot 'setup.log'
 try { Start-Transcript -LiteralPath $log -Force | Out-Null } catch {}
 
 function Find-Python {
-    try { $p = & py -3.13 -c "import sys; print(sys.executable)" 2>$null; if ($LASTEXITCODE -eq 0 -and $p) { return $p.Trim() } } catch {}
-    # a Python 3.13 on PATH (for example one installed without the py launcher)
-    try { $p = & python -c "import sys; print(sys.executable if sys.version_info[:2] == (3, 13) else '')" 2>$null; if ($LASTEXITCODE -eq 0 -and $p) { return $p.Trim() } } catch {}
+    # the usual install locations first: no output of another program has to be decoded
     foreach ($c in @("$env:LOCALAPPDATA\Programs\Python\Python313\python.exe", "$env:ProgramFiles\Python313\python.exe")) {
         if (Test-Path -LiteralPath $c) { return $c }
+    }
+    # Python writes to a pipe in the ANSI code page while Windows PowerShell 5.1 reads it as the OEM code page,
+    # which turns a non-ASCII character of the path (an umlaut in the user name) into another one; UTF-8 on
+    # both sides keeps the path intact
+    $prevEnc = $null
+    try { $prevEnc = [Console]::OutputEncoding; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+    $prevIo = $env:PYTHONIOENCODING
+    $env:PYTHONIOENCODING = 'utf-8'
+    try {
+        try { $p = & py -3.13 -c "import sys; print(sys.executable)" 2>$null; if ($LASTEXITCODE -eq 0 -and $p) { return $p.Trim() } } catch {}
+        # a Python 3.13 on PATH (for example one installed without the py launcher)
+        try { $p = & python -c "import sys; print(sys.executable if sys.version_info[:2] == (3, 13) else '')" 2>$null; if ($LASTEXITCODE -eq 0 -and $p) { return $p.Trim() } } catch {}
+    } finally {
+        if ($prevEnc) { try { [Console]::OutputEncoding = $prevEnc } catch {} }
+        $env:PYTHONIOENCODING = $prevIo
     }
     return $null
 }
