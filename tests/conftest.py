@@ -52,3 +52,24 @@ def pytest_sessionstart(session):
         pytest.exit(f"EMerge is {src}, not the pinned commit {_pinned()[:7]} (packaging/emerge-commit). "
                     'Update the environment with: pip install -e ".[test]"  '
                     "(HERTZON_ANY_EMERGE=1 runs the tests anyway)", returncode=4)
+
+
+_exit_status = 0
+
+
+def pytest_sessionfinish(session, exitstatus):
+    global _exit_status
+    _exit_status = int(exitstatus)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config):
+    """Leave without Python's own shutdown once pytest has reported. The main windows the tests open (Qt,
+    VTK, the web view of the formula editor) can crash while the interpreter tears them down, which turns a
+    green run into exit code 139. The report is complete at this point, so end with pytest's exit status."""
+    if os.environ.get("HERTZON_TEST_SOFT_EXIT") == "1":
+        return
+    import sys
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(_exit_status)

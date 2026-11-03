@@ -17,6 +17,10 @@ the GitHub release notes.
   with their stackup; what a job file lacks is filled with marked assumptions, legend and paste layers are not
   loaded (and the notes say so). Solder mask layers of a job file are shown in the cross-section, marked as
   not implemented yet, and are not simulated. Stackups can be saved and opened as `.hzstack` files.
+- **Automatic tests**: the test suite runs on Linux for every pull request and every push to `dev` and `main`
+  (`.github/workflows/tests.yml`).
+- **CONTRIBUTING.md**: how to report problems, ask questions, set up a development environment, run the tests
+  and open a pull request.
 
 ### Fixed
 - Windows setup: works when the user name contains non-ASCII characters such as `ä` (the path of Python was

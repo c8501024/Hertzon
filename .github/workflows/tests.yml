@@ -1,0 +1,42 @@
+# Runs the test suite (tests/) on Linux for every pull request and every push to dev and main.
+# The GUI tests open main windows with a 3D view, so they run on a virtual display (Xvfb); gmsh, VTK and
+# Qt need the OpenGL and xcb libraries.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HERTZON_NO_UPDATE_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Virtual display and system libraries for gmsh, VTK and Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libglu1-mesa libgl1 libegl1 libgl1-mesa-dri \
+            libxrender1 libxcursor1 libxinerama1 libxft2 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 \
+            libdbus-1-3 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+      - name: Install Hertzon with the test extras
+        run: pip install -e ".[test]"
+      - name: Run the tests
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" python -m pytest tests -ra --durations=20
