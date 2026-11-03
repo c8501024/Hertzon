@@ -18,6 +18,10 @@ the GitHub release notes.
   loaded (and the notes say so). Solder mask layers of a job file are shown in the cross-section, marked as
   not implemented yet, and are not simulated. Stackups can be saved and opened as `.hzstack` files.
 
+### Fixed
+- Windows setup: works when the user name contains non-ASCII characters such as `ä` (the path of Python was
+  read with the wrong code page and no `.venv` was created) (#195).
+
 ## 0.2.11 (2026-11-02)
 
 ### Fixed
