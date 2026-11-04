@@ -9,6 +9,9 @@ Every evaluation keeps its S-parameters, convergence and log; the best one also 
 fields at the adaptive frequency, so that 'Apply to Design' shows its solution without solving again
 (hertzon.solver.parametric.matching_evaluation).
 
+The optimizer "Latin Hypercube + Nelder-Mead" (optimetrics.SampledNelderMead) solves a Latin hypercube sample of
+the variable box and then runs Nelder-Mead chains from the best sample points side by side.
+
 The optimizer "Derivative Trust Region" (hertzon.solver.trust_region) computes the derivative tuning model
 of a solved design in its evaluation folder and minimizes the goals on the model; each step is checked
 with a solve.
@@ -28,12 +31,14 @@ import numpy as np
 
 from ..model.design import Project
 from .expressions import output_variables
-from .optimetrics import ConjugateGradient, Variables, antenna_data, check_antenna_goals, evaluate_goals, uses_antenna
+from .optimetrics import (ConjugateGradient, SampledNelderMead, Variables, antenna_data, check_antenna_goals,
+                          evaluate_goals, uses_antenna)
 from .results import ResultStore, running_status
 from . import trust_region as TR
 
 TAG = "@@HZN "
 TRUST_REGION = "Derivative Trust Region"
+NELDER_MEAD = "Latin Hypercube + Nelder-Mead"
 TUNING_MAX_VARIABLES = 6
 ROOT = Path(__file__).resolve().parents[2]
 _LOCK = threading.Lock()
@@ -124,7 +129,8 @@ class Optimizer:
         self.t0 = time.time()
         self.folders: dict[int, Path] = {}
         self.keep_mesh = False          # the trust region computes the tuning model on an evaluation's mesh
-        self.trust = self.props.get("Optimizer", "Conjugate Gradient") == TRUST_REGION
+        self.algorithm = self.props.get("Optimizer", "Conjugate Gradient")
+        self.trust = self.algorithm == TRUST_REGION
         if self.trust and len(self.vars) > TUNING_MAX_VARIABLES:
             raise ValueError(f"Derivative Trust Region: at most {TUNING_MAX_VARIABLES} variables (the tuning "
                              f"model), {len(self.vars)} are included")
@@ -239,29 +245,39 @@ class Optimizer:
     def run(self) -> bool:
         if self.trust:
             return self.run_trust_region()
-        cg = ConjugateGradient(self.vars.x0(), self.props)
-        log(f"Optimization '{self.opt.name}': conjugate gradient over {len(self.vars)} variable(s) "
-            f"({', '.join(self.vars.names)}), goals on {self.opt.solution}, up to {self.parallel} design(s) at once")
+        if self.algorithm == NELDER_MEAD:
+            alg = SampledNelderMead(self.vars.x0(), self.props)
+            log(f"Optimization '{self.opt.name}': Latin hypercube sample of {alg.p['samples']} design(s) and the "
+                f"start design, then up to {alg.p['chains']} Nelder-Mead chain(s) of up to {alg.p['budget']} "
+                f"evaluations from the best ones, over {len(self.vars)} variable(s) ({', '.join(self.vars.names)}), "
+                f"goals on {self.opt.solution}, up to {self.parallel} design(s) at once")
+        else:
+            alg = ConjugateGradient(self.vars.x0(), self.props)
+            log(f"Optimization '{self.opt.name}': conjugate gradient over {len(self.vars)} variable(s) "
+                f"({', '.join(self.vars.names)}), goals on {self.opt.solution}, up to {self.parallel} design(s) "
+                "at once")
         (self.out / "ABORT").unlink(missing_ok=True)
-        while not cg.done and self.n < self.max_evals:
-            phase = cg.s["phase"]
-            pts = cg.propose()[: self.max_evals - self.n]
+        while not alg.done and self.n < self.max_evals:
+            phase = alg.phase
+            pts = alg.propose()[: self.max_evals - self.n]
+            if not pts:
+                break
             todo = []
             for p in pts:
                 key = tuple(np.round(p, 9))
                 if key in self.cache:
-                    cg.observe(p, self.cache[key])
+                    alg.observe(p, self.cache[key])
                 else:
                     todo.append(p)
             if not todo:
                 continue
-            costs = self._solve_batch(todo, phase, cg.s.get("iteration", 0))
+            costs = self._solve_batch(todo, phase, alg.iteration)
             if costs is None:
                 break
             for p, c in zip(todo, costs):
                 self.cache[tuple(np.round(p, 9))] = c
-                cg.observe(p, c)
-        return self._end(cg.reason or "Maximum number of evaluations reached")
+                alg.observe(p, c)
+        return self._end(alg.reason or "Maximum number of evaluations reached")
 
     def _end(self, reason: str) -> bool:
         stopped = self.aborted()
@@ -396,7 +412,8 @@ class Optimizer:
         queue = list(enumerate(points))
         running: list[tuple[int, Evaluation]] = []
         costs: list[float] = [float("inf")] * len(points)
-        label = {"base": "start design", "gradient": "gradient", "line": "line search"}.get(phase, phase)
+        label = {"base": "start design", "gradient": "gradient", "line": "line search", "sampling": "sample",
+                 "simplex": "Nelder-Mead"}.get(phase, phase)
         done = 0
         last = 0.0
         while queue or running:
