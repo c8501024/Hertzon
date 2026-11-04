@@ -345,7 +345,7 @@ SWEEP: list[Prop] = [
     P("Parallel", "bool", "False", label="Solve frequencies in parallel"),
 ]
 
-OPTIMIZERS = ("Conjugate Gradient", "Derivative Trust Region")
+OPTIMIZERS = ("Conjugate Gradient", "Latin Hypercube + Nelder-Mead", "Derivative Trust Region")
 COST_FUNCTIONS = ("Error Area", "Worst Case")
 GOAL_CONDITIONS = ("<=", ">=", "=", "Ripple <=")
 
@@ -367,9 +367,12 @@ OPTIMIZATION: list[Prop] = [
     P("Optimizer", "choice", "Conjugate Gradient", choices=OPTIMIZERS,
       help="Conjugate Gradient: projected nonlinear conjugate gradient (Polak-Ribiere+) on the variables scaled "
            "to 0..1 between their Min and Max, with a finite-difference gradient and a backtracking line "
-           "search. Derivative Trust Region: every round solves the design once, computes its derivative "
-           "tuning model (as Compute Derivatives) and minimizes the goals on the model within a part of the "
-           "tuning range; the step is checked with a solve. Few solves for designs near the goal (at most 6 "
+           "search. Latin Hypercube + Nelder-Mead: solves a Latin hypercube sample of the variable ranges (and "
+           "the start design), then runs Nelder-Mead chains from the best distinct sample points side by side; "
+           "finds good designs far from the start values and does not need a gradient (several resonances, "
+           "antennas, rough cost). Derivative Trust Region: every round solves the design once, computes its "
+           "derivative tuning model (as Compute Derivatives) and minimizes the goals on the model within a part "
+           "of the tuning range; the step is checked with a solve. Few solves for designs near the goal (at most 6 "
            "variables, the topology must not change)"),
     P("CostFunction", "choice", "Error Area", label="Cost function", choices=COST_FUNCTIONS,
       help="Error Area: area of the goal violations over frequency (dB GHz), weighted and summed. "
@@ -377,8 +380,9 @@ OPTIMIZATION: list[Prop] = [
     P("MaxEvaluations", "int", "3000", label="Maximum evaluations",
       help="Upper limit of solved designs; the optimizer usually stops earlier (tolerance or no improvement)"),
     P("ParallelEvaluations", "int", "6", label="Parallel evaluations",
-      visible_if=("Optimizer", "Conjugate Gradient"),
-      help="Designs solved at the same time (the gradient samples are independent); the cores are shared"),
+      visible_if=("Optimizer", "!Derivative Trust Region"),
+      help="Designs solved at the same time (the gradient samples, the sample designs and the points of the "
+           "Nelder-Mead chains are independent); the cores are shared"),
     P("DifferenceStep", "float", "0.05", label="Difference step", tab="Conjugate Gradient",
       visible_if=("Optimizer", "Conjugate Gradient"),
       help="Finite-difference step of the gradient, as a fraction of each variable's range"),
@@ -391,6 +395,25 @@ OPTIMIZATION: list[Prop] = [
     P("MaxLineTrials", "int", "16", label="Line search trials", tab="Conjugate Gradient",
       visible_if=("Optimizer", "Conjugate Gradient"),
       help="Step halvings without improvement before the optimizer stops"),
+    P("Samples", "int", "24", label="Sample designs", tab="Nelder-Mead",
+      visible_if=("Optimizer", "Latin Hypercube + Nelder-Mead"),
+      help="Designs of the Latin hypercube sample (one in every slice of every variable range), solved before "
+           "the chains start; the start design is solved as well"),
+    P("Chains", "int", "4", label="Chains", tab="Nelder-Mead",
+      visible_if=("Optimizer", "Latin Hypercube + Nelder-Mead"),
+      help="Nelder-Mead chains, started from the best distinct designs of the sample and run side by side"),
+    P("ChainEvaluations", "int", "40", label="Evaluations per chain", tab="Nelder-Mead",
+      visible_if=("Optimizer", "Latin Hypercube + Nelder-Mead"),
+      help="Solved designs per chain before it stops (Maximum evaluations limits the whole run)"),
+    P("SimplexStep", "float", "0.08", label="Initial simplex step", tab="Nelder-Mead",
+      visible_if=("Optimizer", "Latin Hypercube + Nelder-Mead"),
+      help="Size of the first simplex around a start point, as a fraction of each variable's range"),
+    P("SimplexTolerance", "float", "0.005", label="Simplex tolerance", tab="Nelder-Mead",
+      visible_if=("Optimizer", "Latin Hypercube + Nelder-Mead"),
+      help="A chain stops when its simplex is smaller than this, as a fraction of each variable's range"),
+    P("Seed", "int", "1", label="Random seed", tab="Nelder-Mead",
+      visible_if=("Optimizer", "Latin Hypercube + Nelder-Mead"),
+      help="Seed of the sample: the same seed gives the same sample designs"),
     P("TrustRadius", "float", "0.6", label="Initial trust region", tab="Derivative Trust Region",
       visible_if=("Optimizer", "Derivative Trust Region"),
       help="Largest step of the first round, as a fraction of each variable's tuning range (1: the whole range "

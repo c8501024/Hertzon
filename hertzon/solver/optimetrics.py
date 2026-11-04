@@ -1,4 +1,5 @@
-"""Optimization variables, goals / cost function and the conjugate gradient optimizer.
+"""Optimization variables, goals / cost function, the conjugate gradient optimizer and the Latin hypercube +
+Nelder-Mead optimizer.
 
 No Qt here: used by the optimizer process (hertzon.solver.optimize) and by the dialogs.
 
@@ -262,6 +263,14 @@ class ConjugateGradient:
     def reason(self) -> str:
         return self.s.get("reason", "")
 
+    @property
+    def phase(self) -> str:
+        return self.s["phase"]
+
+    @property
+    def iteration(self) -> int:
+        return self.s.get("iteration", 0)
+
     def propose(self) -> list[list[float]]:
         s = self.s
         if s["done"]:
@@ -337,3 +346,171 @@ class ConjugateGradient:
         scale = max(1.0, float(np.linalg.norm(d, np.inf)))
         s.update(direction=d.tolist(), previous_gradient=g.tolist(), phase="line",
                  alpha=self.p["alpha0"] / scale, line_trials=0)
+
+
+# ---------------------------------------------------------------------------------------------
+# Latin hypercube sample + Nelder-Mead chains
+# ---------------------------------------------------------------------------------------------
+def latin_hypercube(n: int, dim: int, rng) -> np.ndarray:
+    """n points in the unit box, one in every 1/n slice of every variable."""
+    return (np.argsort(rng.random((dim, n)), axis=1).T + rng.random((n, dim))) / n
+
+
+def _key(x) -> tuple:
+    return tuple(np.round(np.asarray(x, float), 9))
+
+
+class _Chain:
+    """One Nelder-Mead chain as a generator: it yields the points to solve and receives their costs."""
+
+    def __init__(self, x0, f0: float, step: float, tol: float, budget: int):
+        self.budget, self.used = budget, 0
+        self.gen = self._run(np.asarray(x0, float), float(f0), step, tol)
+        self.points: list[np.ndarray] = []
+        self.costs: list[float | None] = []
+        self.done = False
+        self._ask(None)
+
+    def _ask(self, costs) -> None:
+        try:
+            pts = self.gen.send(costs) if costs is not None else next(self.gen)
+        except StopIteration:
+            self.done, self.points, self.costs = True, [], []
+            return
+        self.points = [np.clip(np.asarray(p, float), 0, 1) for p in pts]
+        self.costs = [None] * len(self.points)
+
+    @property
+    def ready(self) -> bool:
+        return not self.done and all(c is not None for c in self.costs)
+
+    def advance(self) -> None:
+        self.used += len(self.costs)
+        if self.used >= self.budget:
+            self.done, self.points, self.costs = True, [], []
+            return
+        self._ask(list(self.costs))
+
+    @staticmethod
+    def _run(x0, f0, step, tol):
+        n = len(x0)
+        X = [x0] + [np.clip(x0 + step * np.eye(n)[j] * (1 if x0[j] < 0.9 else -1), 0, 1) for j in range(n)]
+        F = [f0] + list((yield X[1:]))
+        while True:
+            order = np.argsort(F, kind="stable")
+            X, F = [X[i] for i in order], [F[i] for i in order]
+            if max(np.max(np.abs(x - X[0])) for x in X[1:]) <= tol:
+                return
+            c = np.mean(X[:-1], axis=0)
+            xw, fw = X[-1], F[-1]
+            xr = np.clip(2 * c - xw, 0, 1)
+            fr = (yield [xr])[0]
+            if fr < F[0]:                                       # expansion
+                xe = np.clip(3 * c - 2 * xw, 0, 1)
+                fe = (yield [xe])[0]
+                X[-1], F[-1] = (xe, fe) if fe < fr else (xr, fr)
+            elif fr < F[-2]:                                    # reflection
+                X[-1], F[-1] = xr, fr
+            else:                                               # contraction, else shrink
+                outside = fr < fw
+                xc = np.clip(c + 0.5 * ((xr if outside else xw) - c), 0, 1)
+                fc = (yield [xc])[0]
+                if fc <= fr if outside else fc < fw:
+                    X[-1], F[-1] = xc, fc
+                else:
+                    xs = [X[0] + 0.5 * (x - X[0]) for x in X[1:]]
+                    fs = yield xs
+                    X, F = [X[0]] + xs, [F[0]] + list(fs)
+
+
+class SampledNelderMead:
+    """Global search for designs whose cost has several minima (e.g. an antenna with several resonances):
+
+    1. a Latin hypercube sample of the variable box (and the start design), all solved in parallel;
+    2. Nelder-Mead chains from the best distinct sample points, run side by side (each round solves the
+       next point of every chain in parallel), each with its own evaluation budget.
+
+    Variables scaled to 0..1 between Min and Max; points outside are clipped. propose() gives the points
+    to solve next, observe() takes their costs (as ConjugateGradient). A design that cannot be solved has
+    an infinite cost and is avoided by the chains."""
+
+    def __init__(self, x0, props: dict):
+        self.p = {"samples": max(0, int(float(props.get("Samples", 24)))),
+                  "chains": max(1, int(float(props.get("Chains", 4)))),
+                  "budget": max(2, int(float(props.get("ChainEvaluations", 40)))),
+                  "step": min(0.5, max(1e-3, float(props.get("SimplexStep", 0.08)))),
+                  "tol": max(0.0, float(props.get("SimplexTolerance", 0.005))),
+                  "seed": int(float(props.get("Seed", 1)))}
+        x0 = np.clip(np.asarray(x0, float), 0, 1)
+        rng = np.random.default_rng(self.p["seed"])
+        pts = [x0] + list(latin_hypercube(self.p["samples"], len(x0), rng)) if self.p["samples"] else [x0]
+        self.sample = {"points": pts, "costs": [None] * len(pts)}
+        self.chains: list[_Chain] = []
+        self.phase = "sampling"
+        self.iteration = 0
+        self._done, self._reason = False, ""
+
+    @property
+    def done(self) -> bool:
+        return self._done
+
+    @property
+    def reason(self) -> str:
+        return self._reason
+
+    def _stop(self, reason: str) -> None:
+        self._done, self._reason = True, reason
+
+    def _pending(self) -> list[list[float]]:
+        if self.phase == "sampling":
+            return [p.tolist() for p, c in zip(self.sample["points"], self.sample["costs"]) if c is None]
+        return [p.tolist() for ch in self.chains if not ch.done for p, c in zip(ch.points, ch.costs) if c is None]
+
+    def propose(self) -> list[list[float]]:
+        if self._done:
+            return []
+        pend = self._pending()
+        if pend:
+            return pend
+        if self.phase == "sampling":
+            self._start_chains()
+        else:
+            for ch in self.chains:
+                if ch.ready:
+                    ch.advance()
+            self.iteration += 1
+        if not self._done and not any(not ch.done for ch in self.chains):
+            self._stop("All Nelder-Mead chains converged or used their evaluations")
+        return [] if self._done else self._pending()
+
+    def _start_chains(self) -> None:
+        pts, costs = self.sample["points"], np.array(self.sample["costs"], float)
+        order = [i for i in np.argsort(costs, kind="stable") if np.isfinite(costs[i])]
+        if not order:
+            self._stop("No design of the sample could be evaluated")
+            return
+        seen, starts = set(), []
+        for i in order:
+            k = tuple(np.round(pts[i], 2))
+            if k not in seen:
+                seen.add(k)
+                starts.append(i)
+            if len(starts) >= self.p["chains"]:
+                break
+        self.phase, self.iteration = "simplex", 1
+        self.chains = [_Chain(pts[i], costs[i], self.p["step"], self.p["tol"], self.p["budget"]) for i in starts]
+
+    def observe(self, point, cost: float) -> None:
+        k = _key(point)
+        cost = float(cost) if np.isfinite(cost) else float("inf")
+        if self.phase == "sampling":
+            for i, p in enumerate(self.sample["points"]):
+                if self.sample["costs"][i] is None and _key(p) == k:
+                    self.sample["costs"][i] = cost
+        else:
+            for ch in self.chains:
+                for i, p in enumerate(ch.points):
+                    if ch.costs[i] is None and _key(p) == k:
+                        ch.costs[i] = cost
+        if cost == 0:                              # the best evaluation meets every goal
+            self._stop("All goals are met (cost 0)")
