@@ -57,6 +57,19 @@ def test_hairpin_optimization_matches_filterbench():
     assert q.designs[0].optimetrics[0].variables == op.variables
 
 
+def test_hairpin_derivative_trust_region_optimization():
+    """The second optimization has the same goals and ranges, with the derivative trust region on L, g, yP."""
+    p = hairpin_project(HairpinSpec(n=3))
+    d = p.designs[0]
+    cg, dtr = d.optimetrics
+    assert dtr.name == "HairpinDTR" and dtr.props["Optimizer"] == "Derivative Trust Region"
+    assert dtr.solution == cg.solution and dtr.goals == cg.goals and dtr.goals is not cg.goals
+    assert [(v["name"], v["min"], v["max"]) for v in dtr.variables] == [(v["name"], v["min"], v["max"]) for v in cg.variables]
+    v = Variables(d, dtr, d.evaluator(p))
+    assert v.names == ["L", "g", "yP"]
+    assert all(cg.props[k] == dtr.props[k] for k in cg.props if k != "Optimizer")
+
+
 def test_auto_bands():
     from hertzon.model.filters import auto_bands
     assert auto_bands((2.3, 2.6)) == ([(2.0, 2.2), (2.7, 2.9)], (2.0, 2.9, 0.01))

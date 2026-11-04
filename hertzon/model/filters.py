@@ -4,7 +4,8 @@ The geometry is the one of the filterbench hairpin optimizer (tapped_hairpin.py)
 every second one flipped, sharp inner and miter-cut outer corners, both feed lines tapped directly onto
 the outer arms at the same height. Everything is drawn with design variables, so the optimization that
 comes with the design varies the same six parameters as the filterbench runs (L, w, b, g, yP, M), with
-the same ranges and the start in the middle of every range.
+the same ranges and the start in the middle of every range. A second optimization minimizes the same goals
+with the derivative tuning model (Derivative Trust Region) over L, g and yP.
 
 No Qt here: used by the dialog, the example generator and scripts.
 """
@@ -160,6 +161,10 @@ _X = ["-wo/2", "-wo/2", "-wo/2+cut", "wo/2-cut", "wo/2", "wo/2", "wo/2-w", "wo/2
 _Y = ["s/2", "-s/2-dep+cut", "-s/2-dep", "-s/2-dep", "-s/2-dep+cut", "s/2", "s/2", "-s/2-dep+w", "-s/2-dep+w", "s/2"]
 
 
+# variables of the derivative trust region optimization that are included from the start
+DTR_VARIABLES = ("L", "g", "yP")
+
+
 def _mm(v: float) -> str:
     return f"{v:g}mm"
 
@@ -236,6 +241,16 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
                                      [(f"{lo:g}GHz", f"{hi:g}GHz") for lo, hi in spec.stopbands],
                                      spec.insertion_loss, spec.return_loss, spec.ripple, spec.rejection)
         d.optimetrics.append(op)
+        # the same goals with the derivative tuning model: every round one solve and one tuning model on its
+        # adaptive mesh (the mesh is morphed, not remeshed). Length, gap and tap are included: they set the
+        # centre frequency, the coupling and the match. The trace width, inner width and miter can be added
+        # where the memory allows (the volume matrices grow with the square of the number of variables)
+        dtr = Optimization("HairpinDTR", "Setup1 : Sweep",
+                           props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer="Derivative Trust Region"))
+        for v in op.variables:
+            dtr.variables.append(dict(v, include=v["name"] in DTR_VARIABLES))
+        dtr.goals = [dict(g) for g in op.goals]
+        d.optimetrics.append(dtr)
     return d, nom
 
 

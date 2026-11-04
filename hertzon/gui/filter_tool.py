@@ -33,7 +33,8 @@ def _pair(a: QDoubleSpinBox, b: QDoubleSpinBox, c: QDoubleSpinBox | None = None)
 
 class HairpinFilterDialog(QDialog):
     """Band-pass filter of N directly tapped hairpins (the filterbench geometry), as a parametrized design
-    with setup, sweep and a conjugate gradient optimization of L, w, b, g, yP and M on the filter mask."""
+    with setup, sweep, a conjugate gradient optimization of L, w, b, g, yP and M on the filter mask and a
+    derivative trust region optimization of L, g and yP on the same mask."""
 
     def __init__(self, parent, project):
         super().__init__(parent)
@@ -121,7 +122,7 @@ class HairpinFilterDialog(QDialog):
         f = QFormLayout(g)
         self.f_lo, self.f_hi = _num(d.sweep[0], 0.001, 300, 4, "GHz"), _num(d.sweep[1], 0.001, 300, 4, "GHz")
         self.f_step = _num(d.sweep[2], 0.0001, 10, 4, "GHz")
-        self.opt = QCheckBox("Add the optimization (conjugate gradient on the filter mask)")
+        self.opt = QCheckBox("Add the optimizations on the filter mask (conjugate gradient, derivative trust region)")
         self.opt.setChecked(True)
         self.name = QLineEdit("")
         self.name.setPlaceholderText("Hairpin_N3")
