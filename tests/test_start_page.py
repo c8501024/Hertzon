@@ -32,7 +32,7 @@ def test_start_page_offers_only_what_is_built(tmp_path):
     s = QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat)
     dlg = StartPageDialog(None, "new", s, recent=[str(tmp_path / "a.hzn")], examples=[Path("x/PatchAntenna.hzn")])
     assert dlg.kind() == "3d" and dlg.solution_type() == "Modal"
-    assert not dlg.cards["circuit"].isEnabled()
+    assert dlg.cards["circuit"].isEnabled()
     for name in ("Modal", "Terminal", "Eigenmode"):
         assert dlg.type_radio[name].isEnabled()
     for name in ("Electrostatic", "DC Conduction", "Magnetostatic", "Eddy Current"):

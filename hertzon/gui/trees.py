@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QIcon, QPixmap, QPainter, QPalette
 from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QAbstractItemView, QStyle, QStyledItemDelegate
 
@@ -50,6 +50,29 @@ def strong_selection(tree: QTreeWidget) -> None:
     tree.setItemDelegate(_BoldSelection(tree))
 
 
+MIME_DESIGN = "application/x-hertzon-design"
+_DESIGN_ICONS: dict[str, QIcon] = {}
+
+
+def design_icon(kind: str) -> QIcon:
+    """The symbol of the start page (3D FEM or Circuit) as a small icon of the design in the tree."""
+    if kind not in _DESIGN_ICONS:
+        from PySide6.QtCore import QByteArray, QRectF
+        from .start_page import ICON_3D, ICON_CIRCUIT
+        pm = QPixmap(24, 20)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        try:
+            from PySide6.QtSvg import QSvgRenderer
+            QSvgRenderer(QByteArray((ICON_CIRCUIT if kind == "circuit" else ICON_3D).encode())).render(
+                p, QRectF(0, 0, 24, 20))
+        except ImportError:  # pragma: no cover
+            pass
+        p.end()
+        _DESIGN_ICONS[kind] = QIcon(pm)
+    return _DESIGN_ICONS[kind]
+
+
 class ProjectTree(QTreeWidget):
     """Project > Design > Model / Boundaries / Excitations / Mesh / Analysis / Results / ..."""
 
@@ -67,10 +90,24 @@ class ProjectTree(QTreeWidget):
         self.customContextMenuRequested.connect(self._ctx)
         self.itemDoubleClicked.connect(lambda it, c: self.itemActivatedData.emit(it.data(0, ROLE)))
         self.itemSelectionChanged.connect(self._sel)
+        # a 3D design dragged into a schematic becomes a block with its S-parameters
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
         self._expanded: set[str] = {"project", "design", "Boundaries", "Excitations", "Analysis", "Equations",
                                     "Results", "Mesh", "Radiation", "Field Overlays"}
         doc.changed.connect(lambda *_: self.rebuild())
         self.rebuild()
+
+    def mimeTypes(self) -> list[str]:
+        return [MIME_DESIGN]
+
+    def mimeData(self, items) -> QMimeData:
+        md = QMimeData()
+        names = [it.data(0, ROLE)[1] for it in items
+                 if isinstance(it.data(0, ROLE), tuple) and it.data(0, ROLE)[0] == "design"]
+        if names:
+            md.setData(MIME_DESIGN, names[0].encode())
+        return md
 
     def _sel(self) -> None:
         items = self.selectedItems()
@@ -100,6 +137,7 @@ class ProjectTree(QTreeWidget):
     def _item(self, parent, text: str, data, icon: QIcon | None = None, bold=False) -> QTreeWidgetItem:
         it = QTreeWidgetItem([text])
         it.setData(0, ROLE, data)
+        it.setFlags(it.flags() & ~Qt.ItemIsDragEnabled)
         if icon:
             it.setIcon(0, icon)
         if bold:
@@ -130,10 +168,17 @@ class ProjectTree(QTreeWidget):
         root.setExpanded(True)
         for des in proj.designs:
             active = des.name == doc.design_name
-            dn = self._item(root, f"{des.name} ({des.settings.get('SolutionType', 'Modal')})", ("design", des.name),
-                            bold=active)
+            circuit = getattr(des, "kind", "3d") == "circuit"
+            dn = self._item(root, f"{des.name} ({'Circuit' if circuit else des.settings.get('SolutionType', 'Modal')})",
+                            ("design", des.name), design_icon("circuit" if circuit else "3d"), bold=active)
             dn.setExpanded(active)
+            if not circuit:
+                dn.setFlags(dn.flags() | Qt.ItemIsDragEnabled)
+                dn.setToolTip(0, "Drag into a schematic to use the S-parameters of this design as a block")
             if not active:
+                continue
+            if circuit:
+                self._circuit_children(dn, des)
                 continue
             self._item(dn, "Model", ("model",))
             g = self._item(dn, "Boundaries", ("group", "Boundaries"))
@@ -223,6 +268,22 @@ class ProjectTree(QTreeWidget):
         self._item(defs, f"Materials ({len(proj.materials)} project)", ("materials",))
         self._item(defs, f"Project Variables ({len(proj.variables)})", ("projvars",))
         self.blockSignals(False)
+
+    def _circuit_children(self, dn, des) -> None:
+        it = self._item(dn, "Schematic", ("schematic",))
+        it.setToolTip(0, f"{len(des.components)} components")
+        g = self._item(dn, "Analysis", ("group", "Analysis"))
+        for s in des.setups:
+            st = self._status(s.name)
+            si = self._item(g, s.name + {"failed": "  [failed]"}.get(st, ""), ("setup", s.name))
+            si.setExpanded(True)
+            for sw in s.sweeps:
+                it = self._item(si, sw.name, ("sweep", s.name, sw.name))
+                if sw.props.get("Enabled", "True") != "True":
+                    it.setForeground(0, QBrush(QColor("#999")))
+        g = self._item(dn, "Results", ("group", "Results"))
+        for r in des.reports:
+            self._item(g, r.name, ("report", r.name))
 
     def select_data(self, data) -> None:
         """Select and show the tree item with this role data."""

@@ -19,7 +19,7 @@ from .. import __version__
 from ..model import groups as G
 from ..model import schema
 from ..model.design import (Project, Design, Command, Assignment, FaceRef, Setup, Sweep, InfiniteSphere, Report,
-                            FieldPlot, design_from_dict)
+                            FieldPlot, circuit_setup, design_from_dict)
 from ..model.expr import LENGTH_UNITS
 from ..model.materials import is_conductor, normalize_color
 from ..solver.results import results_dir, ResultStore
@@ -110,7 +110,15 @@ class MainWindow(QMainWindow):
         vl.addWidget(self.anim_bar)
         split.addWidget(vbox)
         split.setSizes([230, 1000])
-        self.tabs.addTab(split, "3D Modeler")
+        from PySide6.QtWidgets import QStackedWidget
+        from .circuit_editor import CircuitEditor
+        self.circuit = CircuitEditor(self.doc)
+        self.circuit.analyzeRequested.connect(self.analyze_all)
+        self.circuit.reportRequested.connect(lambda: self.create_report("Rectangular"))
+        self.main_stack = QStackedWidget()
+        self.main_stack.addWidget(split)
+        self.main_stack.addWidget(self.circuit)
+        self.tabs.addTab(self.main_stack, "3D Modeler")
         self.tabs.tabBar().setTabButton(0, self.tabs.tabBar().ButtonPosition.RightSide, None)
         self.setCentralWidget(self.tabs)
 
@@ -890,11 +898,26 @@ class MainWindow(QMainWindow):
     def _update_title(self) -> None:
         p = self.doc.project
         name = Path(p.path).name if p.path else p.name
-        self.setWindowTitle(f"Hertzon - {name}{'*' if self.doc.dirty else ''} - {self.doc.design_name} - 3D Modeler")
+        page = "Schematic" if self._is_circuit() else "3D Modeler"
+        self.setWindowTitle(f"Hertzon - {name}{'*' if self.doc.dirty else ''} - {self.doc.design_name} - {page}")
         self.unit_label.setText(f"  {self.des.units}  ")
         self.view.length_unit = (self.des.units, LENGTH_UNITS.get(self.des.units, 1e-3))
 
+    def _is_circuit(self) -> bool:
+        return getattr(self.des, "kind", "3d") == "circuit"
+
+    def _sync_design_page(self) -> None:
+        """Tab 0 shows the schematic of a circuit design and the 3D modeler of a 3D design."""
+        circ = self._is_circuit()
+        page = self.circuit if circ else self.main_stack.widget(0)
+        if self.main_stack.currentWidget() is not page:
+            self.main_stack.setCurrentWidget(page)
+        self.tabs.setTabText(0, "Schematic" if circ else "3D Modeler")
+        if circ:
+            self.circuit.rebuild()
+
     def _on_doc_changed(self, what: str) -> None:
+        self._sync_design_page()
         self._update_title()
         self._update_sel_buttons()                 # a sheet may have become a solid (Thicken, Sweep)
         self._sync_overlays()
@@ -1619,6 +1642,8 @@ class MainWindow(QMainWindow):
         if c.action == "create":
             p.designs[0].kind = c.kind
             p.designs[0].settings["SolutionType"] = c.solution_type
+            if c.kind == "circuit":
+                p.designs[0].setups.append(circuit_setup())
         self.set_project(p)
         if c.action == "template":
             before = list(p.designs)
@@ -3857,6 +3882,9 @@ class MainWindow(QMainWindow):
 
     def analyze_sweep(self, setup: str, sweep: str) -> None:
         """right click on a sweep > Analyze (reuses the adaptive solution)."""
+        if self._is_circuit():
+            self.analyze([setup])
+            return
         from .trees import solution_state
         if solution_state(self.doc, setup) not in ("done", "outdated"):
             QMessageBox.information(self, "Analyze Sweep", "Analyze the setup first; the sweep reuses its adaptive mesh.")
@@ -3910,6 +3938,9 @@ class MainWindow(QMainWindow):
         if not setups:
             QMessageBox.information(self, "Analyze", "No enabled solution setup.")
             return
+        if self._is_circuit():
+            self.analyze_circuit(setups)
+            return
         if not self.preflight():
             return
         if not self.doc.project.path or self.doc.dirty:
@@ -3918,6 +3949,36 @@ class MainWindow(QMainWindow):
         for s in setups:
             self.solver.submit(Job(self.doc.project.path, self.des.name, s, mesh_only=mesh_only))
         self.project_tree.rebuild()
+
+    def _add_circuit_setup(self) -> None:
+        self.doc.checkpoint()
+        self.des.setups.append(circuit_setup())
+        self.doc.commit("analysis", geometry=False)
+
+    def analyze_circuit(self, setups: list[str]) -> None:
+        """A circuit is solved at once (a linear network): the results are written like those of a 3D design."""
+        from ..solver.circuit import CircuitError, run_setup
+        if not self.doc.project.path or self.doc.dirty:
+            if not self.file_save():
+                return
+        import time
+        for s in setups:
+            t = time.time()
+            try:
+                _, warns = run_setup(self.doc.project, self.des, self.des.setup(s))
+            except CircuitError as e:
+                self.msgs.add("error", f"{self.des.name} {s}: {e}")
+                QMessageBox.warning(self, "Analyze", str(e))
+                break
+            except Exception as e:  # noqa: BLE001
+                self.msgs.add("error", f"{self.des.name} {s}: {e}")
+                QMessageBox.warning(self, "Analyze", f"{s}: {e}")
+                break
+            for w in warns:
+                self.msgs.add("warning", f"{self.des.name}: {w}")
+            self.msgs.add("info", f"{self.des.name} {s}: circuit solved in {time.time() - t:.2f} s")
+        self.project_tree.rebuild()
+        self._refresh_reports()
 
     # ---- Optimization (Optimization > Add Optimization) ---------------------------------------
     def _optimization(self, name: str):
@@ -4321,7 +4382,8 @@ class MainWindow(QMainWindow):
         sol = next((s for s in sols if not s.endswith("LastAdaptive") and "AdaptivePasses" not in s),
                    sols[0] if sols else
                    (f"{self.des.setups[0].name} : LastAdaptive" if self.des.setups else ""))
-        n = len(self.des.ports())
+        n = len(self.des.ports()) if not self._is_circuit() else \
+            sum(1 for c in self.des.components if c.type == "PORT")
         if kind in ("Monostatic RCS", "Monostatic RCS Table"):
             from .reports import rcs_solution_list
             rsols = rcs_solution_list(self.doc)
@@ -5119,7 +5181,7 @@ class MainWindow(QMainWindow):
             if edit_assignment(self, self.doc, fam, a):
                 self.doc.undo_stack.append(snapshot)
                 self.doc.commit("boundaries", geometry=False)
-        elif kind == "setup":
+        elif kind == "setup" and not self._is_circuit():      # a circuit setup is only its sweeps
             snapshot = self.doc.project.to_dict()
             if edit_setup(self, self.doc, self.des.setup(data[1])):
                 self.doc.undo_stack.append(snapshot)
@@ -5157,7 +5219,7 @@ class MainWindow(QMainWindow):
             self.edit_variables(True)
         elif kind == "autoopen":
             self.solution_type()
-        elif kind == "model":
+        elif kind in ("model", "schematic"):
             self.tabs.setCurrentIndex(0)
 
     def _project_context(self, data, pos) -> None:
@@ -5198,6 +5260,12 @@ class MainWindow(QMainWindow):
                 sub = m.addMenu("Assign Mesh Operation")
                 for k in schema.MESH_OPS:
                     sub.addAction(k, lambda _=False, k=k: self.assign("mesh", k))
+            elif g == "Analysis" and self._is_circuit():
+                if not self.des.setups:
+                    m.addAction("Add Analysis", self._add_circuit_setup)
+                else:
+                    m.addAction("Add Frequency Sweep...", lambda: self.add_sweep(self.des.setups[0].name))
+                m.addAction("Analyze All", self.analyze_all)
             elif g == "Analysis":
                 m.addAction("Add Solution Setup...", self.add_setup)
                 m.addAction("Add Eigenmode Setup...", lambda: self.add_setup(True))
@@ -5254,6 +5322,10 @@ class MainWindow(QMainWindow):
                 m.addSeparator()
             if a.kind in ("Wave Port", "Lumped Port"):
                 m.addAction("Differential Pairs...", self.differential_pairs)
+            m.addAction("Delete", self._delete_project_items)
+        elif kind == "setup" and self._is_circuit():
+            m.addAction("Add Frequency Sweep...", lambda: self.add_sweep(data[1]))
+            m.addAction("Analyze", lambda: self.analyze([data[1]]))
             m.addAction("Delete", self._delete_project_items)
         elif kind == "setup":
             m.addAction("Properties...", lambda: self._project_activated(data))
@@ -5533,6 +5605,8 @@ class MainWindow(QMainWindow):
             return
         d = Design(name=name, units=c.units, kind=c.kind)
         d.settings["SolutionType"] = c.solution_type
+        if c.kind == "circuit":
+            d.setups.append(circuit_setup())
         self.doc.checkpoint()
         self.doc.project.designs.append(d)
         self.doc.commit("all", geometry=False)

@@ -450,7 +450,7 @@ INFINITE_SPHERE: list[Prop] = [
 SOLUTION_TYPES = ("Modal", "Terminal", "Eigenmode")
 # Design types of a project (Design.kind) and the solution types the start page lists for each. A type
 # whose flag is False is shown greyed out as "not implemented yet" and cannot be chosen.
-DESIGN_KINDS = {"3d": ("3D FEM", True), "circuit": ("Circuit", False)}
+DESIGN_KINDS = {"3d": ("3D FEM", True), "circuit": ("Circuit", True)}
 HIGH_FREQUENCY_TYPES = (("Modal", "Wave and lumped ports, S-parameters by mode", True),
                         ("Terminal", "Terminal voltages and currents, differential pairs", True),
                         ("Eigenmode", "Resonant frequencies and Q of cavities", True))
@@ -458,7 +458,7 @@ LOW_FREQUENCY_TYPES = (("Electrostatic", "Capacitance matrix, E field, breakdown
                        ("DC Conduction", "Resistance, current density, voltage drop", False),
                        ("Magnetostatic", "Inductance matrix, B field, forces", False),
                        ("Eddy Current", "Skin and proximity losses, coil Q", False))
-CIRCUIT_ANALYSES = (("Linear Network", "S, Y and Z over frequency; 3D designs as linked blocks", False),
+CIRCUIT_ANALYSES = (("Linear Network", "S-parameters over frequency; 3D designs as linked blocks", True),
                     ("Transient", "Time signals, eye diagram, TDR", False),
                     ("Harmonic Balance", "Amplifiers and mixers with nonlinear models", False))
 AUTO_OPEN_MODES = ("Off", "Auto Open", "Auto Open - Filter")
