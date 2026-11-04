@@ -945,6 +945,23 @@ class MainWindow(QMainWindow):
         g.large("Design Variables", "variables", lambda: self.edit_variables(False))
         g = pg.group("Analyze")
         g.large("Analyze", "analyze", self.analyze_all)
+        g = pg.group("3D Layout")
+        g.large("Create 3D Layout", "design", self.circuit_to_layout,
+                tip="A new 3D design with the physical layout of the schematic: substrate, traces, lumped parts "
+                    "and ports, every dimension a design variable")
+        b = g.small("Update from Layout", "import", None, menu=[],
+                    tip="Copy the dimensions of a 3D layout made from this schematic back into the schematic")
+        ml = b.menu()
+
+        def fill_layouts(m=ml):
+            from ..model.circuit_layout import LINK
+            m.clear()
+            for d in self.doc.project.designs:
+                if d.kind == "3d" and d.settings.get(LINK) == self.des.name:
+                    m.addAction(d.name, lambda n=d.name: self.layout_to_circuit(n))
+            if m.isEmpty():
+                m.addAction("(no 3D layout of this schematic)").setEnabled(False)
+        ml.aboutToShow.connect(fill_layouts)
 
         # ---- Results
         pg = rb.page("Results")
@@ -1469,6 +1486,9 @@ class MainWindow(QMainWindow):
                            "pan": "Pan: drag with the left mouse, Escape ends"}.get(mode, "Ready"))
 
     def _escape(self) -> None:
+        if self._is_circuit():                     # schematic: Escape always ends drawing and placing
+            self.circuit.cancel()
+            return
         if self.view.nav_mode:
             self.view.set_nav_mode("")
             return
@@ -3048,11 +3068,15 @@ class MainWindow(QMainWindow):
         self.doc.select([Pick(n) for n in new])
 
     def delete_selection(self) -> None:
-        if self.view.draw is not None:
-            return
         focus = QApplication.focusWidget()
         if focus is self.project_tree or (focus and self.project_tree.isAncestorOf(focus)):
             self._delete_project_items()
+            return
+        if self._is_circuit():
+            if not isinstance(focus, QLineEdit):
+                self.circuit.delete_selected()
+            return
+        if self.view.draw is not None:
             return
         objs = self.doc.selected_objects()
         if not objs:
@@ -5802,6 +5826,47 @@ class MainWindow(QMainWindow):
         """Tools > Antenna Design > Rectangular Patch: inserts the parametrized patch as a new design."""
         from .antenna_tool import PatchAntennaDialog
         self._insert_generated(PatchAntennaDialog(self, self.doc.project), "patch antenna")
+
+    def circuit_to_layout(self) -> None:
+        """Circuit > Simulation > Create 3D Layout: the schematic as a new 3D design."""
+        from ..model.circuit_layout import LayoutError, layout_design
+        circ = self.des
+        names = {x.name for x in self.doc.project.designs}
+        base = f"{circ.name}_Layout"
+        name, i = base, 1
+        while name in names:
+            i += 1
+            name = f"{base}{i}"
+        self.doc.checkpoint()
+        try:
+            d, warnings = layout_design(self.doc.project, circ, name)
+        except Exception as e:  # noqa: BLE001 (LayoutError and expression errors in the part values)
+            msg = str(e) if isinstance(e, LayoutError) else f"{type(e).__name__}: {e}"
+            QMessageBox.warning(self, "Create 3D Layout", f"No layout could be made: {msg}")
+            return
+        self.doc.project.designs.append(d)
+        self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(d.name)
+        self.view.fit_all()
+        self.msgs.add("info", f"Created the 3D layout {d.name} of {circ.name} with Setup1 : Sweep")
+        for w in warnings:
+            self.msgs.add("warning", f"{d.name}: {w}")
+
+    def layout_to_circuit(self, layout_name: str) -> None:
+        """Copies the dimensions of a 3D layout back into the schematic it was made from."""
+        from ..model.circuit_layout import LayoutError, update_schematic
+        self.doc.checkpoint()
+        try:
+            circ, changes = update_schematic(self.doc.project, self.doc.project.design(layout_name))
+        except LayoutError as e:
+            QMessageBox.warning(self, "Update from Layout", str(e))
+            return
+        self.doc.commit("all", geometry=False)
+        if changes:
+            self.msgs.add("info", f"{circ.name} updated from {layout_name}: " + ", ".join(changes))
+        else:
+            self.msgs.add("info", f"{circ.name} has the dimensions of {layout_name} already")
 
     def _insert_generated(self, dlg, what: str) -> None:
         if dlg.exec() != QDialog.Accepted or dlg.design is None:

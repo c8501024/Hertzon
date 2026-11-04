@@ -17,6 +17,18 @@ the GitHub release notes.
   choice, because a project can hold several designs, 3D and circuit designs mixed. The low-frequency solution
   types (electrostatic, DC conduction, magnetostatic, eddy current) and the transient and harmonic balance
   circuit analyses are shown greyed out as "not implemented yet".
+- **Schematic editing**: wires stay attached to a part that is dragged (with an elbow where a wire would become
+  slanted; a pin that sat on a wire or on another pin gets a new wire), Escape always ends wire drawing and part
+  placing and returns to Select, and Delete removes the selected parts and wires also when the focus is not on
+  the schematic.
+- **Schematic to 3D layout**: Simulation > *Create 3D Layout* in a circuit design builds a new 3D design from the
+  schematic: the substrate with its ground plane, the microstrip traces end to end in the direction they have in
+  the schematic (open and shorted stubs, coupled lines, corners and T junctions), R, L and C as Lumped RLC
+  sheets in a gap of the trace or from the trace to ground, and the power ports as Lumped Ports on the board
+  edge. Every dimension is a design variable named after its part (`MS1_W`, `MS1_L`, `Sub1_H`), with the sweep
+  of the circuit. Ideal lines become microstrip of the same impedance and electrical length; parts without a
+  layout (Touchstone and 3D blocks, attenuators, coaxial lines) are listed in the Message Manager.
+  *Update from Layout* copies the tuned dimensions of such a 3D design back into the schematic.
 - **Circuit designs** (linear network): a schematic editor in place of the 3D modeler, with its own ribbon
   (Desktop, Schematic, Lumped Elements, Transmission Lines, Data, Simulation, Results) instead of the 3D ribbon
   and a part library with search next to the schematic (drag a part in, or double-click and click to place; the

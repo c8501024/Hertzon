@@ -205,3 +205,55 @@ def test_part_icons_and_library():
     ed.set_mode("place", "PORT")
     ed.rotate_selected()
     assert ed._ghost.comp.rot == 90
+
+
+def test_wires_follow_a_moved_part():
+    r = C("R1", "R", 100, 0)                                   # pins (70, 0) and (130, 0)
+    ws = [W([[0, 0], [70, 0]]), W([[130, 0], [200, 0]])]
+    new = CK.drag_wires([r], ws, {"R1": (0, 40)})
+    assert [w.points for w in new] == [[[0, 0], [70, 0], [70, 40]], [[130, 40], [130, 0], [200, 0]]]
+    assert [w.points for w in CK.drag_wires([r], ws, {"R1": (30, 0)})] == [[[0, 0], [100, 0]], [[160, 0], [200, 0]]]
+    # a wire between two moved parts moves along; a pin in the middle of a wire gets a new wire
+    p = C("P1", "PORT", 0, 40)
+    assert CK.drag_wires([r, p], ws, {"R1": (0, 20), "P1": (0, 20)})[0].points == [[0, 20], [70, 20]]
+    g = C("G1", "GND", 100, 10)                                # pin (100, 0) on the segment of a long wire
+    new = CK.drag_wires([g], [W([[0, 0], [300, 0]])], {"G1": (0, 40)})
+    assert new[1].points == [[100, 0], [100, 40]]
+    ids, _ = CK.nets([C("G1", "GND", 100, 50)], new)
+    assert ids[(100, 40)] == ids[(0, 0)] == 0
+
+
+def test_escape_and_delete_in_the_schematic(monkeypatch):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from hertzon.gui.main_window import MainWindow
+    w = MainWindow()
+    d = Design(name="Net", kind="circuit")
+    d.setups.append(circuit_setup())
+    w.doc.project.designs.append(d)
+    w.doc.set_design("Net")
+    ed = w.circuit
+    ed.place("R", 0, 0)
+    ed.place("PORT", -60, 40)
+    w.doc.design.wires.append(W([[-60, 0], [-30, 0]]))
+    ed.rebuild()
+    ed.set_mode("place", "C")
+    w.a_escape.trigger()
+    assert ed.mode == "select" and ed._ghost is None
+    ed.set_mode("wire")
+    w.a_escape.trigger()
+    assert ed.mode == "select"
+    # dragging the resistor keeps the wire on its pin
+    it = next(i for i in ed.scene.items() if getattr(i, "comp", None) is not None and i.comp.name == "R1")
+    it.setSelected(True)
+    it.setPos(0, 40)
+    ed.items_moved()
+    assert w.doc.design.wires[0].points == [[-60, 0], [-30, 0], [-30, 40]]
+    it = next(i for i in ed.scene.items() if getattr(i, "comp", None) is not None and i.comp.name == "R1")
+    it.setSelected(True)
+    w.a_delete.trigger()
+    assert [c.name for c in w.doc.design.components] == ["Port1"]
+    w.doc.dirty = False
+    w.maybe_save = lambda *a: True
+    w.close()
