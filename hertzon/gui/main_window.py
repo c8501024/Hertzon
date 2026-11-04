@@ -498,7 +498,8 @@ class MainWindow(QMainWindow):
         t.setFloatable(False)
         t.setContextMenuPolicy(Qt.PreventContextMenu)
         t.setStyleSheet("QToolBar#RibbonTB { border: none; padding: 0px; spacing: 0px; }")
-        t.addWidget(rb)
+        self._ribbon_3d_action = t.addWidget(rb)
+        self._circuit_ribbon(t)
         draw = lambda k: (lambda: self.start_draw(k))          # noqa: E731
         view = lambda w: (lambda: self.view.view(w))           # noqa: E731
         bnd = lambda k: (lambda: self.assign("boundary", k))   # noqa: E731
@@ -830,6 +831,147 @@ class MainWindow(QMainWindow):
                 tip="Fields Calculator: equations of E, H and J in the Equations tab")
         rb.setCurrentIndex(2)
 
+    def _circuit_ribbon(self, t) -> None:
+        """The ribbon of circuit designs: schematic editing, the parts by category, analysis and results. It
+        replaces the 3D ribbon while a circuit design is active."""
+        from .circuit_editor import component_icon
+        from .ribbon import Ribbon
+        from ..model import circuit as CK
+        rb = self.circuit_ribbon = Ribbon(self)
+        self._ribbon_circuit_action = t.addWidget(rb)
+        self._ribbon_circuit_action.setVisible(False)
+        ed = self.circuit
+
+        def place(k):
+            return lambda: (ed.set_mode("place", k), ed.view.setFocus())
+
+        def part(g, k, large=False):
+            info = CK.TYPES[k]
+            fn = g.large if large else g.small
+            return fn(info.label, component_icon(k), place(k), tip=f"{info.label}: {info.help}")
+
+        # ---- Desktop
+        pg = rb.page("Desktop")
+        g = pg.group("Project")
+        g.large("Save", "save", self.a_save)
+        g.small("New", "new", self.a_new)
+        g.small("Open", "open", self.a_open)
+        g.small("Save As", "saveas", self.a_saveas)
+        g = pg.group("Edit")
+        g.small("Undo", "undo", self.a_undo)
+        g.small("Redo", "redo", self.a_redo)
+        g.small("Delete", "delete", ed.delete_selected)
+        g = pg.group("Design")
+        g.large("Insert Design", "design", self.insert_design)
+        g.small("Copy Design", "copy", self.copy_design)
+        g.small("Project Variables", "variables", lambda: self.edit_variables(True))
+        g.small("Design Variables", "variables", lambda: self.edit_variables(False))
+        g = pg.group("Help")
+        g.large("Help", "help", self.show_help)
+
+        # ---- Schematic
+        pg = rb.page("Schematic")
+        g = pg.group("Edit")
+        g.large("Select", "sel_object", lambda: ed.set_mode("select"), tip="Select and move parts (Esc)")
+        g.large("Wire", "polyline", lambda: (ed.set_mode("wire"), ed.view.setFocus()),
+                tip="Draw a wire: click the corners, a click on a pin or wire ends it (W)")
+        g.small("Rotate", "rotate", ed.rotate_selected, tip="Rotate the selected parts by 90 degrees (R)")
+        g.small("Mirror", "mirror", ed.mirror_selected, tip="Mirror the selected parts top-bottom (M)")
+        g.small("Delete", "delete", ed.delete_selected, tip="Delete the selected parts and wires (Del)")
+        g = pg.group("Connect")
+        part(g, "GND", True)
+        part(g, "PORT", True)
+        part(g, "LABEL", True)
+        g = pg.group("View")
+        g.large("Fit All", "fit", ed.fit_all, tip="Show the whole schematic (F)")
+        g.small("Zoom In", "zoom", lambda: ed.zoom(1.25))
+        g.small("Zoom Out", "zoom", lambda: ed.zoom(0.8))
+
+        # ---- Lumped Elements
+        pg = rb.page("Lumped Elements")
+        g = pg.group("Components")
+        for k in ("R", "L", "C"):
+            part(g, k, True)
+        g = pg.group("Networks")
+        for k in ("SRLC", "PRLC"):
+            part(g, k, True)
+        part(g, "ATTEN", True)
+        g = pg.group("Bias")
+        part(g, "DCBLOCK", True)
+        part(g, "DCFEED", True)
+        g = pg.group("Measured")
+        g.large("Touchstone", component_icon("SNP"), place("SNP"), tip="N-port from a Touchstone file (.sNp)")
+
+        # ---- Transmission Lines
+        pg = rb.page("Transmission Lines")
+        g = pg.group("Ideal")
+        part(g, "TLIN", True)
+        part(g, "TLOC")
+        part(g, "TLSC")
+        g = pg.group("Microstrip")
+        part(g, "SUBST", True)
+        part(g, "MLIN", True)
+        part(g, "MCLIN", True)
+        part(g, "MLOC")
+        part(g, "MLSC")
+        g = pg.group("Other")
+        part(g, "SLIN", True)
+        part(g, "COAX", True)
+
+        # ---- Data
+        pg = rb.page("Data")
+        g = pg.group("S-Parameters")
+        g.large("Touchstone", component_icon("SNP"), place("SNP"), tip="N-port from a Touchstone file (.sNp)")
+        b = g.large("3D Design", component_icon("EM"), None, menu=[],
+                    tip="S-parameters of a 3D design of this project as a block (or drag the design from the "
+                        "Project Manager into the schematic)")
+        m3 = b.menu()
+
+        def fill3d(m=m3):
+            m.clear()
+            for d in self.doc.project.designs:
+                if getattr(d, "kind", "3d") == "3d":
+                    m.addAction(d.name, lambda n=d.name: ed.add_em_block(n, *[int(v) for v in self._schem_center()]))
+            if m.isEmpty():
+                m.addAction("(no 3D design in the project)").setEnabled(False)
+        m3.aboutToShow.connect(fill3d)
+
+        # ---- Simulation
+        pg = rb.page("Simulation")
+        g = pg.group("Analysis")
+        g.large("Sweep", "freq_sweep", self._edit_circuit_sweep, tip="Frequency sweep of the S-parameter analysis")
+        g.small("Add Sweep", "freq_sweep", lambda: self.des.setups and self.add_sweep(self.des.setups[0].name))
+        g = pg.group("Variables")
+        g.large("Design Variables", "variables", lambda: self.edit_variables(False))
+        g = pg.group("Analyze")
+        g.large("Analyze", "analyze", self.analyze_all)
+
+        # ---- Results
+        pg = rb.page("Results")
+        g = pg.group("Reports")
+        g.large("Rectangular Plot", "rect_plot", lambda: self.create_report("Rectangular"))
+        g.large("Smith Chart", "rect_plot", lambda: self.create_report("Smith Chart"))
+        g.small("Data Table", "soldata", lambda: self.create_report("Data Table"))
+        g = pg.group("Data")
+        g.large("Solution Data", "soldata", lambda: self.solution_data())
+        g.large("Touchstone", "export", lambda: self.export_touchstone())
+        rb.setCurrentIndex(1)
+
+    def _schem_center(self) -> tuple[float, float]:
+        from .circuit_editor import snap
+        v = self.circuit.view
+        r = v.mapToScene(v.viewport().rect().center())
+        return snap(r.x()), snap(r.y())
+
+    def _edit_circuit_sweep(self) -> None:
+        if not self.des.setups:
+            self._add_circuit_setup()
+        s = self.des.setups[0]
+        if not s.sweeps:
+            self.add_sweep(s.name)
+            return
+        self._project_activated(("sweep", s.name, s.sweeps[0].name))
+
     def _connect(self) -> None:
         d = self.doc
         d.message.connect(self.msgs.add)
@@ -913,6 +1055,9 @@ class MainWindow(QMainWindow):
         if self.main_stack.currentWidget() is not page:
             self.main_stack.setCurrentWidget(page)
         self.tabs.setTabText(0, "Schematic" if circ else "3D Modeler")
+        if self._ribbon_circuit_action.isVisible() != circ:
+            self._ribbon_circuit_action.setVisible(circ)
+            self._ribbon_3d_action.setVisible(not circ)
         if circ:
             self.circuit.rebuild()
 

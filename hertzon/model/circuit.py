@@ -1,9 +1,10 @@
 """Circuit designs: a schematic of components and wires (Design.kind == "circuit").
 
 Coordinates are schematic grid units (GRID = 10 per grid step). A component has pins at fixed offsets from its
-origin, rotated by its rotation (0, 90, 180, 270 degrees). Pins and wire points that lie on the same grid point
-are connected; a wire connects all of its points. Every pin of an N-port block (Touchstone file or a 3D design)
-is a port of that block against ground, as in a Touchstone file.
+origin, mirrored (top-bottom) and then rotated by its rotation (0, 90, 180, 270 degrees). Pins and wire points
+that lie on the same grid point are connected; a wire connects all of its points; net labels with the same name
+are connected. Every pin of an N-port block (Touchstone file or a 3D design) is a port of that block against
+ground, as in a Touchstone file.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ class Component:
     y: int = 0
     rot: int = 0                   # degrees, multiple of 90
     props: dict[str, str] = field(default_factory=dict)
+    mirror: bool = False           # flipped top-bottom before the rotation
 
 
 @dataclass
@@ -34,21 +36,69 @@ class TypeInfo:
     props: dict[str, str]
     pins: list[tuple[int, int]]    # offsets at rotation 0 (N-port blocks: computed, see pins())
     help: str = ""
+    category: str = ""
 
 
+_SUB = {"Subst": "Sub1"}
 TYPES: dict[str, TypeInfo] = {
-    "R": TypeInfo("Resistor", "R", {"R": "50ohm"}, [(-30, 0), (30, 0)], "Resistance"),
-    "L": TypeInfo("Inductor", "L", {"L": "1nH"}, [(-30, 0), (30, 0)], "Inductance"),
-    "C": TypeInfo("Capacitor", "C", {"C": "1pF"}, [(-30, 0), (30, 0)], "Capacitance"),
-    "GND": TypeInfo("Ground", "GND", {}, [(0, -10)], "Reference node"),
-    "PORT": TypeInfo("Port", "Port", {"Z0": "50ohm"}, [(20, 0)], "Circuit port with reference impedance"),
-    "TLIN": TypeInfo("Ideal line", "TL", {"Z0": "50ohm", "E": "90deg", "F": "1GHz"}, [(-40, 0), (40, 0)],
-                     "Lossless TEM line: impedance Z0, electrical length E at frequency F"),
-    "SNP": TypeInfo("Touchstone", "S", {"File": ""}, [], "N-port from a Touchstone file, ports against ground"),
-    "EM": TypeInfo("3D design", "EM", {"Design": "", "Solution": ""}, [],
-                   "S-parameters of a 3D design of this project, ports against ground"),
+    # ---- basic
+    "GND": TypeInfo("Ground", "GND", {}, [(0, -10)], "Reference node", "Basic"),
+    "PORT": TypeInfo("Power Port", "Port", {"Num": "", "Z0": "50ohm"}, [(0, -40)],
+                     "Port of the S-parameters: a source with internal resistance Z0 against ground. Num sets the "
+                     "port order (empty: by name)", "Basic"),
+    "LABEL": TypeInfo("Net Label", "N", {"Net": "net1"}, [(0, 0)],
+                      "Connects every point that carries a label with the same net name", "Basic"),
+    # ---- lumped elements
+    "R": TypeInfo("Resistor", "R", {"R": "50ohm"}, [(-30, 0), (30, 0)], "Resistance", "Lumped Elements"),
+    "L": TypeInfo("Inductor", "L", {"L": "1nH"}, [(-30, 0), (30, 0)], "Inductance", "Lumped Elements"),
+    "C": TypeInfo("Capacitor", "C", {"C": "1pF"}, [(-30, 0), (30, 0)], "Capacitance", "Lumped Elements"),
+    "SRLC": TypeInfo("Series RLC", "SRLC", {"R": "0ohm", "L": "1nH", "C": "1pF"}, [(-40, 0), (40, 0)],
+                     "R, L and C in series (leave R at 0 for a lossless resonator)", "Lumped Elements"),
+    "PRLC": TypeInfo("Parallel RLC", "PRLC", {"R": "1e9ohm", "L": "1nH", "C": "1pF"}, [(-40, 0), (40, 0)],
+                     "R, L and C in parallel", "Lumped Elements"),
+    "DCBLOCK": TypeInfo("DC Block", "DCB", {}, [(-30, 0), (30, 0)],
+                        "Ideal DC block: open at DC, short at every other frequency", "Lumped Elements"),
+    "DCFEED": TypeInfo("DC Feed", "DCF", {}, [(-30, 0), (30, 0)],
+                       "Ideal DC feed (bias tee choke): short at DC, open at every other frequency",
+                       "Lumped Elements"),
+    "ATTEN": TypeInfo("Attenuator", "ATT", {"Loss": "3dB", "Z0": "50ohm"}, [(-30, 0), (30, 0)],
+                      "Matched attenuator (resistive pi network)", "Lumped Elements"),
+    # ---- ideal lines
+    "TLIN": TypeInfo("Ideal Line", "TL", {"Z0": "50ohm", "E": "90deg", "F": "1GHz"}, [(-40, 0), (40, 0)],
+                     "Lossless TEM line: impedance Z0, electrical length E at frequency F", "Transmission Lines"),
+    "TLOC": TypeInfo("Open Stub", "TLO", {"Z0": "50ohm", "E": "90deg", "F": "1GHz"}, [(0, -40)],
+                     "Lossless TEM line open at its far end, as a shunt stub", "Transmission Lines"),
+    "TLSC": TypeInfo("Short Stub", "TLS", {"Z0": "50ohm", "E": "90deg", "F": "1GHz"}, [(0, -40)],
+                     "Lossless TEM line shorted at its far end, as a shunt stub", "Transmission Lines"),
+    # ---- physical lines
+    "SUBST": TypeInfo("Substrate", "Sub", {"Er": "3.66", "H": "0.508mm", "T": "35um", "TanD": "0.0037",
+                                           "Cond": "5.8e7"}, [],
+                      "Substrate of the microstrip and stripline elements: permittivity, height (stripline: ground "
+                      "plane spacing), metal thickness, loss tangent, metal conductivity (S/m)", "Transmission Lines"),
+    "MLIN": TypeInfo("Microstrip Line", "MS", {**_SUB, "W": "1.1mm", "L": "10mm"}, [(-40, 0), (40, 0)],
+                     "Microstrip line (Hammerstad-Jensen, dispersion after Kirschning-Jansen, conductor and "
+                     "dielectric loss)", "Transmission Lines"),
+    "MLOC": TypeInfo("Microstrip Open Stub", "MSO", {**_SUB, "W": "1.1mm", "L": "10mm"}, [(0, -40)],
+                     "Microstrip stub open at its end, with the open-end length extension", "Transmission Lines"),
+    "MLSC": TypeInfo("Microstrip Short Stub", "MSS", {**_SUB, "W": "1.1mm", "L": "10mm"}, [(0, -40)],
+                     "Microstrip stub shorted to ground at its end (ideal via)", "Transmission Lines"),
+    "MCLIN": TypeInfo("Coupled Microstrip", "MSC", {**_SUB, "W": "1mm", "S": "0.3mm", "L": "10mm"},
+                      [(-40, -10), (40, -10), (-40, 10), (40, 10)],
+                      "Symmetric coupled microstrip lines, even and odd mode (Garg-Bahl)", "Transmission Lines"),
+    "SLIN": TypeInfo("Stripline", "SL", {**_SUB, "W": "0.4mm", "L": "10mm"}, [(-40, 0), (40, 0)],
+                     "Centred stripline between two ground planes spaced H of the substrate", "Transmission Lines"),
+    "COAX": TypeInfo("Coaxial Line", "CX", {"Di": "0.91mm", "Do": "2.98mm", "Er": "2.1", "TanD": "0.0002",
+                                             "Cond": "5.8e7", "L": "100mm"}, [(-40, 0), (40, 0)],
+                     "Coaxial line: inner and outer diameter, dielectric, conductor loss", "Transmission Lines"),
+    # ---- data
+    "SNP": TypeInfo("Touchstone", "S", {"File": ""}, [], "N-port from a Touchstone file, ports against ground",
+                    "Data"),
+    "EM": TypeInfo("3D Design", "EM", {"Design": "", "Solution": ""}, [],
+                   "S-parameters of a 3D design of this project, ports against ground", "Data"),
 }
 NPORT_TYPES = ("SNP", "EM")
+LINE_TYPES = ("MLIN", "MLOC", "MLSC", "MCLIN", "SLIN")
+CATEGORIES = ("Basic", "Lumped Elements", "Transmission Lines", "Data")
 BLOCK_W = 100                       # width of an N-port block
 
 
@@ -84,9 +134,14 @@ def rotate(dx: int, dy: int, rot: int) -> tuple[int, int]:
     return dx, dy
 
 
+def pin_offsets(c: Component) -> list[tuple[int, int]]:
+    """Pin offsets at rotation 0, not mirrored."""
+    return nport_pins(nport_count(c)) if c.type in NPORT_TYPES else TYPES[c.type].pins
+
+
 def pins(c: Component) -> list[tuple[int, int]]:
     """Absolute pin positions of a component."""
-    offs = nport_pins(nport_count(c)) if c.type in NPORT_TYPES else TYPES[c.type].pins
+    offs = [(dx, -dy if c.mirror else dy) for dx, dy in pin_offsets(c)]
     return [(c.x + rx, c.y + ry) for rx, ry in (rotate(dx, dy, c.rot) for dx, dy in offs)]
 
 
@@ -97,6 +152,20 @@ def next_name(components: list[Component], ctype: str) -> str:
     while f"{prefix}{i}" in used:
         i += 1
     return f"{prefix}{i}"
+
+
+def port_order(components: list[Component]) -> list[Component]:
+    """The power ports in S-parameter order: by Num where given, then by name."""
+    import re
+
+    def key(c):
+        num = c.props.get("Num", "").strip()
+        try:
+            n = float(num)
+        except ValueError:
+            n = float("inf")
+        return n, [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", c.name)]
+    return sorted((c for c in components if c.type == "PORT"), key=key)
 
 
 def nets(components: list[Component], wires: list[Wire]) -> tuple[dict[tuple[int, int], int], int]:
@@ -133,7 +202,22 @@ def nets(components: list[Component], wires: list[Wire]) -> tuple[dict[tuple[int
             for p in all_pts:
                 if p not in (a, b) and _on_segment(p, a, b):
                     union(p, a)
-    ground = {find(p) for c in components if c.type == "GND" for p in pins(c)}
+    # net labels with the same name are one net; a label named GND or 0 is ground
+    by_name: dict[str, tuple[int, int]] = {}
+    ground_labels = []
+    for c in components:
+        if c.type == "LABEL":
+            p = pins(c)[0]
+            name = c.props.get("Net", "").strip()
+            if not name:
+                continue
+            if name.upper() in ("GND", "0"):
+                ground_labels.append(p)
+            elif name in by_name:
+                union(p, by_name[name])
+            else:
+                by_name[name] = p
+    ground = {find(p) for c in components if c.type == "GND" for p in pins(c)} | {find(p) for p in ground_labels}
     ids: dict[tuple[int, int], int] = {}
     node_of_root: dict = {}
     n = 0
@@ -158,6 +242,7 @@ def _on_segment(p, a, b) -> bool:
 
 def from_dict(d: dict) -> tuple[list[Component], list[Wire]]:
     comps = [Component(c["name"], c["type"], int(c.get("x", 0)), int(c.get("y", 0)), int(c.get("rot", 0)),
-                       dict(c.get("props", {}))) for c in d.get("components", []) if c.get("type") in TYPES]
+                       dict(c.get("props", {})), bool(c.get("mirror", False)))
+             for c in d.get("components", []) if c.get("type") in TYPES]
     wires = [Wire([[int(a), int(b)] for a, b in w.get("points", [])]) for w in d.get("wires", [])]
     return comps, wires
