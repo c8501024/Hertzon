@@ -143,6 +143,9 @@ class PropertiesPanel(QWidget):
                 continue
             if k == "Subst":
                 props.append(schema.P(k, "choice", "", label="Substrate", choices=subs or ("",)))
+            elif k == "Backed":
+                props.append(schema.P(k, "choice", "False", label="Ground under the substrate",
+                                      choices=("False", "True")))
             elif k in ("Net", "Num", "File", "Design", "Solution"):
                 props.append(schema.P(k, "text", ""))
             else:

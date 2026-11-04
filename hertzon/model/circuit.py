@@ -107,6 +107,11 @@ TYPES: dict[str, TypeInfo] = {
                        "attach at its edges", "Transmission Lines"),
     "SLIN": TypeInfo("Stripline", "SL", {**_SUB, "W": "0.4mm", "L": "10mm"}, [(-40, 0), (40, 0)],
                      "Centred stripline between two ground planes spaced H of the substrate", "Transmission Lines"),
+    "CPWLIN": TypeInfo("Coplanar Line", "CPW", {**_SUB, "W": "1mm", "S": "0.2mm", "L": "10mm", "Backed": "False"},
+                       [(-40, 0), (40, 0)],
+                       "Coplanar waveguide: centre strip W, gaps S to the coplanar grounds on both sides; Backed True "
+                       "adds a ground plane under the substrate (conformal mapping, dispersion after Frankel)",
+                       "Transmission Lines"),
     "COAX": TypeInfo("Coaxial Line", "CX", {"Di": "0.91mm", "Do": "2.98mm", "Er": "2.1", "TanD": "0.0002",
                                              "Cond": "5.8e7", "L": "100mm"}, [(-40, 0), (40, 0)],
                      "Coaxial line: inner and outer diameter, dielectric, conductor loss", "Transmission Lines"),
@@ -118,7 +123,9 @@ TYPES: dict[str, TypeInfo] = {
 }
 NPORT_TYPES = ("SNP", "EM")
 LINE_TYPES = ("MLIN", "MLOC", "MLSC", "MCLIN", "MTEE", "MCORN", "MMBEND", "MSTEP", "MGAP", "MCROSS",
-              "SLIN")
+              "SLIN", "CPWLIN")
+LINE_MODEL = "LineModel"            # design setting: "Closed form" or "Full wave" (cross-section solve)
+FULL_WAVE_TYPES = ("MLIN", "MLOC", "MLSC", "CPWLIN")     # lines the full-wave line model applies to
 CATEGORIES = ("Basic", "Lumped Elements", "Transmission Lines", "Data")
 BLOCK_W = 100                       # width of an N-port block
 

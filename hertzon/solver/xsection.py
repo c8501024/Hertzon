@@ -24,7 +24,7 @@ import numpy as np
 
 from . import tlines as TL
 
-VERSION = 1                 # part of the cache key: raise it when the cross-section model changes
+VERSION = 2                 # part of the cache key: raise it when the cross-section model changes
 POINTS = 8                  # solved frequencies, from fmax / POINTS to fmax
 KINDS = ("MS", "CPW", "GCPW")
 
@@ -122,7 +122,11 @@ def build(xs: XSec, fmax: float):
         below = 0.0
     else:
         b = w / 2 + s
-        half = b + max(3 * b, 5 * h)
+        # grounded: the substrate under the coplanar grounds is a waveguide closed by the side walls; kept
+        # narrow, so that its first mode is in cutoff
+        half = b + (max(b, 3 * h) if xs.kind == "GCPW" else max(3 * b, 5 * h))
+        if xs.kind == "GCPW":       # its cutoff 30 % above fmax, but grounds at least as wide as the gap
+            half = max(min(half, TL.C0 / (4 * 1.3 * fmax * math.sqrt(xs.er))), b + max(s, w / 4))
         below = 0.0 if xs.kind == "GCPW" else max(8 * h, 2 * b)
     above = max(12 * h, 2 * half / 3)
     x0, z1 = -half, h + above
@@ -158,7 +162,9 @@ def build(xs: XSec, fmax: float):
     port = d.add_object("CreateRectangle", name="PortFace", Position=f"{mm(x0)},0,{mm(-below)}", Axis="Y",
                         XSize=mm(2 * half), ZSize=mm(z1 + below))
     q = schema.defaults(schema.EXCITATIONS["Wave Port"])
-    q.update(PortNumber="1", ModeType=os.environ.get("XS_MT", "TEM"), ImpedanceDefinition=os.environ.get("XS_ZD", "Zpv"))
+    # power and current: the current on the strip is unambiguous where a voltage path between the strip and
+    # several grounds (coplanar lines, the box walls) is not
+    q.update(PortNumber="1", ImpedanceDefinition="Zpi")
     d.excitations.append(Assignment("1", "Wave Port", q, objects=[port.name]))
     for name, objs, size in (("Fine", fine_objs, fine), ("Face", [port.name], coarse)):
         q = schema.defaults(schema.MESH_OPS["Length Based On Selection"])
