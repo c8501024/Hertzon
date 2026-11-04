@@ -13,6 +13,14 @@ the GitHub release notes.
 
 ### Changed
 - The remote service no longer answers network discovery when it listens only on the loopback address.
+- Solution Data of an eigenmode setup opens on the *Eigenmode Data* tab (eigenfrequencies and Q; a lossless
+  mode shows Q as infinite instead of a huge number of either sign).
+
+### Fixed
+- **Field plots of eigenmode solutions were empty**: the eigenmode solve saved no fields. Each mode is now
+  stored as solution *LastAdaptive*, one frequency per mode; the field plot dialog lists them as
+  "Mode 1: 4.576 GHz", ... and the plot text names the mode. An eigenmode has no amplitude of its own, so its
+  values are relative (each mode is scaled to unit norm, phase 0 shows its strongest E field).
 
 ## 0.2.13 (2026-11-04)
 
