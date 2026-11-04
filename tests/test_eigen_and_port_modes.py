@@ -53,6 +53,7 @@ def test_eigenmode_fields_are_saved_one_frequency_per_mode(tmp_path):
     """Field plots of an eigenmode solution: every mode is a frequency of solution LastAdaptive, excitation 1,
     and the TE101 field is E_y ~ sin(pi x / a) sin(pi z / c)."""
     import numpy as np
+
     from hertzon.solver.results import ResultStore
     p, d = _cavity()
     st = Setup("Eigen1", props=schema.defaults(schema.EIGEN_SETUP), eigen=True)
