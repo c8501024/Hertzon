@@ -1,126 +1,49 @@
-"""Schematic editor of a circuit design: components, wires, ports and 3D design blocks.
+"""Schematic editor of a circuit design: components, wires, power ports and 3D design blocks.
 
-Place a component with its toolbar button and a click, draw wires with the Wire tool (click the corners,
-double-click or right-click to end), drag a 3D design from the Project Manager into the schematic to use its
-S-parameters as a block. Double-click a component to edit it, R rotates, Del deletes."""
+The parts come from the Circuit ribbon or the part library on the left (drag them into the schematic, or
+double-click and click to place). Wires: click the corners; a click on a pin or another wire ends the wire, a
+double-click or right-click too. Drag a 3D design from the Project Manager (or the library) into the schematic to
+use its S-parameters as a block. Double-click a part to edit it; R rotates, M mirrors, Del deletes."""
 from __future__ import annotations
 
 import base64
 
-import numpy as np
-from PySide6.QtCore import QByteArray, QBuffer, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import (QAction, QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen,
-                           QPolygonF)
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGraphicsItem,
-                               QGraphicsPathItem, QGraphicsScene, QGraphicsView, QHBoxLayout, QLabel, QLineEdit,
-                               QMenu, QMessageBox, QPushButton, QToolBar, QVBoxLayout, QWidget)
+from PySide6.QtCore import QByteArray, QMimeData, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetricsF, QIcon, QImage, QPainter, QPainterPath, QPen,
+                           QPixmap, QPolygonF, QTransform)
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+                               QGraphicsItem, QGraphicsPathItem, QGraphicsScene, QGraphicsView, QHBoxLayout, QLabel,
+                               QLineEdit, QMenu, QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from ..model import circuit as CK
+from .circuit_thumb import THUMB, design_thumbnail
 from .theme import GOLD, INK, MUTED
-
 from .trees import MIME_DESIGN
+
+MIME_PART = "application/x-hertzon-part"
 INKC = QColor(INK)
 PIN = QColor("#1d4f91")
 WIRE = QColor("#1f6f3f")
-THUMB = 76                                    # thumbnail size of a 3D design block (pixels)
+COPPER = QColor("#c9952f")
+SUBSTRATE = QColor("#dfe6d0")
+FILL = QColor("#e9f1fb")
+
+# size (w, h) of the body at rotation 0, for the outline used in selection and label placement
+SIZES = {"GND": (24, 28), "PORT": (26, 80), "LABEL": (20, 20), "TLIN": (80, 20), "TLOC": (18, 70),
+         "TLSC": (24, 80), "MLIN": (80, 20), "MLOC": (18, 70), "MLSC": (24, 80), "MCLIN": (80, 40),
+         "SLIN": (80, 24), "COAX": (80, 22), "SUBST": (80, 46), "SRLC": (80, 20), "PRLC": (80, 40),
+         "ATTEN": (60, 24), "DCBLOCK": (60, 44), "DCFEED": (60, 44)}
 
 
 def snap(v: float) -> int:
     return int(round(v / CK.GRID)) * CK.GRID
 
 
-# ---- 3D design thumbnail ------------------------------------------------------------------------------
-def design_thumbnail(doc, name: str, size: int = 2 * THUMB) -> str:
-    """PNG (base64) of a 3D design seen from above at an angle, drawn from its display tessellation, so the
-    block looks like the structure it stands for. '' when no tessellation of the design is available yet
-    (the design was not shown in this session and has no cached tessellation)."""
-    try:
-        des = doc.project.design(name)
-    except KeyError:
-        return ""
-    tess = {}
-    cache = doc.cache if name == doc.design_name else (doc.design_caches.get(name, ({}, {}))[0])
-    for o in des.live_objects():
-        if not o.model or o.history[0].kind == "CreateRegion":
-            continue
-        e = cache.get(o.name)
-        t = getattr(e, "tess", None) if e is not None else None
-        if t is None:
-            try:
-                from ..kernel import occ as K
-                f = K._tess_cache_file(des, o, des.evaluator(doc.project), getattr(doc, "display_quality", "normal"))
-                t = K.load_tess(f) if f is not None and f.exists() else None
-            except Exception:  # noqa: BLE001
-                t = None
-        if t is not None and len(t.tris):
-            tess[o.name] = (t, o)
-    if not tess:
-        return ""
-    # leave out air boxes (vacuum solids) and the port sheets; conductor sheets are drawn as copper on top
-    ports = {n for e in des.excitations for n in e.objects}
-    keep = {k: v for k, v in tess.items()
-            if k not in ports and not (v[1].dim == 3 and str(v[1].material).lower() in ("vacuum", "air"))}
-    tess = keep or tess
-    # a sheet under an opaque solid (the ground plane under the substrate) is hidden: leave it out, the rest of the
-    # sheets lie on top of the solids
-    def box(t):
-        q = np.asarray(t.points, float)
-        return q.min(axis=0), q.max(axis=0)
-    solids = [box(t) for t, o in tess.values() if o.dim == 3 and float(getattr(o, "transparency", 0) or 0) < 0.5]
-
-    def hidden(t):
-        lo, hi = box(t)
-        tol = 1e-6 * max(1e-12, float(np.max(hi - lo)))
-        return any(np.all(lo[:2] < shi[:2]) and np.all(hi[:2] > slo[:2]) and shi[2] > hi[2] + tol
-                   for slo, shi in solids)
-    tess = {k: v for k, v in tess.items() if v[1].dim == 3 or not hidden(v[0])} or tess
-    # view: azimuth -30 deg, elevation 55 deg (mostly from above: planar structures keep their shape)
-    az, el = np.radians(-30), np.radians(55)
-    R = np.array([[np.cos(az), -np.sin(az), 0], [np.sin(az), np.cos(az), 0], [0, 0, 1]])
-    E = np.array([[1, 0, 0], [0, np.cos(el), -np.sin(el)], [0, np.sin(el), np.cos(el)]])
-    M = E @ R
-    light = np.array([0.3, -0.5, 0.8])
-    light /= np.linalg.norm(light)
-    polys = []
-    allp = []
-    for t, o in tess.values():
-        P = np.asarray(t.points, float) @ M.T
-        allp.append(P)
-        sheet = o.dim < 3
-        col = QColor("#c9952f") if sheet and str(o.material).lower() in ("vacuum", "air") else \
-            QColor(getattr(o, "color", "#b0b0b0") or "#b0b0b0")
-        tr = np.asarray(t.tris, int)
-        a, b, c = P[tr[:, 0]], P[tr[:, 1]], P[tr[:, 2]]
-        n = np.cross(b - a, c - a)
-        ln = np.linalg.norm(n, axis=1)
-        ok = ln > 0
-        n[ok] /= ln[ok, None]
-        shade = 0.45 + 0.55 * np.abs(n @ (M @ light))
-        depth = (a[:, 1] + b[:, 1] + c[:, 1]) / 3          # y after the view rotation points into the screen
-        alpha = 255 if float(getattr(o, "transparency", 0) or 0) < 0.5 else 110
-        for k in range(len(tr)):
-            polys.append((int(sheet), depth[k], (a[k], b[k], c[k]), col, shade[k], alpha))
-    allp = np.vstack(allp)
-    x0, x1 = allp[:, 0].min(), allp[:, 0].max()
-    z0, z1 = allp[:, 2].min(), allp[:, 2].max()
-    span = max(x1 - x0, z1 - z0) or 1.0
-    s = (size - 8) / span
-    cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
-    img = QImage(size, size, QImage.Format_ARGB32_Premultiplied)
-    img.fill(Qt.transparent)
-    p = QPainter(img)
-    p.setRenderHint(QPainter.Antialiasing)
-    polys.sort(key=lambda q: (q[0], -q[1]))              # solids back to front, then the sheets on them
-    for _, _, tri, col, sh, alpha in polys:
-        c = QColor(int(col.red() * sh), int(col.green() * sh), int(col.blue() * sh), alpha)
-        p.setPen(QPen(c, 0.6))
-        p.setBrush(c)
-        p.drawPolygon(QPolygonF([QPointF(size / 2 + (v[0] - cx) * s, size / 2 - (v[2] - cz) * s) for v in tri]))
-    p.end()
-    buf = QBuffer()
-    buf.open(QBuffer.WriteOnly)
-    img.save(buf, "PNG")
-    return base64.b64encode(bytes(buf.data())).decode()
+def body_size(c: CK.Component) -> tuple[int, int]:
+    if c.type in CK.NPORT_TYPES:
+        return CK.BLOCK_W, CK.block_height(CK.nport_count(c))
+    return SIZES.get(c.type, (60, 24))
 
 
 def _image(b64: str) -> QImage | None:
@@ -131,39 +54,299 @@ def _image(b64: str) -> QImage | None:
     return None if img.isNull() else img
 
 
+# ---- symbols ------------------------------------------------------------------------------------------
+def _zigzag(p: QPainter, x0: float, x1: float, amp: float = 5, n: int = 6, vertical: bool = False) -> None:
+    pts = []
+    for i in range(n + 1):
+        t = x0 + (x1 - x0) * i / n
+        d = 0 if i in (0, n) else (-amp if i % 2 else amp)
+        pts.append(QPointF(d, t) if vertical else QPointF(t, d))
+    p.drawPolyline(QPolygonF(pts))
+
+
+def _coil(p: QPainter, x0: float, x1: float, n: int = 4, r: float = 6) -> None:
+    path = QPainterPath(QPointF(x0, 0))
+    step = (x1 - x0) / n
+    for i in range(n):
+        path.arcTo(QRectF(x0 + step * i, -r, step, 2 * r), 180, -180)
+    p.drawPath(path)
+
+
+def _plates(p: QPainter, x: float, h: float = 10, gap: float = 4) -> None:
+    p.drawLine(QPointF(x - gap, -h), QPointF(x - gap, h))
+    p.drawLine(QPointF(x + gap, -h), QPointF(x + gap, h))
+
+
+def _ground(p: QPainter, y: float) -> None:
+    p.drawLine(QPointF(-10, y), QPointF(10, y))
+    p.drawLine(QPointF(-6, y + 4), QPointF(6, y + 4))
+    p.drawLine(QPointF(-2, y + 8), QPointF(2, y + 8))
+
+
+def _small_text(p: QPainter, rect: QRectF, text: str, size: float = 6.5) -> None:
+    f = QFont(p.font())
+    f.setPointSizeF(size)
+    f.setBold(True)
+    p.save()
+    p.setFont(f)
+    p.drawText(rect, Qt.AlignCenter, text)
+    p.restore()
+
+
+def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = None, pins: bool = True) -> None:
+    """The symbol of a part at rotation 0 around its origin (the caller sets rotation and mirror)."""
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    t = c.type
+    if t == "R":
+        p.drawLine(-30, 0, -18, 0)
+        _zigzag(p, -18, 18)
+        p.drawLine(18, 0, 30, 0)
+    elif t == "L":
+        p.drawLine(-30, 0, -20, 0)
+        _coil(p, -20, 20)
+        p.drawLine(20, 0, 30, 0)
+    elif t == "C":
+        p.drawLine(-30, 0, -4, 0)
+        _plates(p, 0)
+        p.drawLine(4, 0, 30, 0)
+    elif t == "SRLC":
+        p.drawLine(-40, 0, -34, 0)
+        _zigzag(p, -34, -14, 4, 4)
+        _coil(p, -14, 10, 3, 5)
+        p.drawLine(10, 0, 18, 0)
+        _plates(p, 21, 8, 3)
+        p.drawLine(24, 0, 40, 0)
+    elif t == "PRLC":
+        p.drawLine(-40, 0, -24, 0)
+        p.drawLine(24, 0, 40, 0)
+        p.drawLine(-24, -14, -24, 14)
+        p.drawLine(24, -14, 24, 14)
+        p.save()
+        p.translate(0, -14)
+        p.drawLine(-24, 0, -12, 0)
+        _zigzag(p, -12, 12, 4, 6)
+        p.drawLine(12, 0, 24, 0)
+        p.translate(0, 14)
+        p.drawLine(-24, 0, -12, 0)
+        _coil(p, -12, 12, 3, 4)
+        p.drawLine(12, 0, 24, 0)
+        p.translate(0, 14)
+        p.drawLine(-24, 0, -3, 0)
+        _plates(p, 0, 6, 3)
+        p.drawLine(3, 0, 24, 0)
+        p.restore()
+    elif t in ("DCBLOCK", "DCFEED"):
+        p.drawLine(-30, 0, -14, 0)
+        p.drawLine(14, 0, 30, 0)
+        p.drawRect(QRectF(-14, -11, 28, 22))
+        if t == "DCBLOCK":
+            p.drawLine(-9, 0, -2, 0)
+            _plates(p, 0, 6, 2)
+            p.drawLine(2, 0, 9, 0)
+        else:
+            _coil(p, -9, 9, 3, 3)
+        p.setPen(QPen(pen.color(), 0.8))
+        _small_text(p, QRectF(-14, -22, 28, 10), "DC", 6)
+    elif t == "ATTEN":
+        p.drawLine(-30, 0, -20, 0)
+        p.drawLine(20, 0, 30, 0)
+        p.setBrush(QColor("#ffffff"))
+        p.drawRect(QRectF(-20, -12, 40, 24))
+        _small_text(p, QRectF(-20, -12, 40, 24), "dB")
+    elif t == "GND":
+        p.drawLine(0, -10, 0, 0)
+        _ground(p, 0)
+    elif t == "PORT":
+        # power port: pin at the top, internal resistance, source, ground
+        p.drawLine(0, -40, 0, -32)
+        _zigzag(p, -32, -14, 5, 6, vertical=True)
+        p.drawLine(0, -14, 0, -10)
+        p.setBrush(QColor("#ffffff"))
+        p.drawEllipse(QPointF(0, 0), 10, 10)
+        p.setBrush(Qt.NoBrush)
+        path = QPainterPath(QPointF(-6, 0))
+        path.cubicTo(-4, -7, -1, -7, 0, 0)
+        path.cubicTo(1, 7, 4, 7, 6, 0)
+        p.drawPath(path)
+        p.drawLine(0, 10, 0, 18)
+        _ground(p, 18)
+    elif t == "LABEL":
+        p.drawLine(0, 0, 0, -8)
+        p.drawEllipse(QPointF(0, 0), 1.5, 1.5)
+    elif t in ("TLIN", "MLIN", "SLIN", "COAX"):
+        p.drawLine(-40, 0, -30, 0)
+        p.drawLine(30, 0, 40, 0)
+        if t == "TLIN":
+            p.setBrush(FILL)
+            p.drawRect(QRectF(-30, -8, 60, 16))
+        elif t == "MLIN":
+            p.setBrush(SUBSTRATE)
+            p.drawRect(QRectF(-30, -9, 60, 18))
+            p.setBrush(COPPER)
+            p.drawRect(QRectF(-30, -4, 60, 8))
+        elif t == "SLIN":
+            p.setBrush(SUBSTRATE)
+            p.drawRect(QRectF(-30, -11, 60, 22))
+            p.setBrush(COPPER)
+            p.drawRect(QRectF(-30, -2.5, 60, 5))
+            p.drawLine(-30, -11, 30, -11)
+            p.drawLine(-30, 11, 30, 11)
+        else:
+            p.setBrush(QColor("#d9dde4"))
+            p.drawRect(QRectF(-30, -10, 60, 20))
+            p.setBrush(QColor("#ffffff"))
+            p.drawEllipse(QRectF(-34, -10, 8, 20))
+            p.drawLine(-30, 0, 30, 0)
+    elif t in ("TLOC", "TLSC", "MLOC", "MLSC"):
+        p.drawLine(0, -40, 0, -30)
+        if t.startswith("TL"):
+            p.setBrush(FILL)
+            p.drawRect(QRectF(-8, -30, 16, 56))
+        else:
+            p.setBrush(SUBSTRATE)
+            p.drawRect(QRectF(-9, -30, 18, 56))
+            p.setBrush(COPPER)
+            p.drawRect(QRectF(-4, -30, 8, 56))
+        if t.endswith("SC"):
+            p.drawLine(0, 26, 0, 30)
+            _ground(p, 30)
+    elif t == "MCLIN":
+        for y in (-10, 10):
+            p.drawLine(-40, y, -30, y)
+            p.drawLine(30, y, 40, y)
+        p.setBrush(SUBSTRATE)
+        p.drawRect(QRectF(-30, -18, 60, 36))
+        p.setBrush(COPPER)
+        p.drawRect(QRectF(-30, -14, 60, 8))
+        p.drawRect(QRectF(-30, 6, 60, 8))
+    elif t == "SUBST":
+        p.setBrush(QColor("#ffffff"))
+        p.drawRect(QRectF(-40, -23, 80, 46))
+        p.setBrush(SUBSTRATE)
+        p.drawRect(QRectF(-32, -6, 64, 14))
+        p.setBrush(COPPER)
+        p.drawRect(QRectF(-14, -10, 28, 4))
+        p.drawRect(QRectF(-32, 8, 64, 3))
+        p.setPen(QPen(pen.color(), 0.8))
+        _small_text(p, QRectF(-40, -22, 80, 11), "SUBSTRATE", 5.5)
+    elif t in CK.NPORT_TYPES:
+        w, h = body_size(c)
+        p.setBrush(QColor("#ffffff"))
+        p.drawRoundedRect(QRectF(-w / 2, -h / 2, w, h), 6, 6)
+        for (dx, dy) in CK.nport_pins(CK.nport_count(c)):
+            p.drawLine(QPointF(dx, dy), QPointF(dx - 10 if dx > 0 else dx + 10, dy))
+        if img is not None:
+            side = min(w - 20, h - 16, THUMB)
+            p.drawImage(QRectF(-side / 2, -side / 2, side, side), img)
+        else:
+            p.setPen(QPen(QColor(MUTED)))
+            _small_text(p, QRectF(-w / 2, -h / 2, w, h), "S" if t == "SNP" else "3D", 12)
+        names = [n for n in c.props.get("PortNames", "").split(",") if n]
+        f = QFont(p.font())
+        f.setPointSizeF(7)
+        p.setFont(f)
+        p.setPen(QPen(QColor(MUTED)))
+        for k, (dx, dy) in enumerate(CK.nport_pins(CK.nport_count(c))):
+            label = names[k] if k < len(names) else str(k + 1)
+            r = QRectF(-w / 2 + 3, dy - 7, w / 2 - 6, 14) if dx < 0 else QRectF(3, dy - 7, w / 2 - 6, 14)
+            p.drawText(r, (Qt.AlignLeft if dx < 0 else Qt.AlignRight) | Qt.AlignVCenter, label)
+    if pins:
+        p.setPen(Qt.NoPen)
+        p.setBrush(PIN)
+        for dx, dy in CK.pin_offsets(c):
+            p.drawEllipse(QPointF(dx, dy), 2.5, 2.5)
+
+
+def value_lines(c: CK.Component) -> list[str]:
+    """The values shown next to a part."""
+    p = c.props
+    t = c.type
+    if t in ("R", "L", "C"):
+        return [p.get(t, "")]
+    if t in ("SRLC", "PRLC"):
+        return [f"R={p.get('R')}  L={p.get('L')}  C={p.get('C')}"]
+    if t == "PORT":
+        num = p.get("Num", "").strip()
+        return [(f"Num={num}  " if num else "") + f"Z={p.get('Z0')}"]
+    if t == "ATTEN":
+        return [p.get("Loss", "")]
+    if t in ("TLIN", "TLOC", "TLSC"):
+        return [f"Z={p.get('Z0')}  E={p.get('E')}", f"F={p.get('F')}"]
+    if t in ("MLIN", "MLOC", "MLSC", "SLIN"):
+        return [f"W={p.get('W')}  L={p.get('L')}", f"{p.get('Subst')}"]
+    if t == "MCLIN":
+        return [f"W={p.get('W')}  S={p.get('S')}", f"L={p.get('L')}  {p.get('Subst')}"]
+    if t == "COAX":
+        return [f"Di={p.get('Di')}  Do={p.get('Do')}", f"Er={p.get('Er')}  L={p.get('L')}"]
+    if t == "SUBST":
+        return [f"Er={p.get('Er')}  H={p.get('H')}", f"T={p.get('T')}  tanD={p.get('TanD')}"]
+    if t == "EM":
+        return [p.get("Design", ""), p.get("Solution", "")]
+    if t == "SNP":
+        return [p.get("File", "").replace("\\", "/").split("/")[-1]]
+    return []
+
+
+def component_icon(ctype: str, size: int = 32) -> QIcon:
+    """The symbol of a part type as an icon (ribbon and library)."""
+    c = CK.Component("", ctype, props={**CK.TYPES[ctype].props, "Ports": "2"})
+    w, h = body_size(c)
+    pins = CK.pin_offsets(c)
+    xs = [x for x, _ in pins] + [-w / 2, w / 2]
+    ys = [y for _, y in pins] + [-h / 2, h / 2]
+    span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
+    pm = QPixmap(size * 2, size * 2)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    s = (size * 2 - 6) / span
+    p.translate(size - (max(xs) + min(xs)) / 2 * s, size - (max(ys) + min(ys)) / 2 * s)
+    p.scale(s, s)
+    paint_symbol(p, c, QPen(INKC, 3.4 / max(s, 0.4), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin), pins=False)
+    p.end()
+    pm.setDevicePixelRatio(2)
+    return QIcon(pm)
+
+
 # ---- items --------------------------------------------------------------------------------------------
 class ComponentItem(QGraphicsItem):
-    def __init__(self, editor: "CircuitEditor", comp: CK.Component):
+    def __init__(self, editor: "CircuitEditor", comp: CK.Component, ghost: bool = False):
         super().__init__()
-        self.editor, self.comp = editor, comp
-        self.setFlags(QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable |
-                      QGraphicsItem.ItemSendsGeometryChanges)
+        self.editor, self.comp, self.ghost = editor, comp, ghost
+        if not ghost:
+            self.setFlags(QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable |
+                          QGraphicsItem.ItemSendsGeometryChanges)
+        else:
+            self.setOpacity(0.55)
+            self.setZValue(10)
         self.setPos(comp.x, comp.y)
-        self.setRotation(comp.rot)
+        self.sync_transform()
         self._img = _image(comp.props.get("Thumbnail", "")) if comp.type == "EM" else None
         self.setToolTip(self._tip())
+
+    def sync_transform(self) -> None:
+        tr = QTransform()
+        tr.rotate(self.comp.rot)
+        if self.comp.mirror:
+            tr.scale(1, -1)
+        self.setTransform(tr)
 
     def _tip(self) -> str:
         c = self.comp
         info = CK.TYPES[c.type]
-        vals = ", ".join(f"{k} = {v}" for k, v in c.props.items() if k not in ("Thumbnail", "PortNames", "Ports"))
-        return f"{c.name}: {info.label}" + (f"\n{vals}" if vals else "")
-
-    def _size(self) -> tuple[int, int]:
-        c = self.comp
-        if c.type in CK.NPORT_TYPES:
-            return CK.BLOCK_W, CK.block_height(CK.nport_count(c))
-        return {"GND": (30, 30), "PORT": (50, 30), "TLIN": (90, 30)}.get(c.type, (70, 30))
+        vals = "\n".join(f"{k} = {v}" for k, v in c.props.items() if k not in ("Thumbnail", "PortNames", "Ports"))
+        return f"{c.name}: {info.label}\n{info.help}" + (f"\n\n{vals}" if vals else "")
 
     def boundingRect(self) -> QRectF:
-        w, h = self._size()
+        w, h = body_size(self.comp)
         if self.comp.type in CK.NPORT_TYPES:
-            return QRectF(-w / 2 - 14, -h / 2 - 22, w + 28, h + 44)
-        r = max(w / 2 + 30, h / 2 + 170)           # labels stay upright, beside a vertical part
+            return QRectF(-w / 2 - 14, -h / 2 - 36, w + 28, h + 72)
+        r = max(w, h) / 2 + 160                # labels stay upright, beside the part
         return QRectF(-r, -r, 2 * r, 2 * r)
 
     def shape(self) -> QPainterPath:
-        w, h = self._size()
+        w, h = body_size(self.comp)
         path = QPainterPath()
         path.addRect(QRectF(-w / 2 - 4, -h / 2 - 4, w + 8, h + 8))
         return path
@@ -183,98 +366,48 @@ class ComponentItem(QGraphicsItem):
     def paint(self, p: QPainter, _opt, _w=None) -> None:
         c = self.comp
         sel = self.isSelected()
-        pen = QPen(QColor(GOLD) if sel else INKC, 2 if sel else 1.6)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
+        pen = QPen(QColor(GOLD) if sel else INKC, 2 if sel else 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(pen)
-        p.setBrush(Qt.NoBrush)
-        t = c.type
-        if t == "R":
-            p.drawLine(-30, 0, -18, 0)
-            p.drawPolyline(QPolygonF([QPointF(-18 + 4 * i, (0 if i in (0, 9) else (-6 if i % 2 else 6)))
-                                      for i in range(10)]))
-            p.drawLine(18, 0, 30, 0)
-        elif t == "L":
-            p.drawLine(-30, 0, -20, 0)
-            path = QPainterPath(QPointF(-20, 0))
-            for i in range(4):
-                path.arcTo(QRectF(-20 + 10 * i, -6, 10, 12), 180, -180)
-            p.drawPath(path)
-            p.drawLine(20, 0, 30, 0)
-        elif t == "C":
-            p.drawLine(-30, 0, -4, 0)
-            p.drawLine(-4, -10, -4, 10)
-            p.drawLine(4, -10, 4, 10)
-            p.drawLine(4, 0, 30, 0)
-        elif t == "GND":
-            p.drawLine(0, -10, 0, 0)
-            p.drawLine(-10, 0, 10, 0)
-            p.drawLine(-6, 4, 6, 4)
-            p.drawLine(-2, 8, 2, 8)
-        elif t == "PORT":
-            p.setBrush(QColor("#ffffff"))
-            p.drawEllipse(QPointF(0, 0), 9, 9)
-            path = QPainterPath(QPointF(-5, 0))
-            path.cubicTo(-3, -6, -1, -6, 0, 0)
-            path.cubicTo(1, 6, 3, 6, 5, 0)
-            p.setBrush(Qt.NoBrush)
-            p.drawPath(path)
-            p.drawLine(9, 0, 20, 0)
-        elif t == "TLIN":
-            p.drawLine(-40, 0, -30, 0)
-            p.drawLine(30, 0, 40, 0)
-            p.setBrush(QColor("#e9f1fb"))
-            p.drawRect(QRectF(-30, -8, 60, 16))
-        elif t in CK.NPORT_TYPES:
-            w, h = self._size()
-            p.setBrush(QColor("#ffffff"))
-            p.drawRoundedRect(QRectF(-w / 2, -h / 2, w, h), 6, 6)
-            for (dx, dy) in CK.nport_pins(CK.nport_count(c)):
-                p.drawLine(QPointF(dx, dy), QPointF(dx - 10 if dx > 0 else dx + 10, dy))
-            if self._img is not None:
-                side = min(w - 20, h - 16, THUMB)
-                p.drawImage(QRectF(-side / 2, -side / 2, side, side), self._img)
-            else:
-                p.setPen(QPen(QColor(MUTED)))
-                p.drawText(QRectF(-w / 2, -h / 2, w, h), Qt.AlignCenter, "S" if t == "SNP" else "3D")
-            names = [n for n in c.props.get("PortNames", "").split(",") if n]
-            f = QFont(p.font())
-            f.setPointSizeF(7)
-            p.setFont(f)
-            p.setPen(QPen(QColor(MUTED)))
-            for k, (dx, dy) in enumerate(CK.nport_pins(CK.nport_count(c))):
-                label = names[k] if k < len(names) else str(k + 1)
-                r = QRectF(-w / 2 + 3, dy - 7, w / 2 - 6, 14) if dx < 0 else QRectF(3, dy - 7, w / 2 - 6, 14)
-                p.drawText(r, (Qt.AlignLeft if dx < 0 else Qt.AlignRight) | Qt.AlignVCenter, label)
-        # pins
-        p.setPen(Qt.NoPen)
-        p.setBrush(PIN)
-        offs = CK.nport_pins(CK.nport_count(c)) if t in CK.NPORT_TYPES else CK.TYPES[t].pins
-        for dx, dy in offs:
-            p.drawEllipse(QPointF(dx, dy), 2.5, 2.5)
-        # name and value, kept upright
+        paint_symbol(p, c, pen, self._img)
+        # name and values, upright and beside the part
         p.save()
-        p.rotate(-self.rotation())
+        p.setTransform(self.transform().inverted()[0], True)
         f = QFont(p.font())
         f.setPointSizeF(8)
         p.setFont(f)
-        w, h = self._size()
-        val = {"R": c.props.get("R"), "L": c.props.get("L"), "C": c.props.get("C"), "PORT": c.props.get("Z0"),
-               "TLIN": f"{c.props.get('Z0')}, {c.props.get('E')}",
-               "EM": c.props.get("Design"), "SNP": c.props.get("File", "").replace("\\", "/").split("/")[-1]}.get(t)
-        if self.comp.rot % 180 and t not in CK.NPORT_TYPES and t != "GND":
-            # vertical part: name and value beside it
-            boxes = (QRectF(h / 2 + 4, -15, 160, 14), QRectF(h / 2 + 4, 1, 160, 14), Qt.AlignLeft | Qt.AlignVCenter)
-        else:
-            hh = w if self.comp.rot % 180 else h
-            boxes = (QRectF(-80, -hh / 2 - 18, 160, 14), QRectF(-80, hh / 2 + 4, 160, 14), Qt.AlignCenter)
-        p.setPen(QPen(INKC))
-        if t != "GND":
-            p.drawText(boxes[0], boxes[2], c.name)
-        if val:
+        fm = QFontMetricsF(f)
+        lh = fm.height()
+        w, h = body_size(c)
+        if c.rot % 180:
+            w, h = h, w
+        lines = value_lines(c)
+        if c.type == "LABEL":
+            text = c.props.get("Net", "")
+            tw = fm.horizontalAdvance(text) + 8
+            p.setPen(QPen(WIRE, 1.2))
+            p.setBrush(QColor("#ffffff"))
+            p.drawPolygon(QPolygonF([QPointF(0, -8), QPointF(5, -8 - lh / 2 - 1), QPointF(5 + tw, -8 - lh / 2 - 1),
+                                     QPointF(5 + tw, -7 + lh / 2), QPointF(5, -7 + lh / 2)]))
+            p.setPen(QPen(WIRE))
+            p.drawText(QRectF(9, -8 - lh / 2, tw, lh), Qt.AlignLeft | Qt.AlignVCenter, text)
+            p.restore()
+            return
+        if c.type == "GND":
+            p.restore()
+            return
+        if h > w and c.type not in CK.NPORT_TYPES:          # vertical part: text to the right
+            x, y0 = w / 2 + 6, -(1 + len(lines)) * lh / 2
+            p.setPen(QPen(INKC))
+            p.drawText(QRectF(x, y0, 220, lh), Qt.AlignLeft | Qt.AlignVCenter, c.name)
             p.setPen(QPen(QColor(MUTED)))
-            p.drawText(boxes[1], boxes[2], val)
+            for i, line in enumerate(lines):
+                p.drawText(QRectF(x, y0 + (i + 1) * lh, 220, lh), Qt.AlignLeft | Qt.AlignVCenter, line)
+        else:
+            p.setPen(QPen(INKC))
+            p.drawText(QRectF(-110, -h / 2 - lh - 3, 220, lh), Qt.AlignCenter, c.name)
+            p.setPen(QPen(QColor(MUTED)))
+            for i, line in enumerate(lines):
+                p.drawText(QRectF(-110, h / 2 + 3 + i * lh, 220, lh), Qt.AlignCenter, line)
         p.restore()
 
 
@@ -304,6 +437,93 @@ class WireItem(QGraphicsPathItem):
         return s.createStroke(self.path())
 
 
+# ---- part library -------------------------------------------------------------------------------------
+class PartLibrary(QWidget):
+    """Parts by category with a search field; drag a part into the schematic or double-click it to place it."""
+
+    def __init__(self, editor: "CircuitEditor"):
+        super().__init__()
+        self.editor = editor
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 0, 4)
+        lay.setSpacing(4)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search parts...")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self.fill)
+        lay.addWidget(self.search)
+        self.tree = _LibraryTree(self)
+        lay.addWidget(self.tree, 1)
+        self.fill()
+
+    def fill(self, *_a) -> None:
+        q = self.search.text().strip().lower()
+        self.tree.clear()
+        cats: dict[str, QTreeWidgetItem] = {}
+        for t, info in CK.TYPES.items():
+            if t == "EM":
+                continue
+            if q and q not in info.label.lower() and q not in info.help.lower() and q not in t.lower():
+                continue
+            if info.category not in cats:
+                cats[info.category] = QTreeWidgetItem([info.category])
+                cats[info.category].setFlags(Qt.ItemIsEnabled)
+            it = QTreeWidgetItem([info.label])
+            it.setIcon(0, component_icon(t))
+            it.setToolTip(0, info.help)
+            it.setData(0, Qt.UserRole, ("part", t))
+            cats[info.category].addChild(it)
+        for d in self.editor.doc.project.designs:
+            if getattr(d, "kind", "3d") != "3d" or (q and q not in d.name.lower()):
+                continue
+            if "3D Designs" not in cats:
+                cats["3D Designs"] = QTreeWidgetItem(["3D Designs"])
+                cats["3D Designs"].setFlags(Qt.ItemIsEnabled)
+            it = QTreeWidgetItem([d.name])
+            it.setIcon(0, component_icon("EM"))
+            it.setToolTip(0, "S-parameters of this 3D design as a block")
+            it.setData(0, Qt.UserRole, ("design", d.name))
+            cats["3D Designs"].addChild(it)
+        for cat in list(CK.CATEGORIES) + ["3D Designs"]:
+            if cat in cats:
+                self.tree.addTopLevelItem(cats[cat])
+                cats[cat].setExpanded(True)
+
+
+class _LibraryTree(QTreeWidget):
+    def __init__(self, lib: PartLibrary):
+        super().__init__()
+        self.lib = lib
+        self.setHeaderHidden(True)
+        self.setIconSize(QPixmap(28, 28).size())
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
+        self.itemDoubleClicked.connect(self._activate)
+
+    def _activate(self, it, _col) -> None:
+        d = it.data(0, Qt.UserRole)
+        ed = self.lib.editor
+        if d and d[0] == "part":
+            ed.set_mode("place", d[1])
+            ed.view.setFocus()
+        elif d and d[0] == "design":
+            r = ed.view.mapToScene(ed.view.viewport().rect().center())
+            ed.add_em_block(d[1], snap(r.x()), snap(r.y()))
+
+    def mimeTypes(self) -> list[str]:
+        return [MIME_PART, MIME_DESIGN]
+
+    def mimeData(self, items) -> QMimeData:
+        md = QMimeData()
+        for it in items:
+            d = it.data(0, Qt.UserRole)
+            if d and d[0] == "part":
+                md.setData(MIME_PART, d[1].encode())
+            elif d and d[0] == "design":
+                md.setData(MIME_DESIGN, d[1].encode())
+        return md
+
+
 # ---- view ---------------------------------------------------------------------------------------------
 class SchematicView(QGraphicsView):
     def __init__(self, editor: "CircuitEditor"):
@@ -331,23 +551,31 @@ class SchematicView(QGraphicsView):
         f = 1.15 if e.angleDelta().y() > 0 else 1 / 1.15
         self.scale(f, f)
 
+    def _accepts(self, md) -> bool:
+        return md.hasFormat(MIME_DESIGN) or md.hasFormat(MIME_PART)
+
     def dragEnterEvent(self, e) -> None:
-        if e.mimeData().hasFormat(MIME_DESIGN):
+        if self._accepts(e.mimeData()):
             e.acceptProposedAction()
         else:
             super().dragEnterEvent(e)
 
     def dragMoveEvent(self, e) -> None:
-        if e.mimeData().hasFormat(MIME_DESIGN):
+        if self._accepts(e.mimeData()):
             e.acceptProposedAction()
         else:
             super().dragMoveEvent(e)
 
     def dropEvent(self, e) -> None:
-        if e.mimeData().hasFormat(MIME_DESIGN):
-            name = bytes(e.mimeData().data(MIME_DESIGN)).decode()
-            pos = self.mapToScene(e.position().toPoint())
-            self.editor.add_em_block(name, snap(pos.x()), snap(pos.y()))
+        md = e.mimeData()
+        pos = self.mapToScene(e.position().toPoint())
+        if md.hasFormat(MIME_DESIGN):
+            self.editor.add_em_block(bytes(md.data(MIME_DESIGN)).decode(), snap(pos.x()), snap(pos.y()))
+            e.acceptProposedAction()
+        elif md.hasFormat(MIME_PART):
+            t = bytes(md.data(MIME_PART)).decode()
+            if t in CK.TYPES:
+                self.editor.place(t, snap(pos.x()), snap(pos.y()))
             e.acceptProposedAction()
         else:
             super().dropEvent(e)
@@ -368,14 +596,21 @@ class SchematicView(QGraphicsView):
         super().mouseDoubleClickEvent(e)
 
     def keyPressEvent(self, e) -> None:
-        if e.key() == Qt.Key_Escape:
+        k = e.key()
+        if k == Qt.Key_Escape:
             self.editor.cancel()
-        elif e.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+        elif k in (Qt.Key_Delete, Qt.Key_Backspace):
             self.editor.delete_selected()
-        elif e.key() == Qt.Key_R:
+        elif k == Qt.Key_R:
             self.editor.rotate_selected()
-        elif e.key() == Qt.Key_W:
+        elif k == Qt.Key_M:
+            self.editor.mirror_selected()
+        elif k == Qt.Key_W:
             self.editor.set_mode("wire")
+        elif k == Qt.Key_G:
+            self.editor.set_mode("place", "GND")
+        elif k == Qt.Key_F:
+            self.editor.fit_all()
         else:
             super().keyPressEvent(e)
 
@@ -384,6 +619,7 @@ class CircuitEditor(QWidget):
     """Schematic of the active circuit design; changes go through the document (undo, dirty flag)."""
     analyzeRequested = Signal()
     reportRequested = Signal()
+    modeChanged = Signal(str)
 
     def __init__(self, doc, parent=None):
         super().__init__(parent)
@@ -392,39 +628,32 @@ class CircuitEditor(QWidget):
         self.place_type = ""
         self.wire_pts: list[list[int]] = []
         self._preview: QGraphicsPathItem | None = None
+        self._ghost: ComponentItem | None = None
+        self._ghost_rot, self._ghost_mirror = 0, False
+        self.library: PartLibrary | None = None
         self.scene = QGraphicsScene(self)
-        self.scene.setSceneRect(-2000, -2000, 4000, 4000)
+        self.scene.setSceneRect(-3000, -3000, 6000, 6000)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
-        self.bar = QToolBar()
-        self.actions_: dict[str, QAction] = {}
-        a = self.bar.addAction("Select", lambda: self.set_mode("select"))
-        a.setCheckable(True)
-        self.actions_["select"] = a
-        a = self.bar.addAction("Wire (W)", lambda: self.set_mode("wire"))
-        a.setCheckable(True)
-        self.actions_["wire"] = a
-        self.bar.addSeparator()
-        for t in ("R", "L", "C", "GND", "PORT", "TLIN", "SNP"):
-            a = self.bar.addAction(CK.TYPES[t].label, lambda t=t: self.set_mode("place", t))
-            a.setCheckable(True)
-            a.setToolTip(CK.TYPES[t].help)
-            self.actions_["place:" + t] = a
-        self.bar.addSeparator()
-        self.bar.addAction("Rotate (R)", self.rotate_selected)
-        self.bar.addAction("Delete", self.delete_selected)
-        self.bar.addSeparator()
-        self.bar.addAction("Analyze", self.analyzeRequested.emit)
-        self.bar.addAction("S-Parameter Report", self.reportRequested.emit)
-        lay.addWidget(self.bar)
         self.hint = QLabel()
         self.hint.setStyleSheet(f"color: {MUTED}; padding: 3px 8px;")
-        lay.addWidget(self.hint)
         self.view = SchematicView(self)
+        self.library = PartLibrary(self)
+        split = QSplitter()
+        split.addWidget(self.library)
+        right = QWidget()
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
+        rl.addWidget(self.hint)
+        rl.addWidget(self.view, 1)
+        split.addWidget(right)
+        split.setStretchFactor(1, 1)
+        split.setSizes([210, 1000])
+        lay.addWidget(split, 1)
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._context)
-        lay.addWidget(self.view, 1)
         self.set_mode("select")
 
     # ---- model access -------------------------------------------------------------------------
@@ -445,8 +674,9 @@ class CircuitEditor(QWidget):
     def rebuild(self) -> None:
         if getattr(self.des, "kind", "3d") != "circuit":
             return
-        sel = {it.comp.name for it in self.scene.selectedItems() if isinstance(it, ComponentItem)}
+        sel = {it.comp.name for it in self.selected_components()}
         self._preview = None
+        self._ghost = None
         self.scene.clear()
         for i, w in enumerate(self.des.wires):
             self.scene.addItem(WireItem(i, w))
@@ -466,27 +696,78 @@ class CircuitEditor(QWidget):
         for q, n in count.items():
             if n >= 3:
                 self.scene.addEllipse(q[0] - 3, q[1] - 3, 6, 6, QPen(Qt.NoPen), QBrush(WIRE))
+        if self.library is not None:
+            self.library.fill()
+        if self.mode == "place":
+            self._make_ghost()
+
+    def fit_all(self) -> None:
+        r = QRectF()
+        for it in self.scene.items():
+            if isinstance(it, ComponentItem) and not it.ghost:
+                w, h = body_size(it.comp)
+                d = max(w, h) / 2 + 40
+                r = r.united(QRectF(it.pos().x() - d, it.pos().y() - d, 2 * d, 2 * d))
+            elif isinstance(it, WireItem):
+                r = r.united(it.path().boundingRect())
+        if r.isValid():
+            self.view.fitInView(r.adjusted(-30, -30, 30, 30), Qt.KeepAspectRatio)
+
+    def zoom(self, f: float) -> None:
+        self.view.scale(f, f)
 
     # ---- modes --------------------------------------------------------------------------------
     def set_mode(self, mode: str, ctype: str = "") -> None:
         self.cancel(keep_mode=True)
         self.mode, self.place_type = mode, ctype
-        for k, a in self.actions_.items():
-            a.setChecked(k == (f"place:{ctype}" if mode == "place" else mode))
+        self._ghost_rot, self._ghost_mirror = 0, False
         self.view.setDragMode(QGraphicsView.RubberBandDrag if mode == "select" else QGraphicsView.NoDrag)
+        self.view.viewport().setCursor(Qt.ArrowCursor if mode == "select" else Qt.CrossCursor)
+        if mode == "place":
+            self._make_ghost()
         self.hint.setText({
-            "select": "Drag a 3D design from the Project Manager into the schematic to use its S-parameters. "
-                      "Double-click a component to edit it, R rotates, Del deletes.",
-            "wire": "Wire: click the corners, double-click or right-click to end, Esc cancels.",
-            "place": f"{CK.TYPES[ctype].label if ctype else ''}: click to place, R rotates, Esc ends."}[mode])
+            "select": "Drag parts from the library or a 3D design from the Project Manager into the schematic. "
+                      "Double-click a part to edit it; R rotates, M mirrors, Del deletes, W draws wires, F fits.",
+            "wire": "Wire: click the corners; a click on a pin or a wire ends it, as do a double-click and a "
+                    "right-click. Esc cancels.",
+            "place": f"{CK.TYPES[ctype].label if ctype else ''}: click to place, R rotates, M mirrors, "
+                     "right-click or Esc ends."}[mode])
+        self.modeChanged.emit(mode + (f":{ctype}" if ctype else ""))
+
+    def _make_ghost(self) -> None:
+        if self._ghost is not None:
+            self.scene.removeItem(self._ghost)
+        t = self.place_type
+        c = CK.Component(CK.next_name(self.des.components, t), t, -10000, -10000, self._ghost_rot,
+                         dict(CK.TYPES[t].props), self._ghost_mirror)
+        if t == "PORT":
+            c.props["Num"] = str(len([x for x in self.des.components if x.type == "PORT"]) + 1)
+        self._ghost = ComponentItem(self, c, ghost=True)
+        self.scene.addItem(self._ghost)
 
     def cancel(self, keep_mode: bool = False) -> None:
         self.wire_pts = []
         if self._preview is not None:
             self.scene.removeItem(self._preview)
             self._preview = None
+        if self._ghost is not None:
+            self.scene.removeItem(self._ghost)
+            self._ghost = None
         if not keep_mode and self.mode != "select":
             self.set_mode("select")
+
+    def _connection_points(self) -> set[tuple[int, int]]:
+        pts = {q for c in self.des.components for q in CK.pins(c)}
+        for w in self.des.wires:
+            pts |= {tuple(p) for p in w.points}
+        return pts
+
+    def _on_wire(self, x: int, y: int) -> bool:
+        for w in self.des.wires:
+            pts = [tuple(p) for p in w.points]
+            if any(CK._on_segment((x, y), a, b) for a, b in zip(pts, pts[1:])):
+                return True
+        return False
 
     def handle_press(self, pos: QPointF, button) -> bool:
         x, y = snap(pos.x()), snap(pos.y())
@@ -494,7 +775,9 @@ class CircuitEditor(QWidget):
             if button == Qt.RightButton:
                 self.set_mode("select")
                 return True
-            self.place(self.place_type, x, y)
+            c = self.place(self.place_type, x, y, None, self._ghost_rot, self._ghost_mirror)
+            if c is not None and self.place_type in ("SNP", "SUBST"):
+                self.set_mode("select")
             return True
         if self.mode == "wire":
             if button == Qt.RightButton:
@@ -506,13 +789,19 @@ class CircuitEditor(QWidget):
                     self.wire_pts.append([x, ly] if abs(x - lx) >= abs(y - ly) else [lx, y])
             if not self.wire_pts or self.wire_pts[-1] != [x, y]:
                 self.wire_pts.append([x, y])
+            if len(self.wire_pts) >= 2 and ((x, y) in self._connection_points() or self._on_wire(x, y)):
+                self.finish_wire()                       # ended on a pin or a wire
+                return True
             self._update_preview(x, y)
             return True
         return False
 
     def handle_move(self, pos: QPointF) -> None:
+        x, y = snap(pos.x()), snap(pos.y())
         if self.mode == "wire" and self.wire_pts:
-            self._update_preview(snap(pos.x()), snap(pos.y()))
+            self._update_preview(x, y)
+        elif self.mode == "place" and self._ghost is not None:
+            self._ghost.setPos(x, y)
 
     def _update_preview(self, x: int, y: int) -> None:
         path = QPainterPath()
@@ -542,22 +831,33 @@ class CircuitEditor(QWidget):
             self._commit()
 
     # ---- editing ------------------------------------------------------------------------------
-    def place(self, ctype: str, x: int, y: int, props: dict | None = None) -> CK.Component:
-        c = CK.Component(CK.next_name(self.des.components, ctype), ctype, x, y, 0,
-                         {**CK.TYPES[ctype].props, **(props or {})})
-        if ctype == "SNP" and not props:
+    def place(self, ctype: str, x: int, y: int, props: dict | None = None, rot: int = 0,
+              mirror: bool = False) -> CK.Component | None:
+        c = CK.Component(CK.next_name(self.des.components, ctype), ctype, x, y, rot,
+                         {**CK.TYPES[ctype].props, **(props or {})}, mirror)
+        if ctype == "PORT" and not c.props.get("Num"):
+            c.props["Num"] = str(len([o for o in self.des.components if o.type == "PORT"]) + 1)
+        if ctype in CK.LINE_TYPES:
+            subs = [o.name for o in self.des.components if o.type == "SUBST"]
+            if subs and c.props.get("Subst") not in subs:
+                c.props["Subst"] = subs[0]
+        if ctype == "SNP" and not c.props.get("File"):
             path, _ = QFileDialog.getOpenFileName(self, "Touchstone File", "", "Touchstone (*.s*p)")
             if not path:
-                return c
+                return None
             c.props["File"] = path
             try:
                 from ..model.touchstone import read
                 c.props["Ports"] = str(read(path)[1].shape[1])
             except Exception as e:  # noqa: BLE001
                 QMessageBox.warning(self, "Touchstone", str(e))
-                return c
+                return None
         self._change()
         self.des.components.append(c)
+        if ctype in CK.LINE_TYPES and not any(o.type == "SUBST" for o in self.des.components):
+            # the first microstrip or stripline brings its substrate along
+            self.des.components.append(CK.Component(c.props.get("Subst", "Sub1"), "SUBST", x, y - 120, 0,
+                                                    dict(CK.TYPES["SUBST"].props)))
         self._commit()
         return c
 
@@ -598,9 +898,12 @@ class CircuitEditor(QWidget):
             c.props["Thumbnail"] = img
         self._commit()
 
+    def selected_components(self) -> list[ComponentItem]:
+        return [it for it in self.scene.selectedItems() if isinstance(it, ComponentItem) and not it.ghost]
+
     def items_moved(self) -> None:
-        moved = [it for it in self.scene.selectedItems() if isinstance(it, ComponentItem)
-                 and (int(it.pos().x()), int(it.pos().y())) != (it.comp.x, it.comp.y)]
+        moved = [it for it in self.selected_components()
+                 if (int(it.pos().x()), int(it.pos().y())) != (it.comp.x, it.comp.y)]
         if not moved:
             return
         self._change()
@@ -609,7 +912,7 @@ class CircuitEditor(QWidget):
         self._commit()
 
     def delete_selected(self) -> None:
-        comps = {it.comp.name for it in self.scene.selectedItems() if isinstance(it, ComponentItem)}
+        comps = {it.comp.name for it in self.selected_components()}
         wires = {it.index for it in self.scene.selectedItems() if isinstance(it, WireItem)}
         if not comps and not wires:
             return
@@ -620,13 +923,32 @@ class CircuitEditor(QWidget):
 
     def rotate_selected(self) -> None:
         if self.mode == "place":
+            self._ghost_rot = (self._ghost_rot + 90) % 360
+            if self._ghost is not None:
+                self._ghost.comp.rot = self._ghost_rot
+                self._ghost.sync_transform()
             return
-        sel = [it for it in self.scene.selectedItems() if isinstance(it, ComponentItem)]
+        sel = self.selected_components()
         if not sel:
             return
         self._change()
         for it in sel:
             it.comp.rot = (it.comp.rot + 90) % 360
+        self._commit()
+
+    def mirror_selected(self) -> None:
+        if self.mode == "place":
+            self._ghost_mirror = not self._ghost_mirror
+            if self._ghost is not None:
+                self._ghost.comp.mirror = self._ghost_mirror
+                self._ghost.sync_transform()
+            return
+        sel = self.selected_components()
+        if not sel:
+            return
+        self._change()
+        for it in sel:
+            it.comp.mirror = not it.comp.mirror
         self._commit()
 
     def edit_component(self, name: str) -> None:
@@ -639,6 +961,10 @@ class CircuitEditor(QWidget):
             QMessageBox.warning(self, "Component", f"A component named {new_name} exists already.")
             return
         self._change()
+        if c.type == "SUBST" and new_name != c.name:      # the lines follow a renamed substrate
+            for o in self.des.components:
+                if o.props.get("Subst") == c.name:
+                    o.props["Subst"] = new_name
         c.name = new_name
         c.props.update(props)
         if c.type == "EM":
@@ -674,26 +1000,43 @@ class CircuitEditor(QWidget):
             if it.comp.type == "EM":
                 m.addAction("Update ports and picture", lambda: self.update_block(it.comp.name))
                 m.addAction("Open 3D design", lambda: self.doc.set_design(it.comp.props.get("Design", "")))
-            m.addAction("Rotate", self.rotate_selected)
+            m.addAction("Rotate (R)", self.rotate_selected)
+            m.addAction("Mirror (M)", self.mirror_selected)
             m.addAction("Delete", self.delete_selected)
         elif isinstance(it, WireItem):
             it.setSelected(True)
             m.addAction("Delete", self.delete_selected)
         else:
             sp = self.view.mapToScene(pos)
-            for t in ("R", "L", "C", "GND", "PORT", "TLIN"):
-                m.addAction(f"Add {CK.TYPES[t].label}", lambda t=t: self.place(t, snap(sp.x()), snap(sp.y())))
+            for cat in CK.CATEGORIES:
+                sub = m.addMenu(cat)
+                for t, info in CK.TYPES.items():
+                    if info.category == cat and t not in CK.NPORT_TYPES:
+                        sub.addAction(component_icon(t), info.label,
+                                      lambda t=t: self.place(t, snap(sp.x()), snap(sp.y())))
             m.addSeparator()
+            m.addAction("Fit All (F)", self.fit_all)
             m.addAction("Analyze", self.analyzeRequested.emit)
         m.exec(self.view.viewport().mapToGlobal(pos))
+
+
+LABELS = {"Z0": "Impedance Z0", "E": "Electrical length", "F": "at frequency", "Num": "Port number",
+          "Er": "Permittivity Er", "H": "Height H", "T": "Metal thickness T", "TanD": "Loss tangent",
+          "Cond": "Conductivity (S/m)", "W": "Width W", "S": "Spacing S", "L": "Length L", "Di": "Inner diameter",
+          "Do": "Outer diameter", "Subst": "Substrate", "Net": "Net name", "Loss": "Attenuation"}
 
 
 class ComponentDialog(QDialog):
     def __init__(self, doc, comp: CK.Component, parent=None):
         super().__init__(parent)
         self.doc, self.comp = doc, comp
-        self.setWindowTitle(f"{CK.TYPES[comp.type].label}: {comp.name}")
+        info = CK.TYPES[comp.type]
+        self.setWindowTitle(f"{info.label}: {comp.name}")
         lay = QVBoxLayout(self)
+        head = QLabel(info.help)
+        head.setWordWrap(True)
+        head.setStyleSheet(f"color: {MUTED};")
+        lay.addWidget(head)
         form = QFormLayout()
         self.name = QLineEdit(comp.name)
         form.addRow("Name", self.name)
@@ -724,10 +1067,16 @@ class ComponentDialog(QDialog):
             w.setLayout(row)
             form.addRow("File", w)
         else:
-            for k in CK.TYPES[comp.type].props:
-                e = QLineEdit(comp.props.get(k, CK.TYPES[comp.type].props[k]))
+            for k, default in info.props.items():
+                if k == "Subst":
+                    e = QComboBox()
+                    e.setEditable(True)
+                    e.addItems([o.name for o in doc.design.components if o.type == "SUBST"])
+                    e.setCurrentText(comp.props.get(k, default))
+                else:
+                    e = QLineEdit(comp.props.get(k, default))
                 self.fields[k] = e
-                form.addRow({"Z0": "Impedance Z0", "E": "Electrical length", "F": "at frequency"}.get(k, k), e)
+                form.addRow(LABELS.get(k, k), e)
         lay.addLayout(form)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self._ok)
@@ -739,12 +1088,18 @@ class ComponentDialog(QDialog):
         if path:
             self.file.setText(path)
 
+    def _text(self, e) -> str:
+        return (e.currentText() if isinstance(e, QComboBox) else e.text()).strip()
+
     def _ok(self) -> None:
         ev = self.doc.design.evaluator(self.doc.project)
         for k, e in self.fields.items():
-            msg = ev.check(e.text())
+            if k in ("Subst", "Net") or (k == "Num" and not self._text(e)):
+                continue
+            text = self._text(e).replace("dB", "") if k == "Loss" else self._text(e)
+            msg = ev.check(text)
             if msg:
-                QMessageBox.warning(self, "Component", f"{k}: {msg}")
+                QMessageBox.warning(self, "Component", f"{LABELS.get(k, k)}: {msg}")
                 return
         self.accept()
 
@@ -754,4 +1109,4 @@ class ComponentDialog(QDialog):
             return name, {"Design": self.design.currentText(), "Solution": self.solution.currentText()}
         if self.comp.type == "SNP":
             return name, {"File": self.file.text().strip()}
-        return name, {k: e.text().strip() for k, e in self.fields.items()}
+        return name, {k: self._text(e) for k, e in self.fields.items()}

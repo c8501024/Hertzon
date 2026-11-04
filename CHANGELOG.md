@@ -17,13 +17,20 @@ the GitHub release notes.
   choice, because a project can hold several designs, 3D and circuit designs mixed. The low-frequency solution
   types (electrostatic, DC conduction, magnetostatic, eddy current) and the transient and harmonic balance
   circuit analyses are shown greyed out as "not implemented yet".
-- **Circuit designs** (linear network): a schematic editor in place of the 3D modeler with resistors,
-  inductors, capacitors, ideal lines, ground, ports and Touchstone blocks. Draw wires on the grid (W), rotate
-  (R), double-click a part to edit its values (expressions with variables). **Drag a 3D design from the Project
-  Manager into the schematic**: it becomes a block with one pin per port and a picture of the structure, and
-  its solved S-parameters are used in the circuit (right-click > Update ports and picture after a change).
-  Analyze solves the network at once over the sweep of the circuit (1 to 10 GHz by default) and writes the
-  results like a 3D design, so the S-parameter reports, Touchstone export and Solution Data work the same way.
+- **Circuit designs** (linear network): a schematic editor in place of the 3D modeler, with its own ribbon
+  (Desktop, Schematic, Lumped Elements, Transmission Lines, Data, Simulation, Results) instead of the 3D ribbon
+  and a part library with search next to the schematic (drag a part in, or double-click and click to place; the
+  part follows the mouse, R rotates, M mirrors). Parts: power ports (source with internal resistance, port
+  number and impedance), ground, net labels; resistor, inductor, capacitor, series and parallel RLC, DC block,
+  DC feed, attenuator; ideal lines and open or shorted stubs; microstrip lines and stubs (Hammerstad-Jensen,
+  dispersion after Kirschning-Jansen, conductor and dielectric loss, open-end extension), coupled microstrip
+  (even and odd mode), stripline and coaxial line, all on a substrate part; Touchstone files. A wire ends on a
+  pin or another wire. Values are shown at each part and accept expressions with variables.
+  **Drag a 3D design from the Project Manager into the schematic**: it becomes a block with one pin per port and
+  a picture of the structure, and its solved S-parameters are used in the circuit (right-click > Update ports
+  and picture after a change). Analyze solves the network at once over the sweep of the circuit (1 to 10 GHz by
+  default) and writes the results like a 3D design, so the S-parameter reports, Touchstone export and Solution
+  Data work the same way.
 - **Design type in the project file**: every design stores its type (`"kind": "3d"` or `"circuit"`); files
   without it open as 3D designs.
 

@@ -17,6 +17,7 @@ import numpy as np
 from ..model import circuit as CK
 from ..model.design import Design, Project, Setup
 from .results import ResultStore, results_dir
+from . import tlines as TL
 from .sweeps import sweep_frequencies
 
 GMIN = 1e-12            # conductance from every node to ground: floating nodes stay solvable
@@ -142,13 +143,116 @@ class CircuitResult:
     warnings: list[str] = field(default_factory=list)
 
 
+def _params(c: CK.Component, ev, subst: dict) -> object:
+    """The evaluated values of a component (SI units), checked once before the frequency loop."""
+    p = c.props
+    t = c.type
+    if t in ("R", "L", "C"):
+        return ev.value(p[t])
+    if t in ("SRLC", "PRLC"):
+        return ev.value(p["R"]), ev.value(p["L"]), ev.value(p["C"])
+    if t == "ATTEN":
+        loss = ev.value(p.get("Loss", "3dB").replace("dB", "").strip() or "0")
+        return loss, ev.value(p.get("Z0", "50ohm"))
+    if t in ("TLIN", "TLOC", "TLSC"):
+        return ev.value(p["Z0"]), ev.angle(p["E"]), ev.freq(p["F"])
+    if t in CK.LINE_TYPES:
+        name = p.get("Subst", "")
+        if name not in subst:
+            raise CircuitError(f"no substrate named '{name}'. Place a Substrate (Transmission Lines) and "
+                               "enter its name.")
+        q = {k: ev.length(p[k]) for k in ("W", "S", "L") if k in p}
+        if q.get("W", 1) <= 0 or q.get("L", 1) < 0 or q.get("S", 1) <= 0:
+            raise CircuitError("W and S must be positive, L not negative")
+        return q, subst[name]
+    if t == "COAX":
+        q = {k: ev.length(p[k]) for k in ("Di", "Do", "L")}
+        q.update(er=ev.value(p["Er"]), tand=ev.value(p["TanD"]), cond=ev.value(p["Cond"]))
+        if not 0 < q["Di"] < q["Do"]:
+            raise CircuitError("the inner diameter must be smaller than the outer one")
+        return q
+    return None
+
+
+def _substrates(comps, ev) -> dict:
+    out = {}
+    for c in comps:
+        if c.type == "SUBST":
+            p = c.props
+            try:
+                sub = dict(er=ev.value(p["Er"]), h=ev.length(p["H"]), t=ev.length(p["T"]),
+                           tand=ev.value(p["TanD"]), cond=ev.value(p["Cond"]))
+            except Exception as e:  # noqa: BLE001
+                raise CircuitError(f"{c.name}: {e}") from e
+            if sub["er"] < 1 or sub["h"] <= 0:
+                raise CircuitError(f"{c.name}: Er must be at least 1 and H positive")
+            out[c.name] = sub
+    return out
+
+
+def element_y(c: CK.Component, f: float, v) -> np.ndarray | None:
+    """Admittance matrix of a component between its pins at frequency f; None for parts without one."""
+    w = 2 * np.pi * f
+    t = c.type
+    if t in ("R", "L", "C", "SRLC", "PRLC", "DCBLOCK", "DCFEED"):
+        if t == "R":
+            y = 1.0 / max(v, 1e-12)
+        elif t == "L":
+            y = 1.0 / (1j * w * max(v, 1e-30) + 1e-12)
+        elif t == "C":
+            y = 1j * w * v
+        elif t == "SRLC":
+            r, l, cc = v
+            z = r + 1j * w * l + (1 / (1j * w * cc) if cc > 0 and w > 0 else (0 if cc <= 0 else 1e12))
+            y = 1 / (z + 1e-12)
+        elif t == "PRLC":
+            r, l, cc = v
+            y = (1 / r if r > 0 else 1e12) + (1 / (1j * w * l) if l > 0 and w > 0 else (0 if l <= 0 else 1e12)) \
+                + 1j * w * cc
+        elif t == "DCBLOCK":
+            y = 1e12 if f > 0 else 0.0
+        else:
+            y = 0.0 if f > 0 else 1e12
+        return np.array([[y, -y], [-y, y]], complex)
+    if t == "ATTEN":
+        loss, z0 = v
+        k = 10 ** (-loss / 20)
+        S = np.array([[0, k], [k, 0]], complex)
+        return (np.eye(2) - S) @ np.linalg.inv(np.eye(2) + S) / z0
+    if t == "TLIN":
+        z0, e, f0 = v
+        return TL.line_y(z0, 1j * e * f / f0)
+    if t in ("TLOC", "TLSC"):
+        z0, e, f0 = v
+        return np.array([[TL.stub_y(z0, 1j * e * f / f0, t == "TLOC")]])
+    if t in ("MLIN", "MLOC", "MLSC"):
+        q, s = v
+        z0, g = TL.microstrip(f, q["W"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
+        if t == "MLIN":
+            return TL.line_y(z0, g * q["L"])
+        length = q["L"] + (TL.open_end_extension(q["W"], s["h"], s["t"], s["er"]) if t == "MLOC" else 0.0)
+        return np.array([[TL.stub_y(z0, g * length, t == "MLOC")]])
+    if t == "MCLIN":
+        q, s = v
+        even, odd = TL.coupled_microstrip(f, q["W"], q["S"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
+        return TL.coupled_y(even, odd, q["L"])
+    if t == "SLIN":
+        q, s = v
+        z0, g = TL.stripline(f, q["W"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
+        return TL.line_y(z0, g * q["L"])
+    if t == "COAX":
+        z0, g = TL.coax(f, v["Di"], v["Do"], v["er"], v["tand"], v["cond"])
+        return TL.line_y(z0, g * v["L"])
+    return None
+
+
 def analyze(project: Project, design: Design, freqs: np.ndarray) -> CircuitResult:
     ev = design.evaluator(project)
     comps, wires = design.components, design.wires
     ids, n = CK.nets(comps, wires)
-    ports = sorted([c for c in comps if c.type == "PORT"], key=lambda c: natural_key(c.name))
+    ports = CK.port_order(comps)
     if not ports:
-        raise CircuitError("The circuit has no port. Add a Port and connect it.")
+        raise CircuitError("The circuit has no port. Add a Power Port and connect it.")
     warnings: list[str] = []
     port_nodes, z_ref = [], []
     for c in ports:
@@ -178,18 +282,13 @@ def analyze(project: Project, design: Design, freqs: np.ndarray) -> CircuitResul
             if freqs.min() < lo * (1 - 1e-9) or freqs.max() > hi * (1 + 1e-9):
                 warnings.append(f"{c.name}: data cover {lo / 1e9:.6g} to {hi / 1e9:.6g} GHz; outside, the "
                                 "nearest point is used")
+    subst = _substrates(comps, ev)
     values = {}
     for c in comps:
-        p = c.props
         try:
-            if c.type == "R":
-                values[c.name] = ev.value(p["R"])
-            elif c.type == "L":
-                values[c.name] = ev.value(p["L"])
-            elif c.type == "C":
-                values[c.name] = ev.value(p["C"])
-            elif c.type == "TLIN":
-                values[c.name] = (ev.value(p["Z0"]), ev.angle(p["E"]), ev.freq(p["F"]))
+            values[c.name] = _params(c, ev, subst)
+        except CircuitError as e:
+            raise CircuitError(f"{c.name}: {e}") from e
         except Exception as e:  # noqa: BLE001
             raise CircuitError(f"{c.name}: {e}") from e
 
@@ -200,39 +299,19 @@ def analyze(project: Project, design: Design, freqs: np.ndarray) -> CircuitResul
     inner = np.array(sorted(set(range(n)) - set(pidx.tolist())), int)
     sq = np.sqrt(np.array(z_ref))
     for k, f in enumerate(freqs):
-        w = 2 * np.pi * f
         Y = np.zeros((n + 1, n + 1), complex)
-
-        def stamp2(a, b, y):
-            Y[a, a] += y
-            Y[b, b] += y
-            Y[a, b] -= y
-            Y[b, a] -= y
-
-        def stampN(nodes, Ym):
-            for i, a in enumerate(nodes):
-                for j, b in enumerate(nodes):
-                    Y[a, b] += Ym[i, j]
-
         for c in comps:
             nd = nodes_of[c.name]
-            if c.type == "R":
-                stamp2(nd[0], nd[1], 1.0 / max(values[c.name], 1e-12))
-            elif c.type == "L":
-                stamp2(nd[0], nd[1], 1.0 / (1j * w * max(values[c.name], 1e-30)))
-            elif c.type == "C":
-                stamp2(nd[0], nd[1], 1j * w * values[c.name])
-            elif c.type == "TLIN":
-                z0, e, f0 = values[c.name]
-                th = e * f / f0 - 1e-9j
-                stampN(nd, np.array([[-1j / np.tan(th), 1j / np.sin(th)],
-                                     [1j / np.sin(th), -1j / np.tan(th)]]) / z0)
-            elif c.type in CK.NPORT_TYPES:
+            if c.type in CK.NPORT_TYPES:
                 Sb, zb, _ = blocks[c.name].at(f)
                 m = Sb.shape[0]
                 r = 1.0 / np.sqrt(zb)
-                Yb = (r[:, None] * (np.eye(m) - Sb) @ np.linalg.inv(np.eye(m) + Sb)) * r[None, :]
-                stampN(nd, Yb)
+                Ym = (r[:, None] * (np.eye(m) - Sb) @ np.linalg.inv(np.eye(m) + Sb)) * r[None, :]
+            else:
+                Ym = element_y(c, f, values[c.name])
+            if Ym is None:
+                continue
+            Y[np.ix_(nd, nd)] += Ym
         Y = Y[1:, 1:] + GMIN * np.eye(n)
         Ypp = Y[np.ix_(pidx, pidx)]
         if inner.size:
