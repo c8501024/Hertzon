@@ -89,6 +89,22 @@ TYPES: dict[str, TypeInfo] = {
                      [(-30, 0), (30, 0), (0, 30)],
                      "T junction of microstrip lines (Hammerstad): W1 and W2 the main line, W3 the branch. The "
                      "lines attach at its edges", "Transmission Lines"),
+    "MCORN": TypeInfo("Microstrip Corner", "MCN", {**_SUB, "W": "1.1mm"}, [(-30, 0), (0, 30)],
+                      "90 degree corner of a microstrip line, not mitered (Kirschning, Jansen, Koster). The lines "
+                      "attach at the edges of the corner square", "Transmission Lines"),
+    "MMBEND": TypeInfo("Mitered Bend", "MB", {**_SUB, "W": "1.1mm"}, [(-30, 0), (0, 30)],
+                       "90 degree microstrip bend with a 50 % miter (Kirschning, Jansen, Koster). The lines attach "
+                       "at the edges of the corner square", "Transmission Lines"),
+    "MSTEP": TypeInfo("Microstrip Step", "MSP", {**_SUB, "W1": "2mm", "W2": "1.1mm"}, [(-30, 0), (30, 0)],
+                      "Width step from W1 to W2 at one reference plane", "Transmission Lines"),
+    "MGAP": TypeInfo("Microstrip Gap", "MG", {**_SUB, "W1": "1.1mm", "W2": "1.1mm", "S": "0.2mm"},
+                     [(-30, 0), (30, 0)], "Gap S between the open ends of two microstrip lines (Kirschning, Jansen)",
+                     "Transmission Lines"),
+    "MCROSS": TypeInfo("Microstrip Cross", "MX", {**_SUB, "W1": "1.1mm", "W2": "1.1mm", "W3": "1.1mm",
+                                                   "W4": "1.1mm"},
+                       [(-30, 0), (0, -30), (30, 0), (0, 30)],
+                       "Cross junction of microstrip lines: arms 1 and 3 opposite, 2 and 4 opposite. The lines "
+                       "attach at its edges", "Transmission Lines"),
     "SLIN": TypeInfo("Stripline", "SL", {**_SUB, "W": "0.4mm", "L": "10mm"}, [(-40, 0), (40, 0)],
                      "Centred stripline between two ground planes spaced H of the substrate", "Transmission Lines"),
     "COAX": TypeInfo("Coaxial Line", "CX", {"Di": "0.91mm", "Do": "2.98mm", "Er": "2.1", "TanD": "0.0002",
@@ -101,7 +117,8 @@ TYPES: dict[str, TypeInfo] = {
                    "S-parameters of a 3D design of this project, ports against ground", "Data"),
 }
 NPORT_TYPES = ("SNP", "EM")
-LINE_TYPES = ("MLIN", "MLOC", "MLSC", "MCLIN", "MTEE", "SLIN")
+LINE_TYPES = ("MLIN", "MLOC", "MLSC", "MCLIN", "MTEE", "MCORN", "MMBEND", "MSTEP", "MGAP", "MCROSS",
+              "SLIN")
 CATEGORIES = ("Basic", "Lumped Elements", "Transmission Lines", "Data")
 BLOCK_W = 100                       # width of an N-port block
 
@@ -317,3 +334,141 @@ def _simplify(pts: list[tuple[int, int]]) -> list[tuple[int, int]]:
             continue
         out.append(p)
     return out
+
+
+# ---- discontinuities found at the nodes ----------------------------------------------------------------------
+AUTO_ARMS = ("MLIN", "MLOC", "MLSC")          # lines whose meeting points get a junction model automatically
+AUTO = "AutoJunctions"                         # design setting: "False" switches the automatic junctions off
+
+
+@dataclass
+class Junction:
+    node: int
+    point: tuple[int, int]
+    type: str                                 # MCORN, MSTEP, MTEE or MCROSS
+    props: dict[str, str]
+    arms: list[tuple[str, int]]               # (component, pin) in the pin order of the junction part
+    rot: int = 0
+    mirror: bool = False
+
+    @property
+    def name(self) -> str:
+        return f"~{self.type}@{self.point[0]},{self.point[1]}"
+
+    def component(self) -> Component:
+        return Component(self.name, self.type, self.point[0], self.point[1], self.rot, dict(self.props), self.mirror)
+
+
+def _arm_dir(c: Component, k: int) -> tuple[int, int]:
+    """Schematic direction from pin k of a line into the line (unit axis vector)."""
+    p = pins(c)[k]
+    q = pins(c)[1 - k] if c.type == "MLIN" else (c.x, c.y)
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    if abs(dx) >= abs(dy):
+        return (1 if dx > 0 else -1), 0
+    return 0, (1 if dy > 0 else -1)
+
+
+def _width(text: str) -> float | None:
+    """A width as a comparable number (only literal values; None for expressions)."""
+    import re
+    m = re.fullmatch(r"\s*([0-9.eE+-]+)\s*(mm|um|mil|in|cm|m)?\s*", text or "")
+    if not m:
+        return None
+    try:
+        v = float(m.group(1))
+    except ValueError:
+        return None
+    return v * {"mm": 1e-3, "um": 1e-6, "mil": 2.54e-5, "in": 0.0254, "cm": 1e-2, "m": 1.0, None: 1e-3}[m.group(2)]
+
+
+def find_junctions(components: list[Component], wires: list[Wire]) -> list[Junction]:
+    """Where only microstrip lines of one substrate meet at a point: a corner (two lines at a right angle), a
+    width step (two lines in line with different widths), a tee (three) or a cross (four), with the widths of the
+    lines. A point that also touches another part (an explicit junction part, a port, a lumped part) has none."""
+    ids, _ = nets(components, wires)
+    at: dict[int, list[tuple[Component, int]]] = {}
+    for c in components:
+        for k, p in enumerate(pins(c)):
+            n = ids.get(p, 0)
+            if n:
+                at.setdefault(n, []).append((c, k))
+    point = {}
+    for c in components:
+        for p in pins(c):
+            point.setdefault(ids.get(p, 0), p)
+    out = []
+    for n, conns in at.items():
+        if len(conns) < 2 or any(c.type not in AUTO_ARMS for c, _ in conns):
+            continue
+        if len({c.props.get("Subst", "") for c, _ in conns}) != 1:
+            continue
+        arms = [(c, k, _arm_dir(c, k)) for c, k in conns]
+        dirs = [a[2] for a in arms]
+        if len(set(dirs)) != len(dirs):          # two lines on the same side: no junction model
+            continue
+        sub = {"Subst": conns[0][0].props.get("Subst", "")}
+        w = {c.name: c.props.get("W", "") for c, _ in conns}
+        if len(arms) == 2:
+            (c1, _, d1), (c2, _, d2) = arms
+            if d1[0] * d2[0] + d1[1] * d2[1] == 0:
+                jt, props, order = "MCORN", {**sub, "W": w[c1.name]}, arms
+            else:
+                a, b = _width(w[c1.name]), _width(w[c2.name])
+                if w[c1.name].strip() == w[c2.name].strip() or (a and b and abs(a / b - 1) < 0.02):
+                    continue
+                jt, props, order = "MSTEP", {**sub, "W1": w[c1.name], "W2": w[c2.name]}, arms
+        elif len(arms) == 3:
+            main = [(x, y) for i, x in enumerate(arms) for y in arms[i + 1:]
+                    if x[2][0] == -y[2][0] and x[2][1] == -y[2][1]]
+            if not main:
+                continue
+            a, b = main[0]
+            br = next(x for x in arms if x is not a and x is not b)
+            jt, order = "MTEE", [a, b, br]
+            props = {**sub, "W1": w[a[0].name], "W2": w[b[0].name], "W3": w[br[0].name]}
+        elif len(arms) == 4:
+            a = arms[0]
+            opp = next(x for x in arms if x[2] == (-a[2][0], -a[2][1]))
+            rest = [x for x in arms if x is not a and x is not opp]
+            jt, order = "MCROSS", [a, rest[0], opp, rest[1]]
+            props = {**sub, **{f"W{j + 1}": w[x[0].name] for j, x in enumerate(order)}}
+        else:
+            continue
+        j = Junction(n, point[n], jt, props, [(x[0].name, x[1]) for x in order])
+        want = [x[2] for x in order]               # the junction's pins must point along its lines
+        for mirror in (False, True):
+            for rot in (0, 90, 180, 270):
+                j.rot, j.mirror = rot, mirror
+                cc = j.component()
+                got = [(int((q[0] - cc.x) / 30), int((q[1] - cc.y) / 30)) for q in pins(cc)]
+                if got == want:
+                    break
+            else:
+                continue
+            break
+        else:
+            continue
+        out.append(j)
+    return out
+
+
+def netlist(components: list[Component], wires: list[Wire], auto: bool = True
+            ) -> tuple[list[Component], dict[str, list[int]], int, list[Junction]]:
+    """The parts with the node of each pin, the automatic junctions inserted: each line meeting at a junction
+    gets a node of its own, joined to the others by the junction part. Returns (parts, nodes of the pins of
+    each part, number of nodes without ground, junctions)."""
+    ids, n = nets(components, wires)
+    nodes_of = {c.name: [ids[q] for q in pins(c)] for c in components}
+    comps = list(components)
+    js = find_junctions(components, wires) if auto else []
+    for j in js:
+        jn = []
+        for name, k in j.arms:
+            n += 1
+            nodes_of[name][k] = n
+            jn.append(n)
+        cc = j.component()
+        comps.append(cc)
+        nodes_of[cc.name] = jn
+    return comps, nodes_of, n, js

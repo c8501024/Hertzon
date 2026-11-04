@@ -1,6 +1,7 @@
 """Schematic to 3D layout (model/circuit_layout.py) and the way back."""
 import pytest
 
+from hertzon.model import circuit as CK
 from hertzon.model import circuit_layout as CL
 from hertzon.model.circuit import TYPES
 from hertzon.model.circuit import Component as C
@@ -39,6 +40,7 @@ def test_line_stub_and_lumped_parts_are_laid_out_end_to_end():
                     _line("MS2", 120, 0, L="6mm"), C("R1", "R", 190, 0, 0, {"R": "20ohm"}),
                     C("C1", "C", 220, 30, 90, {"C": "1pF"}), C("G1", "GND", 220, 70),
                     C("TL1", "TLIN", 260, 0, 0, {"Z0": "50ohm", "E": "90deg", "F": "3GHz"}), P("Port2", 300, 0))
+    d.settings[CK.AUTO] = "False"                             # ideal nodes: lines from the node centre
     L, warn = CL.layout_design(p, d)
     assert L.kind == "3d" and L.settings[CL.LINK] == "Net"
     assert L.variables["MS1_L"] == "10mm" and L.variables["MSO1_W"] == "0.8mm" and L.variables["Sub1_H"] == "0.508mm"
@@ -106,7 +108,7 @@ def test_layout_meshes_without_errors():
                     _line("MS2", 120, 0), P("Port2", 160, 0))
     L, _ = CL.layout_design(p, d)
     p.designs.append(L)
-    assert L.has_obj("MSS1_Short")
+    assert L.has_obj("MSS1_Short") and L.has_obj("Tee1")              # the automatic tee at the stub
     tess, err = tessellate(p, L)
     assert not err
     assert all(c.level == "ok" for c in validate(p, L, tess, err))
@@ -124,3 +126,40 @@ def test_tee_is_laid_out_as_a_junction_with_the_lines_at_its_edges():
     assert _box(L, p, "MS2")[0] == 9.8
     assert _box(L, p, "MSO1") == (9, -8.55, 0.8, 8)                  # the branch starts at the main line edge
     assert not L.has_obj("Junction")
+
+
+def test_corner_bend_cross_step_and_gap_layouts():
+    from hertzon.mcp.tools import tessellate
+    from hertzon.model.validate import validate
+    sub = {"Subst": "Sub1"}
+    # Port1 -> MS1 -> cross -> MS2 -> step -> MS3 -> gap -> MS4 -> mitered bend (down) -> MS5 -> corner -> Port2
+    p, d = _circuit(P("Port1", 0, 0), _line("MS1", 40, 0, L="5mm"),
+                    C("MX1", "MCROSS", 110, 0, 0, {**sub, **{f"W{j}": "1.1mm" for j in range(1, 5)}}),
+                    _line("MSO1", 110, -70, 180, "MLOC", L="4mm"), _line("MSO2", 110, 70, ctype="MLOC", L="4mm"),
+                    _line("MS2", 180, 0, L="5mm"), C("ST1", "MSTEP", 250, 0, 0, {**sub, "W1": "1.1mm", "W2": "2mm"}),
+                    _line("MS3", 320, 0, W="2mm", L="5mm"),
+                    C("G1", "MGAP", 390, 0, 0, {**sub, "W1": "2mm", "W2": "2mm", "S": "0.3mm"}),
+                    _line("MS4", 460, 0, W="2mm", L="5mm"), C("B1", "MMBEND", 530, 0, 0, {**sub, "W": "2mm"}),
+                    _line("MS5", 530, 70, 90, W="2mm", L="5mm"),
+                    C("K1", "MCORN", 530, 140, 90, {**sub, "W": "2mm"}),
+                    P("Port2", 500, 140))
+    L, warn = CL.layout_design(p, d)
+    p.designs.append(L)
+    assert not warn, warn
+    assert _box(L, p, "MX1") == (5, -0.55, 1.1, 1.1)
+    assert _box(L, p, "MS2")[0] == 6.1
+    assert _box(L, p, "MSO1")[1] == 0.55 and _box(L, p, "MSO1")[3] == 4      # up from the crossing edge
+    assert _box(L, p, "MS3")[0] == 11.1                                     # the step has no length
+    assert _box(L, p, "MS4")[0] == 16.4                                     # after the 0.3 mm gap
+    assert L.obj("B1").history[0].kind == "CreatePolyline"
+    assert _box(L, p, "MS5") == (21.4, -6, 2, 5)                            # down from the bend edge
+    assert _box(L, p, "K1") == (21.4, -8, 2, 2)
+    tr = next(a for a in L.boundaries if a.name == "Copper_Traces")
+    assert len(tr.objects) == 2                                             # the gap splits the copper
+    tess, err = tessellate(p, L)
+    assert not err
+    assert all(c.level == "ok" for c in validate(p, L, tess, err))
+    from hertzon.solver.circuit import analyze
+    import numpy as np
+    r = analyze(p, d, np.array([2e9, 6e9]))
+    assert np.all(np.isfinite(r.S)) and np.allclose(r.S, r.S.transpose(0, 2, 1), atol=1e-9)

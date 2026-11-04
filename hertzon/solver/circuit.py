@@ -161,7 +161,7 @@ def _params(c: CK.Component, ev, subst: dict) -> object:
         if name not in subst:
             raise CircuitError(f"no substrate named '{name}'. Place a Substrate (Transmission Lines) and "
                                "enter its name.")
-        q = {k: ev.length(p[k]) for k in ("W", "S", "L", "W1", "W2", "W3") if k in p}
+        q = {k: ev.length(p[k]) for k in ("W", "S", "L", "W1", "W2", "W3", "W4") if k in p}
         if any(v <= 0 for k, v in q.items() if k != "L") or q.get("L", 1) < 0:
             raise CircuitError("W and S must be positive, L not negative")
         return q, subst[name]
@@ -239,6 +239,18 @@ def element_y(c: CK.Component, f: float, v) -> np.ndarray | None:
     if t == "MTEE":
         q, s = v
         return TL.tee_y(f, q["W1"], q["W2"], q["W3"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
+    if t in ("MCORN", "MMBEND"):
+        q, s = v
+        return TL.corner_y(f, q["W"], s["h"], s["er"], t == "MMBEND")
+    if t == "MSTEP":
+        q, s = v
+        return TL.step_y(f, q["W1"], q["W2"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
+    if t == "MGAP":
+        q, s = v
+        return TL.gap_y(f, q["W1"], q["W2"], q["S"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
+    if t == "MCROSS":
+        q, s = v
+        return TL.cross_y(f, (q["W1"], q["W2"], q["W3"], q["W4"]), s["h"], s["t"], s["er"], s["tand"], s["cond"])
     if t == "SLIN":
         q, s = v
         z0, g = TL.stripline(f, q["W"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
@@ -249,10 +261,14 @@ def element_y(c: CK.Component, f: float, v) -> np.ndarray | None:
     return None
 
 
+def auto_junctions(design: Design) -> bool:
+    return design.settings.get(CK.AUTO, "True") != "False"
+
+
 def analyze(project: Project, design: Design, freqs: np.ndarray) -> CircuitResult:
     ev = design.evaluator(project)
-    comps, wires = design.components, design.wires
-    ids, n = CK.nets(comps, wires)
+    ids, _ = CK.nets(design.components, design.wires)
+    comps, nodes_of, n, _ = CK.netlist(design.components, design.wires, auto_junctions(design))
     ports = CK.port_order(comps)
     if not ports:
         raise CircuitError("The circuit has no port. Add a Power Port and connect it.")
@@ -295,7 +311,6 @@ def analyze(project: Project, design: Design, freqs: np.ndarray) -> CircuitResul
         except Exception as e:  # noqa: BLE001
             raise CircuitError(f"{c.name}: {e}") from e
 
-    nodes_of = {c.name: [ids[q] for q in CK.pins(c)] for c in comps}
     P = len(ports)
     S_out = np.zeros((len(freqs), P, P), complex)
     pidx = np.array(port_nodes) - 1

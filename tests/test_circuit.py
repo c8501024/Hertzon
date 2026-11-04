@@ -278,3 +278,64 @@ def test_microstrip_tee():
     f = np.linspace(4.8e9, 5.6e9, 81)
     s21 = abs(analyze(p, d, f).S[:, 1, 0])
     assert 5.18e9 < f[np.argmin(s21)] < 5.28e9                                   # full wave: 5.25 GHz
+
+
+def test_properties_panel_line_calculator_and_tooltip(monkeypatch):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from hertzon.gui.circuit_editor import CircuitEditor, ComponentDialog, ComponentItem
+    from hertzon.gui.doc import Document
+    from hertzon.gui.panels import PropertiesPanel
+    p = Project()
+    d = Design(name="Net", kind="circuit")
+    d.setups.append(circuit_setup())
+    p.designs.append(d)
+    doc = Document(p)
+    doc.set_design("Net")
+    ed = CircuitEditor(doc)
+    panel = PropertiesPanel(doc)
+    ed.componentsSelected.connect(lambda names: panel.show_component(names[0]) if names else panel.clear())
+    ed.place("MLIN", 0, 0)
+    line = next(c for c in d.components if c.type == "MLIN")
+    it = next(i for i in ed.scene.items() if isinstance(i, ComponentItem) and i.comp is line)
+    assert "Z0 = 49.7" in it.toolTip()                       # 1.1 mm on the default substrate at 5.5 GHz
+    it.setSelected(True)
+    assert panel.target == ("component", "MS1")
+    grid = panel.tabs.widget(0)
+    grid.changed.emit("W", "1.5mm")
+    assert line.props["W"] == "1.5mm" and doc.dirty
+    grid.changed.emit("Name", "Feed")
+    assert line.name == "Feed" and panel.target == ("component", "Feed")
+    dlg = ComponentDialog(doc, line)
+    dlg.calc_z0.setText("35ohm")
+    dlg._synthesize()
+    _, vals = dlg.values()
+    assert vals["W"] == "1.885mm" and "Z0 = 35.0" in dlg.info.text() and "E = 90.0" in dlg.info.text()
+
+
+def test_automatic_junctions():
+    s = {"Subst": "Sub1", "W": "1.1mm", "L": "5mm"}
+    line = lambda n, x, y, rot=0, t="MLIN", **q: C(n, t, x, y, rot, {**s, **q})  # noqa: E731
+    found = lambda *cs: [(j.type, j.props) for j in CK.find_junctions(list(cs), [])]  # noqa: E731
+    assert found(line("A", 40, 0), line("B", 120, 0, W="2mm"), line("S", 80, 40, t="MLOC")) == \
+        [("MTEE", {"Subst": "Sub1", "W1": "1.1mm", "W2": "2mm", "W3": "1.1mm"})]
+    assert found(line("A", 40, 0), line("B", 80, 40, 90))[0][0] == "MCORN"
+    assert found(line("A", 40, 0), line("B", 120, 0, W="2mm"))[0][0] == "MSTEP"
+    assert found(line("A", 40, 0), line("B", 120, 0)) == []                       # same width in line: nothing
+    assert found(line("A", 40, 0), line("B", 120, 0), line("S", 80, 40, t="MLOC"),
+                 line("T", 80, -40, 180, t="MLOC"))[0][0] == "MCROSS"
+    assert found(line("A", 40, 0), C("R1", "R", 110, 0)) == []                    # another part: no model
+    # the tee's pins point along its lines whatever the drawing
+    j = CK.find_junctions([line("A", 40, 0), line("B", 120, 0), line("S", 80, -40, 180, t="MLOC")], [])[0]
+    cc = j.component()
+    assert sorted(CK.pins(cc)) == sorted([(50, 0), (110, 0), (80, -30)])
+    # in the analysis: the automatic tee is the same as the explicit one, and switching it off differs
+    sub = C("Sub1", "SUBST", 0, 200, props=dict(CK.TYPES["SUBST"].props))
+    p, d = _circuit(P("Port1", 0, 0), sub, line("MS1", 40, 0, L="9.45mm"), line("MSO1", 80, 40, t="MLOC", L="8.45mm"),
+                    line("MS2", 120, 0, L="9.45mm"), P("Port2", 160, 0))
+    f = np.array([4e9, 5.23e9, 6e9])
+    auto = analyze(p, d, f).S
+    d.settings[CK.AUTO] = "False"
+    off = analyze(p, d, f).S
+    assert abs(auto[1, 1, 0]) < 0.03 < abs(off[1, 1, 0])                         # the notch moves with the tee

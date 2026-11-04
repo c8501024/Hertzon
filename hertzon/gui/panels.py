@@ -123,6 +123,58 @@ class PropertiesPanel(QWidget):
         if command_index is None:
             self.tabs.setCurrentWidget(g)
 
+    def show_component(self, name: str) -> None:
+        """A part of a circuit design: its name and values, edited in place."""
+        from ..model import circuit as CK
+        self.clear()
+        des = self.doc.design
+        comp = next((c for c in des.components if c.name == name), None)
+        if comp is None:
+            return
+        info = CK.TYPES[comp.type]
+        self.target = ("component", name)
+        self.title.setText(f"{name} ({info.label})")
+        hidden = ("Thumbnail", "PortNames", "Ports")
+        subs = tuple(c.name for c in des.components if c.type == "SUBST")
+        length = {"W", "S", "L", "H", "T", "W1", "W2", "W3", "W4", "Di", "Do", "G"}
+        props = [schema.P("Name", "text", name)]
+        for k in [*info.props, *[k for k in comp.props if k not in info.props]]:
+            if k in hidden:
+                continue
+            if k == "Subst":
+                props.append(schema.P(k, "choice", "", label="Substrate", choices=subs or ("",)))
+            elif k in ("Net", "Num", "File", "Design", "Solution"):
+                props.append(schema.P(k, "text", ""))
+            else:
+                props.append(schema.P(k, "length" if k in length else "expr", ""))
+        vals = {"Name": name, **{k: v for k, v in comp.props.items() if k not in hidden}}
+
+        def ch(k, v):
+            c = next((o for o in self.doc.design.components if o.name == self.target[1]), None)
+            if c is None:
+                return
+            v = v.strip()
+            if k == "Name":
+                if not v or v == c.name:
+                    return
+                if any(o.name == v for o in self.doc.design.components):
+                    self.doc.message.emit("error", f"A component named {v} exists already")
+                    return
+                self.doc.checkpoint()
+                if c.type == "SUBST":                  # the lines follow a renamed substrate
+                    for o in self.doc.design.components:
+                        if o.props.get("Subst") == c.name:
+                            o.props["Subst"] = v
+                c.name = v
+                self.target = ("component", v)
+            else:
+                if c.props.get(k) == v:
+                    return
+                self.doc.checkpoint()
+                c.props[k] = v
+            self.doc.commit("circuit", geometry=False)
+        self._grid(info.label, props, vals, ch)
+
     def show_assignment(self, family: str, name: str) -> None:
         self.clear()
         try:
