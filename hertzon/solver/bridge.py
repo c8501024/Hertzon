@@ -2113,6 +2113,7 @@ class Bridge:
         n = max(1, int(p.get("NumberOfModes", "3")))
         t = time.time()
         found: list[complex] = []
+        fields = {}         # eigenfrequency -> its field data (the mode's FEM solution)
         fs = fmin
         for k in range(EIGEN_SEARCHES):
             emit("progress", value=30 + 60 * k / EIGEN_SEARCHES,
@@ -2122,6 +2123,7 @@ class Bridge:
                 f = complex(getattr(fld, "freq", 0))
                 if f.real >= fmin * (1 - 1e-6) and all(abs(f - g) > 1e-6 * abs(f) for g in found):
                     found.append(f)
+                    fields[f] = fld
             found.sort(key=lambda f: f.real)
             if len(found) >= n and found[n - 1].real <= fs:
                 break
@@ -2132,11 +2134,44 @@ class Bridge:
             if len(found) < n:
                 warn(f"Eigenmode: {len(found)} of {n} modes found above {fmin / 1e9:.4g} GHz "
                      f"(searched up to {fs / 1e9:.4g} GHz)")
-        modes = [{"freq": f.real, "Q": f.real / (2 * f.imag) if f.imag else float("inf")} for f in found[:n]]
+        # lossless: the imaginary part is round-off (of either sign), Q is infinite
+        modes = [{"freq": f.real, "Q": f.real / (2 * f.imag) if abs(f.imag) > 1e-12 * f.real else float("inf")}
+                 for f in found[:n]]
         self.store.write_json("eigenmodes.json", modes)
         self.save_mesh()
+        if modes:
+            self.save_eigen_fields([fields[f] for f in found[:n]])
         self.step("Eigenmode", t)
         info("Eigenmodes: " + ", ".join("%.5g GHz" % (x["freq"] / 1e9) for x in modes))
+
+    def save_eigen_fields(self, flds: list) -> None:
+        """The field of every eigenmode as solution 'LastAdaptive': mode k is frequency index k (its
+        eigenfrequency), with one excitation (number 1), so field plots, the fields calculator and animations
+        show it like a driven solution. An eigenvector has no amplitude of its own: each mode is scaled to
+        unit norm and turned in phase so that its largest coefficient is real (phase 0 shows the mode's
+        strongest E field)."""
+        from .lazy_fields import solution_arrays
+
+        class _Mode:            # the eigenmode as the solution of one excitation, at its real frequency
+            def __init__(self, fld):
+                v = np.asarray(fld._field, np.complex128)
+                i = int(np.argmax(np.abs(v)))
+                nrm = np.linalg.norm(v)
+                self._field = v * (np.exp(-1j * np.angle(v[i])) / nrm if nrm else 1.0)
+                self.freq = float(np.real(fld.freq))
+                self._dur = fld._dur
+                self.basis = fld.basis
+
+        try:
+            modes = [_Mode(f) for f in flds]
+            quad = np.asarray(self.m.mesh.tets).shape[1] * len(modes) <= 600_000
+            self.store.save_npz("solution_LastAdaptive.npz",
+                                **solution_arrays(self.m, modes, [{"number": 1, "kind": "Eigenmode"}],
+                                                  lambda fld, port: None, quad, self.curved_mesh()))
+            (self.store.folder / "fields_LastAdaptive.npz").unlink(missing_ok=True)   # an older solve's fields
+            info("Eigenmode fields saved (solution 'LastAdaptive', one frequency per mode)")
+        except Exception as ex:  # noqa: BLE001
+            warn(f"Eigenmode fields not saved, field plots are not available: {ex}")
 
 
 def _solver_stats(row: dict, step: int) -> None:
