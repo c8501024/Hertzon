@@ -319,3 +319,13 @@ All Python packages Hertzon uses and their licences are listed in [docs/THIRD_PA
 Hertzon is provided "as is", without any warranty and without liability for damages, as set out in
 sections 11 and 12 of the GPL. Simulation results can be wrong. Check them yourself (measurements,
 analytical estimates or a second tool) before you rely on them for a design, a product or a decision.
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=c8501024%2Fhertzon&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=c8501024/hertzon&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=c8501024/hertzon&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=c8501024/hertzon&type=date&legend=top-left" />
+ </picture>
+</a>
