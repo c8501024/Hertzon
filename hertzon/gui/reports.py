@@ -28,6 +28,8 @@ from ..solver.expressions import (network, split_trace, output_variables, _FUNCS
                                   eval_expr, eval_trace, with_pairs)
 
 ANTENNA_KINDS = ("Antenna Parameters", "Antenna Parameters Table")
+EIGEN_KIND = "Eigenmode Table"        # the eigenfrequencies and Q of an eigenmode solution, one row per mode
+EIGEN_QUANTITIES = ["Freq", "Q"]
 
 ETA0 = 376.730313668
 FUNCS = ["dB", "mag", "ang_deg", "ang_rad", "re", "im", "dB10"]
@@ -277,8 +279,27 @@ def rcs_solution_list(doc) -> list[str]:
     return out
 
 
+def eigen_solution_list(doc) -> list[str]:
+    """The solved eigenmode setups ('Setup : LastAdaptive')."""
+    if not doc.project.path:
+        return []
+    return [f"{s.name} : LastAdaptive" for s in doc.design.setups
+            if ResultStore(result_dir(doc, s.name)).read_json("eigenmodes.json")]
+
+
+def eigen_table(doc, solution: str) -> list[dict]:
+    """The modes of an eigenmode solution: [{"freq": Hz, "Q": ...}], lowest first."""
+    setup = solution.partition(":")[0].strip()
+    modes = ResultStore(result_dir(doc, setup)).read_json("eigenmodes.json")
+    if not modes:
+        raise RuntimeError(f"No eigenmodes for '{setup}': analyze the eigenmode setup first")
+    return modes
+
+
 def report_solution_list(doc, kind: str) -> list[str]:
     """The solutions a report of this kind can show."""
+    if kind == EIGEN_KIND:
+        return eigen_solution_list(doc)
     if kind in ANTENNA_KINDS:
         return antenna_solution_list(doc)
     if kind.startswith("Monostatic RCS"):
@@ -559,7 +580,7 @@ class ReportWindow(QWidget):
         super().__init__(parent)
         self.doc = doc
         self.report = report
-        if report.kind not in ("Smith Chart", "Radiation Pattern", "3D Polar Plot", "Near Field Line") \
+        if report.kind not in ("Smith Chart", "Radiation Pattern", "3D Polar Plot", "Near Field Line", EIGEN_KIND) \
                 + ANTENNA_KINDS and not report.kind.startswith("Monostatic RCS"):
             report.traces[:] = [explicit_magnitude(t) for t in report.traces]
         self.markers: list[float] = [float(x) for x in report.props.get("markers", "").split(",") if x.strip()]
@@ -650,6 +671,15 @@ class ReportWindow(QWidget):
                 self.sphere.setCurrentText(report.props["sphere"])
             self.sphere.currentTextChanged.connect(self._sphere_changed)
             form.addRow("Far field setup:", self.sphere)
+        elif report.kind == EIGEN_KIND:
+            self.sol.blockSignals(True)
+            self.sol.clear()
+            self.sol.addItems(eigen_solution_list(doc) or [report.solution])
+            self.sol.setCurrentText(report.solution)
+            self.sol.blockSignals(False)
+            self.cat.addItems(["Eigenmode Parameters"])
+            self.qty.addItems(EIGEN_QUANTITIES)
+            self.func.addItems(["<none>"])
         elif report.kind == "Near Field Line":
             self.cat.addItems(["Near Fields"])
             self.qty.addItems(NF_QUANTITIES)
@@ -706,7 +736,7 @@ class ReportWindow(QWidget):
         self.numbering.setWordWrap(True)
         self.numbering.setVisible(False)
         ll.addWidget(self.numbering)
-        if report.kind not in ("Radiation Pattern", "3D Polar Plot"):
+        if report.kind not in ("Radiation Pattern", "3D Polar Plot", EIGEN_KIND):
             er = QHBoxLayout()
             self.expr = QLineEdit()
             self.expr.setPlaceholderText("Expression, e.g. mag(S(2,1))^2 or an output variable")
@@ -767,7 +797,7 @@ class ReportWindow(QWidget):
         split.addWidget(scroll)
         right = QWidget()
         rl = QVBoxLayout(right)
-        if report.kind in ("Data Table", "Monostatic RCS Table", "Antenna Parameters Table"):
+        if report.kind in ("Data Table", "Monostatic RCS Table", "Antenna Parameters Table", EIGEN_KIND):
             self.table = QTableWidget()
             self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
             rl.addWidget(self.table)
@@ -1018,7 +1048,7 @@ class ReportWindow(QWidget):
                 self.qty.setItemData(k, tip, Qt.ToolTipRole)
 
     def _fill_qty(self, *_):
-        if self.report.kind in ("Radiation Pattern", "3D Polar Plot", "Near Field Line") + ANTENNA_KINDS \
+        if self.report.kind in ("Radiation Pattern", "3D Polar Plot", "Near Field Line", EIGEN_KIND) + ANTENNA_KINDS \
                 or self.report.kind.startswith("Monostatic RCS"):
             return
         self.qty.clear()
@@ -1671,6 +1701,9 @@ class ReportWindow(QWidget):
             f, xl, _, cols, _ = self._rcs_series()
             return ((p.get("xlabel") if kind != "Monostatic RCS Table" else None) or xl,
                     [(tr + (" [dBsm]" if tr.startswith(("dB10", "dBsm")) else " [m²]"), f, y) for tr, y in cols])
+        if kind == EIGEN_KIND:
+            n, cols = self._eigen_series()
+            return "Mode", [(h, n.astype(float), y) for h, y in cols]
         if kind == "Near Field Line":
             x, xl, cols, _ = self._near_series()
             return xl, [(with_unit(self.doc, tr), x, y) for tr, y in cols]
@@ -1851,6 +1884,8 @@ class ReportWindow(QWidget):
                 self._draw_rcs()
             elif self.report.kind == "Near Field Line":
                 self._draw_near()
+            elif self.report.kind == EIGEN_KIND:
+                self._draw_eigen()
             elif self.report.kind in ("Data Table", "Antenna Parameters Table"):
                 self._draw_table()
             elif self.report.kind == "Smith Chart":
@@ -2112,6 +2147,26 @@ class ReportWindow(QWidget):
             v = d[name]
             cols.append((tr, 10 * np.log10(np.maximum(v, 1e-300)) if func in ("dB10", "dBsm") else v))
         return f, ("Pass" if passes else "Freq [GHz]"), passes, cols, d
+
+    def _eigen_series(self) -> tuple[np.ndarray, list[tuple[str, np.ndarray]]]:
+        """Mode numbers and the columns of the traces (Freq in GHz, Q; a lossless mode has Q = inf)."""
+        modes = eigen_table(self.doc, self.sol.currentText())
+        vals = {"Freq": np.array([m["freq"] / 1e9 for m in modes]),
+                "Q": np.array([float(m["Q"]) for m in modes])}
+        heads = {"Freq": "Freq [GHz]", "Q": "Q"}
+        return np.arange(1, len(modes) + 1), [(heads[t], vals[t]) for t in self.report.traces if t in vals]
+
+    def _draw_eigen(self) -> None:
+        n, cols = self._eigen_series()
+        self.table.setColumnCount(len(cols) + 1)
+        self.table.setHorizontalHeaderLabels(["Mode"] + [c[0] for c in cols])
+        self.table.setRowCount(len(n))
+        for r in range(len(n)):
+            self.table.setItem(r, 0, QTableWidgetItem(str(int(n[r]))))
+            for c, (h, y) in enumerate(cols):
+                txt = "infinite (lossless)" if np.isinf(y[r]) else f"{y[r]:.6g}"
+                self.table.setItem(r, c + 1, QTableWidgetItem(txt))
+        self.info.setText(f"{len(n)} eigenmodes of {self.sol.currentText()}")
 
     def _draw_rcs(self) -> None:
         f, xl, passes, cols, d = self._rcs_series()
