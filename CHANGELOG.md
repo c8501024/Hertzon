@@ -5,6 +5,8 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.2.13 (2026-11-04)
+
 ### Added
 - **Optimizer "Latin Hypercube + Nelder-Mead"** (Optimization > Add Optimization > Optimizer): solves a Latin
   hypercube sample of the variable ranges and the start design in parallel, then runs Nelder-Mead chains from
