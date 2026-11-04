@@ -132,7 +132,8 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    (`RL = -dB(S(1,1))`) or the fields (`P_in = flux(Port1, re(S))`, losses, energies, Q), typed in a
    typeset formula editor, shown in reports, **Fields reports** and field plots
    ([tutorial](docs/TUTORIAL.md#8-your-own-quantities-with-equations)).
-   **Optimization** (conjugate gradient on report goals, or the **Derivative Trust Region**, which minimizes
+   **Optimization** (conjugate gradient on report goals, a Latin hypercube sample followed by parallel
+   Nelder-Mead chains for a global search, or the **Derivative Trust Region**, which minimizes
    the goals on the derivative tuning model and checks each step with a solve) and **Parametric** sweeps of
    design variables. **Apply to Design** on an evaluation shows its solution without solving again.
    **Derivative tuning**: sliders for design variables, and S-parameters, patterns and antenna parameters
@@ -318,3 +319,13 @@ All Python packages Hertzon uses and their licences are listed in [docs/THIRD_PA
 Hertzon is provided "as is", without any warranty and without liability for damages, as set out in
 sections 11 and 12 of the GPL. Simulation results can be wrong. Check them yourself (measurements,
 analytical estimates or a second tool) before you rely on them for a design, a product or a decision.
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=c8501024%2Fhertzon&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=c8501024/hertzon&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=c8501024/hertzon&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=c8501024/hertzon&type=date&legend=top-left" />
+ </picture>
+</a>

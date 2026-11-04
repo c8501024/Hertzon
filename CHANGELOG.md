@@ -5,6 +5,31 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.2.13 (2026-11-04)
+
+### Added
+- **Optimizer "Latin Hypercube + Nelder-Mead"** (Optimization > Add Optimization > Optimizer): solves a Latin
+  hypercube sample of the variable ranges and the start design in parallel, then runs Nelder-Mead chains from
+  the best distinct sample points side by side, each with its own evaluation budget. Needs no gradient and finds
+  good designs far from the start values (antennas with several resonances, rough costs). Settings on the
+  Nelder-Mead tab: sample designs, chains, evaluations per chain, initial simplex step, tolerance, random seed.
+
+### Changed
+- **Solver comparison shows the solver start separately**: the time before the first phase (starting the
+  solver process) is its own segment in the chart and its own column in the table, and the fastest solver,
+  the "Others" times and the comparison with the first solver leave it out. The first run of a benchmark loads
+  the libraries from disk (18.3 s against 1.4 s for the second run in a test), which made the first solver
+  look 46 % slower instead of 19 %.
+
+### Fixed
+- **Interpolating sweep**: the rational model of the solved frequencies now uses the fewest pole pairs that
+  reproduce them, instead of a pole count from the number of samples. Smooth responses (waveguides, lines)
+  no longer get surplus poles far off the band, which made the fit singular ("Ill Conditioned Matrix" warning)
+  and let the model follow solver noise between the samples. Same number of solutions on the examples, equal or
+  lower interpolation error.
+- **Showcase H_TwoModeWaveguide**: the band is now 10.3 to 11.8 GHz. Above 11.95 GHz TE11 and TM11 propagate
+  in the 22.86 x 15 mm guide as well, which the two-mode ports do not absorb.
+
 ## 0.2.12 (2026-11-03)
 
 ### Added

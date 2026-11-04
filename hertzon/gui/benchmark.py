@@ -20,8 +20,9 @@ from .solve import solver_python
 TAG = "@@HZN "
 COLUMNS = ["Run", "Cores", "Sweep processes", "Total (s)", "Initial mesh (s)", "Adaptive passes (s)", "Sweep (s)",
            "Passes", "Tetrahedra", "Peak memory (MB)", "Speedup", "Efficiency"]
-SOLVER_COLUMNS = ["Solver", "Cores", "Parallel frequencies", "Total (s)", "Initial mesh (s)", "Adaptive passes (s)",
-                  "Sweep (s)", "Sweep solves", "Passes", "Tetrahedra", "Peak memory (MB)", "Total vs. first",
+SOLVER_COLUMNS = ["Solver", "Cores", "Parallel frequencies", "Total (s)", "Solver start (s)", "Initial mesh (s)",
+                  "Adaptive passes (s)", "Sweep (s)", "Sweep solves", "Passes", "Tetrahedra", "Peak memory (MB)",
+                  "Without start vs. first",
                   "Sweep on same mesh (s)", "Solves on same mesh", "Largest |dS|", "Note"]
 # the solvers the comparison offers ("Auto" is one of them, chosen per problem), and the ones it starts with
 COMPARE = [s for s in schema.SOLVERS if s != "Auto"]
@@ -85,6 +86,12 @@ def solver_runs(result: dict) -> tuple[list[dict], dict, list[dict]]:
         [r for r in runs if r.get("kind") == "parallel"]
 
 
+def solve_time(r: dict) -> float:
+    """Total time of a run without starting the solver process: the first run of a benchmark loads the
+    libraries from disk, which says nothing about its solver."""
+    return r["total"] - r.get("start", 0.0)
+
+
 def same_mesh_sweeps(result: dict) -> list[tuple[str, int, dict]]:
     """(solver, parallel frequencies, run) of every sweep on the reference mesh. Results measured before the
     reference solver solved its sweeps there once more take its sweep time from its own run."""
@@ -120,16 +127,17 @@ def note_text(r: dict, same: dict | None = None) -> str:
 def solver_recommendation(result: dict) -> tuple[str, str | None]:
     """(text, fastest solver) from a solver comparison."""
     runs, same, par = solver_runs(result)
-    runs = [r for r in runs if r["total"] > 0]
+    runs = [r for r in runs if solve_time(r) > 0]
     if not runs:
         return "", None
-    first, best = runs[0], min(runs, key=lambda r: r["total"])
-    lines = [f"Fastest with {best['cores']} cores: <b>{best['solver']}</b>, {best['total']:.0f} s"
-             + (f", {100 * (1 - best['total'] / first['total']):.0f} % faster than {first['solver']}."
-                if best is not first else ".")]
+    first, best = runs[0], min(runs, key=solve_time)
+    lines = [f"Fastest with {best['cores']} cores: <b>{best['solver']}</b>, {solve_time(best):.0f} s"
+             + (f", {100 * (1 - solve_time(best) / solve_time(first)):.0f} % faster than {first['solver']}"
+                if best is not first else "")
+             + " (without starting the solver process, which the first run pays for loading the libraries)."]
     others = [r for r in runs if r is not best]
     if others:
-        lines.append("Others: " + ", ".join(f"{r['solver']} {r['total']:.0f} s" for r in others) + ".")
+        lines.append("Others: " + ", ".join(f"{r['solver']} {solve_time(r):.0f} s" for r in others) + ".")
     sweeps = same_mesh_sweeps(result)
     seq = [(sv, r) for sv, w, r in sweeps if w == 1]
     if seq:
@@ -415,21 +423,21 @@ class BenchmarkDialog(QDialog):
             ref_row = first is not None and r is first
             if sm is None and ref_row and old_ref:
                 sm = r                              # older results: the reference's own sweep
-            vs = f"{r['total'] / first['total']:.2f}x" if first and first["total"] and at_top else ""
+            vs = f"{solve_time(r) / solve_time(first):.2f}x" if first and solve_time(first) > 0 and at_top else ""
             if ref_row and sweeps:
                 ds = "reference"
             elif sm is not None and sm is not r:
                 ds = f"{max(sm.get('ds_max', {}).values(), default=float('nan')):.1e}"
             else:
                 ds = ""
-            rows.append([r["solver"], str(r["cores"]), "1", f"{r['total']:.1f}", f"{r['mesh']:.1f}",
-                         f"{r['adaptive']:.1f}", f"{r['sweep']:.1f}", solves_text(r), str(r["passes"]),
+            rows.append([r["solver"], str(r["cores"]), "1", f"{r['total']:.1f}", f"{r.get('start', 0.0):.1f}",
+                         f"{r['mesh']:.1f}", f"{r['adaptive']:.1f}", f"{r['sweep']:.1f}", solves_text(r), str(r["passes"]),
                          str(r["tets"]), f"{r['memory_mb']:.0f}", vs,
                          f"{sm['sweep']:.1f}" if sm else "", solves_text(sm) if sm is not r else "", ds,
                          note_text(r, sm if sm is not r else None)])
         for r in par:
             ds = max(r.get("ds_max", {}).values(), default=float("nan"))
-            rows.append([r["solver"], str(r["cores"]), str(r["workers"]), "", "", "", "", "", "", "", "", "",
+            rows.append([r["solver"], str(r["cores"]), str(r["workers"]), "", "", "", "", "", "", "", "", "", "",
                          f"{r['sweep']:.1f}", solves_text(r), f"{ds:.1e}", note_text(r)])
         self.stable.setRowCount(len(rows))
         for i, row in enumerate(rows):
@@ -445,9 +453,10 @@ class BenchmarkDialog(QDialog):
             y = list(range(len(top)))[::-1]
             ax1 = self.sfig.add_subplot(121 if sweeps else 111)
             left = [0.0] * len(top)
-            # the rest of the total: starting the solver process, geometry, ports, writing the results
-            rest = [max(0.0, r["total"] - r["mesh"] - r["adaptive"] - r["sweep"]) for r in top]
-            for vals, lab, col in (([r["mesh"] for r in top], "Initial mesh", None),
+            # the rest of the total: geometry, ports, writing the results
+            start = [r.get("start", 0.0) for r in top]
+            rest = [max(0.0, r["total"] - r.get("start", 0.0) - r["mesh"] - r["adaptive"] - r["sweep"]) for r in top]
+            for vals, lab, col in ((start, "Solver start", "#e0e0e0"), ([r["mesh"] for r in top], "Initial mesh", None),
                                    ([r["adaptive"] for r in top], "Adaptive passes", None),
                                    ([r["sweep"] for r in top], "Sweep", None), (rest, "Other", "#bbbbbb")):
                 ax1.barh(y, vals, left=left, height=0.6, label=lab, color=col)
@@ -460,7 +469,7 @@ class BenchmarkDialog(QDialog):
             ax1.set_xlim(0, 1.15 * max(r["total"] for r in top))
             ax1.set_ylim(-0.6, len(top) + 0.2)        # room for the legend above the bars
             ax1.set_title(f"Whole setup, {top[0]['cores']} cores", fontsize=10)
-            ax1.legend(fontsize=8, loc="upper center", ncol=4, frameon=False)
+            ax1.legend(fontsize=7, loc="upper center", ncol=5, frameon=False, columnspacing=0.8)
             ax1.grid(True, axis="x", alpha=0.3)
             if sweeps:
                 # one frequency at a time first, then each solver's parallel runs below it
