@@ -4261,7 +4261,8 @@ class MainWindow(QMainWindow):
         ff = bool(d.spheres) and (ports or pw)
         return {"modal": ports and stype == "Modal", "terminal": ports and stype == "Terminal",
                 "farfield": ff, "antenna": bool(d.spheres) and ports, "rcs": bool(d.spheres) and pw,
-                "near": bool(d.setups) and stype != "Eigenmode", "fields": bool(d.setups)}
+                "near": bool(d.setups) and stype != "Eigenmode", "fields": bool(d.setups),
+                "eigen": bool(d.setups) and (stype == "Eigenmode" or any(s.eigen for s in d.setups))}
 
     def _fill_report_menu(self, m) -> None:
         """Results > Create ... Report, only the categories this design can produce."""
@@ -4278,6 +4279,8 @@ class MainWindow(QMainWindow):
         plots = [("Rectangular Plot", lambda: self.create_report("Rectangular")),
                  ("Smith Chart", lambda: self.create_report("Smith Chart")),
                  ("Data Table", lambda: self.create_report("Data Table"))]
+        if av["eigen"]:
+            sub("Create Eigenmode Parameters Report", [("Data Table", lambda: self.create_report("Eigenmode Table"))])
         if av["modal"]:
             sub("Create Modal Solution Data Report", plots)
         if av["terminal"]:
@@ -4345,6 +4348,12 @@ class MainWindow(QMainWindow):
             traces = ["dB(PeakGain)", "dB(PeakRealizedGain)", "dB(PeakDirectivity)"] if kind == "Antenna Parameters" \
                 else ["dB(PeakDirectivity)", "dB(PeakGain)", "dB(PeakRealizedGain)", "RadiationEfficiency",
                       "RadiatedPower", "AcceptedPower", "dB(FrontToBackRatio)", "dB(AxialRatioAtMax)"]
+        elif kind == "Eigenmode Table":
+            from .reports import eigen_solution_list
+            esols = eigen_solution_list(self.doc)
+            eig = next((s.name for s in self.des.setups if s.eigen), self.des.setups[0].name if self.des.setups else "")
+            sol = esols[0] if esols else f"{eig} : LastAdaptive"
+            traces = ["Freq", "Q"]
         elif kind == "Near Field Line":
             traces = ["mag(NearETotal)"]
             sol = next((s for s in sols if s.endswith("LastAdaptive")), sol)
@@ -4354,7 +4363,7 @@ class MainWindow(QMainWindow):
                   "Radiation Pattern": "Radiation Pattern", "3D Polar Plot": "3D Polar Plot",
                   "Near Field Line": "Near Field", "Monostatic RCS": "Monostatic RCS",
                   "Monostatic RCS Table": "Monostatic RCS Table", "Antenna Parameters": "Antenna Parameters Plot",
-                  "Antenna Parameters Table": "Antenna Parameters Table"}[kind]
+                  "Antenna Parameters Table": "Antenna Parameters Table", "Eigenmode Table": "Eigenmode Table"}[kind]
         if kind == "Radiation Pattern" and (props or {}).get("plot") == "Rectangular":
             prefix = "Far Field Plot"
         names = {r.name for r in self.des.reports}

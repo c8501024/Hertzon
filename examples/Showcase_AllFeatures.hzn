@@ -1495,6 +1495,12 @@
       "InitialStep": "0.15",
       "GradientTolerance": "0.0001",
       "MaxLineTrials": "16",
+      "Samples": "24",
+      "Chains": "4",
+      "ChainEvaluations": "40",
+      "SimplexStep": "0.08",
+      "SimplexTolerance": "0.005",
+      "Seed": "1",
       "TrustRadius": "0.6",
       "MaxRounds": "10",
       "TuningPoints": "51"
@@ -1572,6 +1578,12 @@
       "InitialStep": "0.1",
       "GradientTolerance": "0.0001",
       "MaxLineTrials": "16",
+      "Samples": "24",
+      "Chains": "4",
+      "ChainEvaluations": "40",
+      "SimplexStep": "0.08",
+      "SimplexTolerance": "0.005",
+      "Seed": "1",
       "TrustRadius": "0.5",
       "MaxRounds": "8",
       "TuningPoints": "41"
@@ -2558,7 +2570,18 @@
     }
    ],
    "spheres": [],
-   "reports": [],
+   "reports": [
+    {
+     "name": "Eigenmodes",
+     "kind": "Eigenmode Table",
+     "solution": "Eigen1 : LastAdaptive",
+     "traces": [
+      "Freq",
+      "Q"
+     ],
+     "props": {}
+    }
+   ],
    "field_plots": [
     {
      "name": "E_Mid",
@@ -5526,6 +5549,12 @@
       "InitialStep": "0.1",
       "GradientTolerance": "0.0001",
       "MaxLineTrials": "16",
+      "Samples": "24",
+      "Chains": "4",
+      "ChainEvaluations": "40",
+      "SimplexStep": "0.08",
+      "SimplexTolerance": "0.005",
+      "Seed": "1",
       "TrustRadius": "0.6",
       "MaxRounds": "10",
       "TuningPoints": "51"

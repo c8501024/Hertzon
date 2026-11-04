@@ -6,6 +6,8 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Eigenmode Parameters report**: Results > Create Eigenmode Parameters Report > Data Table lists the
+  eigenfrequencies and Q of an eigenmode solution, one row per mode (exportable as CSV, copy to clipboard).
 - **Solve on a computer reached over SSH**: Tools > Options > Remote > Connection *SSH login* with `user@host`
   (or a host of `~/.ssh/config`) and an optional key file. Hertzon logs in, starts its remote service there if
   it does not run yet (installed Hertzon, or the solver image with Docker) and solves through an SSH tunnel:

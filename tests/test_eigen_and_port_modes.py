@@ -115,3 +115,22 @@ def test_two_mode_wave_port_absorbs_modes_with_different_propagation_constants(t
     k0 = 2 * np.pi * 12e9 / 299792458.0
     beta = [np.sqrt(k0 ** 2 - (np.pi / 22.86e-3) ** 2), np.sqrt(k0 ** 2 - (np.pi / 15e-3) ** 2)]
     assert np.allclose(np.imag(z["gamma"][0]), beta * 2, rtol=0.01)
+
+
+def test_eigenmode_table_report_lists_the_modes(tmp_path, monkeypatch):
+    """Results > Eigenmode Parameters Report > Data Table: one row per mode, frequency in GHz and Q."""
+    import numpy as np
+
+    from hertzon.gui import reports as R
+    folder = tmp_path / "Eigen1"
+    folder.mkdir()
+    (folder / "eigenmodes.json").write_text(json.dumps([{"freq": 8.25e9, "Q": float("inf")},
+                                                        {"freq": 11.9e9, "Q": 2000.0}]))
+    monkeypatch.setattr(R, "result_dir", lambda doc, setup: tmp_path / setup)
+    p, d = _cavity()
+    p.path = str(tmp_path / "p.hzn")
+    d.setups.append(Setup("Eigen1", props=schema.defaults(schema.EIGEN_SETUP), eigen=True))
+    doc = type("Doc", (), {"project": p, "design": d})()
+    assert R.eigen_solution_list(doc) == ["Eigen1 : LastAdaptive"]
+    modes = R.eigen_table(doc, "Eigen1 : LastAdaptive")
+    assert [m["freq"] for m in modes] == [8.25e9, 11.9e9] and np.isinf(modes[0]["Q"])
