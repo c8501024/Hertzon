@@ -5,6 +5,16 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Start page** (File > New and at program start): choose what to simulate, **3D FEM** or **Circuit**, with a
+  symbol for each, then the solution type (Modal, Terminal, Eigenmode), the units and the project name. On the
+  right: recent projects, the examples and the patch and hairpin templates. **Empty Project** keeps the old
+  behaviour; **Show at startup** switches the page off at program start. Project > Insert Design shows the same
+  choice, because a project can hold several designs. Circuit designs and the low-frequency solution types
+  (electrostatic, DC conduction, magnetostatic, eddy current) are shown greyed out as "not implemented yet".
+- **Design type in the project file**: every design stores its type (`"kind": "3d"` or `"circuit"`); files
+  without it open as 3D designs.
+
 ## 0.2.13 (2026-11-04)
 
 ### Added

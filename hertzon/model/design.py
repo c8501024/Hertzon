@@ -213,6 +213,7 @@ class ParametricSetup:
 class Design:
     name: str = "Design1"
     units: str = "mm"
+    kind: str = "3d"            # design type: "3d" (3D FEM) or "circuit" (schematic, not implemented yet)
     settings: dict[str, str] = field(default_factory=lambda: schema.defaults(schema.DESIGN_SETTINGS))
     variables: dict[str, str] = field(default_factory=dict)
     objects: list[GeoObject] = field(default_factory=list)
@@ -391,7 +392,7 @@ def _assign(d: dict) -> Assignment:
 
 
 def design_from_dict(d: dict) -> Design:
-    des = Design(name=d.get("name", "Design1"), units=d.get("units", "mm"))
+    des = Design(name=d.get("name", "Design1"), units=d.get("units", "mm"), kind=d.get("kind", "3d"))
     des.settings.update(d.get("settings", {}))
     des.variables = dict(d.get("variables", {}))
     for o in d.get("objects", []):
