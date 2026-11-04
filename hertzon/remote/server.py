@@ -606,7 +606,8 @@ def serve(host: str = "0.0.0.0", port: int = DEFAULT_PORT, cores: int = 0, sweep
     service = Service(workdir, token, cores, sweep_workers)
     srv = make_server(service, host, port)
     service.port = port
-    disc = start_discovery(service, port)
+    # only loopback (behind an SSH tunnel): nothing to announce in the network
+    disc = None if host in ("127.0.0.1", "localhost", "::1") else start_discovery(service, port)
     names = [socket.gethostname()] + addresses()
     print(f"Hertzon {__version__} remote service, {service.cores} cores, work folder {workdir}")
     print("Address for Tools > Options > Remote: " + "  or  ".join(f"{n}:{port}" for n in names))

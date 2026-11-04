@@ -871,11 +871,37 @@ class OptionsDialog(QDialog):
         self.remoteInfo.connect(self._hpc_remote_state)
         self.remote_on.toggled.connect(lambda on: self._hpc_remote_state() if not on else self._ask_remote())
         f.addRow("", self.remote_on)
+        from ..remote.ssh import DEFAULT_COMMAND
+        self.remote_mode = QComboBox()
+        self.remote_mode.addItem("Pairing (Hertzon service in the network)", "service")
+        self.remote_mode.addItem("SSH login", "ssh")
+        self.remote_mode.setCurrentIndex(max(0, self.remote_mode.findData(s.value("remote/mode", "service"))))
+        f.addRow("Connection", self.remote_mode)
         crow = QHBoxLayout()
         crow.addWidget(self.remote_addr, 1)
         crow.addWidget(self.remote_find)
         f.addRow("Computer", crow)
         f.addRow("Token", self.remote_token)
+        self.ssh_target = QLineEdit(s.value("remote/ssh_target", ""))
+        self.ssh_target.setPlaceholderText("user@host, user@host:2222 or a host of ~/.ssh/config")
+        self.ssh_key = QLineEdit(s.value("remote/ssh_key", ""))
+        self.ssh_key.setPlaceholderText("empty: the SSH agent and the keys of ~/.ssh")
+        browse = QPushButton("Browse ...")
+        browse.clicked.connect(self._ssh_browse_key)
+        krow = QHBoxLayout()
+        krow.addWidget(self.ssh_key, 1)
+        krow.addWidget(browse)
+        self.ssh_start = QComboBox()
+        self.ssh_start.addItem("Hertzon installed there: start it with the command", "python")
+        self.ssh_start.addItem("Docker there: run the solver image of this version", "docker")
+        self.ssh_start.setCurrentIndex(max(0, self.ssh_start.findData(s.value("remote/ssh_start", "python"))))
+        self.ssh_command = QLineEdit(s.value("remote/ssh_command", DEFAULT_COMMAND) or DEFAULT_COMMAND)
+        self.ssh_command.setToolTip("Runs Hertzon's remote module on that computer, default: where the\n"
+                                    "Linux installer puts it; after pip install: python3 -m hertzon.remote")
+        f.addRow("SSH login", self.ssh_target)
+        f.addRow("Key file", krow)
+        f.addRow("Hertzon there", self.ssh_start)
+        f.addRow("Command", self.ssh_command)
         row = QHBoxLayout()
         row.addWidget(self.remote_test)
         row.addWidget(self.remote_state, 1)
@@ -885,6 +911,19 @@ class OptionsDialog(QDialog):
                       "shown there. Address and token can also be entered by hand.")
         hint.setWordWrap(True)
         f.addRow(hint)
+        self.ssh_hint = QLabel(
+            "For computers you can log in to with SSH (Linux or macOS: a workstation, a rented server). "
+            "Hertzon logs in, starts its remote service there if it does not run yet and connects through an "
+            "SSH tunnel, so nothing but SSH is reachable from the network. The login must work without a "
+            "password prompt (SSH agent, a key without passphrase, or the key file above); test it once with "
+            "<tt>ssh user@host</tt> in a terminal. The service keeps running there when Hertzon closes.")
+        self.ssh_hint.setWordWrap(True)
+        f.addRow(self.ssh_hint)
+        self._remote_form = f
+        self._remote_rows = {"service": [crow, self.remote_token, hint],
+                             "ssh": [self.ssh_target, krow, self.ssh_start, self.ssh_command, self.ssh_hint]}
+        self.remote_mode.currentIndexChanged.connect(lambda _i: self._remote_mode_changed())
+        self.ssh_start.currentIndexChanged.connect(lambda _i: self._remote_mode_changed())
 
         from PySide6.QtWidgets import QApplication
         share = QGroupBox("Share this computer: let other Hertzon installations solve here")
@@ -923,6 +962,7 @@ class OptionsDialog(QDialog):
         g.addRow(note)
         f.addRow(share)
         self._share_status()
+        self._remote_mode_changed()
         tabs.addTab(rem, "Remote")
         tabs.addTab(self._cloud_tab(s), "Cloud")
         self._ask_remote() if self.remote_on.isChecked() else self._hpc_remote_state()
@@ -1391,13 +1431,43 @@ class OptionsDialog(QDialog):
         except RemoteError as ex:
             self.cloud_state.setText(str(ex))
 
+    def _ssh_mode(self) -> bool:
+        return self.remote_mode.currentData() == "ssh"
+
+    def _remote_where(self) -> str:
+        return (self.ssh_target if self._ssh_mode() else self.remote_addr).text().strip()
+
+    def _remote_mode_changed(self) -> None:
+        mode = self.remote_mode.currentData()
+        for key, items in self._remote_rows.items():
+            for it in items:
+                self._remote_form.setRowVisible(it, key == mode)
+        if mode == "ssh":
+            self._remote_form.setRowVisible(self.ssh_command, self.ssh_start.currentData() == "python")
+        self.remote_state.setText("")
+        self._remote_info = None
+        self._hpc_remote_state()
+
+    def _ssh_browse_key(self) -> None:
+        from pathlib import Path
+        from PySide6.QtWidgets import QFileDialog
+        start = self.ssh_key.text() or str(Path.home() / ".ssh")
+        path, _ = QFileDialog.getOpenFileName(self, "SSH key", start, "All files (*)")
+        if path:
+            self.ssh_key.setText(path)
+
+    def _ssh_host(self):
+        from ..remote.ssh import SSHHost, SSHSession
+        return SSHHost(SSHSession(self.ssh_target.text(), self.ssh_key.text(), self.ssh_start.currentData(),
+                                  self.ssh_command.text()))
+
     def _ask_remote(self) -> None:
         """Fetch the HPC settings of the remote computer in the background (shown on the HPC tab)."""
         import threading
         from ..remote.client import RemoteError, RemoteHost
         self._hpc_remote_state()
         addr, tok = self.remote_addr.text(), self.remote_token.text()
-        if not addr.strip():
+        if not addr.strip() or self._ssh_mode():        # SSH: Test Connection asks (it may start the service)
             return
 
         def ask():
@@ -1417,7 +1487,7 @@ class OptionsDialog(QDialog):
         if info is not None:
             self._remote_info = info
         cloud = getattr(self, "cloud_on", None) is not None and self.cloud_on.isChecked()
-        on = cloud or (self.remote_on.isChecked() and bool(self.remote_addr.text().strip()))
+        on = cloud or (self.remote_on.isChecked() and bool(self._remote_where()))
         for w in (self.all_cores, self.workers):
             w.setEnabled(not on)
         self.cores.setEnabled(not on and not self.all_cores.isChecked())
@@ -1430,7 +1500,7 @@ class OptionsDialog(QDialog):
                 "sweep processes. A setup's <i>Solver threads</i> and matrix solver travel with the project and "
                 "still apply.<br>The fields below are for analyses on this computer.")
             return
-        addr = self.remote_addr.text().strip()
+        addr = self._remote_where()
         info = self._remote_info
         if isinstance(info, dict):
             cores, cpus = info.get("cores"), info.get("cpus")
@@ -1440,6 +1510,8 @@ class OptionsDialog(QDialog):
             where = f"<b>{info.get('host') or addr}</b>"
         elif isinstance(info, str):
             where, values = f"<b>{addr}</b>", f"not reachable now ({info})"
+        elif self._ssh_mode():
+            where, values = f"<b>{addr}</b>", "<i>Test Connection</i> (Remote tab) shows them"
         else:
             where, values = f"<b>{addr}</b>", "asking ..."
         self.hpc_remote.setText(
@@ -1455,7 +1527,13 @@ class OptionsDialog(QDialog):
         from ..remote.client import RemoteError, RemoteHost
         QApplication.setOverrideCursor(_Qt.WaitCursor)
         try:
-            info = RemoteHost(self.remote_addr.text(), self.remote_token.text(), timeout=10).info()
+            if self._ssh_mode():
+                host = self._ssh_host()
+                host.ensure()
+                info = host.info()
+                host.session.close()
+            else:
+                info = RemoteHost(self.remote_addr.text(), self.remote_token.text(), timeout=10).info()
         except RemoteError as ex:
             self.remote_state.setText(str(ex))
             return
@@ -1476,6 +1554,11 @@ class OptionsDialog(QDialog):
         s.setValue("remote/enabled", self.remote_on.isChecked())
         s.setValue("remote/address", self.remote_addr.text().strip())
         s.setValue("remote/token", self.remote_token.text().strip())
+        s.setValue("remote/mode", self.remote_mode.currentData())
+        s.setValue("remote/ssh_target", self.ssh_target.text().strip())
+        s.setValue("remote/ssh_key", self.ssh_key.text().strip())
+        s.setValue("remote/ssh_start", self.ssh_start.currentData())
+        s.setValue("remote/ssh_command", self.ssh_command.text().strip())
         self._cloud_store()
         h, a, g = self._cloud_vals["hetzner"], self._cloud_vals["aws"], self._cloud_vals["gcp"]
         z = self._cloud_vals["azure"]

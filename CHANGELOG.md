@@ -5,6 +5,15 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Solve on a computer reached over SSH**: Tools > Options > Remote > Connection *SSH login* with `user@host`
+  (or a host of `~/.ssh/config`) and an optional key file. Hertzon logs in, starts its remote service there if
+  it does not run yet (installed Hertzon, or the solver image with Docker) and solves through an SSH tunnel:
+  no pairing and no open port besides SSH. Pairing in the local network stays as it is. See docs/REMOTE.md.
+
+### Changed
+- The remote service no longer answers network discovery when it listens only on the loopback address.
+
 ## 0.2.13 (2026-11-04)
 
 ### Added

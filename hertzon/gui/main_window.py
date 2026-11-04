@@ -1324,7 +1324,7 @@ class MainWindow(QMainWindow):
         if box is None:
             return
         s = self.settings
-        addr = str(s.value("remote/address", "") or "")
+        addr = self._remote_label()
         box.blockSignals(True)
         box.clear()
         box.addItem("This computer", "local")
@@ -1337,7 +1337,8 @@ class MainWindow(QMainWindow):
         box.addItem("Remote computer ..." if not addr else "Other remote computer ...", "setup-remote")
         box.addItem("Cloud ...", "setup-cloud")
         r = self.solver.remote
-        now = "local" if r is None else ("cloud" if hasattr(r, "ensure") else "remote")
+        from ..remote.cloud import CloudHost
+        now = "local" if r is None else ("cloud" if isinstance(r, CloudHost) else "remote")
         box.setCurrentIndex(max(0, box.findData(now)))
         box.blockSignals(False)
 
@@ -1351,9 +1352,34 @@ class MainWindow(QMainWindow):
         self.settings.setValue("cloud/enabled", what == "cloud")
         self.apply_hpc_settings()
         r = self.solver.remote
+        from ..remote.cloud import CloudHost
         self.msgs.add("info", "Analyses run on this computer" if r is None else f"Analyses run on {r.address}"
                       + (" (the server is created with the first analysis and deleted when idle)"
-                         if hasattr(r, "ensure") else ""))
+                         if isinstance(r, CloudHost) else ""))
+
+    def _remote_label(self) -> str:
+        """The remote computer of Tools > Options > Remote ('' if none): its address, or user@host for SSH."""
+        s = self.settings
+        if str(s.value("remote/mode", "service") or "service") == "ssh":
+            return str(s.value("remote/ssh_target", "") or "").strip()
+        return str(s.value("remote/address", "") or "").strip()
+
+    def ssh_session(self):
+        """The SSH session of Tools > Options > Remote (kept while its settings do not change, so the tunnel
+        is reused)."""
+        from ..remote.ssh import DEFAULT_COMMAND, SSHSession
+        s = self.settings
+        key = (str(s.value("remote/ssh_target", "") or "").strip(), str(s.value("remote/ssh_key", "") or "").strip(),
+               str(s.value("remote/ssh_start", "python") or "python"),
+               str(s.value("remote/ssh_command", DEFAULT_COMMAND) or DEFAULT_COMMAND).strip())
+        old = getattr(self, "_ssh", None)
+        if old is not None and old[0] == key:
+            return old[1]
+        if old is not None:
+            old[1].close()
+        session = SSHSession(*key)
+        self._ssh = (key, session)
+        return session
 
     def options(self, tab: str = "") -> None:
         from .dialogs import OptionsDialog
@@ -1484,14 +1510,21 @@ class MainWindow(QMainWindow):
             pass
         self.solver.remote = None
         s = self.settings
-        addr = str(s.value("remote/address", "") or "")
+        addr = self._remote_label()
         from ..remote.cloud import providers
         if s.value("cloud/enabled", False, type=bool) and providers.configured(s.value):
             from ..remote.cloud import CloudHost
             self.solver.remote = CloudHost(self.cloud_session())
         elif s.value("remote/enabled", False, type=bool) and addr:
-            from ..remote.client import RemoteHost
-            self.solver.remote = RemoteHost(addr, str(s.value("remote/token", "") or ""))
+            from ..remote.client import RemoteError, RemoteHost
+            if str(s.value("remote/mode", "service") or "service") == "ssh":
+                from ..remote.ssh import SSHHost
+                try:
+                    self.solver.remote = SSHHost(self.ssh_session())
+                except RemoteError as ex:           # an invalid user@host
+                    self.msgs.add("error", str(ex))
+            else:
+                self.solver.remote = RemoteHost(addr, str(s.value("remote/token", "") or ""))
         self._fill_solve_on()
 
     def cloud_session(self):
@@ -1916,6 +1949,8 @@ class MainWindow(QMainWindow):
             if self.solver.busy:
                 self.solver.abort()
             self._delete_cloud_server()
+            if getattr(self, "_ssh", None) is not None:
+                self._ssh[1].close()            # the SSH tunnel; the service there keeps running
             self._drop_autosave()
             self.ai_link.stop()
             ev.accept()
