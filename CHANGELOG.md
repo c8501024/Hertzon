@@ -10,6 +10,14 @@ the GitHub release notes.
   (or a host of `~/.ssh/config`) and an optional key file. Hertzon logs in, starts its remote service there if
   it does not run yet (installed Hertzon, or the solver image with Docker) and solves through an SSH tunnel:
   no pairing and no open port besides SSH. Pairing in the local network stays as it is. See docs/REMOTE.md.
+- **Start page** (File > New and at program start): choose what to simulate, **3D FEM** or **Circuit**, with a
+  symbol for each, then the solution type (Modal, Terminal, Eigenmode), the units and the project name. On the
+  right: recent projects, the examples and the patch and hairpin templates. **Empty Project** keeps the old
+  behaviour; **Show at startup** switches the page off at program start. Project > Insert Design shows the same
+  choice, because a project can hold several designs. Circuit designs and the low-frequency solution types
+  (electrostatic, DC conduction, magnetostatic, eddy current) are shown greyed out as "not implemented yet".
+- **Design type in the project file**: every design stores its type (`"kind": "3d"` or `"circuit"`); files
+  without it open as 3D designs.
 
 ### Changed
 - The remote service no longer answers network discovery when it listens only on the loopback address.

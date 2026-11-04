@@ -93,7 +93,8 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
 
 ## The workflow
 
-1. **Project > Insert Design**, then **Simulation > Solution Type**: Modal, Terminal or Eigenmode,
+1. **File > New** or **Project > Insert Design** asks for the design type (3D FEM; Circuit is planned) and the
+   solution type: Modal, Terminal or Eigenmode (Simulation > Solution Type changes it later),
    with **Auto Open** (radiation or PML chosen automatically) or **Auto Open - Filter**
    (air box with fixed margin and a radiation boundary, for filters and other closed-ish circuits).
 2. **Draw** boxes, cylinders, spheres, cones, tori, polyhedra, rectangles, circles, ellipses,

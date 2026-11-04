@@ -1623,11 +1623,46 @@ class MainWindow(QMainWindow):
         self._update_title()
 
     def file_new(self) -> None:
+        """File > New: the start page asks what to simulate (3D FEM or Circuit, solution type)."""
         if self.maybe_save():
-            p = Project()
-            for d in p.designs:
-                d.units = self.settings.value("modeler/default_units", d.units)
-            self.set_project(p)
+            self.start_page()
+
+    def _empty_project(self, units: str | None = None, name: str = "") -> Project:
+        p = Project()
+        if name:
+            p.name = name
+        for d in p.designs:
+            d.units = units or self.settings.value("modeler/default_units", d.units)
+        return p
+
+    def start_page(self) -> None:
+        """The start page of File > New and of the program start. Cancel keeps the current project; at the
+        start that is the empty project Hertzon opens with."""
+        from .start_page import StartPageDialog
+        dlg = StartPageDialog(self, "new", self.settings, recent=self.settings.value("recent", [], type=list),
+                              examples=example_projects(),
+                              default_units=self.settings.value("modeler/default_units", "mm"))
+        if dlg.exec() != QDialog.Accepted or dlg.choice is None:
+            return
+        c = dlg.choice
+        if c.action in ("open", "example"):
+            self.file_open(c.path, as_copy=c.action == "example")
+            return
+        p = self._empty_project(c.units, c.name)
+        if c.action == "create":
+            p.designs[0].kind = c.kind
+            p.designs[0].settings["SolutionType"] = c.solution_type
+        self.set_project(p)
+        if c.action == "template":
+            before = list(p.designs)
+            (self.antenna_patch if c.template == "patch" else self.filter_hairpin)()
+            if len(p.designs) > 1 and not before[0].objects:
+                # the template replaces the empty first design of the new project
+                p.designs.remove(before[0])
+                self.doc.undo_stack.clear()
+                self.doc.commit("all", geometry=False)
+                self.doc.dirty = False
+                self._update_title()
 
     def file_open(self, path: str | None = None, as_copy: bool = False) -> None:
         """Open a project; as_copy opens it untitled (examples), so saving asks for a new file."""
@@ -5516,15 +5551,28 @@ class MainWindow(QMainWindow):
         self.doc.commit("all", geometry=False)
 
     def insert_design(self) -> None:
-        self.doc.checkpoint()
+        """Project > Insert Design: the same choice as the start page (3D FEM or Circuit, solution type)."""
+        from .start_page import StartPageDialog
         names = {d.name for d in self.doc.project.designs}
         i = 1
         while f"Design{i}" in names:
             i += 1
-        self.doc.project.designs.append(Design(name=f"Design{i}", units=self.settings.value("modeler/default_units", "mm")))
+        dlg = StartPageDialog(self, "insert", self.settings, default_name=f"Design{i}",
+                              default_units=self.settings.value("modeler/default_units", "mm"))
+        if dlg.exec() != QDialog.Accepted or dlg.choice is None:
+            return
+        c = dlg.choice
+        name = c.name or f"Design{i}"
+        if name in names:
+            QMessageBox.warning(self, "Insert Design", f"A design named {name} exists already.")
+            return
+        d = Design(name=name, units=c.units, kind=c.kind)
+        d.settings["SolutionType"] = c.solution_type
+        self.doc.checkpoint()
+        self.doc.project.designs.append(d)
         self.doc.commit("all", geometry=False)
         self._close_reports()
-        self.doc.set_design(f"Design{i}")
+        self.doc.set_design(name)
 
     def filter_hairpin(self) -> None:
         """Tools > Filter Design > Tapped Hairpin: inserts the parametrized filter as a new design."""
