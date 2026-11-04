@@ -5,7 +5,163 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- **Solver comparison shows the solver start separately**: the time before the first phase (starting the
+  solver process) is its own segment in the chart and its own column in the table, and the fastest solver,
+  the "Others" times and the comparison with the first solver leave it out. The first run of a benchmark loads
+  the libraries from disk (18.3 s against 1.4 s for the second run in a test), which made the first solver
+  look 46 % slower instead of 19 %.
+
+### Fixed
+- **Interpolating sweep**: the rational model of the solved frequencies now uses the fewest pole pairs that
+  reproduce them, instead of a pole count from the number of samples. Smooth responses (waveguides, lines)
+  no longer get surplus poles far off the band, which made the fit singular ("Ill Conditioned Matrix" warning)
+  and let the model follow solver noise between the samples. Same number of solutions on the examples, equal or
+  lower interpolation error.
+- **Showcase H_TwoModeWaveguide**: the band is now 10.3 to 11.8 GHz. Above 11.95 GHz TE11 and TM11 propagate
+  in the 22.86 x 15 mm guide as well, which the two-mode ports do not absorb.
+
+## 0.2.12 (2026-11-03)
+
 ### Added
+- **PCB stackup** (Modeler > PCB Stackup): the layer stack of a board, with copper and dielectric layers, thicknesses as expressions (also `1oz`), materials from the library or new ones, and for copper the
+  choice between sheet and solid (with the material that fills the gaps between the traces). The editor shows
+  the cross-section (schematic or true scale, with a z ruler) and the top view of the selected layer with
+  rulers, the detected board size and a two-click measurement. Every value shows where it came from (file,
+  assumed, template, suggestion, user). Suspicious values are marked in the table and the cross-section, with
+  the reason as a tooltip and a suggestion on right-click: missing values, unit mix-ups (mm/µm, mil, ounces,
+  loss tangent in percent), implausible values, layers in a wrong order. There is no list of problems and
+  nothing is blocked; the sum of the layers is shown next to the stated board thickness. Matching materials are suggested by name or by εr and tan δ. Gerber job files (.gbrjob) are read
+  with their stackup; what a job file lacks is filled with marked assumptions, legend and paste layers are not
+  loaded (and the notes say so). Solder mask layers of a job file are shown in the cross-section, marked as
+  not implemented yet, and are not simulated. Stackups can be saved and opened as `.hzstack` files.
+- **Automatic tests**: the test suite runs on Linux for every pull request and every push to `dev` and `main`
+  (`.github/workflows/tests.yml`).
+- **CONTRIBUTING.md**: how to report problems, ask questions, set up a development environment, run the tests
+  and open a pull request.
+
+### Fixed
+- Windows setup: works when the user name contains non-ASCII characters such as `ä` (the path of Python was
+  read with the wrong code page and no `.venv` was created) (#195).
+
+## 0.2.11 (2026-11-02)
+
+### Fixed
+- **Export Data with units like Ω** (e.g. re/im of Z(1,1)) failed on Windows with a "charmap" error and left an
+  empty file. Report and matrix data are now written as UTF-8 (with a byte order mark, so spreadsheet programs
+  show Ω and ° correctly), and a failed export leaves no empty or half-written file behind.
+- **Export Data header**: every column name is quoted the same way, so `S(1,1)` no longer looks different from
+  the others. Export Matrix Data quotes its names too; before, names like `re(S(1,1))` were split at the comma.
+- **Thin straight cylinders look round again** in the 3D view: dipole arms, monopoles and coax inner conductors were
+  drawn as octagons since 0.2.10. Only the display is affected; the solver mesh never was. Helices and swept
+  pipes are unchanged.
+- **Function *<none>* for complex quantities** (S, Y, Z, Gamma, Port Zo, propagation constant) drew the
+  magnitude under the bare name, so it was not clear what was plotted. It is no longer offered for them; traces
+  such as `S(1,1)` in existing projects are shown as `mag(S(1,1))`. The Smith chart is unchanged.
+- **Windows update with Hertzon still running in the background**: the installer only checked the Hertzon
+  window, so an MCP server started by an AI app or the remote server (`hertzon.remote serve`) could keep files
+  of the Python environment open, and the installer then reported "The Python environment could not be set
+  up". The setup now lists such processes and waits until they are closed (or stops them on request).
+- The Windows setup writes its output to `setup.log` in the installation folder, and the installer's error
+  message names that file, so a failed setup can be diagnosed after its window is closed.
+
+## 0.2.10 (2026-11-01)
+
+### Highlights
+- **Tune with sliders, live**: compute the derivatives once, then move design variables with sliders and every
+  open report (S-parameters, Smith chart, radiation pattern, antenna parameters) follows in real time. It works
+  with Hertzon's own mesh deformation instead of remeshing, which suits optimization very well; more built on it is coming.
+  (Introduced in 0.2.9.)
+- **New optimizer, Derivative Trust Region**: minimizes the goals on the derivative tuning model and checks each
+  step with one solve. The patch antenna wizard (Tools > Antenna Design > Rectangular Patch) starts from the
+  textbook design formulas and is optimized after only 2-3 simulations.
+- **Solving in the cloud**: Hertzon starts a cloud server, solves there and deletes it again. Tested with Hetzner
+  Cloud; Amazon Web Services, Google Cloud and Microsoft Azure are implemented but untested, feedback welcome.
+  Large servers and HPC clusters for studies are in progress.
+- **Apply to Design keeps the solution**, and Solution Data lists every variation and optimization evaluation.
+- **Wave ports with several modes** and **eigenmode setups** fixed.
+
+### Added
+- **Showcase project** brought up to date: Derivative Trust Region optimizations (goals on S-parameters, antenna parameters and output variables), output variables with S, Y, Z and VSWR, reports against a design variable, report axis settings, bandwidth and delta markers, SPARTA matrix solvers, ports-only setups, Edit Sources, Rotate / Sweep Around Axis in a coordinate system, and two new designs: a terminal differential pair (reference conductor, mixed-mode S-parameters) and a waveguide with two-mode wave ports (TE10 and TE01). The iris filter's first port has one mode again (the half model has no second mode, the solve failed) and the geometry zoo solves again (loft to an ellipse, a gap around the kept Subtract tool).
+- **Tools > Antenna Design > Rectangular Patch** optimizes patch length and inset at the design frequency
+  only, on the adaptive solution (no sweep is solved per evaluation), with the Derivative Trust Region
+  instead of Conjugate Gradient (named PatchOpt). The dialog no longer asks for a bandwidth, a return loss
+  over the band and the sweep span: they only served the band goal; the ±15 % sweep stays for looking at
+  the resonance.
+- **Solver image for cloud computers**: `ghcr.io/c8501024/hertzon-solver` (`:<version>`, `:dev`) holds the
+  headless solver with the remote service and precompiled kernels; a Linux computer with Docker solves for
+  the GUI without a Hertzon installation (`docker run ... -e HERTZON_TOKEN=...`, see docs/REMOTE.md). Built
+  by `.github/workflows/solver-image.yml`.
+- **Solving in the cloud (Hetzner Cloud)**: Tools > Options > Cloud with the project's API token; the first
+  analysis creates a server (location and type with prices from the account), further ones use it, Hertzon
+  deletes it when it closes and the server deletes itself when idle, hung or without a GUI (watchdog). The
+  connection is an SSH tunnel with a host key known in advance. **Solve on** offers the cloud next to this
+  computer and a remote computer. See docs/REMOTE.md.
+- **Amazon Web Services, Google Cloud and Microsoft Azure are marked *(untested)***: only Hetzner Cloud has
+  been tried with a real account; the Cloud tab warns to use the others at your own risk.
+- **Solving in the cloud on Amazon Web Services**: Tools > Options > Cloud > Provider *Amazon Web Services*
+  with the access key of an IAM user (policy in docs/REMOTE.md), region and instance type with vCPUs,
+  physical cores, memory and on-demand price. Hertzon starts an Ubuntu instance in the default VPC that
+  installs Docker and the solver image; the access key stays on this computer, the instance deletes itself
+  by shutting down (terminate on shutdown). A sold-out zone is retried in the other zones of the region; the
+  vCPU limit of new accounts gets a clear message.
+- **Solving in the cloud on Google Cloud**: Provider *Google Cloud* with the JSON key of a service account
+  (roles in docs/REMOTE.md), or, where the organisation forbids service account keys, with the gcloud login
+  (`gcloud auth application-default login`; Hertzon finds its file and asks for the project ID); zone and machine type with vCPUs, cores and memory. Hertzon signs in with the key
+  itself (no extra package), starts an Ubuntu instance that installs Docker and the solver image, reads its SSH
+  host key through the API and tries the other zones of the region when a zone is full. The key (or the gcloud
+  login) stays on this computer; the instance deletes itself with its own service account.
+- **Solving in the cloud on Microsoft Azure**: Provider *Microsoft Azure* with a service principal (the JSON of
+  `az ad sp create-for-rbac`, Contributor on the resource group `hertzon`) and the subscription ID; region and
+  size with vCPUs, cores, memory and the pay-as-you-go price in EUR. Hertzon creates the network once per
+  region and per server an address, a network card and an Ubuntu machine that installs Docker and the solver
+  image; deleting the machine deletes the rest. The server deletes itself with the service principal.
+- **S Parameter menu on the Equation page** (Fields Calculator, new Network group): lists S(i, j) for every
+  port pair, with Y, Z and VSWR in submenus, from the solved data or the design's ports; a click inserts the
+  term into the equation.
+- **Optimizer "Derivative Trust Region"**: every round solves the design, computes its derivative tuning
+  model and minimizes the goals on the model (milliseconds per evaluation) within a part of the tuning
+  range; the step is checked with a solve, and the region grows or shrinks with the agreement. On the patch
+  antenna (Lp, inset) from Lp = 31 mm, inset = 4 mm (dip at 2.275 GHz) to S11 ≤ −15 dB from 2.43 to 2.47 GHz:
+  six solves and five tuning models, dip at 2.45 GHz with −34.9 dB. At most 6 variables. A tuning model that
+  fails (for example out of memory) ends the run with the best design so far. See
+  [docs/TUNING.md](docs/TUNING.md#optimize-with-the-tuning-model).
+
+### Fixed
+- **Wave ports with several modes** (modal solution) absorb every mode with its own propagation constant, as terminal ports already did. Before, all modes used the first mode's constant: in an empty 22.86 x 15 mm guide at 12 GHz, TE01 was reflected with |S22| = 0.34. Gamma and Zo of every mode row are now the mode's own (they showed the first mode's for all rows), which also corrects their de-embedding.
+- **Eigenmode** setups solve again: the mesh is sized at the minimum frequency (the solve stopped with 'Frequency'), and the eigen search climbs from the minimum frequency until the wanted number of modes is found. A search below the first resonance returned only the static null space, so no modes were listed.
+- A **wave port with more modes than its face carries** (for example two TE modes on a WR-90 port at 10 GHz) now stops with a message naming the port and the number of modes it has, instead of a division by zero in the S-parameters.
+- **Optimization > Apply to Design** takes the solution of the applied evaluation over as the solution of
+  the setup, without solving again: reports, Solution Data, field overlays and **Derivative Tuning** (on the
+  evaluation's adaptive mesh) work on it as after an analysis. The best evaluation keeps its mesh and the
+  fields at the adaptive frequency; the other evaluations keep S-parameters, passes and log. Before, the
+  design had to be analyzed again.
+- **Results > Solution Data** has a *Design Variation* list: next to the current design it shows every
+  solved parametric variation and every optimization evaluation, with its passes (Convergence), Matrix
+  Data, Profile and Mesh Statistics, without changing the design. While an optimization runs and the design
+  has no solution of its own, it shows the evaluation being solved and follows its passes.
+- **Tools > Options** opens at once. It used to wait for the check whether this computer's remote service
+  runs (on Windows a refused connection to this computer alone takes about two seconds), for the host name
+  lookup of the share addresses and for the scan of the installed SPARTA version. These now run in the
+  background; their fields show "Checking ..." for a moment and the buttons that depend on them wait.
+- A parallel frequency sweep with the matrix solver set to PARDISO warned for every frequency that
+  the solver "cannot be used in MultiThreading as it does not release the GIL". The worker threads use
+  PARDISO through the automatic choice anyway; the warning is gone and the results are unchanged.
+
+## 0.2.9 (2026-10-31)
+
+### Added
+- **Solving on another computer (experimental).** For now only with another computer in the local
+  network; a full solution, also for servers and cloud machines, is in progress. A computer in the local network with Hertzon installed runs the remote
+  service, started in Tools > Options > Remote > Share this computer (optionally at every login) or with
+  `hertzon-serve`. On the laptop, *Find in Network* in the same tab lists the shared computers and connects
+  with the six-digit pairing code shown on them; *Solve on* in the status bar switches between this
+  computer and the remote one. The solving computer's Progress window lists the analyses sent to it. *Analyze* then uploads the project and the
+  setup's results folder, shows progress, adaptive passes and the log live, can abort, and mirrors the
+  results folder back, so reports and field plots work as after a local solve. S-parameters and
+  convergence are there as soon as the solver ends; large sweep field files follow in the background. Also
+  for parametric and optimization runs. Several users can share one service; jobs run one after the other.
+  See docs/REMOTE.md.
 - **Derivative tuning with sliders.** Results > Tuning (also Optimization > Derivative Tuning and the right
   click on a sweep) computes, once, how the S-parameters of a sweep depend on chosen design variables, on
   the converged adaptive mesh of the setup. Then sliders in a dock panel move the variables and every open
@@ -20,6 +176,11 @@ the GitHub release notes.
   the morphed mesh over +-2 mm. Each slider is limited to the range in which no tetrahedron shrinks below
   30 % of its volume. Plane faces may change shape, curved faces may move. Not yet for terminal designs.
   - A setup without a sweep is tuned at its solution frequency.
+  - Disabled sweeps are greyed out in the tuning panel, and Compute Derivatives asks to analyze first when
+    the chosen sweep has no solution yet (its tuned curves could not be shown in any report).
+  - An open report offers the variables of a new tuning model on its X axis at once (no new report needed).
+  - Documentation: [docs/TUNING.md](docs/TUNING.md) explains the workflow, the method, the accuracy and the
+    limits; tutorial section 10 tunes the patch length and inset of the patch antenna.
   - Faces may slide along plane parts of the outer boundary, and lumped ports and lumped RLC elements
     stretch with the mesh (width, height, integration lines and excitation follow), so a substrate height
     can be tuned with a lumped port across it. Wave ports stay in place.
@@ -49,7 +210,7 @@ the GitHub release notes.
     (*At*), with the other variables at their slider values. Dashed line: the solved value, solid line: the
     slider value, shaded: the outer part of the range with lower accuracy. Works without the slider panel
     open, from the stored tuning model.
-    Antenna Parameters reports and tables have it too (e.g. peak realized gain over a substrate height).
+    Antenna Parameters reports and tables have it too (e.g. peak realized gain over the patch length).
 - **Goal preview in Setup Optimization.** The Goals tab draws every goal as a mask over the current
   solution (each calculation as a curve, each goal as a line over its range in the colour of its
   calculation, the forbidden side shaded) and shows its margin in a new Margin column: positive = reserve
@@ -65,7 +226,22 @@ the GitHub release notes.
   gain, directivity and realized gain are linear ratios (`dB(...)` gives dBi). The files carry this too:
   `fields_*.npz` has a `layout` entry, `farfield_*.npz` a `sampling` entry with the angular grid.
 
+- **Solver Comparison with parallel frequencies.** Tools > Solver Benchmark > Solver Comparison can also
+  solve the sweeps with 2, 4, ... frequencies at a time, for every checked solver, on the reference's final
+  mesh (as the Core Scaling tab does for one solver). The table and the chart show each run, and the advice
+  names the fastest combination of solver and parallel frequencies. A run that solved fewer frequencies at
+  a time than asked (SPARTA solves them one after another for now, or the memory allowed fewer) says so in
+  the Note column.
+
 ### Fixed
+- **Solver Comparison on the same mesh was unfair to the other solvers**: the reference solver's sweep time
+  came from its full run, the others' from a fresh process that only solved the sweep and paid the solver
+  start (for SPARTA on the GPU the device start and its analysis) inside the sweep. Now every solver,
+  the reference too, solves the sweeps there in a fresh process. SPARTA on the GPU starts the GPU while the
+  boundaries are set up, with the time in the log and in the Note column; it is still part of every
+  analysis and of the times. New columns show the direct and reduced solutions of each sweep: an
+  interpolating sweep solves directly only where its reduced basis is not accurate enough, so single
+  precision can make it solve more frequencies, which the advice now points out.
 - **Mesh operations that miss their target** now say so: Length Based On Edges with only objects or faces
   assigned (no edges) warns in the solver log and in Validation Check instead of "no edges could be
   located"; an operation whose objects are not part of the solve, or whose selection is empty, is reported
@@ -111,10 +287,6 @@ the GitHub release notes.
   by default), solve with all cores, and compare the time per phase, the sweeps on the same mesh, the peak
   memory and the S-parameter difference; a run that could not use its solver (SPARTA not installed, no
   usable GPU) is marked. *Make Fastest the Default Solver* sets the default for new setups.
-- **Parallel sweeps in the solver comparison**: *Also sweep with parallel frequencies (PARDISO)* solves
-  PARDISO's sweeps on the same mesh again with 2, 4, ... frequencies at once, next to SPARTA, which solves
-  one frequency at a time. The comparison shows the start of the solver process separately and compares the
-  solvers without it: the first run of a benchmark loads the libraries from disk.
 - **Rename a report** (#130): right click a report in the project tree > Rename... gives the report and its
   open tab a new name; a name that another report already has is refused.
 

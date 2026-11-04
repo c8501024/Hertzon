@@ -135,9 +135,17 @@ def test_benchmark_projects_use_the_current_format(path):
 def test_showcase_builds_and_passes_the_validation_check():
     """The feature showcase: every design builds and has no validation errors (edge mesh operations included)."""
     p = Project.load(EX / "Showcase_AllFeatures.hzn")
-    assert len(p.designs) == 6
+    assert len(p.designs) == 8
     for d in p.designs:
         _build(p, d)
     a = p.design("A_PatchArray")
     edge_op = a.assignment("Mesh_FeedEdges")
     assert edge_op.edges and not edge_op.faces and not edge_op.objects
+    # features added since: Derivative Trust Region, terminal pairs, two-mode ports, ports-only setups
+    assert {o.props["Optimizer"] for o in a.optimetrics} == {"Conjugate Gradient", "Derivative Trust Region"}
+    g = p.design("G_DiffPair_Terminal")
+    assert g.settings["SolutionType"] == "Terminal" and json.loads(g.settings["DifferentialPairs"])
+    assert {e.props["ReferenceConductor"] for e in g.excitations} == {"Outer"}
+    h = p.design("H_TwoModeWaveguide")
+    assert {e.props["NumberOfModes"] for e in h.excitations} == {"2"}
+    assert any(s.props.get("PortsOnly") == "True" for d in p.designs for s in d.setups)

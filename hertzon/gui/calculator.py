@@ -206,7 +206,7 @@ def glyph_icon(text: str, px: int = 22) -> QIcon:
 FIELD_KEYS = [("E", "E", "E", "electric field (V/m)"), ("H", "H", "H", "magnetic field (A/m)"),
               ("J", "J", "J", "volume current density (A/m²)"),
               ("Jₛ", "J_s", "Js", "surface current density n×H (A/m), faces only"),
-              ("S", "S", "S", "complex Poynting vector ½ E×H* (W/m²)"), ("D", "D", "D", "electric flux density"),
+              ("S", "S", "S", "complex Poynting vector ½ E×H* (W/m²); S parameters: S Parameter under Network"), ("D", "D", "D", "electric flux density"),
               ("B", "B", "B", "magnetic flux density"), ("n", r"\mathbf{n}", "n", "unit normal of the face, faces only")]
 SYMBOL_KEYS = [("·", r"\cdot ", "·", "dot product   (\\cdot)"), ("×", r"\times ", "×", "cross product   (\\times)"),
                ("ε₀", r"\varepsilon_0", "eps0", "vacuum permittivity   (\\eps0)"),
@@ -475,6 +475,15 @@ class EquationsTab(QWidget):
         self.b_text.setChecked(self.mode == "lin")
         g = page.group("Fields")
         g.row.addWidget(self._keys(FIELD_KEYS, 4, field=True))
+        g = page.group("Network")
+        b = self._big(g, "S Parameter", "S₁₁", None,
+                      "S, Y and Z parameters and VSWR between the ports of the model, e.g. S(2, 1)")
+        m = QMenu(b)
+        m.setToolTipsVisible(True)
+        m.aboutToShow.connect(lambda mm=m: self._network_menu(mm))
+        self._network_menu(m)
+        b.setMenu(m)
+        b.setPopupMode(QToolButton.InstantPopup)
         g = page.group("Symbols")
         g.row.addWidget(self._keys(SYMBOL_KEYS, 8))
         g = page.group("Structures")
@@ -487,6 +496,73 @@ class EquationsTab(QWidget):
         self._big(g, "Component", "F_φ", self.component_dialog,
                   "a component of a vector in a coordinate system (x, ρ, φ, r, θ, …)")
         page.setStyleSheet(KEY_STYLE)
+
+    def _ports(self) -> tuple[int, dict[int, str]]:
+        """(number of ports, port number -> name) for the S Parameter menu: the ports of the solved data if
+        there is a solution, otherwise the enabled ports of the design."""
+        des = self.doc.design
+        names = {}
+        for k, e in enumerate(des.ports(), 1):
+            try:
+                names[int(e.props.get("PortNumber", "") or k)] = e.name
+            except ValueError:
+                names[k] = e.name
+        n = len(names)
+        try:
+            from .reports import load_solution, solution_list
+            for sol in solution_list(self.doc):
+                if "AdaptivePass" in sol:
+                    continue
+                data = load_solution(self.doc, sol)[2]
+                if data is not None and "S" in data:
+                    n = int(data["S"].shape[1])
+                    break
+            if n != len(names):           # ports with several modes: the columns are not the port numbers
+                names = {}
+        except Exception:  # noqa: BLE001   (no or unreadable results: the ports of the design)
+            pass
+        return n, names
+
+    def _network_menu(self, m: QMenu) -> None:
+        """The S Parameter menu of the ribbon, built from the ports of the model each time it opens."""
+        for sub in m.findChildren(QMenu):
+            sub.deleteLater()
+        m.clear()
+        n, names = self._ports()
+        if not n:
+            a = m.addAction("No ports in the design")
+            a.setEnabled(False)
+            a.setToolTip("Assign a wave or lumped port; then S(i, j) between the ports can be inserted here")
+            return
+
+        def label(i):
+            return f" ({names[i]})" if i in names and names[i] != str(i) else ""
+
+        def matrix(menu: QMenu, kind: str) -> None:
+            for i in range(1, n + 1):
+                sub = menu if n <= 3 else menu.addMenu(f"{kind}({i}, ·){label(i)}")
+                sub.setToolTipsVisible(True)
+                for j in range(1, n + 1):
+                    text = f"{kind}({i}, {j})"
+                    if kind == "S":
+                        tip = (f"reflection at port {i}{label(i)}" if i == j else
+                               f"transmission from port {j}{label(j)} to port {i}{label(i)}")
+                    else:
+                        tip = (f"{'admittance' if kind == 'Y' else 'impedance'} parameter of port {i}{label(i)}"
+                               + ("" if i == j else f" and port {j}{label(j)}"))
+                    a = sub.addAction(text, lambda _=False, t=text: self.insert_text(t))
+                    a.setToolTip(tip + "; complex: dB, |x| or ∠ from Function")
+
+        m.addSection("S parameters")
+        matrix(m, "S")
+        m.addSeparator()
+        for kind in ("Y", "Z"):
+            matrix(m.addMenu(f"{kind} parameters"), kind)
+        sub = m.addMenu("VSWR")
+        sub.setToolTipsVisible(True)
+        for i in range(1, n + 1):
+            a = sub.addAction(f"VSWR({i}){label(i)}", lambda _=False, t=f"VSWR({i})": self.insert_text(t))
+            a.setToolTip(f"voltage standing wave ratio at port {i}")
 
     # ---- layout ----------------------------------------------------------------------------------
     def _big(self, g, text: str, glyph: str, slot, tip: str) -> QToolButton:

@@ -968,6 +968,17 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     return meta
 
 
+def tuned_data(model: "TuningModel", dp, base: dict | None) -> dict:
+    """Solution data of the design at the offsets dp, like the stored data of the solution (base: its ports,
+    differential pairs ...), for reports and goals."""
+    S, z = model.sparams(dp)
+    d = {k: v for k, v in (base or {}).items() if k not in ("freq", "S", "z0", "solved", "gamma", "zo")}
+    d.update(freq=np.asarray(model.freq_out, float), S=S, z0=z, solved=np.asarray(model.freq, float))
+    if "ports" not in d:
+        d["ports"] = model.meta.get("ports") or []
+    return d
+
+
 class TuningModel:
     """A saved tuning model: S-parameters for variable offsets without a solver."""
 

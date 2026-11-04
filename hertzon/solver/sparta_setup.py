@@ -105,6 +105,29 @@ def configure(solver, mode: str, symmetric: bool = True) -> str:
     return mode
 
 
+def warm_up(mode: str, symmetric: bool = True) -> float:
+    """Factor a small matrix once in `mode`, so that starting the GPU (device, driver, compute pipelines) is
+    paid here and not by the first solve of the analysis. A benchmark run that only solves a sweep on a
+    stored mesh would otherwise count that start in the sweep, while a full run pays it in the first
+    adaptive pass. Returns the seconds it took."""
+    import time
+    import numpy as np
+    import scipy.sparse as sp
+    import sparta
+    t = time.time()
+    n = 2000
+    A = sp.diags([-1.0, 2.0 + 0.1j, -1.0], [-1, 0, 1], shape=(n, n), format="csc", dtype=complex)
+    kw = dict(force_cpu=mode == "CPU", hybrid=False, ordering=sparta.Ordering.SCALPEL, refinement_steps=0,
+              mtype=sparta.MatrixType.COMPLEX_SYMMETRIC if symmetric
+              else sparta.MatrixType.COMPLEX_STRUCTURALLY_SYMMETRIC)
+    sym = sparta.analyze(A, **kw)
+    fac = sym.factorize(A, **kw)
+    fac.solve_many(np.ones((n, 1), complex))
+    fac.destroy()
+    sym.destroy()
+    return time.time() - t
+
+
 def describe() -> str:
     """'SPARTA 0.3.2, GPU: yes, BLAS: ...' of the package this process imports (solver log)."""
     try:

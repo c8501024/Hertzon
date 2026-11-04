@@ -525,7 +525,7 @@ class OptimizationResults(QDialog):
         e = e or self.best
         if not e:
             return
-        self.win.apply_variables(e["variables"], f"evaluation {e['eval']} of {self.name}")
+        self.win.apply_evaluation(self.name, e, f"evaluation {e['eval']} of {self.name}")
 
 
 # ---------------------------------------------------------------------------------------------

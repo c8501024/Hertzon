@@ -443,6 +443,37 @@ def test_equations_of_s_parameters():
         ev.value("max(Port1, |E|)")
 
 
+def test_equation_ribbon_lists_the_s_parameters_of_the_ports():
+    """The Equation page has an S Parameter menu with S(i, j) of the model's ports (and Y, Z, VSWR): a click
+    inserts it into the equation, so S(1, 1) need not be typed."""
+    from PySide6.QtGui import QTextCursor
+    from PySide6.QtWidgets import QApplication, QMenu
+    app = QApplication.instance() or QApplication([])
+    from hertzon.gui.main_window import MainWindow
+    from hertzon.model.design import Assignment, FaceRef, Project
+    win = MainWindow(Project())
+    win.fields_calculator()
+    calc = win.calc_window
+    calc.set_mode("lin")
+    m = QMenu()
+    calc._network_menu(m)
+    assert [a.text() for a in m.actions() if a.isEnabled() and a.text()] == []
+    for k in (1, 2):
+        win.des.excitations.append(Assignment(f"P{k}", "Wave Port", {"PortNumber": str(k)},
+                                              faces=[FaceRef("Box", k)]))
+    calc._network_menu(m)
+    acts = {a.text(): a for a in m.actions()}
+    assert {"S(1, 1)", "S(1, 2)", "S(2, 1)", "S(2, 2)", "Y parameters", "Z parameters", "VSWR"} <= set(acts)
+    assert "port 1 (P1) to port 2 (P2)" in acts["S(2, 1)"].toolTip()
+    calc.edit.setPlainText("dB(")
+    calc.edit.moveCursor(QTextCursor.End)
+    acts["S(2, 1)"].trigger()
+    assert calc.edit.toPlainText() == "dB(S(2, 1)"
+    vswr = acts["VSWR"].menu()
+    assert [a.text() for a in vswr.actions()] == ["VSWR(1) (P1)", "VSWR(2) (P2)"]
+    app.processEvents()
+
+
 def test_reports_of_equations():
     """Results: equations of the fields go into Fields reports, equations of S parameters into the solution
     data reports (category Equations)."""

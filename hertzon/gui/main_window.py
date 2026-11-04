@@ -161,6 +161,12 @@ class MainWindow(QMainWindow):
         sb = self.statusBar()
         self.hint = QLabel("Ready")
         sb.addWidget(self.hint, 1)
+        self.solve_on = QComboBox()
+        self.solve_on.setToolTip("Where analyses run: this computer, a remote computer in the network\n"
+                                 "(Tools > Options > Remote) or a cloud server (Tools > Options > Cloud)")
+        self.solve_on.activated.connect(self._solve_on_chosen)
+        sb.addPermanentWidget(QLabel("Solve on:"))
+        sb.addPermanentWidget(self.solve_on)
         self.coord_mode = QComboBox()
         self.coord_mode.addItems(["Absolute", "Relative"])
         self.coord_sys = QComboBox()
@@ -355,6 +361,7 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu("&Modeler")
         m.addAction("Import...", self.import_geometry)
+        m.addAction("PCB Stackup...", self.edit_stackup)
         b = m.addMenu("Boolean")
         for a in (self.a_unite, self.a_subtract, self.a_intersect):
             b.addAction(a)
@@ -848,6 +855,7 @@ class MainWindow(QMainWindow):
         self.solver.message.connect(self.msgs.add)
         self.solver.progress.connect(self.progress.update_progress)
         self.solver.finished.connect(self._solve_finished)
+        self.solver.filesArrived.connect(lambda k: (self._pass_data(k, {}), self._refresh_reports()))
         self.solver.passUpdate.connect(self._pass_finished)
         self.solver.passData.connect(self._pass_data)
         self.solver.started.connect(lambda k: self.project_tree.rebuild())
@@ -1310,9 +1318,52 @@ class MainWindow(QMainWindow):
         self.edit_new_primitives = v
         self.settings.setValue("edit_new_primitives", v)
 
-    def options(self) -> None:
+    def _fill_solve_on(self) -> None:
+        """Status bar: This computer / the remote computer / the cloud / Set up ..."""
+        box = getattr(self, "solve_on", None)
+        if box is None:
+            return
+        s = self.settings
+        addr = str(s.value("remote/address", "") or "")
+        box.blockSignals(True)
+        box.clear()
+        box.addItem("This computer", "local")
+        if addr:
+            box.addItem(addr, "remote")
+        from ..remote.cloud import providers
+        if providers.configured(s.value):
+            prov = providers.current(s.value)
+            box.addItem(f"{providers.SHORT[prov]} ({providers.placement(s.value, prov)[0]})", "cloud")
+        box.addItem("Remote computer ..." if not addr else "Other remote computer ...", "setup-remote")
+        box.addItem("Cloud ...", "setup-cloud")
+        r = self.solver.remote
+        now = "local" if r is None else ("cloud" if hasattr(r, "ensure") else "remote")
+        box.setCurrentIndex(max(0, box.findData(now)))
+        box.blockSignals(False)
+
+    def _solve_on_chosen(self, i: int) -> None:
+        what = self.solve_on.itemData(i)
+        if what in ("setup-remote", "setup-cloud"):
+            self.options(tab="Remote" if what == "setup-remote" else "Cloud")
+            self._fill_solve_on()
+            return
+        self.settings.setValue("remote/enabled", what == "remote")
+        self.settings.setValue("cloud/enabled", what == "cloud")
+        self.apply_hpc_settings()
+        r = self.solver.remote
+        self.msgs.add("info", "Analyses run on this computer" if r is None else f"Analyses run on {r.address}"
+                      + (" (the server is created with the first analysis and deleted when idle)"
+                         if hasattr(r, "ensure") else ""))
+
+    def options(self, tab: str = "") -> None:
         from .dialogs import OptionsDialog
         dlg = OptionsDialog(self, self)
+        if tab:
+            from PySide6.QtWidgets import QTabWidget
+            tabs = dlg.findChild(QTabWidget)
+            for k in range(tabs.count()):
+                if tabs.tabText(k) == tab:
+                    tabs.setCurrentIndex(k)
         if dlg.exec() == QDialog.Accepted:
             dlg.apply()
             self.msgs.add("info", "Options saved")
@@ -1426,6 +1477,41 @@ class MainWindow(QMainWindow):
     def apply_hpc_settings(self) -> None:
         self.solver.cores = int(self.settings.value("hpc/cores", 0))
         self.solver.sweep_workers = int(self.settings.value("hpc/sweep_workers", 2))
+        try:                    # the remote service of this computer uses the same HPC settings
+            from ..remote import local
+            local.write_hpc(self.solver.cores, self.solver.sweep_workers)
+        except Exception:  # noqa: BLE001
+            pass
+        self.solver.remote = None
+        s = self.settings
+        addr = str(s.value("remote/address", "") or "")
+        from ..remote.cloud import providers
+        if s.value("cloud/enabled", False, type=bool) and providers.configured(s.value):
+            from ..remote.cloud import CloudHost
+            self.solver.remote = CloudHost(self.cloud_session())
+        elif s.value("remote/enabled", False, type=bool) and addr:
+            from ..remote.client import RemoteHost
+            self.solver.remote = RemoteHost(addr, str(s.value("remote/token", "") or ""))
+        self._fill_solve_on()
+
+    def cloud_session(self):
+        """The cloud session of the settings in Tools > Options > Cloud (kept while they do not change, so
+        its server and SSH tunnel are reused)."""
+        from ..remote.cloud import CloudSession, providers
+        s = self.settings
+        prov = providers.current(s.value)
+        key = (prov, providers.credentials(s.value, prov), *providers.placement(s.value, prov),
+               float(s.value("cloud/idle_min", 30)), float(s.value("cloud/contact_h", 48)),
+               float(s.value("cloud/quiet_h", 2)))
+        old = getattr(self, "_cloud", None)
+        if old is not None and old[0] == key:
+            return old[1]
+        if old is not None:
+            old[1].tunnel.close()
+        session = CloudSession(providers.make(prov, key[1], key[3]), key[2], key[3], idle_min=key[4],
+                               contact_h=key[5], quiet_h=key[6])
+        self._cloud = (key, session)
+        return session
 
     def _restore_settings(self) -> None:
         s = self.settings
@@ -1829,11 +1915,29 @@ class MainWindow(QMainWindow):
             self._save_window_settings()
             if self.solver.busy:
                 self.solver.abort()
+            self._delete_cloud_server()
             self._drop_autosave()
             self.ai_link.stop()
             ev.accept()
         else:
             ev.ignore()
+
+    def _delete_cloud_server(self) -> None:
+        """Hertzon closes: delete the cloud server of this session (its watchdog would do it when idle)."""
+        cloud = getattr(self, "_cloud", None)
+        if cloud is None or not cloud[1].state():
+            return
+        import threading
+        done = threading.Event()
+
+        def run():
+            try:
+                cloud[1].delete()
+            except Exception:  # noqa: BLE001
+                pass                    # the server's watchdog deletes it when idle
+            done.set()
+        threading.Thread(target=run, daemon=True).start()
+        done.wait(15)
 
     def import_geometry(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Import", "", "CAD (*.step *.stp *.iges *.igs *.brep *.stl);;STL (*.stl)")
@@ -1982,6 +2086,20 @@ class MainWindow(QMainWindow):
         K.build_design(self.des, self.doc.evaluator())
         gmsh.write(path)
         self.msgs.add("info", f"Exported {path}")
+
+    def edit_stackup(self) -> None:
+        """Modeler > PCB Stackup: layers, thicknesses and materials of the board of this design."""
+        from .stackup_dialog import StackupDialog
+        dlg = StackupDialog(self, self.doc)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        st, mats = dlg.result()
+        if st == self.des.stackup and not mats:
+            return
+        self.doc.checkpoint()
+        self.doc.project.materials.extend(mats)
+        self.des.stackup = st
+        self.doc.commit("stackup", geometry=False)
 
     def export_gerber(self) -> None:
         """File > Export > Gerber: copper layers (Gerber X2), board outline and Excellon drill files."""
@@ -3942,7 +4060,40 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Optimization", f"{name} has no evaluated design yet.")
             return
         best = min(ok, key=lambda e: e["cost"])
-        self.apply_variables(best["variables"], f"the best evaluation ({best['eval']}) of {name}")
+        self.apply_evaluation(name, best, f"the best evaluation ({best['eval']}) of {name}")
+
+    def apply_evaluation(self, name: str, row: dict, source: str) -> None:
+        """Set the design variables of an optimization evaluation and take its stored solution over as the
+        solution of the setup (no new solve): reports, Solution Data, field overlays and derivative tuning
+        work on it as after an analysis. The best evaluation keeps mesh and fields, the others S-parameters
+        and passes."""
+        from ..solver.parametric import adopt_evaluation, evaluation_dir, optimization_setup
+        self.apply_variables(row["variables"], source)
+        op = next((o for o in self.des.optimetrics if o.name == name), None)
+        if op is None or not self.doc.project.path:
+            return
+        setup = optimization_setup(op)
+        if not any(s.name == setup for s in self.des.setups):
+            return
+        folder = evaluation_dir(self.doc.project.path, self.des.name, name, row["eval"])
+        if result_dir(self.doc, setup) != folder:
+            return                    # the nominal solution is current, or the evaluation's one is gone
+        fields = bool(list(folder.glob("solution_*.npz")) or list(folder.glob("fields_*.npz")))
+        F._cache.clear()
+        try:
+            adopt_evaluation(self.doc.project, self.des, setup, folder)
+        except Exception as e:  # noqa: BLE001
+            self.msgs.add("warning", f"The solution of {source} is shown, but could not be taken over as the "
+                                     f"solution of {setup} ({e}); analyze for derivative tuning")
+            return
+        self.doc.changed.emit("results")
+        if fields:
+            self.msgs.add("info", f"The solution of {source} is now the solution of {setup} (no new solve): "
+                                  "reports, fields and derivative tuning use it")
+        else:
+            self.msgs.add("info", f"The S-parameters and adaptive passes of {source} are now the solution of "
+                                  f"{setup} (no new solve); only the best evaluation keeps its mesh and fields: "
+                                  "analyze for field overlays and derivative tuning")
 
     def apply_variables(self, values: dict, source: str) -> None:
         """Set design variables (from an optimization result); undo restores the previous values."""

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -276,8 +277,11 @@ def job_kind(j) -> str:
 
 class ProgressPanel(QWidget):
     """Progress window with the analysis queue: every running or queued job is a row with its own
-    progress bar and state, estimate from the last run; abort, remove from queue, reorder."""
+    progress bar and state, estimate from the last run; abort, remove from queue, reorder. When this
+    computer shares itself (Tools > Options > Remote), the analyses other computers sent here are rows too."""
     abortRequested = Signal()
+    hostedFetched = Signal(object)          # list of the jobs of the remote service on this computer
+    HOSTED_POLL_MS = 3000
     COLS = ["Analysis", "Progress", "State", "Estimate (last run)"]
 
     def __init__(self, parent=None):
@@ -309,6 +313,53 @@ class ProgressPanel(QWidget):
         lay.addLayout(btns)
         self._progress: dict[str, tuple[float, str]] = {}      # running job -> (percent, text)
         self._post: tuple[str, float] | None = None
+        self.abort.clicked.disconnect()
+        self.abort.clicked.connect(self._abort_clicked)
+        self._hosted: list[dict] = []                           # analyses of other computers solving here
+        self._hosted_rows: dict[int, str] = {}                  # table row -> job id on the service
+        self._fetching = False
+        self.hostedFetched.connect(self._set_hosted)
+        from PySide6.QtCore import QTimer
+        self._hosted_timer = QTimer(self)
+        self._hosted_timer.timeout.connect(self._poll_hosted)
+        self._hosted_timer.start(self.HOSTED_POLL_MS)
+
+    # ---- analyses other computers sent to this one ---------------------------------------------------
+    def _poll_hosted(self) -> None:
+        if self._fetching:
+            return
+        self._fetching = True
+        import threading
+
+        def fetch():
+            try:
+                from ..remote import local
+                jobs = local.hosted_jobs() or []
+            except Exception:  # noqa: BLE001
+                jobs = []
+            self.hostedFetched.emit(jobs)
+        threading.Thread(target=fetch, daemon=True).start()
+
+    def _set_hosted(self, jobs: list) -> None:
+        self._fetching = False
+        if jobs != self._hosted:
+            self._hosted = jobs
+            self.refresh()
+
+    def _abort_clicked(self) -> None:
+        jid = self._hosted_rows.get(self.table.currentRow())
+        if jid is None:
+            self.abortRequested.emit()
+            return
+        import threading
+
+        def abort():
+            try:
+                from ..remote import local
+                local.abort_hosted(jid)
+            except Exception:  # noqa: BLE001
+                pass
+        threading.Thread(target=abort, daemon=True).start()
 
     def _bar(self, row: int, value: float | None) -> None:
         """Progress bar in the row (None: queued, no bar)."""
@@ -366,7 +417,7 @@ class ProgressPanel(QWidget):
             return
         jobs = ([(self.solver.job, "Running")] if self.solver.job else []) + [(j, "Queued") for j in self.solver.queue]
         off = 1 if self._post else 0
-        self.table.setRowCount(len(jobs) + off)
+        self.table.setRowCount(len(jobs) + off + len(self._hosted))
         if self._post:
             text, value = self._post
             for c, v in ((0, "Post-processing"), (2, text), (3, "")):
@@ -382,7 +433,22 @@ class ProgressPanel(QWidget):
             self.table.item(r, 2).setToolTip(self.table.item(r, 2).text())
             self._set(r, 3, self.estimate(j))
             self._bar(r, value)
-        self.abort.setEnabled(bool(running))
+        self._hosted_rows = {}
+        for r, h in enumerate(self._hosted, start=off + len(jobs)):
+            who = h.get("client") or "another computer"
+            name = h.get("label") or f"{h.get('project', '')} - {h.get('design', '')} - {h.get('name', '')}"
+            self._hosted_rows[r] = h.get("id", "")
+            self._set(r, 0, f"{name} (from {who})")
+            if h.get("state") == "running":
+                self._set(r, 2, f"Solving for {who}" + (f": {h['text']}" if h.get("text") else ""))
+                self._bar(r, float(h.get("progress", 0.0)))
+            else:
+                self._set(r, 2, f"Queued for {who}")
+                self._bar(r, None)
+            self.table.item(r, 2).setToolTip("Sent by another computer to the remote service on this one; "
+                                             "select it and press Abort to stop it")
+            self._set(r, 3, "")
+        self.abort.setEnabled(bool(running) or bool(self._hosted))
 
     def _sel_key(self) -> str | None:
         r = self.table.currentRow()
@@ -431,7 +497,14 @@ class SolutionDataDialog(QDialog):
         self.sim.setCurrentText(setup)
         self.sim.currentTextChanged.connect(self._load)
         top.addRow("Simulation:", self.sim)
-        top.addRow("Design Variation:", QLabel("Nominal"))
+        # the current design, every solved parametric variation and every optimization evaluation with
+        # results: their passes, matrix data and mesh statistics without changing the design
+        self.var = QComboBox()
+        self.var.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.var.setMinimumContentsLength(40)
+        self.var.activated.connect(self._variation_chosen)
+        self._chosen = False                  # the user picked an entry (else it follows a running study)
+        top.addRow("Design Variation:", self.var)
         lay.addLayout(top)
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs)
@@ -440,14 +513,85 @@ class SolutionDataDialog(QDialog):
         bb.button(QDialogButtonBox.Close).clicked.connect(self.accept)
         lay.addWidget(bb)
         self.resize(960, 620)
+        self._sig = None
         self._load(setup)
+        # an optimization or parametric run solves in its own processes, without pass signals for this window:
+        # look for new evaluations and passes every two seconds and show them
+        from PySide6.QtCore import QTimer
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._poll)
+        self._timer.start(2000)
 
     def reload(self, *_args) -> None:
-        self._load(self.sim.currentText())
+        self._load(self.sim.currentText(), keep_variation=True)
 
-    def _load(self, setup: str) -> None:
+    def _variation_chosen(self, *_args) -> None:
+        self._chosen = True
+        self._load(self.sim.currentText(), keep_variation=True)
+
+    def _signature(self, setup: str):
+        from ..solver.parametric import solution_variations
+        try:
+            labels = tuple(lbl for lbl, _ in solution_variations(self.doc.project, self.doc.design, setup))
+        except Exception:  # noqa: BLE001
+            labels = ()
+        times = []
+        if self.st is not None:
+            for name in ("convergence.json", "status.json", "profile.json"):
+                try:
+                    times.append((self.st.folder / name).stat().st_mtime_ns)
+                except OSError:
+                    times.append(0)
+        return labels, tuple(times)
+
+    def _poll(self) -> None:
+        if not self.isVisible() or not self.doc.project.path:
+            return
+        if self._signature(self.sim.currentText()) != self._sig:
+            self.reload()
+
+    def _variations(self, setup: str, keep: bool) -> Path | None:
+        """Fill the Design Variation list for `setup`; the result folder of the chosen entry. The first entry
+        is the current design (the solution the model window shows)."""
+        from ..solver.parametric import solution_variations
         doc = self.doc
-        self.st = ResultStore(result_dir(doc, setup)) if doc.project.path else None
+        if not doc.project.path:
+            self.var.clear()
+            self.var.setEnabled(False)
+            return None
+        shown = result_dir(doc, setup)
+        try:
+            others = solution_variations(doc.project, doc.design, setup)
+        except Exception:  # noqa: BLE001  (a run is writing its table right now)
+            others = []
+        nominal = results_dir(doc.project.path, doc.design.name, setup)
+        first = "Nominal" if shown == nominal else \
+            "Current design: " + next((lbl for lbl, f in others if f == shown), str(shown))
+        old = self.var.currentData() if keep and self.var.currentIndex() > 0 else None
+        self.var.blockSignals(True)
+        self.var.clear()
+        self.var.addItem(first, None)
+        self.var.setItemData(0, first, Qt.ToolTipRole)
+        for lbl, f in others:
+            self.var.addItem(lbl, str(f))
+            self.var.setItemData(self.var.count() - 1, lbl, Qt.ToolTipRole)
+        i = self.var.findData(old) if old else 0
+        if not self._chosen and not (shown / "convergence.json").exists() and others:
+            # nothing solved for the current design (an optimization is running, say): show the evaluation
+            # being solved, else the best one, else the first variation
+            solving = [k for k, (lbl, _) in enumerate(others) if lbl.endswith("(solving)")]
+            best = [k for k, (lbl, _) in enumerate(others) if "(best)" in lbl]
+            i = 1 + (solving[-1] if solving else best[0] if best else 0)
+        self.var.setCurrentIndex(max(0, i))
+        self.var.setEnabled(self.var.count() > 1)
+        self.var.blockSignals(False)
+        data = self.var.currentData()
+        return Path(data) if data else shown
+
+    def _load(self, setup: str, keep_variation: bool = False) -> None:
+        folder = self._variations(setup, keep_variation)
+        self.st = ResultStore(folder) if folder is not None else None
+        self._sig = self._signature(setup)
         cur = self.tabs.currentIndex()
         old = [self.tabs.widget(i) for i in range(self.tabs.count())]
         self.tabs.clear()
@@ -715,7 +859,8 @@ class SolutionDataDialog(QDialog):
             for j in range(n):
                 for i in range(n):
                     cols += [M[:, i, j].real, M[:, i, j].imag]
-            np.savetxt(path, np.column_stack(cols), delimiter=",", header=",".join(hdr), comments="")
+            from ..export.table import write_csv
+            write_csv(path, hdr, np.column_stack(cols))
 
         sol.currentTextChanged.connect(load_freqs)
         fsel.currentIndexChanged.connect(fill)
