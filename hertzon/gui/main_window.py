@@ -114,6 +114,8 @@ class MainWindow(QMainWindow):
         from .circuit_editor import CircuitEditor
         self.circuit = CircuitEditor(self.doc)
         self.circuit.analyzeRequested.connect(self.analyze_all)
+        self.circuit.componentsSelected.connect(
+            lambda names: self.props.show_component(names[0]) if len(names) == 1 else self.props.clear())
         self.circuit.reportRequested.connect(lambda: self.create_report("Rectangular"))
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(split)
@@ -914,6 +916,17 @@ class MainWindow(QMainWindow):
         part(g, "MCLIN", True)
         part(g, "MLOC")
         part(g, "MLSC")
+        g = pg.group("Discontinuities")
+        self._auto_junctions = g.small("Automatic", "validate", self._toggle_auto_junctions, checkable=True,
+                                       tip="Find corners, steps, tees and crosses where microstrip lines meet and "
+                                           "model them (marked with a diamond). Off: the lines meet at an ideal "
+                                           "node unless a junction part is placed")
+        part(g, "MTEE", True)
+        part(g, "MCROSS", True)
+        part(g, "MCORN")
+        part(g, "MMBEND")
+        part(g, "MSTEP")
+        part(g, "MGAP")
         g = pg.group("Other")
         part(g, "SLIN", True)
         part(g, "COAX", True)
@@ -973,6 +986,13 @@ class MainWindow(QMainWindow):
         g.large("Solution Data", "soldata", lambda: self.solution_data())
         g.large("Touchstone", "export", lambda: self.export_touchstone())
         rb.setCurrentIndex(1)
+
+    def _toggle_auto_junctions(self) -> None:
+        from ..model.circuit import AUTO
+        on = self._auto_junctions.isChecked()
+        self.doc.checkpoint()
+        self.des.settings[AUTO] = "True" if on else "False"
+        self.doc.commit("circuit", geometry=False)
 
     def _schem_center(self) -> tuple[float, float]:
         from .circuit_editor import snap
@@ -1076,6 +1096,8 @@ class MainWindow(QMainWindow):
             self._ribbon_circuit_action.setVisible(circ)
             self._ribbon_3d_action.setVisible(not circ)
         if circ:
+            from ..model.circuit import AUTO
+            self._auto_junctions.setChecked(self.des.settings.get(AUTO, "True") != "False")
             self.circuit.rebuild()
 
     def _on_doc_changed(self, what: str) -> None:

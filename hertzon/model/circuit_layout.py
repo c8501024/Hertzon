@@ -113,9 +113,18 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     approximated."""
     from . import microstrip as MS
     warnings: list[str] = []
-    comps = circuit.components
-    ids, _ = CK.nets(comps, circuit.wires)
-    nodes = {c.name: [ids[p] for p in CK.pins(c)] for c in comps}
+    comps, nodes, _, junctions = CK.netlist(circuit.components, circuit.wires,
+                                            circuit.settings.get(CK.AUTO, "True") != "False")
+    # an automatic junction takes its widths from the lines that meet there, and a plain object name
+    arm_width = {}
+    label = {}
+    by_name = {c.name: c for c in circuit.components}
+    for i, j in enumerate(junctions, 1):
+        names = {"MCORN": ("W",), "MSTEP": ("W1", "W2"), "MTEE": ("W1", "W2", "W3"),
+                 "MCROSS": ("W1", "W2", "W3", "W4")}[j.type]
+        for prop, (arm, _) in zip(names, j.arms if j.type != "MCORN" else j.arms[:1]):
+            arm_width[(j.name, prop)] = arm
+        label[j.name] = f"{CK.TYPES[j.type].label.split()[-1]}{i}"
     ev = circuit.evaluator(project)
 
     # ---- substrate
@@ -148,6 +157,16 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
         d.variables[n] = value
         return var(n)
 
+    def wvar(c: CK.Component, prop: str) -> Lin:
+        """The variable of a width: an automatic junction uses the one of its line."""
+        arm = arm_width.get((c.name, prop))
+        if arm is not None:
+            return setvar(f"{arm}_W", by_name[arm].props["W"])
+        return setvar(f"{c.name}_{prop}", c.props[prop])
+
+    def oname(c: CK.Component) -> str:
+        return label.get(c.name, c.name)
+
     # ---- walk the netlist from the first power port
     ports = CK.port_order(comps)
     placed: set[str] = set()
@@ -158,6 +177,7 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     shorts: list[tuple] = []          # (component, end point, direction, width)
     node_dirs: dict[int, list[tuple]] = {}   # node -> [(direction away from the node, width)]
     same: list[tuple[int, int]] = []
+    pts: list[tuple] = []             # mitered bends: (name, centre, arm 1, arm 2, width, nodes)
 
     start = None
     if ports:
@@ -244,6 +264,56 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                 node_dirs.setdefault(node, []).append((dd, w))
                 if t in ("MLSC", "TLSC"):
                     shorts.append((c, here + along(dd, ln), dd, w))
+            elif t == "MTEE":
+                dm = _dir(pp[0], pp[1])
+                db = _dir((c.x, c.y), pp[2])
+                w1, w2, w3 = (wvar(c, f"W{j}") for j in (1, 2, 3))
+                vals = _values(d, project)
+                wm = max(w1, w2, key=lambda q: q.num(vals))
+                rel = [along(dm, w3 * -0.5), along(dm, w3 * 0.5), along(db, wm * 0.5)]
+                centre = here - rel[k]
+                n3 = nodes[c.name]
+                rects.append(_Rect(oname(c), centre + rel[0], dm, w3, wm, n3))
+                for j, (dd, w) in enumerate(((dm, w1), ((-dm[0], -dm[1]), w2), ((-db[0], -db[1]), w3))):
+                    node_dirs.setdefault(n3[j], []).append((dd, w))
+                for j in range(3):
+                    reach(n3[j], centre + rel[j], c)
+            elif t in ("MCORN", "MMBEND", "MCROSS"):
+                cen = (c.x, c.y)
+                dirs = [_dir(cen, q) for q in pp]
+                n_ = nodes[c.name]
+                if t == "MCROSS":
+                    ws = [wvar(c, f"W{j + 1}") for j in range(4)]
+                    vals = _values(d, project)
+                    # the half extent of the crossing along an arm is half the widest arm across it
+                    across = [max(ws[1], ws[3], key=lambda q: q.num(vals)), max(ws[0], ws[2], key=lambda q: q.num(vals))]
+                    ext_ = [across[j % 2] * 0.5 for j in range(4)]
+                else:
+                    w = wvar(c, "W")
+                    ws, ext_ = [w, w], [w * 0.5, w * 0.5]
+                rel = [along(dirs[j], ext_[j]) for j in range(len(pp))]
+                centre = here - rel[k]
+                if t == "MMBEND":
+                    pts.append((oname(c), centre, dirs[0], dirs[1], ws[0], n_))
+                else:
+                    sx = ext_[0] * 2 if dirs[0][0] else ext_[1] * 2      # size along x and y of the square
+                    sy = ext_[1] * 2 if dirs[0][0] else ext_[0] * 2
+                    rects.append(_Rect(oname(c), centre - along((1, 0), sx * 0.5), (1, 0), sx, sy, n_))
+                for j in range(len(pp)):
+                    node_dirs.setdefault(n_[j], []).append(((-dirs[j][0], -dirs[j][1]), ws[j]))
+                    reach(n_[j], centre + rel[j], c)
+            elif t == "MSTEP":
+                n_ = nodes[c.name]
+                for j in (1, 2):
+                    wvar(c, f"W{j}")
+                same.append((n_[0], n_[1]))
+                reach(n_[1 - k], here, c)
+            elif t == "MGAP":
+                dd = _dir(pp[k], pp[1 - k])
+                for j in (1, 2):
+                    setvar(f"{c.name}_W{j}", c.props[f"W{j}"])
+                g = setvar(f"{c.name}_S", c.props["S"])
+                reach(nodes[c.name][1 - k], here + along(dd, g), c)
             elif t == "MCLIN":
                 da = _dir(pp[0], pp[1])
                 o = _dir(pp[0], pp[2])
@@ -291,6 +361,10 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
         return (a.x, b.x), (a.y, b.y)
 
     xs, ys = [], []
+    for _, cen, a1, a2, w, _ in pts:
+        for v in (cen + along(a1, w * 0.5) + along(a2, w * 0.5), cen - along(a1, w * 0.5) - along(a2, w * 0.5)):
+            xs.append(v.x)
+            ys.append(v.y)
     for r in rects:
         a, b = ext(r)
         xs += a
@@ -350,6 +424,18 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     for r in rects:
         metal.append(sheet(d.unique_name(r.name), r))
         obj_nodes.append(set(r.nodes))
+    for nm, cen, a1, a2, w, ns in pts:
+        # the 50 % mitered bend keeps the triangle on the inside of the corner: full width at both arms
+        q = [cen + along(a1, w * 0.5) + along(a2, w * 0.5), cen + along(a1, w * 0.5) - along(a2, w * 0.5),
+             cen - along(a1, w * 0.5) + along(a2, w * 0.5)]
+        area = sum(a.x.num(vals) * b.y.num(vals) - b.x.num(vals) * a.y.num(vals) for a, b in zip(q, q[1:] + q[:1]))
+        if area < 0:                                   # counter-clockwise: the normal points up
+            q = q[::-1]
+        ptxt = ";".join(f"{v.x.text()},{v.y.text()},{zt.text()}" for v in q)
+        o = d.add_object("CreatePolyline", name=d.unique_name(nm), material="vacuum", Points=ptxt, Closed="True",
+                         Covered="True")
+        metal.append(o)
+        obj_nodes.append(set(ns))
     # a square patch at every corner and junction keeps the copper continuous where traces meet at an angle
     for n, ds in node_dirs.items():
         axes = {dd[0] != 0 for dd, _ in ds}
@@ -486,7 +572,9 @@ def _rlc(c: CK.Component) -> dict[str, str]:
 
 
 # ---- back to the schematic ---------------------------------------------------------------------------------
-BACK = {"MLIN": ("W", "L"), "MLOC": ("W", "L"), "MLSC": ("W", "L"), "SLIN": ("W", "L"), "MCLIN": ("W", "S", "L"),
+BACK = {"MLIN": ("W", "L"), "MLOC": ("W", "L"), "MLSC": ("W", "L"), "SLIN": ("W", "L"),
+        "MCLIN": ("W", "S", "L"), "MTEE": ("W1", "W2", "W3"), "MCORN": ("W",), "MMBEND": ("W",),
+        "MSTEP": ("W1", "W2"), "MGAP": ("W1", "W2", "S"), "MCROSS": ("W1", "W2", "W3", "W4"),
         "SUBST": ("H", "T")}
 
 

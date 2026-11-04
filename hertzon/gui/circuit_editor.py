@@ -32,7 +32,8 @@ FILL = QColor("#e9f1fb")
 # size (w, h) of the body at rotation 0, for the outline used in selection and label placement
 SIZES = {"GND": (24, 28), "PORT": (26, 80), "LABEL": (20, 20), "TLIN": (80, 20), "TLOC": (18, 70),
          "TLSC": (24, 80), "MLIN": (80, 20), "MLOC": (18, 70), "MLSC": (24, 80), "MCLIN": (80, 40),
-         "SLIN": (80, 24), "COAX": (80, 22), "SUBST": (80, 46), "SRLC": (80, 20), "PRLC": (80, 40),
+         "MTEE": (60, 40), "MCORN": (60, 60), "MMBEND": (60, 60), "MSTEP": (60, 22), "MGAP": (60, 18),
+         "MCROSS": (60, 60), "SLIN": (80, 24), "COAX": (80, 22), "SUBST": (80, 46), "SRLC": (80, 20), "PRLC": (80, 40),
          "ATTEN": (60, 24), "DCBLOCK": (60, 44), "DCFEED": (60, 44)}
 
 
@@ -211,6 +212,38 @@ def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = N
         if t.endswith("SC"):
             p.drawLine(0, 26, 0, 30)
             _ground(p, 30)
+    elif t == "MTEE":
+        p.setBrush(SUBSTRATE)
+        p.drawPolygon(QPolygonF([QPointF(-30, -9), QPointF(30, -9), QPointF(30, 9), QPointF(9, 9), QPointF(9, 30),
+                                 QPointF(-9, 30), QPointF(-9, 9), QPointF(-30, 9)]))
+        p.setBrush(COPPER)
+        p.drawPolygon(QPolygonF([QPointF(-30, -4), QPointF(30, -4), QPointF(30, 4), QPointF(4, 4), QPointF(4, 30),
+                                 QPointF(-4, 30), QPointF(-4, 4), QPointF(-30, 4)]))
+    elif t in ("MCORN", "MMBEND", "MSTEP", "MGAP", "MCROSS"):
+        def poly(pts):
+            p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in pts]))
+
+        def outline(a):                                     # copper (a = 4) or substrate (a = 9) outline
+            if t == "MCORN":
+                return [(-30, -a), (a, -a), (a, 30), (-a, 30), (-a, a), (-30, a)]
+            if t == "MMBEND":
+                return [(-30, -a), (a - 6, -a), (a, -a + 6), (a, 30), (-a, 30), (-a, a), (-30, a)]
+            return [(-30, -a), (-a, -a), (-a, -30), (a, -30), (a, -a), (30, -a), (30, a), (a, a), (a, 30),
+                    (-a, 30), (-a, a), (-30, a)]
+        p.setBrush(SUBSTRATE)
+        if t == "MSTEP":
+            p.drawRect(QRectF(-30, -11, 60, 22))
+            p.setBrush(COPPER)
+            poly([(-30, -7), (0, -7), (0, -3), (30, -3), (30, 3), (0, 3), (0, 7), (-30, 7)])
+        elif t == "MGAP":
+            p.drawRect(QRectF(-30, -9, 60, 18))
+            p.setBrush(COPPER)
+            p.drawRect(QRectF(-30, -4, 24, 8))
+            p.drawRect(QRectF(6, -4, 24, 8))
+        else:
+            poly(outline(9))
+            p.setBrush(COPPER)
+            poly(outline(4))
     elif t == "MCLIN":
         for y in (-10, 10):
             p.drawLine(-40, y, -30, y)
@@ -275,6 +308,16 @@ def value_lines(c: CK.Component) -> list[str]:
         return [f"Z={p.get('Z0')}  E={p.get('E')}", f"F={p.get('F')}"]
     if t in ("MLIN", "MLOC", "MLSC", "SLIN"):
         return [f"W={p.get('W')}  L={p.get('L')}", f"{p.get('Subst')}"]
+    if t == "MTEE":
+        return [f"W1={p.get('W1')}  W2={p.get('W2')}", f"W3={p.get('W3')}  {p.get('Subst')}"]
+    if t in ("MCORN", "MMBEND"):
+        return [f"W={p.get('W')}", f"{p.get('Subst')}"]
+    if t == "MSTEP":
+        return [f"W1={p.get('W1')}  W2={p.get('W2')}", f"{p.get('Subst')}"]
+    if t == "MGAP":
+        return [f"W1={p.get('W1')}  W2={p.get('W2')}", f"S={p.get('S')}  {p.get('Subst')}"]
+    if t == "MCROSS":
+        return [f"W1={p.get('W1')}  W2={p.get('W2')}", f"W3={p.get('W3')}  W4={p.get('W4')}", f"{p.get('Subst')}"]
     if t == "MCLIN":
         return [f"W={p.get('W')}  S={p.get('S')}", f"L={p.get('L')}  {p.get('Subst')}"]
     if t == "COAX":
@@ -336,7 +379,9 @@ class ComponentItem(QGraphicsItem):
         c = self.comp
         info = CK.TYPES[c.type]
         vals = "\n".join(f"{k} = {v}" for k, v in c.props.items() if k not in ("Thumbnail", "PortNames", "Ports"))
-        return f"{c.name}: {info.label}\n{info.help}" + (f"\n\n{vals}" if vals else "")
+        extra = line_summary(self.editor.doc, c) if not self.ghost and c.type in CALC_TYPES else ""
+        return f"{c.name}: {info.label}\n{info.help}" + (f"\n\n{vals}" if vals else "") + \
+            (f"\n\n{extra}" if extra else "")
 
     def boundingRect(self) -> QRectF:
         w, h = body_size(self.comp)
@@ -398,7 +443,15 @@ class ComponentItem(QGraphicsItem):
         if c.type == "GND":
             p.restore()
             return
-        if h > w and c.type not in CK.NPORT_TYPES:          # vertical part: text to the right
+        if c.type in ("MTEE", "MCORN", "MMBEND") and c.rot % 180 == 0:          # the text goes to the side away from the branch
+            n = 1 + len(lines)
+            y0 = -h / 2 - n * lh - 3 if (c.rot == 0) != c.mirror else h / 2 + 3
+            p.setPen(QPen(INKC))
+            p.drawText(QRectF(-110, y0, 220, lh), Qt.AlignCenter, c.name)
+            p.setPen(QPen(QColor(MUTED)))
+            for i, line in enumerate(lines):
+                p.drawText(QRectF(-110, y0 + (i + 1) * lh, 220, lh), Qt.AlignCenter, line)
+        elif h > w and c.type not in CK.NPORT_TYPES:          # vertical part: text to the right
             x, y0 = w / 2 + 6, -(1 + len(lines)) * lh / 2
             p.setPen(QPen(INKC))
             p.drawText(QRectF(x, y0, 220, lh), Qt.AlignLeft | Qt.AlignVCenter, c.name)
@@ -625,6 +678,7 @@ class CircuitEditor(QWidget):
     analyzeRequested = Signal()
     reportRequested = Signal()
     modeChanged = Signal(str)
+    componentsSelected = Signal(list)          # names of the selected parts (Properties panel)
 
     def __init__(self, doc, parent=None):
         super().__init__(parent)
@@ -639,6 +693,8 @@ class CircuitEditor(QWidget):
         self._ghost_rot, self._ghost_mirror = 0, False
         self.library: PartLibrary | None = None
         self.scene = QGraphicsScene(self)
+        self._rebuilding = False
+        self.scene.selectionChanged.connect(self._selection_changed)
         self.scene.setSceneRect(-3000, -3000, 6000, 6000)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -685,6 +741,7 @@ class CircuitEditor(QWidget):
         self._preview = None
         self._ghost = None
         self._dragging_wires, self._drag_extra = None, []
+        self._rebuilding = True
         self.scene.clear()
         for i, w in enumerate(self.des.wires):
             self.scene.addItem(WireItem(i, w))
@@ -692,6 +749,7 @@ class CircuitEditor(QWidget):
             it = ComponentItem(self, c)
             self.scene.addItem(it)
             it.setSelected(c.name in sel)
+        self._rebuilding = False
         # junction dots where three or more connections meet
         count: dict[tuple[int, int], int] = {}
         for w in self.des.wires:
@@ -704,6 +762,19 @@ class CircuitEditor(QWidget):
         for q, n in count.items():
             if n >= 3:
                 self.scene.addEllipse(q[0] - 3, q[1] - 3, 6, 6, QPen(Qt.NoPen), QBrush(WIRE))
+        # automatic junction models: a small diamond with what was found
+        if self.des.settings.get(CK.AUTO, "True") != "False":
+            for j in CK.find_junctions(self.des.components, self.des.wires):
+                x, y = j.point
+                it = self.scene.addPolygon(QPolygonF([QPointF(x, y - 7), QPointF(x + 7, y), QPointF(x, y + 7),
+                                                      QPointF(x - 7, y)]),
+                                           QPen(QColor("#b05a00"), 1.2), QBrush(QColor("#ffd9a8")))
+                it.setZValue(5)
+                vals = "  ".join(f"{k}={v}" for k, v in j.props.items() if k != "Subst")
+                it.setToolTip(f"Automatic {CK.TYPES[j.type].label}: {vals}\nLines: "
+                              + ", ".join(a for a, _ in j.arms)
+                              + "\nThe lines attach at its edges. Place a junction part here (or switch "
+                                "Automatic off) to set it yourself.")
         if self.library is not None:
             self.library.fill()
         if self.mode == "place":
@@ -936,6 +1007,13 @@ class CircuitEditor(QWidget):
             self.scene.addItem(it)
             self._drag_extra.append(it)
 
+    def _selection_changed(self) -> None:
+        if not self._rebuilding:
+            try:
+                self.componentsSelected.emit([it.comp.name for it in self.selected_components()])
+            except RuntimeError:                    # the scene is being destroyed
+                pass
+
     def items_moved(self) -> None:
         moves = self._moves()
         self._dragging_wires = None
@@ -1063,7 +1141,42 @@ class CircuitEditor(QWidget):
 LABELS = {"Z0": "Impedance Z0", "E": "Electrical length", "F": "at frequency", "Num": "Port number",
           "Er": "Permittivity Er", "H": "Height H", "T": "Metal thickness T", "TanD": "Loss tangent",
           "Cond": "Conductivity (S/m)", "W": "Width W", "S": "Spacing S", "L": "Length L", "Di": "Inner diameter",
-          "Do": "Outer diameter", "Subst": "Substrate", "Net": "Net name", "Loss": "Attenuation"}
+          "Do": "Outer diameter", "Subst": "Substrate", "Net": "Net name", "Loss": "Attenuation",
+          "W1": "Width W1 (main line)", "W2": "Width W2 (main line)", "W3": "Width W3 (branch)", "W4": "Width W4"}
+
+
+CALC_TYPES = ("MLIN", "MLOC", "MLSC", "SLIN")
+
+
+def line_summary(doc, c: CK.Component) -> str:
+    """Z0, effective permittivity and electrical length of a line at the middle of the sweep (tooltip)."""
+    import math
+
+    from ..solver import tlines as TL
+    try:
+        design = doc.design
+        ev = design.evaluator(doc.project)
+        sub = next(o for o in design.components if o.type == "SUBST" and o.name == c.props.get("Subst"))
+        sp = sub.props
+        f = ev.freq(_center_frequency(design))
+        w, ln = ev.length(c.props["W"]), ev.length(c.props["L"])
+        z0, g = TL.line_z0_gamma("SLIN" if c.type == "SLIN" else "MLIN", f, w, ev.length(sp["H"]),
+                                 ev.length(sp["T"]), ev.value(sp["Er"]), ev.value(sp["TanD"]),
+                                 ev.value(sp["Cond"]))
+        ee = (g.imag * TL.C0 / (2 * math.pi * f)) ** 2
+        return f"At {f / 1e9:g} GHz: Z0 = {z0:.2f} ohm, eeff = {ee:.3f}, E = {math.degrees(g.imag * ln):.1f} deg"
+    except Exception:  # noqa: BLE001 (no substrate or an incomplete value)
+        return ""
+
+
+def _center_frequency(design) -> str:
+    """The middle of the first sweep of a circuit design (the calculator's default frequency)."""
+    try:
+        sw = design.setups[0].sweeps[0].props
+        ev = design.evaluator(None)
+        return f"{(ev.freq(sw['Start']) + ev.freq(sw['Stop'])) / 2e9:g}GHz"
+    except Exception:  # noqa: BLE001
+        return "1GHz"
 
 
 class ComponentDialog(QDialog):
@@ -1118,10 +1231,91 @@ class ComponentDialog(QDialog):
                 self.fields[k] = e
                 form.addRow(LABELS.get(k, k), e)
         lay.addLayout(form)
+        if comp.type in CALC_TYPES:
+            lay.addWidget(self._calculator())
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self._ok)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+    # ---- line calculator: Z0 and electrical length <-> W and L --------------------------------------
+    def _calculator(self) -> QWidget:
+        from PySide6.QtWidgets import QGroupBox
+        box = QGroupBox("Line calculator")
+        g = QFormLayout(box)
+        self.info = QLabel()
+        self.info.setStyleSheet(f"color: {MUTED};")
+        self.calc_z0 = QLineEdit("50ohm")
+        self.calc_e = QLineEdit("90deg")
+        self.calc_f = QLineEdit(_center_frequency(self.doc.design))
+        go = QPushButton("Calculate W and L")
+        go.clicked.connect(self._synthesize)
+        g.addRow("Now", self.info)
+        g.addRow("Impedance Z0", self.calc_z0)
+        g.addRow("Electrical length", self.calc_e)
+        g.addRow("at frequency", self.calc_f)
+        g.addRow("", go)
+        for k in ("W", "L", "Subst"):
+            e = self.fields.get(k)
+            sig = getattr(e, "textChanged", None) or getattr(e, "currentTextChanged", None)
+            if sig is not None:
+                sig.connect(lambda *_: self._analyze())
+        self.calc_f.textChanged.connect(lambda *_: self._analyze())
+        self._analyze()
+        return box
+
+    def _substrate(self, ev) -> dict | None:
+        name = self._text(self.fields["Subst"])
+        sub = next((c for c in self.doc.design.components if c.type == "SUBST" and c.name == name), None)
+        if sub is None:
+            return None
+        p = sub.props
+        return dict(h=ev.length(p["H"]), t=ev.length(p["T"]), er=ev.value(p["Er"]), tand=ev.value(p["TanD"]),
+                    cond=ev.value(p["Cond"]))
+
+    def _analyze(self) -> None:
+        import math
+
+        from ..solver import tlines as TL
+        ev = self.doc.design.evaluator(self.doc.project)
+        try:
+            s = self._substrate(ev)
+            if s is None:
+                self.info.setText("no substrate of this name")
+                return
+            f = ev.freq(self.calc_f.text())
+            w, ln = ev.length(self._text(self.fields["W"])), ev.length(self._text(self.fields["L"]))
+            kind = "SLIN" if self.comp.type == "SLIN" else "MLIN"
+            z0, g = TL.line_z0_gamma(kind, f, w, s["h"], s["t"], s["er"], s["tand"], s["cond"])
+            ee = (g.imag * TL.C0 / (2 * math.pi * f)) ** 2
+            deg = math.degrees(g.imag * ln)
+            self.info.setText(f"Z0 = {z0:.2f} ohm   eeff = {ee:.3f}   E = {deg:.1f} deg")
+        except Exception as e:  # noqa: BLE001 (incomplete input while typing)
+            self.info.setText(f"({e})")
+
+    def _synthesize(self) -> None:
+        import math
+
+        from ..solver import tlines as TL
+        ev = self.doc.design.evaluator(self.doc.project)
+        try:
+            s = self._substrate(ev)
+            if s is None:
+                raise ValueError("no substrate of this name")
+            f, z0, e = ev.freq(self.calc_f.text()), ev.value(self.calc_z0.text()), ev.angle(self.calc_e.text())
+            kind = "SLIN" if self.comp.type == "SLIN" else "MLIN"
+            w = TL.synthesize(kind, z0, f, s["h"], s["t"], s["er"], s["tand"], s["cond"])
+            g = TL.line_z0_gamma(kind, f, w, s["h"], s["t"], s["er"], s["tand"], s["cond"])[1]
+        except Exception as ex:  # noqa: BLE001
+            QMessageBox.warning(self, "Line calculator", str(ex))
+            return
+        scale, unit = 1e3, "mm"
+        self.fields["W"].setText(f"{w * scale:.4g}{unit}")
+        if self.comp.type != "MLOC":
+            self.fields["L"].setText(f"{e / g.imag * scale:.4g}{unit}")
+        else:                                     # the open end adds its length extension
+            ext = TL.open_end_extension(w, s["h"], s["t"], s["er"])
+            self.fields["L"].setText(f"{max(e / g.imag - ext, 0) * scale:.4g}{unit}")
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Touchstone File", self.file.text(), "Touchstone (*.s*p)")
