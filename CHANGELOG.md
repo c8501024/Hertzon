@@ -14,8 +14,16 @@ the GitHub release notes.
   symbol for each, then the solution type (Modal, Terminal, Eigenmode), the units and the project name. On the
   right: recent projects, the examples and the patch and hairpin templates. **Empty Project** keeps the old
   behaviour; **Show at startup** switches the page off at program start. Project > Insert Design shows the same
-  choice, because a project can hold several designs. Circuit designs and the low-frequency solution types
-  (electrostatic, DC conduction, magnetostatic, eddy current) are shown greyed out as "not implemented yet".
+  choice, because a project can hold several designs, 3D and circuit designs mixed. The low-frequency solution
+  types (electrostatic, DC conduction, magnetostatic, eddy current) and the transient and harmonic balance
+  circuit analyses are shown greyed out as "not implemented yet".
+- **Circuit designs** (linear network): a schematic editor in place of the 3D modeler with resistors,
+  inductors, capacitors, ideal lines, ground, ports and Touchstone blocks. Draw wires on the grid (W), rotate
+  (R), double-click a part to edit its values (expressions with variables). **Drag a 3D design from the Project
+  Manager into the schematic**: it becomes a block with one pin per port and a picture of the structure, and
+  its solved S-parameters are used in the circuit (right-click > Update ports and picture after a change).
+  Analyze solves the network at once over the sweep of the circuit (1 to 10 GHz by default) and writes the
+  results like a 3D design, so the S-parameter reports, Touchstone export and Solution Data work the same way.
 - **Design type in the project file**: every design stores its type (`"kind": "3d"` or `"circuit"`); files
   without it open as 3D designs.
 

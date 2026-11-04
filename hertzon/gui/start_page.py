@@ -244,6 +244,7 @@ class StartPageDialog(QDialog):
         for name, text, ok in schema.CIRCUIT_ANALYSES:
             w, rb = _option(name, text, ok)
             self.analysis.addButton(rb)
+            rb.setChecked(ok and not self.analysis.checkedButton())
             lay.addWidget(w)
         cl.addWidget(box)
         ml.addWidget(self.step3d)
@@ -370,7 +371,7 @@ class StartPageDialog(QDialog):
         k = self.kind()
         if not schema.DESIGN_KINDS[k][1]:
             return
-        self._finish(StartChoice("create", kind=k, solution_type=self.solution_type(),
+        self._finish(StartChoice("create", kind=k, solution_type=self.solution_type() if k == "3d" else "Modal",
                                  units=self.units.currentText(), name=self.name.text().strip()))
 
     def _empty(self) -> None:
