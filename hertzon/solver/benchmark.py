@@ -73,6 +73,7 @@ def run_summary(folder: Path, sweeps: list[str] | None = None) -> dict:
     phases = {p["task"]: float(p["elapsed"]) for p in prof}
     passes = conv.get("passes", [])
     return {"total": float(status.get("elapsed") or (prof[-1]["total"] if prof else 0.0)),
+            "start": max(0.0, float(prof[0]["total"]) - float(prof[0]["elapsed"])) if prof else 0.0,
             "mesh": phases.get("Initial meshing", 0.0),
             "adaptive": phases.get("Adaptive meshing", 0.0),
             "sweep": sum(v for k, v in phases.items() if k.startswith("Sweep ")),

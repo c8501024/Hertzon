@@ -161,6 +161,24 @@ def test_solver_comparison_marks_runs_without_their_solver_and_names_the_fastest
     assert "single precision" in text and "Note column" in text
 
 
+def test_solver_comparison_leaves_out_the_solver_start(tmp_path):
+    """The first run of a benchmark loads the libraries from disk: the comparison of the solvers leaves the
+    start of the solver process out, and run_summary records it from the first phase."""
+    from hertzon.gui.benchmark import solve_time, solver_recommendation
+    from hertzon.solver.benchmark import run_summary
+    from hertzon.solver.results import ResultStore
+    res = {"runs": [{"kind": "cores", "solver": "PARDISO", "cores": 4, "total": 60.0, "start": 18.0, "sweep": 20.0},
+                    {"kind": "cores", "solver": "SPARTA (CPU)", "cores": 4, "total": 36.0, "start": 2.0,
+                     "sweep": 15.0}]}
+    assert solve_time(res["runs"][0]) == 42.0
+    text, best = solver_recommendation(res)
+    assert best == "SPARTA (CPU)" and "34 s, 19 % faster than PARDISO" in text and "PARDISO 42 s" in text
+    st = ResultStore(tmp_path)
+    st.write_json("profile.json", [{"task": "Initial meshing", "elapsed": 3.0, "total": 21.0}])
+    st.write_json("status.json", {"state": "done", "elapsed": 30.0})
+    assert run_summary(tmp_path)["start"] == 18.0
+
+
 def test_solver_comparison_with_parallel_frequencies_on_one_mesh(tmp_path, monkeypatch):
     """--solvers with --workers: every solver solves the sweeps on the reference mesh in a fresh process, one
     frequency at a time and with each number of parallel frequencies; the direct solutions of the

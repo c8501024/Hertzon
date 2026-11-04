@@ -5,6 +5,13 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- **Solver comparison shows the solver start separately**: the time before the first phase (starting the
+  solver process) is its own segment in the chart and its own column in the table, and the fastest solver,
+  the "Others" times and the comparison with the first solver leave it out. The first run of a benchmark loads
+  the libraries from disk (18.3 s against 1.4 s for the second run in a test), which made the first solver
+  look 46 % slower instead of 19 %.
+
 ### Fixed
 - **Interpolating sweep**: the rational model of the solved frequencies now uses the fewest pole pairs that
   reproduce them, instead of a pole count from the number of samples. Smooth responses (waveguides, lines)
