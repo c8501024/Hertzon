@@ -916,6 +916,12 @@ class MainWindow(QMainWindow):
         part(g, "MCLIN", True)
         part(g, "MLOC")
         part(g, "MLSC")
+        g = pg.group("Line Model")
+        self._full_wave = g.small("Full Wave", "validate", self._toggle_full_wave, checkable=True,
+                                  tip="Microstrip and coplanar lines from a full-wave solve of their cross-section "
+                                      "(port mode solver) with the substrate and widths of the schematic, at a few "
+                                      "frequencies up to the highest sweep frequency; the length is applied in the "
+                                      "circuit. Solved once per cross-section and cached. Off: closed-form models")
         g = pg.group("Discontinuities")
         self._auto_junctions = g.small("Automatic", "validate", self._toggle_auto_junctions, checkable=True,
                                        tip="Find corners, steps, tees and crosses where microstrip lines meet and "
@@ -928,6 +934,7 @@ class MainWindow(QMainWindow):
         part(g, "MSTEP")
         part(g, "MGAP")
         g = pg.group("Other")
+        part(g, "CPWLIN", True)
         part(g, "SLIN", True)
         part(g, "COAX", True)
 
@@ -986,6 +993,12 @@ class MainWindow(QMainWindow):
         g.large("Solution Data", "soldata", lambda: self.solution_data())
         g.large("Touchstone", "export", lambda: self.export_touchstone())
         rb.setCurrentIndex(1)
+
+    def _toggle_full_wave(self) -> None:
+        from ..model.circuit import LINE_MODEL
+        self.doc.checkpoint()
+        self.des.settings[LINE_MODEL] = "Full wave" if self._full_wave.isChecked() else "Closed form"
+        self.doc.commit("circuit", geometry=False)
 
     def _toggle_auto_junctions(self) -> None:
         from ..model.circuit import AUTO
@@ -1098,6 +1111,8 @@ class MainWindow(QMainWindow):
         if circ:
             from ..model.circuit import AUTO
             self._auto_junctions.setChecked(self.des.settings.get(AUTO, "True") != "False")
+            from ..model.circuit import LINE_MODEL
+            self._full_wave.setChecked(self.des.settings.get(LINE_MODEL, "Closed form") == "Full wave")
             self.circuit.rebuild()
 
     def _on_doc_changed(self, what: str) -> None:
@@ -4176,6 +4191,57 @@ class MainWindow(QMainWindow):
             self.solver.submit(Job(self.doc.project.path, self.des.name, s, mesh_only=mesh_only))
         self.project_tree.rebuild()
 
+    def _solve_cross_sections(self) -> bool:
+        """Full-wave line model: the cross-sections not in the cache are solved first, with a progress dialog
+        (each one a short port mode solve in its own solver process). False: failed or cancelled."""
+        from ..solver import circuit as SC
+        from ..solver import xsection as XS
+        if not SC.full_wave(self.des):
+            return True
+        try:
+            xs = list(SC.cross_sections(self.doc.project, self.des).values())
+            fm = SC.max_frequency(self.doc.project, self.des)
+        except SC.CircuitError as e:
+            QMessageBox.warning(self, "Analyze", str(e))
+            return False
+        todo = XS.missing(xs, fm, self.doc.project.path) if xs and fm > 0 else []
+        if not todo:
+            return True
+        import threading
+        import time
+        from PySide6.QtWidgets import QApplication, QProgressDialog
+        from .solve import solver_python
+        dlg = QProgressDialog(f"Full-wave line model: solving {len(todo)} cross-section(s)", "", 0, len(todo), self)
+        dlg.setWindowTitle("Analyze")
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        dlg.setWindowModality(Qt.WindowModal)
+        state = {"done": 0, "text": "", "error": None, "end": False}
+
+        def work():
+            try:
+                XS.solve(todo, fm, self.doc.project.path, python=solver_python(),
+                         progress=lambda d, n, t: state.update(done=d, text=t))
+            except Exception as e:  # noqa: BLE001
+                state["error"] = e
+            state["end"] = True
+        th = threading.Thread(target=work, daemon=True)
+        th.start()
+        t0 = time.time()
+        while not state["end"]:
+            dlg.setValue(state["done"])
+            if state["text"]:
+                dlg.setLabelText(f"Full-wave line model: {state['done']} of {len(todo)} solved\n{state['text']}")
+            QApplication.processEvents()
+            th.join(0.05)
+        dlg.close()
+        if state["error"] is not None:
+            self.msgs.add("error", f"{self.des.name}: full-wave line model: {state['error']}")
+            QMessageBox.warning(self, "Analyze", f"Full-wave line model: {state['error']}")
+            return False
+        self.msgs.add("info", f"{self.des.name}: {len(todo)} line cross-section(s) solved in {time.time() - t0:.1f} s")
+        return True
+
     def _add_circuit_setup(self) -> None:
         self.doc.checkpoint()
         self.des.setups.append(circuit_setup())
@@ -4188,6 +4254,8 @@ class MainWindow(QMainWindow):
             if not self.file_save():
                 return
         import time
+        if not self._solve_cross_sections():
+            return
         for s in setups:
             t = time.time()
             try:

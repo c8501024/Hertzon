@@ -190,8 +190,9 @@ def _substrates(comps, ev) -> dict:
     return out
 
 
-def element_y(c: CK.Component, f: float, v) -> np.ndarray | None:
-    """Admittance matrix of a component between its pins at frequency f; None for parts without one."""
+def element_y(c: CK.Component, f: float, v, table=None) -> np.ndarray | None:
+    """Admittance matrix of a component between its pins at frequency f; None for parts without one. table: the
+    full-wave cross-section of a line (xsection.Table), else the closed-form model."""
     w = 2 * np.pi * f
     t = c.type
     if t in ("R", "L", "C", "SRLC", "PRLC", "DCBLOCK", "DCFEED"):
@@ -227,11 +228,22 @@ def element_y(c: CK.Component, f: float, v) -> np.ndarray | None:
         return np.array([[TL.stub_y(z0, 1j * e * f / f0, t == "TLOC")]])
     if t in ("MLIN", "MLOC", "MLSC"):
         q, s = v
-        z0, g = TL.microstrip(f, q["W"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
+        if table is not None:
+            z0, g = table.at(f, s["cond"])
+        else:
+            z0, g = TL.microstrip(f, q["W"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
         if t == "MLIN":
             return TL.line_y(z0, g * q["L"])
         length = q["L"] + (TL.open_end_extension(q["W"], s["h"], s["t"], s["er"]) if t == "MLOC" else 0.0)
         return np.array([[TL.stub_y(z0, g * length, t == "MLOC")]])
+    if t == "CPWLIN":
+        q, s = v
+        if table is not None:
+            z0, g = table.at(f, s["cond"])
+        else:
+            z0, g = TL.cpw(f, q["W"], q["S"], s["h"], s["t"], s["er"], s["tand"], s["cond"],
+                           c.props.get("Backed", "False") == "True")
+        return TL.line_y(z0, g * q["L"])
     if t == "MCLIN":
         q, s = v
         even, odd = TL.coupled_microstrip(f, q["W"], q["S"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
@@ -261,11 +273,54 @@ def element_y(c: CK.Component, f: float, v) -> np.ndarray | None:
     return None
 
 
+def full_wave(design: Design) -> bool:
+    return design.settings.get(CK.LINE_MODEL, "Closed form") == "Full wave"
+
+
+def cross_sections(project: Project, design: Design) -> dict[str, object]:
+    """The line cross-section (xsection.XSec) of every line the full-wave line model applies to, by part name."""
+    from .xsection import XSec
+    ev = design.evaluator(project)
+    comps = [c for c in design.components if c.type in CK.FULL_WAVE_TYPES or c.type == "SUBST"]
+    subst = _substrates(comps, ev)
+    out = {}
+    for c in comps:
+        if c.type == "SUBST":
+            continue
+        try:
+            q, sb = _params(c, ev, subst)
+        except Exception as e:  # noqa: BLE001
+            raise CircuitError(f"{c.name}: {e}") from e
+        if c.type == "CPWLIN":
+            kind = "GCPW" if c.props.get("Backed", "False") == "True" else "CPW"
+        else:
+            kind = "MS"
+        out[c.name] = XSec(kind, round(q["W"], 12), round(q.get("S", 0.0), 12) if kind != "MS" else 0.0,
+                           round(sb["h"], 12), round(sb["t"], 12), round(sb["er"], 9), round(sb["tand"], 9))
+    return out
+
+
+def max_frequency(project: Project, design: Design) -> float:
+    """The highest frequency of the enabled sweeps of the design's setups."""
+    ev = design.evaluator(project)
+    fm = 0.0
+    for st in design.setups:
+        for sw in st.sweeps:
+            if sw.props.get("Enabled", "True") == "True":
+                try:
+                    fm = max(fm, float(np.max(sweep_frequencies(sw.props, ev))))
+                except Exception:  # noqa: BLE001
+                    pass
+    return fm
+
+
 def auto_junctions(design: Design) -> bool:
     return design.settings.get(CK.AUTO, "True") != "False"
 
 
-def analyze(project: Project, design: Design, freqs: np.ndarray) -> CircuitResult:
+def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) -> CircuitResult:
+    """S-parameters at freqs. With the full-wave line model the cross-sections of the lines are solved first
+    (or read from the cache); progress(done, total, text) reports those solves."""
     ev = design.evaluator(project)
     ids, _ = CK.nets(design.components, design.wires)
     comps, nodes_of, n, _ = CK.netlist(design.components, design.wires, auto_junctions(design))
@@ -311,6 +366,17 @@ def analyze(project: Project, design: Design, freqs: np.ndarray) -> CircuitResul
         except Exception as e:  # noqa: BLE001
             raise CircuitError(f"{c.name}: {e}") from e
 
+    tables: dict[str, object] = {}
+    if full_wave(design):
+        from . import xsection as XS
+        xs = cross_sections(project, design)
+        if xs:
+            try:
+                fm = max(float(np.max(freqs)), max_frequency(project, design))     # one grid for all sweeps
+                solved = XS.solve(list(xs.values()), fm, project.path, progress=progress)
+            except XS.XSecError as e:
+                raise CircuitError(f"Full-wave line model: {e}") from e
+            tables = {n: solved[x] for n, x in xs.items()}
     P = len(ports)
     S_out = np.zeros((len(freqs), P, P), complex)
     pidx = np.array(port_nodes) - 1
@@ -326,7 +392,7 @@ def analyze(project: Project, design: Design, freqs: np.ndarray) -> CircuitResul
                 r = 1.0 / np.sqrt(zb)
                 Ym = (r[:, None] * (np.eye(m) - Sb) @ np.linalg.inv(np.eye(m) + Sb)) * r[None, :]
             else:
-                Ym = element_y(c, f, values[c.name])
+                Ym = element_y(c, f, values[c.name], tables.get(c.name))
             if Ym is None:
                 continue
             Y[np.ix_(nd, nd)] += Ym
@@ -340,7 +406,7 @@ def analyze(project: Project, design: Design, freqs: np.ndarray) -> CircuitResul
     return CircuitResult(np.asarray(freqs, float), S_out, np.array(z_ref), [c.name for c in ports], warnings)
 
 
-def run_setup(project: Project, design: Design, setup: Setup) -> tuple[Path, list[str]]:
+def run_setup(project: Project, design: Design, setup: Setup, progress=None) -> tuple[Path, list[str]]:
     """Analyze every enabled sweep of the setup and write the results. Returns (folder, warnings)."""
     if not project.path:
         raise CircuitError("Save the project first")
@@ -357,7 +423,7 @@ def run_setup(project: Project, design: Design, setup: Setup) -> tuple[Path, lis
     res = None
     for sw in sweeps:
         fr = sweep_frequencies(sw.props, ev)
-        res = analyze(project, design, fr)
+        res = analyze(project, design, fr, progress)
         ports = [{"name": n, "number": i + 1, "kind": "Circuit Port", "modes": 1}
                  for i, n in enumerate(res.ports)]
         st.save_sparams(sw.name, res.freq, res.S, res.z0, ports)

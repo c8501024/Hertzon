@@ -6,6 +6,18 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Full-wave line model** (circuit, Transmission Lines › Line Model › *Full Wave*): microstrip lines and stubs
+  and coplanar lines take their propagation constant and impedance from a full-wave solve of their cross-section
+  (the port mode solver on the substrate and widths of the schematic, metal thickness included, in a shielded
+  box) at eight frequencies up to the highest sweep frequency. The length is applied in the circuit, so changing
+  a length needs no new solve; each cross-section is solved once (about 10 s) and cached next to the project
+  results. The mode solver gives dispersion, impedance (power and current) and the dielectric loss; the conductor
+  loss is added from the surface resistance. Junctions, coupled lines and open-end corrections keep their
+  closed-form models.
+- **Coplanar Line** (Transmission Lines › Other): coplanar waveguide with centre strip W and gaps S, optionally
+  with a ground plane under the substrate (*Backed*). Closed form by conformal mapping with the thickness
+  correction after Gupta and the dispersion after Frankel, or the full-wave line model. A 3D layout draws only
+  its centre strip for now.
 - **Eigenmode Parameters report**: Results > Create Eigenmode Parameters Report > Data Table lists the
   eigenfrequencies and Q of an eigenmode solution, one row per mode (exportable as CSV, copy to clipboard).
 - **Solve on a computer reached over SSH**: Tools > Options > Remote > Connection *SSH login* with `user@host`

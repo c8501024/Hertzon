@@ -33,7 +33,7 @@ FILL = QColor("#e9f1fb")
 SIZES = {"GND": (24, 28), "PORT": (26, 80), "LABEL": (20, 20), "TLIN": (80, 20), "TLOC": (18, 70),
          "TLSC": (24, 80), "MLIN": (80, 20), "MLOC": (18, 70), "MLSC": (24, 80), "MCLIN": (80, 40),
          "MTEE": (60, 40), "MCORN": (60, 60), "MMBEND": (60, 60), "MSTEP": (60, 22), "MGAP": (60, 18),
-         "MCROSS": (60, 60), "SLIN": (80, 24), "COAX": (80, 22), "SUBST": (80, 46), "SRLC": (80, 20), "PRLC": (80, 40),
+         "MCROSS": (60, 60), "SLIN": (80, 24), "CPWLIN": (80, 26), "COAX": (80, 22), "SUBST": (80, 46), "SRLC": (80, 20), "PRLC": (80, 40),
          "ATTEN": (60, 24), "DCBLOCK": (60, 44), "DCFEED": (60, 44)}
 
 
@@ -175,7 +175,7 @@ def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = N
     elif t == "LABEL":
         p.drawLine(0, 0, 0, -8)
         p.drawEllipse(QPointF(0, 0), 1.5, 1.5)
-    elif t in ("TLIN", "MLIN", "SLIN", "COAX"):
+    elif t in ("TLIN", "MLIN", "SLIN", "COAX", "CPWLIN"):
         p.drawLine(-40, 0, -30, 0)
         p.drawLine(30, 0, 40, 0)
         if t == "TLIN":
@@ -186,6 +186,13 @@ def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = N
             p.drawRect(QRectF(-30, -9, 60, 18))
             p.setBrush(COPPER)
             p.drawRect(QRectF(-30, -4, 60, 8))
+        elif t == "CPWLIN":
+            p.setBrush(SUBSTRATE)
+            p.drawRect(QRectF(-30, -12, 60, 24))
+            p.setBrush(COPPER)
+            p.drawRect(QRectF(-30, -3, 60, 6))
+            p.drawRect(QRectF(-30, -12, 60, 5))
+            p.drawRect(QRectF(-30, 7, 60, 5))
         elif t == "SLIN":
             p.setBrush(SUBSTRATE)
             p.drawRect(QRectF(-30, -11, 60, 22))
@@ -308,6 +315,9 @@ def value_lines(c: CK.Component) -> list[str]:
         return [f"Z={p.get('Z0')}  E={p.get('E')}", f"F={p.get('F')}"]
     if t in ("MLIN", "MLOC", "MLSC", "SLIN"):
         return [f"W={p.get('W')}  L={p.get('L')}", f"{p.get('Subst')}"]
+    if t == "CPWLIN":
+        gnd = "  backed" if p.get("Backed", "False") == "True" else ""
+        return [f"W={p.get('W')}  S={p.get('S')}", f"L={p.get('L')}  {p.get('Subst')}{gnd}"]
     if t == "MTEE":
         return [f"W1={p.get('W1')}  W2={p.get('W2')}", f"W3={p.get('W3')}  {p.get('Subst')}"]
     if t in ("MCORN", "MMBEND"):
@@ -1140,9 +1150,10 @@ class CircuitEditor(QWidget):
 
 LABELS = {"Z0": "Impedance Z0", "E": "Electrical length", "F": "at frequency", "Num": "Port number",
           "Er": "Permittivity Er", "H": "Height H", "T": "Metal thickness T", "TanD": "Loss tangent",
-          "Cond": "Conductivity (S/m)", "W": "Width W", "S": "Spacing S", "L": "Length L", "Di": "Inner diameter",
+          "Cond": "Conductivity (S/m)", "W": "Width W", "S": "Spacing (gap) S", "L": "Length L", "Di": "Inner diameter",
           "Do": "Outer diameter", "Subst": "Substrate", "Net": "Net name", "Loss": "Attenuation",
-          "W1": "Width W1 (main line)", "W2": "Width W2 (main line)", "W3": "Width W3 (branch)", "W4": "Width W4"}
+          "W1": "Width W1 (main line)", "W2": "Width W2 (main line)", "W3": "Width W3 (branch)", "W4": "Width W4",
+          "Backed": "Ground under the substrate"}
 
 
 CALC_TYPES = ("MLIN", "MLOC", "MLSC", "SLIN")
@@ -1225,6 +1236,10 @@ class ComponentDialog(QDialog):
                     e = QComboBox()
                     e.setEditable(True)
                     e.addItems([o.name for o in doc.design.components if o.type == "SUBST"])
+                    e.setCurrentText(comp.props.get(k, default))
+                elif k == "Backed":
+                    e = QComboBox()
+                    e.addItems(["False", "True"])
                     e.setCurrentText(comp.props.get(k, default))
                 else:
                     e = QLineEdit(comp.props.get(k, default))

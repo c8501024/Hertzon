@@ -117,6 +117,71 @@ def coupled_microstrip(f: float, w: float, s: float, h: float, t: float, er: flo
     return out[0], out[1]
 
 
+# ---- coplanar waveguide ------------------------------------------------------------------------------
+def _kk(k: float) -> float:
+    """K(k) / K(k') of the complete elliptic integrals (modulus k)."""
+    from scipy.special import ellipk
+    k = min(max(k, 1e-12), 1 - 1e-12)
+    return float(ellipk(k * k) / ellipk(1 - k * k))
+
+
+def cpw_static(w: float, s: float, h: float, t: float, er: float, backed: bool) -> tuple[float, float]:
+    """(Z0, effective permittivity) of a coplanar waveguide at low frequency: centre strip w, gaps s, on a
+    substrate of height h, with a ground plane under the substrate if backed (conformal mapping, thickness
+    correction after Gupta)."""
+    a, b = w / 2, w / 2 + s
+    k0 = a / b
+    r0 = _kk(k0)
+    if backed:
+        r3 = _kk(math.tanh(math.pi * a / (2 * h)) / math.tanh(math.pi * b / (2 * h)))
+        ee = (r0 + er * r3) / (r0 + r3)
+        z0 = 60 * math.pi / math.sqrt(ee) / (r0 + r3)
+    else:
+        r1 = _kk(math.sinh(math.pi * a / (2 * h)) / math.sinh(math.pi * b / (2 * h)))
+        ee = 1 + (er - 1) / 2 * r1 / r0
+        z0 = 30 * math.pi / math.sqrt(ee) / r0
+    if t > 0:
+        d = 1.25 * t / math.pi * (1 + math.log(4 * math.pi * w / t))
+        ke = min((a + d / 2) / (b - d / 2), 1 - 1e-9)
+        et = ee - 0.7 * (ee - 1) * t / s / (r0 + 0.7 * t / s)
+        z0 = z0 * r0 / _kk(ke) * math.sqrt(ee / et) if backed else 30 * math.pi / math.sqrt(et) / _kk(ke)
+        ee = et
+    return z0, ee
+
+
+def cpw(f: float, w: float, s: float, h: float, t: float, er: float, tand: float, cond: float,
+        backed: bool = False):
+    """(Z0, gamma) of a coplanar waveguide: dispersion after Frankel, conductor loss after Gupta."""
+    z0, eq = cpw_static(w, s, h, t, er, backed)
+    ee = eq
+    if f > 0 and er > 1:
+        fte = C0 / (4 * h * math.sqrt(er - 1))
+        q = math.log10(w / h)
+        u = 0.54 - 0.64 * q + 0.015 * q * q
+        v = 0.43 - 0.86 * q + 0.54 * q * q
+        a = 10 ** (u * math.log10(w / s) + v)
+        ee = (math.sqrt(eq) + (math.sqrt(er) - math.sqrt(eq)) / (1 + a * (f / fte) ** -1.8)) ** 2
+        z0 = z0 * math.sqrt(eq / ee)
+    beta = 2 * math.pi * f * math.sqrt(ee) / C0
+    ad = math.pi * f / C0 * er * (ee - 1) / (math.sqrt(ee) * (er - 1)) * tand if er > 1 else 0.0
+    return z0, complex(ad + cpw_conductor_loss(f, w, s, t, cond, ee, z0), beta)
+
+
+def cpw_conductor_loss(f: float, w: float, s: float, t: float, cond: float, ee: float, z0: float) -> float:
+    """Conductor attenuation (Np/m) of a coplanar waveguide, strip and both grounds (Gupta)."""
+    rs = surface_resistance(f, cond)
+    if rs == 0:
+        return 0.0
+    a, b = w / 2, w / 2 + s
+    k = a / b
+    t = max(t, 1e-7)
+    from scipy.special import ellipk
+    kk, kp = float(ellipk(k * k)), float(ellipk(1 - k * k))
+    pa = (math.pi + math.log(4 * math.pi * a * (1 - k) / (t * (1 + k)))) / a
+    pb = (math.pi + math.log(4 * math.pi * b * (1 - k) / (t * (1 + k)))) / b
+    return rs * math.sqrt(ee) / (480 * math.pi * kk * kp * (1 - k * k)) * (pa + pb)
+
+
 def tee_y(f: float, w1: float, w2: float, w3: float, h: float, t: float, er: float, tand: float,
           cond: float) -> np.ndarray:
     """3x3 Y matrix of a microstrip T junction, pins (main arm 1, main arm 2, branch 3) at the edges of the
