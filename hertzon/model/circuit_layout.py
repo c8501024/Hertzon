@@ -249,6 +249,11 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                     w, ln = setvar(f"{c.name}_W", mm(w_m)), setvar(f"{c.name}_L", mm(l_m))
                 else:
                     w, ln = setvar(f"{c.name}_W", c.props["W"]), setvar(f"{c.name}_L", c.props["L"])
+                if nb == 0:             # a line to ground: shorted at its far end by a via, like a short stub
+                    rects.append(_Rect(c.name, here, dd, ln, w, (na,)))
+                    node_dirs.setdefault(na, []).append((dd, w))
+                    shorts.append((c, here + along(dd, ln), dd, w))
+                    continue
                 trace(c.name, here, dd, ln, w, na, nb)
                 reach(nb, here + along(dd, ln), c)
             elif t in STUBS:

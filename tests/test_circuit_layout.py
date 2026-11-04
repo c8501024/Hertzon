@@ -163,3 +163,16 @@ def test_corner_bend_cross_step_and_gap_layouts():
     import numpy as np
     r = analyze(p, d, np.array([2e9, 6e9]))
     assert np.all(np.isfinite(r.S)) and np.allclose(r.S, r.S.transpose(0, 2, 1), atol=1e-9)
+
+
+def test_line_to_ground_is_shorted_by_a_via_and_the_tee_marker_sits_where_the_wires_meet():
+    from hertzon.model.circuit import Wire
+    p, d = _circuit(P("Port1", 0, 0), _line("MS1", 160, 0, L="8mm"), _line("MS2", 240, 80, 90),
+                    C("G1", "GND", 240, 130), _line("MS3", 320, 0))
+    d.wires = [Wire([[0, 0], [120, 0]]), Wire([[200, 0], [280, 0]]), Wire([[240, 40], [240, 0]])]
+    j = CK.find_junctions(d.components, d.wires)
+    assert [(x.type, x.point) for x in j] == [("MTEE", (240, 0))]
+    L, _ = CL.layout_design(p, d)
+    assert L.has_obj("MS2_Short")
+    tr = next(a for a in L.boundaries if a.name == "Copper_Traces")
+    assert "MS2_Short" in tr.objects
