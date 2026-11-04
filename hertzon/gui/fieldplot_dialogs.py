@@ -63,6 +63,7 @@ class FieldPlotDialog(QDialog):
         for i in range(1, nports + 1):
             self.port.addItem(str(i))
         f.addRow("Excited port", self.port)
+        self._load_freqs(self.sol.currentText())     # again, now with its row: names it for an eigenmode solution
         self.where = QComboBox()
         self.where.addItems(["(selection)", "(selection, inside solids)", "XY", "YZ", "XZ"])
         self.where.setItemData(1, "Selected solids: the field inside them, as coloured dots (scalars) or arrows",
@@ -132,11 +133,24 @@ class FieldPlotDialog(QDialog):
         try:
             st, sl = F.store_for(self.win.doc, text)
             from ..solver.lazy_fields import frequencies
-            self.freq.addItems([f"{fr / 1e9:.6g} GHz" for fr in frequencies(st, sl)])
+            eigen = bool(st.read_json("eigenmodes.json"))
+            # an eigenmode solution has one frequency per mode: its eigenfrequency
+            self.freq.addItems([(f"Mode {i + 1}: " if eigen else "") + f"{fr / 1e9:.6g} GHz"
+                                for i, fr in enumerate(frequencies(st, sl))])
         except Exception:  # noqa: BLE001
-            pass
+            eigen = False
         if self.freq.count() == 0:
             self.freq.addItem("(first)")
+        self._eigen(eigen)
+
+    def _eigen(self, eigen: bool) -> None:
+        """An eigenmode solution: the mode is chosen as its frequency, there is no port to excite."""
+        lbl = self.layout().labelForField(self.freq)
+        if lbl is not None:
+            lbl.setText("Eigenmode" if eigen else "Frequency")
+        if hasattr(self, "port"):
+            self.port.setEnabled(not eigen)
+            self.port.setToolTip("An eigenmode has no excitation" if eigen else "")
 
     def values(self) -> dict:
         sel = self.where.currentIndex() <= 1

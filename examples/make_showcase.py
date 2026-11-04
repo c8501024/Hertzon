@@ -498,6 +498,7 @@ def design_cavity(p: Project) -> Design:
                 MinimumConvergedPasses=2, LambdaTarget="0.3333")
     field_plot(d, "E_Mid", "Mag_E", "Eigen1 : LastAdaptive", plane="XY@Hs+Hd/2")
     field_plot(d, "H_Side", "Mag_H", "Eigen1 : LastAdaptive", plane="XZ@0")
+    d.reports.append(Report("Eigenmodes", "Eigenmode Table", "Eigen1 : LastAdaptive", ["Freq", "Q"]))
     return d
 
 

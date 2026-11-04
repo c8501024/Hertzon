@@ -1102,6 +1102,7 @@ def prepare_overlay(doc, view, quantity: str, solution: str, freq_index: int = 0
         shared.append(inv)
     return dict(at=at, quantity=quantity, jsurf=jsurf, work=work, sampled=sampled, shared=shared, arrows={},
                 spacing_m=spacing_m, note=note, freq_index=freq_index, port=port, freqs=frequencies(fields),
+                eigen=bool(st.read_json("eigenmodes.json")),
                 vector=vector, unit=unit, signed=signed, static=static)
 
 
@@ -1286,6 +1287,9 @@ def overlay_at(prep: dict, phase_deg: float = 0.0, log_scale: bool = False, vmin
                     pass
     freqs, freq_index, port = prep["freqs"], prep["freq_index"], prep["port"]
     fr = freqs[freq_index] if freq_index < len(freqs) else 0
+    if prep.get("eigen"):    # an eigenvector has no amplitude of its own: the values are relative
+        return meshes, (f"{quantity}  mode {freq_index + 1}  {fr / 1e9:.6g} GHz  phase {phase_deg:g} deg  "
+                        f"max {hi:.4g} {ulabel} (relative amplitude){note}")
     return meshes, f"{quantity}  port {port}  {fr / 1e9:.6g} GHz  phase {phase_deg:g} deg  max {hi:.4g} {ulabel}{note}"
 
 
