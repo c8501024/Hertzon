@@ -912,6 +912,7 @@ class MainWindow(QMainWindow):
         part(g, "SUBST", True)
         part(g, "MLIN", True)
         part(g, "MCLIN", True)
+        part(g, "MTEE", True)
         part(g, "MLOC")
         part(g, "MLSC")
         g = pg.group("Other")

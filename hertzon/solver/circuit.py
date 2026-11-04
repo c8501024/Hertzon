@@ -161,8 +161,8 @@ def _params(c: CK.Component, ev, subst: dict) -> object:
         if name not in subst:
             raise CircuitError(f"no substrate named '{name}'. Place a Substrate (Transmission Lines) and "
                                "enter its name.")
-        q = {k: ev.length(p[k]) for k in ("W", "S", "L") if k in p}
-        if q.get("W", 1) <= 0 or q.get("L", 1) < 0 or q.get("S", 1) <= 0:
+        q = {k: ev.length(p[k]) for k in ("W", "S", "L", "W1", "W2", "W3") if k in p}
+        if any(v <= 0 for k, v in q.items() if k != "L") or q.get("L", 1) < 0:
             raise CircuitError("W and S must be positive, L not negative")
         return q, subst[name]
     if t == "COAX":
@@ -236,6 +236,9 @@ def element_y(c: CK.Component, f: float, v) -> np.ndarray | None:
         q, s = v
         even, odd = TL.coupled_microstrip(f, q["W"], q["S"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
         return TL.coupled_y(even, odd, q["L"])
+    if t == "MTEE":
+        q, s = v
+        return TL.tee_y(f, q["W1"], q["W2"], q["W3"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
     if t == "SLIN":
         q, s = v
         z0, g = TL.stripline(f, q["W"], s["h"], s["t"], s["er"], s["tand"], s["cond"])

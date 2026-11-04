@@ -17,6 +17,11 @@ the GitHub release notes.
   choice, because a project can hold several designs, 3D and circuit designs mixed. The low-frequency solution
   types (electrostatic, DC conduction, magnetostatic, eddy current) and the transient and harmonic balance
   circuit analyses are shown greyed out as "not implemented yet".
+- **Microstrip Tee** (Transmission Lines): the T junction of microstrip lines as a part of its own, with widths
+  W1 and W2 of the main line and W3 of the branch, after Hammerstad's equivalent circuit (reference plane
+  shifts, transformers and the junction susceptance). The lines attach at its edges. A 3D layout draws it as the
+  junction area with the lines at its edges. Against a full-wave solve of a stub notch filter the circuit with
+  the tee is within 0.4 % (an ideal node: 2 %).
 - **Schematic editing**: wires stay attached to a part that is dragged (with an elbow where a wire would become
   slanted; a pin that sat on a wire or on another pin gets a new wire), Escape always ends wire drawing and part
   placing and returns to Select, and Delete removes the selected parts and wires also when the focus is not on

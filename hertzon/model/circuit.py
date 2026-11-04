@@ -85,6 +85,10 @@ TYPES: dict[str, TypeInfo] = {
     "MCLIN": TypeInfo("Coupled Microstrip", "MSC", {**_SUB, "W": "1mm", "S": "0.3mm", "L": "10mm"},
                       [(-40, -10), (40, -10), (-40, 10), (40, 10)],
                       "Symmetric coupled microstrip lines, even and odd mode (Garg-Bahl)", "Transmission Lines"),
+    "MTEE": TypeInfo("Microstrip Tee", "MT", {**_SUB, "W1": "1.1mm", "W2": "1.1mm", "W3": "1.1mm"},
+                     [(-30, 0), (30, 0), (0, 30)],
+                     "T junction of microstrip lines (Hammerstad): W1 and W2 the main line, W3 the branch. The "
+                     "lines attach at its edges", "Transmission Lines"),
     "SLIN": TypeInfo("Stripline", "SL", {**_SUB, "W": "0.4mm", "L": "10mm"}, [(-40, 0), (40, 0)],
                      "Centred stripline between two ground planes spaced H of the substrate", "Transmission Lines"),
     "COAX": TypeInfo("Coaxial Line", "CX", {"Di": "0.91mm", "Do": "2.98mm", "Er": "2.1", "TanD": "0.0002",
@@ -97,7 +101,7 @@ TYPES: dict[str, TypeInfo] = {
                    "S-parameters of a 3D design of this project, ports against ground", "Data"),
 }
 NPORT_TYPES = ("SNP", "EM")
-LINE_TYPES = ("MLIN", "MLOC", "MLSC", "MCLIN", "SLIN")
+LINE_TYPES = ("MLIN", "MLOC", "MLSC", "MCLIN", "MTEE", "SLIN")
 CATEGORIES = ("Basic", "Lumped Elements", "Transmission Lines", "Data")
 BLOCK_W = 100                       # width of an N-port block
 

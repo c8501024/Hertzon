@@ -7,6 +7,8 @@ Microstrip: static Z0 and effective permittivity after Hammerstad and Jensen (19
 correction, frequency dispersion of the effective permittivity after Kirschning and Jansen (1982), Z0 over
 frequency after Bianco et al. Conductor loss from the surface resistance (smooth metal), dielectric loss from
 the loss tangent. Coupled microstrip: even and odd mode capacitances after Garg and Bahl (1979), static.
+Microstrip T junction: equivalent circuit after Hammerstad (1981): reference plane shifts on the three arms,
+transformers on the main arms and a shunt susceptance at the junction.
 Stripline: exact zero-thickness impedance (Cohn), conductor loss after Pozar. Coaxial line: exact."""
 from __future__ import annotations
 
@@ -111,6 +113,45 @@ def coupled_microstrip(f: float, w: float, s: float, h: float, t: float, er: flo
         ad = math.pi * f / C0 * er * (ee - 1) / (math.sqrt(ee) * (er - 1)) * tand if er > 1 else 0.0
         out.append((z0, complex(ad + rs / (z0 * w), beta)))
     return out[0], out[1]
+
+
+def tee_y(f: float, w1: float, w2: float, w3: float, h: float, t: float, er: float, tand: float,
+          cond: float) -> np.ndarray:
+    """3x3 Y matrix of a microstrip T junction, pins (main arm 1, main arm 2, branch 3) at the edges of the
+    junction: main arms 0.5*w3 from its centre, the branch 0.5*max(w1, w2) (Hammerstad's equivalent circuit)."""
+    f = max(f, 1.0)
+    arms = []
+    for w in (w1, w2, w3):
+        z0, g = microstrip(f, w, h, t, er, tand, cond)
+        ee = (g.imag * C0 / (2 * math.pi * f)) ** 2
+        arms.append((z0, g, ee))
+    (za, _, _), (zb, _, _), (z2, _, _) = arms
+    d = [ETA0 / math.sqrt(e) * h / z for z, _, e in arms]           # equivalent parallel plate widths
+    fp = [0.4e6 * z / h for z, _, _ in arms]                          # Hz, h in m
+    lam = [C0 / math.sqrt(e) / f for _, _, e in arms]
+    da = 0.055 * d[2] * za / z2 * (1 - 2 * za / z2 * (f / fp[0]) ** 2)
+    db = 0.055 * d[2] * zb / z2 * (1 - 2 * zb / z2 * (f / fp[1]) ** 2)
+    r = math.sqrt(za * zb) / z2
+    q = f * f / (fp[0] * fp[1])
+    d2 = math.sqrt(d[0] * d[1]) * (0.5 - r * (0.05 + 0.7 * math.exp(-1.6 * r) + 0.25 * r * q - 0.17 * math.log(r)))
+    ta2 = max(1 - math.pi * (f / fp[0]) ** 2 * ((za / z2) ** 2 / 12 + (0.5 - d2 / d[0]) ** 2), 1e-6)
+    tb2 = max(1 - math.pi * (f / fp[1]) ** 2 * ((zb / z2) ** 2 / 12 + (0.5 - d2 / d[1]) ** 2), 1e-6)
+    bt = 5.5 * math.sqrt(d[0] * d[1] / lam[0] / lam[1]) * (er + 2) / er / z2 / math.sqrt(ta2 * tb2) * \
+        math.sqrt(max(da * db, 0.0)) / d[2] * \
+        (1 + 0.9 * math.log(r) + 4.5 * r * q - 4.4 * math.exp(-1.3 * r) - 20 * (z2 / ETA0) ** 2)
+    if abs(bt) < 1e-15:
+        bt = 1e-15
+    # the ideal junction: all three arms on one node through the transformers, the susceptance to ground
+    v = np.array([1 / math.sqrt(ta2), 1 / math.sqrt(tb2), 1.0])
+    zc = np.outer(v, v) / (1j * bt)
+    # arm lines (a negative length is a phase shift) between the pins and the junction
+    lengths = (0.5 * w3 - da, 0.5 * w3 - db, 0.5 * max(w1, w2) - d2)
+    a_, b_, c_, d_ = (np.zeros((3, 3), complex) for _ in range(4))
+    for k, ((z, g, _), ln) in enumerate(zip(arms, lengths)):
+        gl = _regular(g * ln)
+        a_[k, k], b_[k, k] = np.cosh(gl), z * np.sinh(gl)
+        c_[k, k], d_[k, k] = np.sinh(gl) / z, np.cosh(gl)
+    return (c_ @ zc + d_) @ np.linalg.inv(a_ @ zc + b_)
 
 
 # ---- stripline and coax -------------------------------------------------------------------------------

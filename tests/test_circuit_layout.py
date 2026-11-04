@@ -110,3 +110,17 @@ def test_layout_meshes_without_errors():
     tess, err = tessellate(p, L)
     assert not err
     assert all(c.level == "ok" for c in validate(p, L, tess, err))
+
+
+def test_tee_is_laid_out_as_a_junction_with_the_lines_at_its_edges():
+    p, d = _circuit(P("Port1", 0, 0), _line("MS1", 40, 0, L="9mm"),
+                    C("MT1", "MTEE", 110, 0, 0, {"Subst": "Sub1", "W1": "1.1mm", "W2": "1.1mm", "W3": "0.8mm"}),
+                    _line("MSO1", 110, 70, ctype="MLOC", W="0.8mm", L="8mm"), _line("MS2", 180, 0, L="9mm"),
+                    P("Port2", 220, 0))
+    L, warn = CL.layout_design(p, d)
+    p.designs.append(L)
+    assert not warn and L.variables["MT1_W3"] == "0.8mm"
+    assert _box(L, p, "MT1") == (9, -0.55, 0.8, 1.1)                 # W3 long, the width of the main line
+    assert _box(L, p, "MS2")[0] == 9.8
+    assert _box(L, p, "MSO1") == (9, -8.55, 0.8, 8)                  # the branch starts at the main line edge
+    assert not L.has_obj("Junction")

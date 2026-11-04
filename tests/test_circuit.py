@@ -257,3 +257,24 @@ def test_escape_and_delete_in_the_schematic(monkeypatch):
     w.doc.dirty = False
     w.maybe_save = lambda *a: True
     w.close()
+
+
+def test_microstrip_tee():
+    from hertzon.solver import tlines as TL
+    args = (1.1e-3, 1.1e-3, 1.1e-3, 0.508e-3, 35e-6, 3.66, 0.0037, 5.8e7)
+    for f, phase in ((1e8, 0.5), (10e9, 25)):
+        y = TL.tee_y(f, *args)
+        s = (np.eye(3) - 50 * y) @ np.linalg.inv(np.eye(3) + 50 * y)
+        assert np.allclose(y, y.T)
+        assert np.allclose(abs(s[0]), [1 / 3, 2 / 3, 2 / 3], atol=0.01)          # nearly an ideal junction
+        assert abs(np.angle(s[0, 1], deg=True)) < phase                          # the arms are short
+    # in a circuit: three pins, the stub resonance moves up against an ideal node (the junction is shorter)
+    sub = C("Sub1", "SUBST", 0, 200, props=dict(CK.TYPES["SUBST"].props))
+    line = lambda n, x, y, t="MLIN", **q: C(n, t, x, y, 0, {"Subst": "Sub1", **q})  # noqa: E731
+    p, d = _circuit(P("Port1", 0, 0), sub, line("MS1", 40, 0, W="1.1mm", L="9.45mm"),
+                    C("MT1", "MTEE", 110, 0, 0, {"Subst": "Sub1", "W1": "1.1mm", "W2": "1.1mm", "W3": "1.1mm"}),
+                    line("MSO1", 110, 70, "MLOC", W="1.1mm", L="8.45mm"), line("MS2", 180, 0, W="1.1mm", L="9.45mm"),
+                    P("Port2", 220, 0))
+    f = np.linspace(4.8e9, 5.6e9, 81)
+    s21 = abs(analyze(p, d, f).S[:, 1, 0])
+    assert 5.18e9 < f[np.argmin(s21)] < 5.28e9                                   # full wave: 5.25 GHz

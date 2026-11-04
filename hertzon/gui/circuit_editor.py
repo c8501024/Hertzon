@@ -32,7 +32,7 @@ FILL = QColor("#e9f1fb")
 # size (w, h) of the body at rotation 0, for the outline used in selection and label placement
 SIZES = {"GND": (24, 28), "PORT": (26, 80), "LABEL": (20, 20), "TLIN": (80, 20), "TLOC": (18, 70),
          "TLSC": (24, 80), "MLIN": (80, 20), "MLOC": (18, 70), "MLSC": (24, 80), "MCLIN": (80, 40),
-         "SLIN": (80, 24), "COAX": (80, 22), "SUBST": (80, 46), "SRLC": (80, 20), "PRLC": (80, 40),
+         "MTEE": (60, 40), "SLIN": (80, 24), "COAX": (80, 22), "SUBST": (80, 46), "SRLC": (80, 20), "PRLC": (80, 40),
          "ATTEN": (60, 24), "DCBLOCK": (60, 44), "DCFEED": (60, 44)}
 
 
@@ -211,6 +211,13 @@ def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = N
         if t.endswith("SC"):
             p.drawLine(0, 26, 0, 30)
             _ground(p, 30)
+    elif t == "MTEE":
+        p.setBrush(SUBSTRATE)
+        p.drawPolygon(QPolygonF([QPointF(-30, -9), QPointF(30, -9), QPointF(30, 9), QPointF(9, 9), QPointF(9, 30),
+                                 QPointF(-9, 30), QPointF(-9, 9), QPointF(-30, 9)]))
+        p.setBrush(COPPER)
+        p.drawPolygon(QPolygonF([QPointF(-30, -4), QPointF(30, -4), QPointF(30, 4), QPointF(4, 4), QPointF(4, 30),
+                                 QPointF(-4, 30), QPointF(-4, 4), QPointF(-30, 4)]))
     elif t == "MCLIN":
         for y in (-10, 10):
             p.drawLine(-40, y, -30, y)
@@ -275,6 +282,8 @@ def value_lines(c: CK.Component) -> list[str]:
         return [f"Z={p.get('Z0')}  E={p.get('E')}", f"F={p.get('F')}"]
     if t in ("MLIN", "MLOC", "MLSC", "SLIN"):
         return [f"W={p.get('W')}  L={p.get('L')}", f"{p.get('Subst')}"]
+    if t == "MTEE":
+        return [f"W1={p.get('W1')}  W2={p.get('W2')}", f"W3={p.get('W3')}  {p.get('Subst')}"]
     if t == "MCLIN":
         return [f"W={p.get('W')}  S={p.get('S')}", f"L={p.get('L')}  {p.get('Subst')}"]
     if t == "COAX":
@@ -398,7 +407,15 @@ class ComponentItem(QGraphicsItem):
         if c.type == "GND":
             p.restore()
             return
-        if h > w and c.type not in CK.NPORT_TYPES:          # vertical part: text to the right
+        if c.type == "MTEE" and c.rot % 180 == 0:          # the text goes to the side away from the branch
+            n = 1 + len(lines)
+            y0 = -h / 2 - n * lh - 3 if (c.rot == 0) != c.mirror else h / 2 + 3
+            p.setPen(QPen(INKC))
+            p.drawText(QRectF(-110, y0, 220, lh), Qt.AlignCenter, c.name)
+            p.setPen(QPen(QColor(MUTED)))
+            for i, line in enumerate(lines):
+                p.drawText(QRectF(-110, y0 + (i + 1) * lh, 220, lh), Qt.AlignCenter, line)
+        elif h > w and c.type not in CK.NPORT_TYPES:          # vertical part: text to the right
             x, y0 = w / 2 + 6, -(1 + len(lines)) * lh / 2
             p.setPen(QPen(INKC))
             p.drawText(QRectF(x, y0, 220, lh), Qt.AlignLeft | Qt.AlignVCenter, c.name)
@@ -1063,7 +1080,8 @@ class CircuitEditor(QWidget):
 LABELS = {"Z0": "Impedance Z0", "E": "Electrical length", "F": "at frequency", "Num": "Port number",
           "Er": "Permittivity Er", "H": "Height H", "T": "Metal thickness T", "TanD": "Loss tangent",
           "Cond": "Conductivity (S/m)", "W": "Width W", "S": "Spacing S", "L": "Length L", "Di": "Inner diameter",
-          "Do": "Outer diameter", "Subst": "Substrate", "Net": "Net name", "Loss": "Attenuation"}
+          "Do": "Outer diameter", "Subst": "Substrate", "Net": "Net name", "Loss": "Attenuation",
+          "W1": "Width W1 (main line)", "W2": "Width W2 (main line)", "W3": "Width W3 (branch)"}
 
 
 class ComponentDialog(QDialog):

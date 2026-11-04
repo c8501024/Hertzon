@@ -244,6 +244,20 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                 node_dirs.setdefault(node, []).append((dd, w))
                 if t in ("MLSC", "TLSC"):
                     shorts.append((c, here + along(dd, ln), dd, w))
+            elif t == "MTEE":
+                dm = _dir(pp[0], pp[1])
+                db = _dir((c.x, c.y), pp[2])
+                w1, w2, w3 = (setvar(f"{c.name}_W{j}", c.props[f"W{j}"]) for j in (1, 2, 3))
+                vals = _values(d, project)
+                wm = max(w1, w2, key=lambda q: q.num(vals))
+                rel = [along(dm, w3 * -0.5), along(dm, w3 * 0.5), along(db, wm * 0.5)]
+                centre = here - rel[k]
+                n3 = nodes[c.name]
+                rects.append(_Rect(c.name, centre + rel[0], dm, w3, wm, n3))
+                for j, (dd, w) in enumerate(((dm, w1), ((-dm[0], -dm[1]), w2), ((-db[0], -db[1]), w3))):
+                    node_dirs.setdefault(n3[j], []).append((dd, w))
+                for j in range(3):
+                    reach(n3[j], centre + rel[j], c)
             elif t == "MCLIN":
                 da = _dir(pp[0], pp[1])
                 o = _dir(pp[0], pp[2])
@@ -486,7 +500,8 @@ def _rlc(c: CK.Component) -> dict[str, str]:
 
 
 # ---- back to the schematic ---------------------------------------------------------------------------------
-BACK = {"MLIN": ("W", "L"), "MLOC": ("W", "L"), "MLSC": ("W", "L"), "SLIN": ("W", "L"), "MCLIN": ("W", "S", "L"),
+BACK = {"MLIN": ("W", "L"), "MLOC": ("W", "L"), "MLSC": ("W", "L"), "SLIN": ("W", "L"),
+        "MCLIN": ("W", "S", "L"), "MTEE": ("W1", "W2", "W3"),
         "SUBST": ("H", "T")}
 
 
