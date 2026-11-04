@@ -246,3 +246,70 @@ def from_dict(d: dict) -> tuple[list[Component], list[Wire]]:
              for c in d.get("components", []) if c.get("type") in TYPES]
     wires = [Wire([[int(a), int(b)] for a, b in w.get("points", [])]) for w in d.get("wires", [])]
     return comps, wires
+
+
+def drag_wires(components: list[Component], wires: list[Wire], moves: dict[str, tuple[int, int]]) -> list[Wire]:
+    """The wires after moving the components named in moves by (dx, dy): wire points on their pins follow,
+    with an elbow where a segment would become slanted, and a pin that touched a wire in the middle of a segment
+    or the pin of a part that stays gets a new wire to its new place."""
+    delta: dict[tuple[int, int], tuple[int, int]] = {}
+    for c in components:
+        if c.name in moves and moves[c.name] != (0, 0):
+            for p in pins(c):
+                delta[p] = moves[c.name]
+    if not delta:
+        return [Wire([list(p) for p in w.points]) for w in wires]
+
+    def moved(p):
+        d = delta.get(p)
+        return (p[0] + d[0], p[1] + d[1]) if d else p
+
+    out: list[Wire] = []
+    at_points = set()
+    for w in wires:
+        pts = [tuple(p) for p in w.points]
+        at_points.update(pts)
+        hits = [p for p in pts if p in delta]
+        if not hits:
+            out.append(Wire([list(p) for p in pts]))
+            continue
+        if pts[0] in delta and pts[-1] in delta and delta[pts[0]] == delta[pts[-1]] and \
+                all(delta.get(p, delta[pts[0]]) == delta[pts[0]] for p in pts):
+            dx, dy = delta[pts[0]]                 # both ends follow the same move: the wire moves along
+            out.append(Wire([[x + dx, y + dy] for x, y in pts]))
+            continue
+        new = [moved(pts[0])]
+        for a, b in zip(pts, pts[1:]):
+            a2, b2 = moved(a), moved(b)
+            if a2[0] != b2[0] and a2[1] != b2[1]:
+                horizontal = a[1] == b[1]
+                if b not in delta:                   # keep the direction of the segment at the end that stays
+                    new.append((b2[0], a2[1]) if not horizontal else (a2[0], b2[1]))
+                else:
+                    new.append((b2[0], a2[1]) if horizontal else (a2[0], b2[1]))
+            new.append(b2)
+        out.append(Wire([list(p) for p in _simplify(new)]))
+    # pins that joined a segment in its middle or the pin of a part that stays: a new wire keeps the connection
+    still = {p for c in components if c.name not in moves for p in pins(c)}
+    for p, (dx, dy) in delta.items():
+        if p in at_points:
+            continue
+        on_wire = any(_on_segment(p, tuple(a), tuple(b)) for w in wires for a, b in zip(w.points, w.points[1:]))
+        if on_wire or p in still:
+            q = (p[0] + dx, p[1] + dy)
+            out.append(Wire([list(x) for x in _simplify([p, (q[0], p[1]), q])]))
+    return out
+
+
+def _simplify(pts: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Without repeated points and without corners that lie on a straight run."""
+    out: list[tuple[int, int]] = []
+    for p in pts:
+        if out and out[-1] == p:
+            continue
+        if len(out) >= 2 and _on_segment(out[-1], out[-2], p) and \
+                (out[-2][0] == p[0] or out[-2][1] == p[1]):
+            out[-1] = p
+            continue
+        out.append(p)
+    return out

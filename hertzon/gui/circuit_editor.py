@@ -354,6 +354,9 @@ class ComponentItem(QGraphicsItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionChange:
             return QPointF(snap(value.x()), snap(value.y()))
+        if change == QGraphicsItem.ItemPositionHasChanged and not self.ghost and self.scene() is not None \
+                and self.scene().mouseGrabberItem() is not None:
+            self.editor.drag_preview()
         return super().itemChange(change, value)
 
     def mouseReleaseEvent(self, e) -> None:
@@ -415,15 +418,17 @@ class WireItem(QGraphicsPathItem):
     def __init__(self, index: int, wire: CK.Wire):
         super().__init__()
         self.index = index
+        self.set_points(wire.points)
+        self.setPen(QPen(WIRE, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        self.setFlags(QGraphicsItem.ItemIsSelectable)
+
+    def set_points(self, pts) -> None:
         path = QPainterPath()
-        pts = wire.points
         if pts:
             path.moveTo(*pts[0])
             for q in pts[1:]:
                 path.lineTo(*q)
         self.setPath(path)
-        self.setPen(QPen(WIRE, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        self.setFlags(QGraphicsItem.ItemIsSelectable)
 
     def paint(self, p, opt, w=None) -> None:
         self.setPen(QPen(QColor(GOLD) if self.isSelected() else WIRE, 2.4 if self.isSelected() else 1.8,
@@ -629,6 +634,8 @@ class CircuitEditor(QWidget):
         self.wire_pts: list[list[int]] = []
         self._preview: QGraphicsPathItem | None = None
         self._ghost: ComponentItem | None = None
+        self._dragging_wires: list | None = None     # wires redrawn while parts are dragged
+        self._drag_extra: list = []
         self._ghost_rot, self._ghost_mirror = 0, False
         self.library: PartLibrary | None = None
         self.scene = QGraphicsScene(self)
@@ -677,6 +684,7 @@ class CircuitEditor(QWidget):
         sel = {it.comp.name for it in self.selected_components()}
         self._preview = None
         self._ghost = None
+        self._dragging_wires, self._drag_extra = None, []
         self.scene.clear()
         for i, w in enumerate(self.des.wires):
             self.scene.addItem(WireItem(i, w))
@@ -901,14 +909,46 @@ class CircuitEditor(QWidget):
     def selected_components(self) -> list[ComponentItem]:
         return [it for it in self.scene.selectedItems() if isinstance(it, ComponentItem) and not it.ghost]
 
+    def _moves(self) -> dict[str, tuple[int, int]]:
+        """Components dragged away from their place: {name: (dx, dy)}."""
+        out = {}
+        for it in self.scene.items():
+            if isinstance(it, ComponentItem) and not it.ghost:
+                d = (snap(it.pos().x()) - it.comp.x, snap(it.pos().y()) - it.comp.y)
+                if d != (0, 0):
+                    out[it.comp.name] = d
+        return out
+
+    def drag_preview(self) -> None:
+        """While parts are dragged, the wires on their pins follow (shown only; the release commits)."""
+        if self._dragging_wires is None:
+            self._dragging_wires = [it for it in self.scene.items() if isinstance(it, WireItem)]
+        new = CK.drag_wires(self.des.components, self.des.wires, self._moves())
+        items = sorted(self._dragging_wires, key=lambda it: it.index)
+        for it in items:
+            it.set_points(new[it.index].points if it.index < len(new) else [])
+        for extra in self._drag_extra:
+            self.scene.removeItem(extra)
+        self._drag_extra = []
+        for i, w in enumerate(new[len(self.des.wires):]):
+            it = WireItem(-1 - i, w)
+            it.setFlags(QGraphicsItem.GraphicsItemFlag(0))
+            self.scene.addItem(it)
+            self._drag_extra.append(it)
+
     def items_moved(self) -> None:
-        moved = [it for it in self.selected_components()
-                 if (int(it.pos().x()), int(it.pos().y())) != (it.comp.x, it.comp.y)]
-        if not moved:
+        moves = self._moves()
+        self._dragging_wires = None
+        for extra in self._drag_extra:
+            self.scene.removeItem(extra)
+        self._drag_extra = []
+        if not moves:
             return
         self._change()
-        for it in moved:
-            it.comp.x, it.comp.y = snap(it.pos().x()), snap(it.pos().y())
+        self.des.wires = CK.drag_wires(self.des.components, self.des.wires, moves)
+        for c in self.des.components:
+            if c.name in moves:
+                c.x, c.y = c.x + moves[c.name][0], c.y + moves[c.name][1]
         self._commit()
 
     def delete_selected(self) -> None:

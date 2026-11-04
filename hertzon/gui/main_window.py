@@ -1486,6 +1486,9 @@ class MainWindow(QMainWindow):
                            "pan": "Pan: drag with the left mouse, Escape ends"}.get(mode, "Ready"))
 
     def _escape(self) -> None:
+        if self._is_circuit():                     # schematic: Escape always ends drawing and placing
+            self.circuit.cancel()
+            return
         if self.view.nav_mode:
             self.view.set_nav_mode("")
             return
@@ -3065,11 +3068,15 @@ class MainWindow(QMainWindow):
         self.doc.select([Pick(n) for n in new])
 
     def delete_selection(self) -> None:
-        if self.view.draw is not None:
-            return
         focus = QApplication.focusWidget()
         if focus is self.project_tree or (focus and self.project_tree.isAncestorOf(focus)):
             self._delete_project_items()
+            return
+        if self._is_circuit():
+            if not isinstance(focus, QLineEdit):
+                self.circuit.delete_selected()
+            return
+        if self.view.draw is not None:
             return
         objs = self.doc.selected_objects()
         if not objs:

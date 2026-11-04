@@ -17,6 +17,10 @@ the GitHub release notes.
   choice, because a project can hold several designs, 3D and circuit designs mixed. The low-frequency solution
   types (electrostatic, DC conduction, magnetostatic, eddy current) and the transient and harmonic balance
   circuit analyses are shown greyed out as "not implemented yet".
+- **Schematic editing**: wires stay attached to a part that is dragged (with an elbow where a wire would become
+  slanted; a pin that sat on a wire or on another pin gets a new wire), Escape always ends wire drawing and part
+  placing and returns to Select, and Delete removes the selected parts and wires also when the focus is not on
+  the schematic.
 - **Schematic to 3D layout**: Simulation > *Create 3D Layout* in a circuit design builds a new 3D design from the
   schematic: the substrate with its ground plane, the microstrip traces end to end in the direction they have in
   the schematic (open and shorted stubs, coupled lines, corners and T junctions), R, L and C as Lumped RLC
