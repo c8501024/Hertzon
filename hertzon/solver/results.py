@@ -282,13 +282,8 @@ def _json_default(o):
 def fit_sparams(ff: np.ndarray, SS: np.ndarray):
     """Rational (vector fitting) model of S-matrices SS (frequency x n x n) at the frequencies ff, as the
     interpolating sweep fits its solutions; returns f -> S(f)."""
-    from emerge._emerge.physics.microwave.adaptive_freq import SparamModel
     n = SS.shape[1]
-    # pole count bounded by the information in the samples (filterbench): many poles fitted to a handful of
-    # samples overfit, the validation points miss and the sweep solves far more frequencies than needed.
-    # No fixed limit of ten: a wide band with many resonances or long lines (phase turns) needs more poles
-    poles = min(100, max(2, len(ff) // 2))
-    models = [[SparamModel(ff, SS[:, i, j], n_poles=poles, _warn=False) for j in range(n)] for i in range(n)]
+    models = [[_rational_fit(ff, SS[:, i, j]) for j in range(n)] for i in range(n)]
 
     def call(f):
         out = np.zeros((len(f), n, n), complex)
@@ -297,6 +292,67 @@ def fit_sparams(ff: np.ndarray, SS: np.ndarray):
                 out[:, i, j] = models[i][j](f)
         return out
     return call
+
+
+# order selection of the rational fit: an order is kept when it reproduces the samples at least twice as
+# well as the last kept one; the search ends when the samples are met to FIT_EXACT, when no better order
+# comes within a few steps once the error is at the solver's noise level (FIT_FLOOR), or when the pole basis
+# turns degenerate (FIT_MAX_COND: excess poles move far off the band or onto each other and only fit noise)
+FIT_EXACT, FIT_FLOOR, FIT_MAX_COND = 1e-5, 1e-3, 1e11
+
+
+def _rational_fit(ff: np.ndarray, y: np.ndarray):
+    """f -> y(f): vector fit of one S entry with the fewest pole pairs that reproduce the samples. A fixed
+    pole count from the number of samples overfits smooth responses (a waveguide, a line): the surplus poles
+    make the residue system singular (condition 1e17 and more, EMerge's "Ill Conditioned Matrix" warning)
+    and the model chases solver noise between the samples. A wide band with many resonances or long lines
+    (phase turns) still gets the poles it needs: the order grows as long as the fit improves."""
+    from emerge._emerge.physics.microwave import adaptive_freq as vf
+    ff = np.asarray(ff, float)
+    y = np.asarray(y, complex)
+    nmax = min(100, max(2, len(ff) // 2))
+    s_scale = abs(ff[-1]) or 1.0
+    y_scale = float(np.max(np.abs(y))) or 1.0
+    s, ys = 1j * ff / s_scale, y / y_scale
+    best = None                                  # (error, pole pairs, poles, residues, d, h)
+    for k in range(1, nmax + 1):
+        loc = np.linspace(s.imag[0], s.imag[-1], k + 2)[1:-1]
+        poles = np.concatenate([[p * (-1e-2 + 1j), p * (-1e-2 - 1j)] for p in loc])
+        try:
+            for _ in range(10):
+                poles = vf.vectfit_step(ys, s, poles)
+            if k > 1 and np.linalg.cond(_pole_basis(s, poles)) > FIT_MAX_COND:
+                break
+            res, d, h = vf.calculate_residues(ys, s, poles)
+        except (np.linalg.LinAlgError, AssertionError):
+            break
+        err = float(np.max(np.abs(vf.model(s, poles, res, d, h) - ys))) * y_scale
+        if best is None or err < 0.5 * best[0]:
+            best = (err, k, poles, res, d, h)
+        if best[0] <= FIT_EXACT and k >= best[1] + 2 or best[0] <= FIT_FLOOR and k >= best[1] + 3:
+            break
+    if best is None:                             # not even one pole pair: the samples themselves (linear)
+        return lambda f: np.interp(f, ff, y.real) + 1j * np.interp(f, ff, y.imag)
+    _, _, poles, res, d, h = best
+    poles, res, d, h = poles * s_scale, res * y_scale * s_scale, d * y_scale, h * y_scale / s_scale
+    return lambda f: vf.model(1j * np.asarray(f, float), poles, res, d, h)
+
+
+def _pole_basis(s: np.ndarray, poles: np.ndarray) -> np.ndarray:
+    """The real least-squares matrix of the residue fit (as EMerge's vector fitting builds it): one column
+    per real pole, two per complex-conjugate pair, plus the constant and the proportional term."""
+    cols = []
+    i = 0
+    while i < len(poles):
+        p = poles[i]
+        if p.imag != 0 and i + 1 < len(poles):
+            cols += [1 / (s - p) + 1 / (s - p.conjugate()), 1j / (s - p) - 1j / (s - p.conjugate())]
+            i += 2
+        else:
+            cols.append(1 / (s - p))
+            i += 1
+    A = np.column_stack(cols + [np.ones_like(s), s])
+    return np.vstack((A.real, A.imag))
 
 
 def deembed_renormalize(S: np.ndarray, z0, ports: list, beta) -> tuple[np.ndarray, np.ndarray]:

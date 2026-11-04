@@ -834,8 +834,11 @@ def design_diff_pair(p: Project) -> Design:
 # ---- H: over-moded waveguide, two-mode wave ports --------------------------------------------------------
 def design_two_mode_guide(p: Project) -> Design:
     d = Design("H_TwoModeWaveguide")
-    d.notes = ("Modal wave ports with two modes each: a 22.86 x 15 mm guide carries TE10 and TE01 between "
-               "10 and 13.1 GHz, each port mode absorbed with its own propagation constant. A tilted dielectric post couples them; the mode rows of S are named WP1_M1, "
+    # cutoffs of the 22.86 x 15 mm guide: TE10 6.56, TE01 9.99, TE11/TM11 11.95, TE20 13.11 GHz. Above 11.95 GHz
+    # four modes propagate and two-mode ports would reflect TE11/TM11, so the band stays below that
+    d.notes = ("Modal wave ports with two modes each: a 22.86 x 15 mm guide carries exactly TE10 and TE01 between "
+               "10.0 and 11.95 GHz (TE11/TM11 cut off above), each port mode absorbed with its own propagation "
+               "constant. A tilted dielectric post couples them; the mode rows of S are named WP1_M1, "
                "WP1_M2, WP2_M1, WP2_M2 and used in reports and output variables (mode conversion).")
     d.variables.update({"a": "22.86mm", "b": "15mm", "L": "40mm", "tilt": "35deg", "wp": "3mm"})
     d.settings["OutputVariables"] = ("Conv_10_01 = dB(S(WP2_M2,WP1_M1))\nThru_10 = dB(S(WP2_M1,WP1_M1))\n"
@@ -853,11 +856,11 @@ def design_two_mode_guide(p: Project) -> Design:
     excitation(d, "Wave Port", "WP1", objects=[p1.name], PortNumber=1, NumberOfModes=2)
     excitation(d, "Wave Port", "WP2", objects=[p2.name], PortNumber=2, NumberOfModes=2, Deembed="True",
                DeembedDistance="5mm")
-    s = setup(d, "Setup1", Frequency="12GHz", MaximumPasses=8, MaximumDeltaS=0.02)
-    sweep(s, "Sweep", SweepType="Interpolating", Distribution="Linear Count", Start="10.5GHz", Stop="13GHz",
-          Count=126)
-    po = setup(d, "Setup_PortsOnly", Frequency="12GHz", PortsOnly="True")
-    sweep(po, "PortSweep", SweepType="Discrete", Distribution="Linear Count", Start="10.5GHz", Stop="13GHz",
+    s = setup(d, "Setup1", Frequency="11.2GHz", MaximumPasses=8, MaximumDeltaS=0.02)
+    sweep(s, "Sweep", SweepType="Interpolating", Distribution="Linear Count", Start="10.3GHz", Stop="11.8GHz",
+          Count=151)
+    po = setup(d, "Setup_PortsOnly", Frequency="11.2GHz", PortsOnly="True")
+    sweep(po, "PortSweep", SweepType="Discrete", Distribution="Linear Count", Start="10.3GHz", Stop="11.8GHz",
           Count=6)
     sol = "Setup1 : Sweep"
     d.reports += [
