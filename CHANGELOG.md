@@ -68,6 +68,10 @@ the GitHub release notes.
   mode shows Q as infinite instead of a huge number of either sign).
 
 ### Fixed
+- **Schematic to 3D layout: a line ending at ground was left open**: a microstrip line whose far end is
+  connected to ground is now shorted there by a via, like a short stub. Before, the 3D layout had an open end
+  where the circuit had a short, so the two results differed completely.
+- The marker of an automatic junction is drawn where the wires of the lines meet, not at the pin of one line.
 - **Field plots of eigenmode solutions were empty**: the eigenmode solve saved no fields. Each mode is now
   stored as solution *LastAdaptive*, one frequency per mode; the field plot dialog lists them as
   "Mode 1: 4.576 GHz", ... and the plot text names the mode. An eigenmode has no amplitude of its own, so its

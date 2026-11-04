@@ -435,7 +435,11 @@ def find_junctions(components: list[Component], wires: list[Wire]) -> list[Junct
             props = {**sub, **{f"W{j + 1}": w[x[0].name] for j, x in enumerate(order)}}
         else:
             continue
-        j = Junction(n, point[n], jt, props, [(x[0].name, x[1]) for x in order])
+        # drawn where the wires of the lines meet: the point of the net nearest to all their pins
+        ends = [pins(c)[k] for c, k, _ in arms]
+        here = min((q for q, m in ids.items() if m == n),
+                   key=lambda q: (sum(abs(q[0] - e[0]) + abs(q[1] - e[1]) for e in ends), q != point[n]))
+        j = Junction(n, here, jt, props, [(x[0].name, x[1]) for x in order])
         want = [x[2] for x in order]               # the junction's pins must point along its lines
         for mirror in (False, True):
             for rot in (0, 90, 180, 270):
