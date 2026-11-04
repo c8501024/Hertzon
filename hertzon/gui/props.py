@@ -282,7 +282,8 @@ def _wrap(w: QWidget) -> QWidget:
 
 
 class TabbedPropertyGrid(QTabWidget):
-    """Splits props into tabs by ``Prop.tab`` (General / Options / Advanced ...)."""
+    """Splits props into tabs by ``Prop.tab`` (General / Options / Advanced ...). A tab none of whose props is
+    visible is hidden (e.g. the settings of the optimizers that are not chosen)."""
 
     changed = Signal(str, str)
 
@@ -303,10 +304,26 @@ class TabbedPropertyGrid(QTabWidget):
             g.changed.connect(self._on_changed)
             self.grids[tab] = g
             self.addTab(g, tab)
+        self.update_tabs()
+
+    def update_tabs(self) -> None:
+        """Show only the tabs with at least one visible prop; the current tab stays when it is still shown."""
+        for i in range(self.count()):
+            g = self.widget(i)
+            self.setTabVisible(i, any(is_visible(p, g.values) for p in g.props))
+        if self.count() and not self.isTabVisible(self.currentIndex()):
+            shown = [i for i in range(self.count()) if self.isTabVisible(i)]
+            if shown:
+                self.setCurrentIndex(shown[0])
 
     def _on_changed(self, name: str, value: str) -> None:
         # other tabs may depend on this value (visibility)
         for g in self.grids.values():
             if g is not self.sender() and any(p.visible_if and p.visible_if[0] == name for p in g.props):
                 g.rebuild()
+        if any(p.visible_if and p.visible_if[0] == name for g in self.grids.values() for p in g.props):
+            # deferred like PropertyGrid.rebuild: the combo box that changed the value is still emitting
+            from PySide6.QtCore import QTimer
+            import shiboken6
+            QTimer.singleShot(0, lambda: shiboken6.isValid(self) and self.update_tabs())
         self.changed.emit(name, value)
