@@ -123,6 +123,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Export Touchstone, CSV, images | ✔ (CSV and Copy Data hold the curves as drawn, in the units of the axes) |
 | Export Gerber X2 (copper layers, profile) and Excellon (PTH / NPTH), File > Export > Gerber ([details](GERBER_EXPORT.md)) | ✔ |
 | Optimization: conjugate gradient (projected Polak-Ribiere+), goals on report expressions, error-area or worst-case cost, filter mask, parallel gradient evaluations | ✔ |
+| Optimization: Latin hypercube sample + parallel Nelder-Mead chains from the best sample points (global, no gradient) | ✔ |
 | Optimization: derivative trust region (goals minimized on the derivative tuning model, each step checked with a solve; up to 6 variables) | ✔ [TUNING.md](TUNING.md#optimize-with-the-tuning-model) |
 | Optimization > Apply to Design | ✔ takes the applied evaluation over as the setup's solution without solving again (S-parameters, reports, passes, Derivative Tuning); the best evaluation also keeps mesh and fields at the adaptive frequency |
 | Parametric sweep | ✔ Optimization > Add Parametric; solved variations can be shown again without solving |

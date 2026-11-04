@@ -132,7 +132,8 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    (`RL = -dB(S(1,1))`) or the fields (`P_in = flux(Port1, re(S))`, losses, energies, Q), typed in a
    typeset formula editor, shown in reports, **Fields reports** and field plots
    ([tutorial](docs/TUTORIAL.md#8-your-own-quantities-with-equations)).
-   **Optimization** (conjugate gradient on report goals, or the **Derivative Trust Region**, which minimizes
+   **Optimization** (conjugate gradient on report goals, a Latin hypercube sample followed by parallel
+   Nelder-Mead chains for a global search, or the **Derivative Trust Region**, which minimizes
    the goals on the derivative tuning model and checks each step with a solve) and **Parametric** sweeps of
    design variables. **Apply to Design** on an evaluation shows its solution without solving again.
    **Derivative tuning**: sliders for design variables, and S-parameters, patterns and antenna parameters

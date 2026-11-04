@@ -5,6 +5,13 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Optimizer "Latin Hypercube + Nelder-Mead"** (Optimization > Add Optimization > Optimizer): solves a Latin
+  hypercube sample of the variable ranges and the start design in parallel, then runs Nelder-Mead chains from
+  the best distinct sample points side by side, each with its own evaluation budget. Needs no gradient and finds
+  good designs far from the start values (antennas with several resonances, rough costs). Settings on the
+  Nelder-Mead tab: sample designs, chains, evaluations per chain, initial simplex step, tolerance, random seed.
+
 ### Changed
 - **Solver comparison shows the solver start separately**: the time before the first phase (starting the
   solver process) is its own segment in the chart and its own column in the table, and the fastest solver,
