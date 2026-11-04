@@ -171,6 +171,13 @@ def main(argv: list[str] | None = None) -> int:
         win.file_open(files[0])
     if "--ai-link" in argv:          # started by the MCP server for an AI assistant
         win.ai_link.start(auto_register=False)
+    elif not files:
+        # the start page (3D FEM or Circuit), unless switched off with its "Show at startup" box; not when an
+        # AI assistant started Hertzon, which would wait behind the dialog
+        from PySide6.QtCore import QTimer
+        from .start_page import SHOW_AT_STARTUP
+        if win.settings.value(SHOW_AT_STARTUP, True, type=bool):
+            QTimer.singleShot(0, win.start_page)
     return app.exec()
 
 
