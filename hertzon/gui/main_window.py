@@ -424,6 +424,7 @@ class MainWindow(QMainWindow):
         for k in schema.MESH_OPS:
             ma.addAction(k, lambda _=False, k=k: self.assign("mesh", k))
         mm.addAction("Plot Mesh on Selection", self.plot_mesh)
+        mm.addAction("Plot Mesh on Auto Open Region", self.plot_mesh_auto_open)
         an = m.addMenu("Analysis Setup")
         an.addAction("Add Solution Setup...", self.add_setup)
         an.addAction("Add Eigenmode Setup...", lambda: self.add_setup(eigen=True))
@@ -5076,6 +5077,13 @@ class MainWindow(QMainWindow):
         self.doc.commit("all", geometry=False)
         self.show_field_plot(f"Mesh{i}")
 
+    def plot_mesh_auto_open(self) -> None:
+        """Plot Mesh on the air region of Auto Open: built by the solver, it is no model object to pick."""
+        if self.des.settings.get("AutoOpen", "Off") == "Off":
+            QMessageBox.information(self, "Plot Mesh", "Auto Open is off in this design.")
+            return
+        self.plot_mesh([F.AUTO_OPEN_REGION])
+
     def _mesh_dialog(self, fp) -> bool:
         from PySide6.QtWidgets import QFormLayout, QDialogButtonBox
         dlg = QDialog(self)
@@ -5217,6 +5225,9 @@ class MainWindow(QMainWindow):
             m.addAction("Rename...", self.rename_design)
             m.addAction("Copy Design", self.copy_design)
             m.addAction("Delete Design", self.delete_design)
+        elif kind == "autoopen":
+            m.addAction("Auto Open / Solution Type...", self.solution_type)
+            m.addAction("Plot Mesh", self.plot_mesh_auto_open)
         elif kind == "group":
             g = data[1]
             if g == "Boundaries":

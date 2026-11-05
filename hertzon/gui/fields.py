@@ -1295,6 +1295,25 @@ def overlay_at(prep: dict, phase_deg: float = 0.0, log_scale: bool = False, vmin
 
 MESH_QUALITY = ["None", "Mean Ratio", "Aspect Ratio", "Max Edge Length", "Volume"]
 
+# Plot Mesh target of the air region Auto Open builds in the solver (no model object, so it cannot be picked);
+# mesh.npz stores its tetrahedra under the object name "Region"
+AUTO_OPEN_REGION = "Auto Open Region"
+
+
+def _outer_box_faces(mesh: dict, obj_index: int):
+    """Boundary faces of an air region lying on its outer box (the open boundary), not those on the model
+    inside: all three corners on one face of the region's bounding box."""
+    keys, owner, local = _object_faces(mesh, obj_index)
+    nodes, tets = mesh["nodes"], mesh["tets"]
+    fn = nodes[np.take_along_axis(tets[owner], np.asarray(local, np.int64), 1)]     # (F, 3 corners, 3)
+    pts = nodes[np.unique(tets[_object_tets(mesh, obj_index)])]
+    lo, hi = pts.min(0), pts.max(0)
+    tol = 1e-6 * float(np.linalg.norm(hi - lo) or 1.0)
+    on = np.zeros(len(keys), bool)
+    for ax in range(3):
+        on |= (np.abs(fn[:, :, ax] - lo[ax]) < tol).all(1) | (np.abs(fn[:, :, ax] - hi[ax]) < tol).all(1)
+    return keys[on], owner[on], local[on]
+
 
 def tet_quality(nodes: np.ndarray, tets: np.ndarray, kind: str) -> np.ndarray:
     """Element quality per tetrahedron. Mean Ratio: 1 = regular tet, -> 0 degenerate.
@@ -1355,9 +1374,16 @@ def mesh_overlay(doc, view, solution_setup: str, objects: list[str], quality: st
                 st_kw.update(show_edges=True, edge_color=line_kw["color"], line_width=1, smooth_shading=False)
                 out.append((sl, st_kw))
     sel_k, sel_o, sel_l = [], [], []
+    region = None
     for o in objects:
         a = view.actors.get(o)
         ob = doc.design.obj(o) if doc.design.has_obj(o) else None
+        if o == AUTO_OPEN_REGION and ob is None:
+            # the Auto Open air box: the mesh on its open boundary, drawn see-through so the model stays visible
+            if "Region" not in names or doc.design.has_obj("Region"):
+                raise RuntimeError("No Auto Open region in this solution (Auto Open off, or analyze again)")
+            region = _outer_box_faces(m, names.index("Region"))
+            continue
         if o in names:                      # meshed object: its boundary faces
             k, ow, lc = _object_faces(m, names.index(o))
         elif a is not None and a.mesh is not None:
@@ -1385,6 +1411,17 @@ def mesh_overlay(doc, view, solution_setup: str, objects: list[str], quality: st
             gm = grid_mesh(poly)
             if gm is not None:
                 out.append((gm, dict(line_kw)))
+    nreg = 0
+    if region is not None and len(region[0]):
+        _, ow, lc = region
+        nreg = len(ow)
+        P6, curved = _face_six(m, ow, lc)
+        poly = _patches(P6, {}, curved, quad=False)
+        out.append((poly, dict(style(poly, qv[ow][poly.cell_data["_face"]] if qv is not None else None),
+                               opacity=0.25)))
+        gm = grid_mesh(poly)
+        if gm is not None:
+            out.append((gm, dict(line_kw, opacity=0.6)))
     if nsel == 0 and not out:
         raise RuntimeError("No mesh faces found on the selected objects")
     txt = ""
@@ -1393,5 +1430,7 @@ def mesh_overlay(doc, view, solution_setup: str, objects: list[str], quality: st
     cv = _curv(m)
     if cv is not None:
         txt += f"   {int((cv[0] >= 0).sum())} curved tetrahedra"
+    if nreg:
+        txt += f"   Auto Open region: {nreg} triangles on the open boundary (Plot Mesh on a cut plane shows the inside)"
     return out, f"Mesh: {nsel} surface triangles" + (f", cut on {', '.join(cuts)}" if cuts else "") + \
         f", {len(tets)} tetrahedra in total" + txt

@@ -137,6 +137,17 @@ def lowest_frequency(design: Design, setup: Setup, ev: Evaluator) -> float:
     return min(fs)
 
 
+def highest_frequency(design: Design, setup: Setup, ev: Evaluator) -> float:
+    fs = adaptive_frequencies(setup, ev)
+    for sw in setup.sweeps:
+        if sw.props.get("Enabled", "True") == "True":
+            try:
+                fs.append(float(sweep_frequencies(sw.props, ev).max()))
+            except Exception:  # noqa: BLE001
+                pass
+    return max(fs)
+
+
 # --------------------------------------------------------------------------------------------
 # Main runner
 # --------------------------------------------------------------------------------------------
@@ -511,15 +522,19 @@ class Bridge:
             box = em.geo.Box(W, D, H, position=pos).set_material(em.lib.AIR).background()
             self.region_geo = box
             self.open_kind = "Radiation"
-            if self.plane_wave() is not None:
-                # far-field integration surface: a box close around the scatterers, integrated with Gauss
-                # points (not over mesh faces), where the mesh is fine and the ABC reflection is weak
-                sb = np.asarray(self.scatter_bbox, np.float64)
-                gap = min(min(sb[i] - pos[i], pos[i] + (W, D, H)[i] - sb[i + 3]) for i in range(3))
+            # far-field and radiated-power integration surface: a box close around the model, integrated
+            # with Gauss points (not over the mesh faces of the absorbing boundary), where the mesh is fine
+            # and the ABC reflection is weak; on the ABC faces themselves the radiated power came out up to
+            # ~10 % above the accepted power of lossless antennas (#231). A scattering problem encloses the
+            # scatterers only, an antenna all model objects (ports and feeds included).
+            sb = np.asarray(self.scatter_bbox if self.plane_wave() is not None else self.probe_bbox, np.float64)
+            gap = min(min(sb[i] - pos[i], pos[i] + (W, D, H)[i] - sb[i + 3]) for i in range(3))
+            if gap > 0:
                 d = min(FF_OFFSET * lam, gap / 2)
                 self.ff_bounds = np.r_[sb[:3] - d, sb[3:] + d]
                 self.ff_region = np.r_[pos, pos[0] + W, pos[1] + D, pos[2] + H]
-                self.ff_panel = lam / 4
+                # Gauss panels of a quarter wavelength at the highest solved frequency
+                self.ff_panel = C0 / max(highest_frequency(self.design, self.setup, self.ev), f_low) / 4
         self.store.write_json("auto_open.json", {"kind": kind, "padding": margin, "lambda_low": lam,
                                                  "box": [*pos, W, D, H]})
 

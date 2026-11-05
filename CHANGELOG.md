@@ -34,6 +34,9 @@ the GitHub release notes.
   (or a host of `~/.ssh/config`) and an optional key file. Hertzon logs in, starts its remote service there if
   it does not run yet (installed Hertzon, or the solver image with Docker) and solves through an SSH tunnel:
   no pairing and no open port besides SSH. Pairing in the local network stays as it is. See docs/REMOTE.md.
+- **Plot Mesh on the Auto Open region** (Mesh menu, or right-click *Auto Open* in the project tree): the
+  mesh on the open boundary of the air box Auto Open builds, drawn see-through. That box is no model object,
+  so it could not be picked for Plot Mesh before (#231).
 
 ### Changed
 - The remote service no longer answers network discovery when it listens only on the loopback address.
@@ -41,6 +44,12 @@ the GitHub release notes.
   mode shows Q as infinite instead of a huge number of either sign).
 
 ### Fixed
+- **Radiated power above the accepted power** (#231): with Auto Open, the radiated power and the far field of
+  an antenna were integrated on the mesh faces of the absorbing boundary, where the mesh is coarsest and the
+  boundary reflects a little; lossless antennas showed a radiated power up to ~10 % above the accepted
+  power. They are now integrated on a box of Gauss points close around the model (as for incident plane
+  waves already). A lossless half-wave dipole: radiated / accepted power 1.016 before, 0.999 now. A Region
+  object with a Radiation boundary still integrates on its faces.
 - **Field plots of eigenmode solutions were empty**: the eigenmode solve saved no fields. Each mode is now
   stored as solution *LastAdaptive*, one frequency per mode; the field plot dialog lists them as
   "Mode 1: 4.576 GHz", ... and the plot text names the mode. An eigenmode has no amplitude of its own, so its
