@@ -5,6 +5,21 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Hairpin filter with the Derivative Trust Region**: Tools > Filter Design (tapped hairpin) and the hairpin
+  example add a second optimization, *HairpinDTR*, with the same goals as the conjugate gradient one. It
+  varies L, g and yP (centre frequency, coupling, match); w, b and M can be included. All six variables
+  morph without remeshing. On the initial mesh the tuned S-parameters stay within 3e-4 of exact solves for
+  L ±1 mm, within 2e-3 for w, b, yP and the gap ±0.05 mm, and within 0.05 (about 0.5 dB) for the gap
+  ±0.15 mm.
+
+### Changed
+- **Derivative tuning needs much less memory**: every morphed mesh state keeps only what its boundary terms
+  need, and the matrix differences are kept in single precision. Hairpin filter, 2 variables: 2.6 GB → 0.16 GB
+  with the same tuned response; 6 variables: 5.3 GB (before: more than 14 GB, the process was killed).
+- **A tuning model that does not fit into memory stops at once** with the memory it needs and the number of
+  variables that would fit, instead of the solver process being killed half way.
+
 ## 0.2.13 (2026-11-04)
 
 ### Added

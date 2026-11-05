@@ -224,6 +224,11 @@ are computed from those two powers.
 ## Limits
 
 - At most 6 variables at a time.
+- Memory and time grow with the square of the number of variables: the model assembles the mesh in
+  1 + 2n + n(n-1)/2 states (28 for 6 variables) and keeps the matrix differences of each. Before the states
+  are assembled the memory is estimated; a model that does not fit stops with the number of variables that
+  would fit. On the hairpin filter's initial mesh (6000 tetrahedra) 6 variables need about 5 GB and 25 minutes,
+  2 variables 0.2 GB and 2 minutes, so the hairpin optimization *HairpinDTR* includes L, g and yP only.
 - A variable must move faces of the model, not change its topology. Plane faces may change shape.
   Curved faces may only move. Wave and Floquet ports stay in place, so a variable that moves a wave port
   face cannot be tuned.
