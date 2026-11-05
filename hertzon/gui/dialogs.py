@@ -354,7 +354,13 @@ class VariablesDialog(QDialog):
             a = QTableWidgetItem(k)
             a.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             self.table.setItem(r, 0, a)
-            self.table.setItem(r, 1, QTableWidgetItem(v))
+            b = QTableWidgetItem(v)
+            if k.startswith("stk_") and not self.project_level and self.doc.design.stackup is not None:
+                # owned by the PCB stackup, which overwrites it: edit it there
+                b.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                b.setForeground(QBrush(QColor("#808080")))
+                b.setToolTip("Set by Modeler > PCB Stackup; change the layer there")
+            self.table.setItem(r, 1, b)
             try:
                 val, has_unit = ev._eval(k)
                 txt = f"{val * 1e3:.6g}mm" if has_unit and abs(val) < 1 else f"{val:.6g}"

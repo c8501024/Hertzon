@@ -406,6 +406,7 @@ class StackupDialog(QDialog):
         self.issues: list[S.Issue] = []
         self.sel = 0
         self.model_layers = None             # copper geometry read from the model (Gerber export classification)
+        self.substrate: tuple[str, str, str, str] | None = None   # rectangle of a substrate to make on OK
         self._filling = False
         self.setWindowTitle(f"PCB Stackup: {self.project.name} - {self.des.name}")
         self.resize(1250, 820)
@@ -436,7 +437,8 @@ class StackupDialog(QDialog):
         tb.setMenu(menu)
         bar.addWidget(tb)
         for text, fn in (("Load job file...", self._load_job), ("Open...", self._open), ("Save...", self._save),
-                         ("Fit to board thickness", self._fit_total), ("Mirror", self._mirror)):
+                         ("Fit to board thickness", self._fit_total), ("Mirror", self._mirror),
+                         ("Substrate...", self._substrate_dialog)):
             b = QPushButton(text)
             b.clicked.connect(fn)
             bar.addWidget(b)
@@ -855,6 +857,50 @@ class StackupDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, "Save stackup", "stackup.hzstack", "Hertzon stackup (*.hzstack)")
         if path:
             self.st.save(path)
+
+    def default_substrate(self) -> tuple[str, str, str, str]:
+        """The substrate made before, else the board outline (or copper) read from the model plus 5 mm,
+        else 50 x 40 mm around the origin."""
+        old = S.substrate_rect(self.des)
+        if old:
+            return old
+        u = 1e-3 if self.des.units == "mm" else {"um": 1e-6, "mil": 25.4e-6, "in": 25.4e-3, "cm": 1e-2,
+                                                 "m": 1.0}.get(self.des.units, 1e-3)
+        res = self.model_layers
+        pts = []
+        if res is not None:
+            pts = [c.outer.polygon() for c in res.outline] or [c.outer.polygon() for L in res.layers
+                                                                for c in L.components]
+        if pts:
+            a = np.vstack(pts)
+            lo, hi = a.min(0) - 5e-3, a.max(0) + 5e-3
+            f = lambda v: f"{v / u:.6g}{self.des.units}"  # noqa: E731
+            return f(lo[0]), f(lo[1]), f(hi[0] - lo[0]), f(hi[1] - lo[1])
+        return "-25mm", "-20mm", "50mm", "40mm"
+
+    def _substrate_dialog(self) -> None:
+        from PySide6.QtWidgets import QFormLayout
+        d = QDialog(self)
+        d.setWindowTitle("Substrate")
+        f = QFormLayout(d)
+        f.addRow(QLabel("One box per dielectric layer (and a fill box per inner copper layer), with the stk_\n"
+                        "variables for height and thickness, in the group 'Stackup'. Made or updated on OK."))
+        vals = self.substrate or self.default_substrate()
+        eds = [QLineEdit(v) for v in vals]
+        for lab, e in zip(("X start", "Y start", "X size", "Y size"), eds):
+            f.addRow(lab + " (board plane)", e)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(d.accept)
+        bb.rejected.connect(d.reject)
+        f.addRow(bb)
+        if d.exec() == QDialog.Accepted:
+            vals = tuple(e.text().strip() for e in eds)
+            bad = [v for v in vals if self.ev.check(v)]
+            if bad:
+                QMessageBox.warning(self, "PCB Stackup", f"Cannot evaluate: {', '.join(bad)}")
+                return
+            self.substrate = vals
+            self.source.setToolTip("The substrate is made or updated on OK.")
 
     def result(self) -> tuple[S.Stackup, list[Material]]:
         return self.st, list(self.new_materials)

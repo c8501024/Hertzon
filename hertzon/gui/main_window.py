@@ -2404,12 +2404,14 @@ class MainWindow(QMainWindow):
         if dlg.exec() != QDialog.Accepted:
             return
         st, mats = dlg.result()
-        if st == self.des.stackup and not mats:
+        if st == self.des.stackup and not mats and dlg.substrate is None:
             return
+        from ..model import stackup as S
         self.doc.checkpoint()
         self.doc.project.materials.extend(mats)
-        self.des.stackup = st
-        self.doc.commit("stackup", geometry=False)
+        # stk_ variables, board coordinate systems and (when asked for or made before) the substrate
+        S.apply_to_design(self.doc.project, self.des, st, dlg.substrate)
+        self.doc.commit("stackup")
 
     def export_gerber(self) -> None:
         """File > Export > Gerber: copper layers (Gerber X2), board outline and Excellon drill files."""

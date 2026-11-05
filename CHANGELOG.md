@@ -29,6 +29,13 @@ the GitHub release notes.
   with a ground plane under the substrate (*Backed*). Closed form by conformal mapping with the thickness
   correction after Gupta and the dispersion after Frankel, or the full-wave line model. A 3D layout draws only
   its centre strip for now.
+- **PCB stackup drives the geometry**: the stackup writes design variables per layer (`stk_<layer>_t`
+  thickness, `stk_<layer>_z` bottom, `stk_<layer>_zs` copper sheet height, `stk_total`), a board coordinate
+  system `stk_Board` and one coordinate system per copper layer to draw on. *Substrate...* in the stackup
+  editor makes one box per dielectric layer and a fill box over each inner copper layer, so no air gap is
+  left where the copper is; they live in the group "Stackup" and follow every later change of the stackup.
+  Layers with their own εr / tan δ get a project material `stk_<layer>`. The `stk_` variables are shown
+  read-only in Design Properties: they are changed in the stackup.
 - **Constants & Functions in Design Properties**: a button in the variables dialog opens the list of what a
   value may use: constants (pi, c0, e0, u0), functions (sin, sqrt, if, ...), units and the other variables,
   with value and description and a search field. Double-click (or Insert) puts the entry at the cursor of
