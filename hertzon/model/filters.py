@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from . import schema
 from .design import Assignment, Command, Design, Optimization, Project, Setup, Sweep
-from .microstrip import engine, guided_wavelength, synthesize
+from .microstrip import coupled_lines, engine, guided_wavelength, synthesize
 
 
 @dataclass
@@ -49,6 +49,8 @@ class HairpinSpec:
     name: str = ""
     f_design: float = 0.0                        # GHz, the resonators are synthesized at; 0 = passband centre
     sigma: float = 5.8e7                         # S/m copper
+    synthesis: bool = True                       # gap and tap from the Chebyshev prototype; False: middle of
+                                                 # their ranges (the filterbench start)
 
     def __post_init__(self) -> None:
         bands, sweep = auto_bands(self.passband)
@@ -74,6 +76,63 @@ def auto_bands(passband) -> tuple[list[tuple[float, float]], tuple[float, float,
     bands = [(a, r(lo - bw / 3)), (r(hi + bw / 3), b)]
     return [(float(f"{x:.6g}"), float(f"{y:.6g}")) for x, y in bands], \
         (float(f"{a:.6g}"), float(f"{b:.6g}"), step)
+
+
+def chebyshev_g(n: int, ripple_db: float) -> list[float]:
+    """Element values g0 .. g_n+1 of the Chebyshev low-pass prototype with the passband ripple ripple_db."""
+    beta = math.log(1 / math.tanh(ripple_db / 17.37))
+    gam = math.sinh(beta / (2 * n))
+    a = [math.sin((2 * k - 1) * math.pi / (2 * n)) for k in range(1, n + 1)]
+    g = [1.0, 2 * a[0] / gam]
+    for k in range(2, n + 1):
+        g.append(4 * a[k - 2] * a[k - 1] / ((gam ** 2 + math.sin((k - 1) * math.pi / n) ** 2) * g[-1]))
+    g.append(1.0 if n % 2 else 1 / math.tanh(beta / 4) ** 2)
+    return g
+
+
+# the prototype is designed for a return loss this much better than the goal (margin for the model error)
+RL_MARGIN = 3.0
+
+
+def synthesis(spec: "HairpinSpec", trace: float, length: float, s_arm: float, gap_range, tap: float) -> dict:
+    """Gap and tap of the Chebyshev band-pass (all lengths in mm): the prototype for the passband with the
+    return loss goal + RL_MARGIN gives the couplings k = FBW / sqrt(g_i g_i+1) and the external Q
+    Qe = g0 g1 / FBW (Hong & Lancaster, Microstrip Filters for RF/Microwave Applications, ch. 6).
+
+    - gap: the arms of neighbouring hairpins form a coupled line of about a quarter wavelength, so
+      k = (2 / pi) (Zoe - Zoo) / (Zoe + Zoo) with the even and odd mode impedances of the pair (Garg-Bahl);
+      one gap for all resonators: the coupling of the middle pair (the largest of a symmetric filter);
+    - tap: a half-wave resonator of impedance Zr loaded with the feed impedance R at the distance l from its
+      open end has Qe = pi R / (2 Zr cos^2(pi l / L)); l is measured along the arm from the open end."""
+    n = spec.n
+    rl = spec.return_loss + RL_MARGIN
+    ripple = -10 * math.log10(1 - 10 ** (-rl / 10))
+    g = chebyshev_g(n, ripple)
+    lo, hi = spec.passband
+    fbw = (hi - lo) / spec.f0
+    ks = [fbw / math.sqrt(g[i] * g[i + 1]) for i in range(1, n)]
+    k = max(ks)
+    qe = g[0] * g[1] / fbw
+    h, er = spec.h, spec.er
+
+    def kc(s):
+        ze, zo, _, _ = coupled_lines(trace * 1e-3, s * 1e-3, h * 1e-3, er)
+        return 2 / math.pi * (ze - zo) / (ze + zo)
+    g_lo, g_hi = gap_range
+    a, b = max(g_lo, 1e-4), max(g_hi, 1e-4)
+    if kc(a) <= k:
+        gap = a
+    elif kc(b) >= k:
+        gap = b
+    else:
+        for _ in range(100):                      # k falls with the gap
+            m = 0.5 * (a + b)
+            a, b = (m, b) if kc(m) > k else (a, m)
+        gap = 0.5 * (a + b)
+    c2 = math.pi * spec.z_feed / (2 * spec.z_res * qe)
+    l_open = length / math.pi * math.acos(min(1.0, math.sqrt(min(max(c2, 0.0), 1.0))))
+    yp = min(max(s_arm / 2 - l_open, -tap), tap)
+    return {"gap": gap, "yP": yp, "k": ks, "Qe": qe, "g": g, "ripple": ripple}
 
 
 def _r(v: float, nd: int = 4) -> float:
@@ -128,11 +187,18 @@ def nominal(spec: HairpinSpec) -> dict:
         warnings.append(f"The start length {lam * p0 / 100:.3f} mm does not fit; starting at {length:.3f} mm")
     straight = (length - bend) / 2
     tap = max(0.0, straight / 2 - feed / 2 - margin)
+    syn = None
+    if spec.synthesis:
+        # the arm of the start design: L - b - 2 * depth of the bend (variable s of hairpin_design)
+        arm = (length - b - 2 * dep) / 2
+        syn = synthesis(spec, trace, length, arm, (g_lo, g_hi), tap)
+        gap = syn["gap"]
     row = n * wo + (n - 1) * g_hi
     if row > spec.board - 2 * margin:
         raise ValueError(f"The row of hairpins ({row:.2f} mm at the largest gap) does not fit on the {spec.board:g} mm board")
     return {"feed": _r(feed), "trace": _r(trace), "lambda_g": lam, "length": _r(length), "inner": _r(b),
-            "gap": _r(gap), "miter": _r(miter), "tap": _r(tap),
+            "gap": _r(gap), "miter": _r(miter), "tap": _r(tap), "yP": _r(syn["yP"]) if syn else 0.0,
+            "prototype": syn,
             "ranges": {"L": (_r(l_lo), _r(l_hi)), "w": (_r(w_lo), _r(w_hi)), "b": (_r(b_lo), _r(b_hi)),
                        "g": (_r(g_lo), _r(g_hi)), "yP": (-_r(tap), _r(tap)), "M": (_r(m_lo), _r(m_hi))},
             "warnings": warnings, "synthesis": engine()}
@@ -177,7 +243,7 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
     d.variables.update({
         "h": _mm(spec.h), "t_cu": f"{spec.t:g}um", "Wsub": _mm(spec.board), "wf": _mm(nom["feed"]),
         "L": _mm(nom["length"]), "w": _mm(nom["trace"]), "b": _mm(nom["inner"]), "g": _mm(nom["gap"]),
-        "yP": "0mm", "M": f"{nom['miter']:g}", "dmin": _mm(spec.min_feature),
+        "yP": _mm(nom["yP"]), "M": f"{nom['miter']:g}", "dmin": _mm(spec.min_feature),
         # derived: outer width, effective miter, corner cut and depth, straight arm, pitch, row edge, tap
         "wo": "b+2*w", "Me": "min(M, 1-dmin/(sqrt(2)*w), (wo/2-dmin)/(2*w))", "cut": "2*Me*w",
         "dep": "max(w, cut)", "s": "(L-b-2*dep)/2", "pitch": "wo+g", "xe": f"({n}*wo+{n - 1}*g)/2",

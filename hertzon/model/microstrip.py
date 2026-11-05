@@ -104,3 +104,34 @@ def synthesize(z0: float, h: float, er: float, t: float = 0.0, f: float = 0.0, t
 def guided_wavelength(w: float, h: float, er: float, t: float, f: float, tand: float = 0.0,
                       sigma: float = 5.8e7) -> float:
     return C0 / f / math.sqrt(analyze(w, h, er, t, f, tand, sigma)[1])
+
+
+def _kk(k: float) -> float:
+    """K(k') / K(k) of the complete elliptic integrals (Hilberg's approximation, error below 3e-6)."""
+    kp = math.sqrt(max(1 - k * k, 0.0))
+    if k * k <= 0.5:
+        return math.log(2 * (1 + math.sqrt(kp)) / (1 - math.sqrt(kp))) / math.pi
+    return math.pi / math.log(2 * (1 + math.sqrt(k)) / (1 - math.sqrt(k)))
+
+
+def _coupled_caps(w: float, s: float, h: float, er: float) -> tuple[float, float]:
+    """Even and odd mode capacitances per length (F/m) of two strips of width w at the gap s (Garg-Bahl)."""
+    e0 = 8.8541878128e-12
+    z0, ee = analyze(w, h, er, builtin=True)
+    cp = e0 * er * w / h
+    cf = 0.5 * (math.sqrt(ee) / (C0 * z0) - cp)
+    a = math.exp(-0.1 * math.exp(2.33 - 2.53 * w / h))
+    cf2 = cf / (1 + a * (h / s) * math.tanh(8 * s / h)) * math.sqrt(er / ee)
+    k = (s / h) / (s / h + 2 * w / h)
+    cga = e0 * _kk(k)
+    cgd = e0 * er / math.pi * math.log(1 / math.tanh(math.pi * s / (4 * h))) + \
+        0.65 * cf * (0.02 * math.sqrt(er) / (s / h) + 1 - er ** -2)
+    return cp + cf + cf2, cp + cf + cga + cgd
+
+
+def coupled_lines(w: float, s: float, h: float, er: float) -> tuple[float, float, float, float]:
+    """(Zoe, Zoo, eeff_e, eeff_o) of a symmetric coupled microstrip pair (quasi-static, Garg-Bahl):
+    even and odd mode impedances in ohm and effective permittivities."""
+    ce, co = _coupled_caps(w, s, h, er)
+    ce1, co1 = _coupled_caps(w, s, h, 1.0)
+    return 1 / (C0 * math.sqrt(ce * ce1)), 1 / (C0 * math.sqrt(co * co1)), ce / ce1, co / co1

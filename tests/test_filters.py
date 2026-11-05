@@ -44,7 +44,7 @@ def test_hairpin_builds_and_validates(n):
 
 
 def test_hairpin_optimization_matches_filterbench():
-    p = hairpin_project(HairpinSpec(n=3))
+    p = hairpin_project(HairpinSpec(n=3, synthesis=False))
     d = p.designs[0]
     op = d.optimetrics[0]
     assert op.solution == "Setup1 : Sweep" and len(op.goals) == 10
@@ -68,6 +68,33 @@ def test_hairpin_derivative_trust_region_optimization():
     v = Variables(d, dtr, d.evaluator(p))
     assert v.names == ["L", "g", "yP"]
     assert all(cg.props[k] == dtr.props[k] for k in cg.props if k != "Optimizer")
+
+
+def test_hairpin_start_from_the_chebyshev_prototype():
+    """Gap and tap from the coupling and external Q of the prototype (return loss 10 + 3 dB). A derivative
+    trust region run from the middle of the ranges ended at g = 0.372 mm, yP = -5.37 mm (cost 6.83 -> 0.64);
+    the synthesis starts within 0.02 mm and 0.2 mm of that."""
+    from hertzon.model.filters import chebyshev_g, nominal
+    g = chebyshev_g(3, 0.5)                                   # textbook table, 0.5 dB ripple
+    assert np.allclose(g, [1.0, 1.5963, 1.0967, 1.5963, 1.0], atol=2e-4)
+    assert np.allclose(chebyshev_g(2, 0.5)[-1], 1.9841, atol=2e-4)
+    nom = nominal(HairpinSpec(n=3))
+    assert abs(nom["gap"] - 0.372) < 0.02 and abs(nom["yP"] + 5.37) < 0.2
+    assert np.isclose(nom["prototype"]["Qe"], 10.32, atol=0.01)
+    d = hairpin_project(HairpinSpec(n=3)).designs[0]
+    assert d.variables["g"] == f"{nom['gap']:g}mm" and d.variables["yP"] == f"{nom['yP']:g}mm"
+    mid = nominal(HairpinSpec(n=3, synthesis=False))
+    assert mid["gap"] == 0.45 and mid["yP"] == 0.0
+
+
+def test_coupled_microstrip_against_the_charts():
+    from hertzon.model.microstrip import coupled_lines
+    ze, zo, _, _ = coupled_lines(1e-3, 0.5e-3, 1e-3, 10.0)  # w/h = 1, s/h = 0.5, er = 10: about 60 / 38 ohm
+    assert abs(ze - 60) < 2 and abs(zo - 38) < 2
+    zs = [coupled_lines(1e-3, s * 1e-3, 0.5e-3, 3.66)[:2] for s in (0.1, 0.3, 1.0, 5.0)]
+    assert all(a[0] > b[0] and a[1] < b[1] for a, b in zip(zs, zs[1:]))   # coupling falls with the gap
+    z1 = __import__("hertzon.model.microstrip", fromlist=["analyze"]).analyze(1e-3, 0.5e-3, 3.66, builtin=True)[0]
+    assert abs(zs[-1][0] - z1) < 0.03 * z1 and abs(zs[-1][1] - z1) < 0.03 * z1   # far apart: single lines
 
 
 def test_auto_bands():

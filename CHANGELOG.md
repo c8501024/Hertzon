@@ -26,6 +26,12 @@ the GitHub release notes.
   model in rounds 1 to 8 (actual / predicted improvement 0.44 to 1.14). After that, the change of the cost
   from one adaptive mesh to the next (about 5 % for the same design) was as large as the improvement still
   left, so the last two steps were rejected. The mask was not met with these three variables.
+- **Hairpin start values from the filter synthesis**: Filter Design starts the gap and the tap height from the
+  Chebyshev prototype (couplings k and external Q for the return loss goal + 3 dB) instead of the middle of
+  their ranges. The gap follows from the even and odd mode impedances of the coupled arms (new coupled
+  microstrip formulas), the tap from the external Q of a tapped half-wave resonator. For the 2.3 to 2.6 GHz
+  example this gives g = 0.38 mm and yP = −5.56 mm; the optimization from the middle of the ranges had ended
+  at g = 0.37 mm and yP = −5.37 mm. An option keeps the middle of the ranges (the filterbench start).
 
 ### Changed
 - The remote service no longer answers network discovery when it listens only on the loopback address.
