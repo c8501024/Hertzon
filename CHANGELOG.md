@@ -24,6 +24,10 @@ the GitHub release notes.
   with a ground plane under the substrate (*Backed*). Closed form by conformal mapping with the thickness
   correction after Gupta and the dispersion after Frankel, or the full-wave line model. A 3D layout draws only
   its centre strip for now.
+- **Constants & Functions in Design Properties**: a button in the variables dialog opens the list of what a
+  value may use: constants (pi, c0, e0, u0), functions (sin, sqrt, if, ...), units and the other variables,
+  with value and description and a search field. Double-click (or Insert) puts the entry at the cursor of
+  the selected value; a function goes around selected text. The list stays open for further inserts.
 - **Eigenmode Parameters report**: Results > Create Eigenmode Parameters Report > Data Table lists the
   eigenfrequencies and Q of an eigenmode solution, one row per mode (exportable as CSV, copy to clipboard).
 - **Solve on a computer reached over SSH**: Tools > Options > Remote > Connection *SSH login* with `user@host`
