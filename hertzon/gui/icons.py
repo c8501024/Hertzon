@@ -803,6 +803,21 @@ def _layout_back(p):
     _arrow(p, 50, 54, 6, 54, GREEN, 5, 13)
 
 
+def _layout_fwd(p):
+    """Update 3D Layout: an arrow from the schematic into the 3D design."""
+    _layout_back_frame(p)
+    _arrow(p, 6, 54, 50, 54, GREEN, 5, 13)
+
+
+def _layout_back_frame(p):
+    p.setPen(_pen(DBLUE, 2))
+    p.setBrush(QColor("#eaf3fc"))
+    p.drawRect(QRectF(14, 6, 44, 38))
+    p.setBrush(BLUE)
+    p.drawRect(QRectF(14, 6, 44, 8))
+    _box(p, 26, 28, 16, 11, 5)
+
+
 def _variables(p):
     p.setPen(_pen(DBLUE, 2))
     p.setBrush(QColor("#eaf3fc"))
@@ -1221,7 +1236,7 @@ _DRAW = {
     "rect_plot": _report, "smith": lambda p: _report(p, "smith"), "table": lambda p: _report(p, "table"),
     "pattern": lambda p: _report(p, "pattern"), "polar3d": lambda p: _report(p, "polar3d"),
     "field": _field, "calculator": _calculator, "field_vec": lambda p: _field(p, "vec"), "field_h": lambda p: _field(p, "h"),
-    "animate": _animate, "clear": _clear, "soldata": _soldata, "export": _export, "design": _design, "layout_back": _layout_back,
+    "animate": _animate, "clear": _clear, "soldata": _soldata, "export": _export, "design": _design, "layout_back": _layout_back, "layout_fwd": _layout_fwd,
     "variables": _variables, "screenshot": _screenshot, "help": _help, "projection": _projection,
     "byname": _byname, "selall": _selall, "group": _group, "ungroup": lambda p: _group(p, True), "exit": _exit, "filter": _filter, "antenna": _antenna,
     "resistor": _resistor, "inductor": _inductor, "capacitor": _capacitor, "chip": _chip,
