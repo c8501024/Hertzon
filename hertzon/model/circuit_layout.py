@@ -263,6 +263,11 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                 dd = _dir(pp[0], (c.x, c.y))
                 if t in ("TLOC", "TLSC"):
                     w_m, l_m = _synth(c, ev, er, h_m, t_m, MS)
+                    if t == "TLSC":             # the via adds inductance: the line is shorter by as much
+                        from ..solver import tlines as TLS
+                        z_s, ee_s = TLS.microstrip_static(w_m, h_m, t_m, er)
+                        dl = TLS.via_inductance(w_m, h_m) * TLS.C0 / (math.sqrt(ee_s) * z_s)
+                        l_m = max(l_m - dl, 0.1 * l_m)
                     warnings.append(f"{c.name}: the ideal stub is laid out as microstrip of the same impedance and "
                                     "electrical length")
                     w, ln = setvar(f"{c.name}_W", mm(w_m)), setvar(f"{c.name}_L", mm(l_m))

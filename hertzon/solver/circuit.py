@@ -234,8 +234,11 @@ def element_y(c: CK.Component, f: float, v, table=None) -> np.ndarray | None:
             z0, g = TL.microstrip(f, q["W"], s["h"], s["t"], s["er"], s["tand"], s["cond"])
         if t == "MLIN":
             return TL.line_y(z0, g * q["L"])
-        length = q["L"] + (TL.open_end_extension(q["W"], s["h"], s["t"], s["er"]) if t == "MLOC" else 0.0)
-        return np.array([[TL.stub_y(z0, g * length, t == "MLOC")]])
+        if t == "MLSC":                     # shorted by a via of the line width, as in the 3D layout
+            zv = 1j * 2 * np.pi * f * TL.via_inductance(q["W"], s["h"])
+            return np.array([[TL.shorted_line_y(z0, g * q["L"], zv)]])
+        length = q["L"] + TL.open_end_extension(q["W"], s["h"], s["t"], s["er"])
+        return np.array([[TL.stub_y(z0, g * length, True)]])
     if t == "CPWLIN":
         q, s = v
         if table is not None:
@@ -391,6 +394,13 @@ def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) 
                 m = Sb.shape[0]
                 r = 1.0 / np.sqrt(zb)
                 Ym = (r[:, None] * (np.eye(m) - Sb) @ np.linalg.inv(np.eye(m) + Sb)) * r[None, :]
+            elif c.type == "MLIN" and 0 in nd and nd[0] != nd[1]:
+                # a microstrip line to ground ends in a via (as laid out): a shorted stub at its other pin
+                q, sb = values[c.name]
+                z0, g = (tables[c.name].at(f, sb["cond"]) if c.name in tables else
+                         TL.microstrip(f, q["W"], sb["h"], sb["t"], sb["er"], sb["tand"], sb["cond"]))
+                y = TL.shorted_line_y(z0, g * q["L"], 1j * 2 * np.pi * f * TL.via_inductance(q["W"], sb["h"]))
+                Ym = np.diag([y, 0.0]) if nd[0] != 0 else np.diag([0.0, y])
             else:
                 Ym = element_y(c, f, values[c.name], tables.get(c.name))
             if Ym is None:

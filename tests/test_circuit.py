@@ -339,3 +339,15 @@ def test_automatic_junctions():
     d.settings[CK.AUTO] = "False"
     off = analyze(p, d, f).S
     assert abs(auto[1, 1, 0]) < 0.03 < abs(off[1, 1, 0])                         # the notch moves with the tee
+
+
+def test_shorted_ends_include_the_via_inductance():
+    import numpy as np
+    from hertzon.solver import tlines as TL
+    lv = TL.via_inductance(1.1e-3, 0.508e-3)
+    assert 0.1e-9 < lv < 0.2e-9
+    z0, g = TL.microstrip(5e9, 1.1e-3, 0.508e-3, 35e-6, 3.66, 0.0037, 5.8e7)
+    ideal = TL.stub_y(z0, g * 5e-3, False)
+    with_via = TL.shorted_line_y(z0, g * 5e-3, 1j * 2 * np.pi * 5e9 * lv)
+    assert abs(with_via) < abs(ideal)                    # the via makes the shorted stub electrically longer
+    assert TL.shorted_line_y(z0, g * 5e-3, 0) == pytest.approx(ideal)
