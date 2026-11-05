@@ -35,7 +35,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Thicken sheet, Sweep along vector / around axis / along path, Cover lines | Draw / Modeler | ✔ | |
 | Fillet, Chamfer | Modeler > Fillet / Chamfer | ◐ | Edges of solids; on flat sheets fillet and chamfer work on the selected vertices |
 | Import STEP / IGES / BREP, Export STEP | File / Modeler | ✔ | |
-| PCB stackup: layers, thicknesses, materials, checks with suggestions, Gerber job file (.gbrjob) | Modeler > PCB Stackup | ◐ | Editor with cross-section and top view with rulers; geometry from the stackup and the Gerber/KiCad import follow |
+| PCB stackup: layers, thicknesses, materials, checks with suggestions, Gerber job file (.gbrjob) | Modeler > PCB Stackup | ◐ | Editor with cross-section and top view with rulers; stk_ variables, board coordinate systems and substrate boxes from the stackup; the Gerber/KiCad import follows |
 | History tree with editable commands, suppress | Model tree + Properties | ✔ | Every command parameter accepts expressions |
 | Object attributes: material, solve inside, model, color, transparency, wireframe | Properties > Attribute | ✔ | |
 | Selection modes Object (O), Face (F), Edge (E), Vertex (V), select by name, Ctrl+A | ✔ | ✔ | |
