@@ -6,6 +6,11 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **3D Layout buttons** (circuit, Simulation › 3D Layout): *Create 3D Layout* has a drop-down to rebuild an
+  existing layout from the changed schematic in place (its setups and reports stay). *Update from Layout* is a
+  large button of its own: a click takes the newest layout of the schematic, the drop-down chooses one. It also
+  reads trace sizes that were edited on the objects instead of in the design variables, and says so when there
+  is nothing to copy.
 - **Via to Ground** (circuit, Transmission Lines › Other): N round vias of diameter D in a row at the pitch P
   through the substrate to the ground plane. Inductance from the partial inductances of the vias and their images
   in the ground plane, mutual coupling between the vias included; skin-effect resistance of the barrels. The 3D
