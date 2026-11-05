@@ -906,10 +906,6 @@ class MainWindow(QMainWindow):
 
         # ---- Transmission Lines
         pg = rb.page("Transmission Lines")
-        g = pg.group("Ideal")
-        part(g, "TLIN", True)
-        part(g, "TLOC")
-        part(g, "TLSC")
         g = pg.group("Microstrip")
         part(g, "SUBST", True)
         part(g, "MLIN", True)
@@ -938,6 +934,11 @@ class MainWindow(QMainWindow):
         part(g, "MVIA", True)
         part(g, "SLIN", True)
         part(g, "COAX", True)
+        # no substrate: impedance and electrical length only (first designs, textbook circuits)
+        g = pg.group("Ideal (TEM)")
+        part(g, "TLIN", True)
+        part(g, "TLOC")
+        part(g, "TLSC")
 
         # ---- Data
         pg = rb.page("Data")
@@ -4635,8 +4636,22 @@ class MainWindow(QMainWindow):
         """Results > Create ... Report, only the categories this design can produce."""
         for act in [a for a in m.actions() if a.property("report_item")]:
             m.removeAction(act)
-        av = self.report_availability()
         items = []
+        if self._is_circuit():          # a schematic has network data only: S, Y, Z of its ports
+            for label, kind in (("Rectangular Plot", "Rectangular"), ("Smith Chart", "Smith Chart"),
+                                ("Data Table", "Data Table")):
+                a = QAction(f"Create {label}", m)
+                a.triggered.connect(lambda _=False, k=kind: self.create_report(k))
+                items.append(a)
+            if not any(c.type == "PORT" for c in self.des.components):
+                for a in items:
+                    a.setEnabled(False)
+                a = QAction("No reports available: place a port in the schematic", m)
+                a.setEnabled(False)
+                items.append(a)
+            av = {}
+        else:
+            av = self.report_availability()
 
         def sub(title, entries):
             sm = QMenu(title, m)
@@ -4646,28 +4661,28 @@ class MainWindow(QMainWindow):
         plots = [("Rectangular Plot", lambda: self.create_report("Rectangular")),
                  ("Smith Chart", lambda: self.create_report("Smith Chart")),
                  ("Data Table", lambda: self.create_report("Data Table"))]
-        if av["eigen"]:
+        if av.get("eigen"):
             sub("Create Eigenmode Parameters Report", [("Data Table", lambda: self.create_report("Eigenmode Table"))])
-        if av["modal"]:
+        if av.get("modal"):
             sub("Create Modal Solution Data Report", plots)
-        if av["terminal"]:
+        if av.get("terminal"):
             sub("Create Terminal Solution Data Report", plots)
-        if av["fields"]:
+        if av.get("fields"):
             sub("Create Fields Report", [("Rectangular Plot", lambda: self.field_report()),
                                          ("Data Table", lambda: self.field_report(kind="Data Table"))])
-        if av["farfield"]:
+        if av.get("farfield"):
             sub("Create Far Fields Report", [("Radiation Pattern", lambda: self.create_report("Radiation Pattern")),
                                              ("Rectangular Plot", lambda: self.create_report(
                                                  "Radiation Pattern", props={"plot": "Rectangular"})),
                                              ("3D Polar Plot", lambda: self.create_report("3D Polar Plot"))])
-        if av["antenna"]:
+        if av.get("antenna"):
             sub("Create Antenna Parameters Report", [
                 ("Rectangular Plot", lambda: self.create_report("Antenna Parameters")),
                 ("Data Table", lambda: self.create_report("Antenna Parameters Table"))])
-        if av["rcs"]:
+        if av.get("rcs"):
             sub("Create Monostatic RCS Report", [("Rectangular Plot", lambda: self.create_report("Monostatic RCS")),
                                                  ("Data Table", lambda: self.create_report("Monostatic RCS Table"))])
-        if av["near"]:
+        if av.get("near"):
             sub("Create Near Fields Report", [("Line", lambda: self.create_report("Near Field Line"))])
         if not items:
             a = QAction("No reports available: assign ports or an incident wave (far fields need an "

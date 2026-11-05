@@ -69,11 +69,14 @@ TYPES: dict[str, TypeInfo] = {
                       "Matched attenuator (resistive pi network)", "Lumped Elements"),
     # ---- ideal lines
     "TLIN": TypeInfo("Ideal Line", "TL", {"Z0": "50ohm", "E": "90deg", "F": "1GHz"}, [(-40, 0), (40, 0)],
-                     "Lossless TEM line: impedance Z0, electrical length E at frequency F", "Transmission Lines"),
-    "TLOC": TypeInfo("Open Stub", "TLO", {"Z0": "50ohm", "E": "90deg", "F": "1GHz"}, [(0, -40)],
-                     "Lossless TEM line open at its far end, as a shunt stub", "Transmission Lines"),
-    "TLSC": TypeInfo("Short Stub", "TLS", {"Z0": "50ohm", "E": "90deg", "F": "1GHz"}, [(0, -40)],
-                     "Lossless TEM line shorted at its far end, as a shunt stub", "Transmission Lines"),
+                     "Lossless TEM line without a substrate: impedance Z0, electrical length E at frequency F. "
+                     "For a board use the microstrip lines", "Transmission Lines"),
+    "TLOC": TypeInfo("Ideal Open Stub", "TLO", {"Z0": "50ohm", "E": "90deg", "F": "1GHz"}, [(0, -40)],
+                     "Lossless TEM line open at its far end, as a shunt stub, without a substrate",
+                     "Transmission Lines"),
+    "TLSC": TypeInfo("Ideal Short Stub", "TLS", {"Z0": "50ohm", "E": "90deg", "F": "1GHz"}, [(0, -40)],
+                     "Lossless TEM line shorted at its far end (ideal short), as a shunt stub, without a substrate",
+                     "Transmission Lines"),
     # ---- physical lines
     "SUBST": TypeInfo("Substrate", "Sub", {"Er": "3.66", "H": "0.508mm", "T": "35um", "TanD": "0.0037",
                                            "Cond": "5.8e7"}, [],

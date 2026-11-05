@@ -90,6 +90,10 @@ the GitHub release notes.
   without it open as 3D designs.
 
 ### Changed
+- **Circuit reports**: right-click on *Results* of a schematic offers only what a circuit produces: rectangular
+  plot, Smith chart and data table of the port parameters. No field or near-field reports any more.
+- **Ideal lines** (circuit, Transmission Lines): TLIN, TLOC and TLSC are in a group *Ideal (TEM)* of their own at
+  the end of the page and are named *Ideal Open Stub* / *Ideal Short Stub*: no substrate, no via.
 - The remote service no longer answers network discovery when it listens only on the loopback address.
 - Solution Data of an eigenmode setup opens on the *Eigenmode Data* tab (eigenfrequencies and Q; a lossless
   mode shows Q as infinite instead of a huge number of either sign).
