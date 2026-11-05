@@ -9,13 +9,15 @@ from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QDialogButtonBox, QLabel,
                                QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QComboBox, QCheckBox,
                                QTabWidget, QWidget, QMessageBox, QTreeWidget, QTreeWidgetItem, QGroupBox,
-                               QRadioButton, QAbstractItemView, QDoubleSpinBox, QListWidget)
+                               QRadioButton, QAbstractItemView, QDoubleSpinBox, QListWidget, QStyledItemDelegate,
+                               QApplication)
 
 from ..model import schema
 from ..model.design import Assignment, Setup, Sweep, InfiniteSphere, GeoObject
 from ..model.materials import EMERGE_DISPERSION, EMERGE_LIBRARY, Material, normalize_color
 from ..model.validate import validate, CATEGORIES, worst
 from .doc import object_attributes
+from .expr_reference import CursorDelegate, ExpressionReferenceDialog, insert_into
 from .props import PropertyGrid, TabbedPropertyGrid
 
 
@@ -306,6 +308,8 @@ class VariablesDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Name", "Value", "Evaluated Value"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.itemChanged.connect(self._changed)
+        self.delegate = CursorDelegate(self.table)
+        self.table.setItemDelegateForColumn(1, self.delegate)
         lay.addWidget(self.table)
         row = QHBoxLayout()
         add = QPushButton("Add...")
@@ -315,6 +319,12 @@ class VariablesDialog(QDialog):
         row.addWidget(add)
         row.addWidget(rem)
         row.addStretch()
+        self.ref_btn = QPushButton("Constants && Functions...")
+        self.ref_btn.setToolTip("Constants, functions, units and variables you can use in a value.\n"
+                                "Double-click one to insert it at the cursor of the selected value.")
+        self.ref_btn.clicked.connect(self._show_reference)
+        row.addWidget(self.ref_btn)
+        self.ref_dlg = None
         lay.addLayout(row)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Apply)
         bb.accepted.connect(self.accept)
@@ -362,6 +372,50 @@ class VariablesDialog(QDialog):
         k = self.table.item(item.row(), 0).text()
         self.vars[k] = item.text()
         self._fill()
+
+    def _visible_vars(self) -> dict[str, str]:
+        v = {} if self.project_level else dict(self.doc.project.variables)
+        v.update(self.vars)
+        return v
+
+    def _show_reference(self) -> None:
+        if self.ref_dlg is not None:
+            self.ref_dlg.close()
+        self.ref_dlg = ExpressionReferenceDialog(self._visible_vars(), self.doc.design.units, self)
+        self.ref_dlg.inserted.connect(self._insert_text)
+        self.ref_dlg.show()
+
+    def _insert_text(self, snippet: str) -> None:
+        """Insert a constant / function / unit / variable into the selected value, at the cursor."""
+        r = self.table.currentRow()
+        ed = self.delegate.editor
+        if self.table.state() == QAbstractItemView.EditingState and ed is not None:
+            self.delegate.commitData.emit(ed)          # an editor still open: take its text and cursor first
+            self.delegate.closeEditor.emit(ed, QStyledItemDelegate.NoHint)
+            r = self.table.currentRow()
+        if r < 0 or self.table.item(r, 0) is None:
+            QApplication.clipboard().setText(snippet)
+            if self.ref_dlg is not None:
+                self.ref_dlg.set_status(f"No value selected: '{snippet}' was copied to the clipboard. "
+                                        "Select a value in the table to insert directly.")
+            return
+        k = self.table.item(r, 0).text()
+        text = self.vars.get(k, "")
+        last = self.delegate.last
+        start, length = (last[1], last[2]) if last is not None and last[0] == r else (len(text), 0)
+        new, cursor = insert_into(text, start, length, snippet)
+        self.vars[k] = new
+        self._fill()
+        self.delegate.last = (r, cursor, 0)
+        if self.ref_dlg is not None:
+            self.ref_dlg.set_status(f"Inserted '{snippet}' into {k}.")
+        self.table.setCurrentCell(r, 1)
+        self.activateWindow()
+        self.table.setFocus()
+        self.table.editItem(self.table.item(r, 1))
+        if self.delegate.editor is not None:
+            self.delegate.editor.deselect()
+            self.delegate.editor.setCursorPosition(cursor)
 
     def _add(self) -> None:
         dlg = QDialog(self)

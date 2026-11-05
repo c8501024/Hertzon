@@ -40,6 +40,47 @@ _FUNCS = {
 }
 _CONSTS = {"pi": math.pi, "PI": math.pi, "e0": 8.8541878128e-12, "u0": 4e-7 * math.pi, "c0": 299792458.0}
 
+# What the Design Properties dialog lists under "Constants & Functions...": (name, insert text, description).
+# Every entry of _CONSTS and _FUNCS is listed here; tests/test_expr_reference.py keeps the two in step.
+CONSTANT_INFO: list[tuple[str, str, str]] = [
+    ("pi", "pi", "3.14159265...  (also PI)"),
+    ("PI", "PI", "3.14159265...  (same as pi)"),
+    ("c0", "c0", "Speed of light in vacuum, 299792458 m/s"),
+    ("e0", "e0", "Vacuum permittivity, 8.8541878128e-12 F/m"),
+    ("u0", "u0", "Vacuum permeability, 4*pi*1e-7 H/m"),
+]
+FUNCTION_INFO: list[tuple[str, str, str]] = [
+    ("sin(x)", "sin()", "Sine, x in radians (45deg is converted)"),
+    ("cos(x)", "cos()", "Cosine, x in radians"),
+    ("tan(x)", "tan()", "Tangent, x in radians"),
+    ("asin(x)", "asin()", "Arc sine, result in radians"),
+    ("acos(x)", "acos()", "Arc cosine, result in radians"),
+    ("atan(x)", "atan()", "Arc tangent, result in radians"),
+    ("atan2(y, x)", "atan2(, )", "Arc tangent of y/x in the right quadrant, radians"),
+    ("sinh(x)", "sinh()", "Hyperbolic sine"),
+    ("cosh(x)", "cosh()", "Hyperbolic cosine"),
+    ("tanh(x)", "tanh()", "Hyperbolic tangent"),
+    ("sqrt(x)", "sqrt()", "Square root"),
+    ("exp(x)", "exp()", "e to the power x"),
+    ("ln(x)", "ln()", "Natural logarithm"),
+    ("log(x)", "log()", "Base-10 logarithm (same as log10)"),
+    ("log10(x)", "log10()", "Base-10 logarithm"),
+    ("pow(x, y)", "pow(, )", "x to the power y (also x^y or x**y)"),
+    ("abs(x)", "abs()", "Absolute value"),
+    ("sign(x)", "sign()", "-1, 0 or 1"),
+    ("min(a, b, ...)", "min(, )", "Smallest argument"),
+    ("max(a, b, ...)", "max(, )", "Largest argument"),
+    ("floor(x)", "floor()", "Round down to an integer"),
+    ("ceil(x)", "ceil()", "Round up to an integer"),
+    ("round(x)", "round()", "Round to the nearest integer"),
+    ("if(cond, a, b)", "if(, , )", "a when cond is true, otherwise b, e.g. if(w > 2mm, 1mm, 0.5mm)"),
+    ("even(n)", "even()", "1 when n is even, otherwise 0"),
+    ("odd(n)", "odd()", "1 when n is odd, otherwise 0"),
+]
+UNIT_GROUPS: list[tuple[str, dict[str, float]]] = [
+    ("Length", LENGTH_UNITS), ("Frequency", FREQ_UNITS), ("Angle", ANGLE_UNITS), ("Other", OTHER_UNITS),
+]
+
 _ALLOWED_NODES = (
     ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant, ast.Name, ast.Load, ast.Call,
     ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod, ast.USub, ast.UAdd, ast.FloorDiv,
