@@ -6,6 +6,16 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Constants & Functions in Design Properties**: a button in the variables dialog opens the list of what a
+  value may use: constants (pi, c0, e0, u0), functions (sin, sqrt, if, ...), units and the other variables,
+  with value and description and a search field. Double-click (or Insert) puts the entry at the cursor of
+  the selected value; a function goes around selected text. The list stays open for further inserts.
+- **Eigenmode Parameters report**: Results > Create Eigenmode Parameters Report > Data Table lists the
+  eigenfrequencies and Q of an eigenmode solution, one row per mode (exportable as CSV, copy to clipboard).
+- **Solve on a computer reached over SSH**: Tools > Options > Remote > Connection *SSH login* with `user@host`
+  (or a host of `~/.ssh/config`) and an optional key file. Hertzon logs in, starts its remote service there if
+  it does not run yet (installed Hertzon, or the solver image with Docker) and solves through an SSH tunnel:
+  no pairing and no open port besides SSH. Pairing in the local network stays as it is. See docs/REMOTE.md.
 - **Hairpin filter with the Derivative Trust Region**: Tools > Filter Design (tapped hairpin) and the hairpin
   example add a second optimization, *HairpinDTR*, with the same goals as the conjugate gradient one. It
   varies L, g and yP (centre frequency, coupling, match); w, b and M can be included. All six variables
@@ -18,6 +28,9 @@ the GitHub release notes.
   left, so the last two steps were rejected. The mask was not met with these three variables.
 
 ### Changed
+- The remote service no longer answers network discovery when it listens only on the loopback address.
+- Solution Data of an eigenmode setup opens on the *Eigenmode Data* tab (eigenfrequencies and Q; a lossless
+  mode shows Q as infinite instead of a huge number of either sign).
 - **Derivative tuning needs much less memory**: every morphed mesh state keeps only what its boundary terms
   need, and the matrix differences are kept in single precision. Hairpin filter, 2 variables: 2.6 GB → 0.16 GB
   with the same tuned response; 6 variables: 5.3 GB (before: more than 14 GB, the process was killed).
@@ -26,6 +39,12 @@ the GitHub release notes.
   contain it, and the same design was solved again (seen on the hairpin filter).
 - **A tuning model that does not fit into memory stops at once** with the memory it needs and the number of
   variables that would fit, instead of the solver process being killed half way.
+
+### Fixed
+- **Field plots of eigenmode solutions were empty**: the eigenmode solve saved no fields. Each mode is now
+  stored as solution *LastAdaptive*, one frequency per mode; the field plot dialog lists them as
+  "Mode 1: 4.576 GHz", ... and the plot text names the mode. An eigenmode has no amplitude of its own, so its
+  values are relative (each mode is scaled to unit norm, phase 0 shows its strongest E field).
 
 ## 0.2.13 (2026-11-04)
 

@@ -1182,7 +1182,7 @@ REPORT_KINDS = {"Rectangular": "XY Plot", "Smith Chart": "Smith Chart", "Data Ta
                 "Radiation Pattern": "Radiation Pattern", "3D Polar Plot": "3D Polar Plot",
                 "Near Field Line": "Near Field", "Monostatic RCS": "Monostatic RCS",
                 "Monostatic RCS Table": "Monostatic RCS Table", "Antenna Parameters": "Antenna Parameters Plot",
-                "Antenna Parameters Table": "Antenna Parameters Table"}
+                "Antenna Parameters Table": "Antenna Parameters Table", "Eigenmode Table": "Eigenmode Table"}
 
 
 def _solution(d: Design, sol: str | None, fallback_sweep: bool = True) -> str:
@@ -1220,7 +1220,7 @@ def t_set_report(args):
             raise ToolError("A Fields report is a Rectangular plot or a Data Table")
         prefix = ("Fields Plot" if kind == "Rectangular" else "Fields Table") if fields else REPORT_KINDS[kind]
         name = name or _next_name({x.name for x in d.reports}, prefix)
-        sol = _solution(d, args.get("solution"))
+        sol = _solution(d, args.get("solution"), fallback_sweep=kind != "Eigenmode Table")
         r = Report(name, kind, sol, [])
         if fields:
             r.props.update(fields="1", port="1")
@@ -1233,7 +1233,8 @@ def t_set_report(args):
         r.traces = [str(t) for t in args["traces"]]
     elif created and not fields:
         n = max(1, len(d.ports()))
-        r.traces = ["dB(GainTotal)"] if r.kind in ("Radiation Pattern", "3D Polar Plot") else \
+        r.traces = ["Freq", "Q"] if r.kind == "Eigenmode Table" else \
+            ["dB(GainTotal)"] if r.kind in ("Radiation Pattern", "3D Polar Plot") else \
             ["dBsm(MonostaticRCSTotal)"] if r.kind.startswith("Monostatic") else \
             ["dB(PeakGain)", "dB(PeakRealizedGain)", "dB(PeakDirectivity)"] if r.kind.startswith("Antenna") else \
             ["mag(NearETotal)"] if r.kind == "Near Field Line" else [f"dB(S({i},1))" for i in range(1, n + 1)][:4]

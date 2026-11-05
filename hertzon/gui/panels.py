@@ -614,7 +614,8 @@ class SolutionDataDialog(QDialog):
             cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             cb.setMinimumContentsLength(min(28, max(6, max((len(cb.itemText(i)) for i in range(cb.count())),
                                                            default=6))))
-        self.tabs.setCurrentIndex(max(0, cur))
+        # an eigenmode solution opens on its eigenfrequencies
+        self.tabs.setCurrentIndex(self.tabs.count() - 1 if eig and cur < 0 else max(0, cur))
 
     def _table(self, headers, rows) -> QTableWidget:
         t = QTableWidget(len(rows), len(headers))
@@ -913,4 +914,5 @@ class SolutionDataDialog(QDialog):
 
     def _eigen(self, eig) -> QWidget:
         return self._table(["Eigenmode", "Frequency (GHz)", "Q"],
-                           [[f"Mode {i + 1}", f"{m['freq'] / 1e9:.6g}", f"{m['Q']:.4g}"] for i, m in enumerate(eig)])
+                           [[f"Mode {i + 1}", f"{m['freq'] / 1e9:.6g}", "infinite (lossless)" if m["Q"] == float("inf")
+                             else f"{m['Q']:.4g}"] for i, m in enumerate(eig)])

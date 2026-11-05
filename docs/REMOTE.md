@@ -1,7 +1,7 @@
 # Solving on another computer
 
-> **Experimental.** Remote solving works with another computer in the local network that runs Hertzon and
-> with cloud servers that Hertzon creates itself ([Solving in the cloud](#solving-in-the-cloud-hetzner-cloud)).
+> **Experimental.** Remote solving works with another computer in the local network that runs Hertzon, with
+> any computer you can log in to with SSH ([below](#over-ssh)) and with cloud servers that Hertzon creates itself ([Solving in the cloud](#solving-in-the-cloud-hetzner-cloud)).
 > Of the cloud providers only Hetzner Cloud has been tried with a real account; options, behaviour and the
 > connection between GUI and service may still change.
 
@@ -46,6 +46,29 @@ Several users can share one service; their analyses run one after the other. On 
 Progress window lists the analyses other computers sent to it (who sent them, progress); select one and
 press Abort to stop it.
 
+## Over SSH
+
+For a computer you can log in to with SSH (Linux or macOS: a workstation, a rented server, a login node),
+no pairing and no open port are needed. Tools > Options > Remote > *Connection*: **SSH login**.
+
+- **SSH login**: `user@host`, `user@host:2222` or a host of your `~/.ssh/config`.
+- **Key file**: empty uses the SSH agent and the keys in `~/.ssh`. The login must work without a password
+  prompt; try `ssh user@host` in a terminal once (it also adds the host key to `known_hosts`; an unknown
+  host is otherwise added on the first connection).
+- **Hertzon there**:
+  - *Hertzon installed there*: the **Command** starts Hertzon's remote module. The default is where the
+    Linux installer puts Hertzon (`~/.local/share/hertzon/.venv/bin/python -m hertzon.remote`); after
+    `pip install` it is for example `python3 -m hertzon.remote`.
+  - *Docker there*: the solver image of this Hertzon version (see below) runs as the container
+    `hertzon-ssh`; your user must be allowed to use Docker. The first start pulls the image.
+
+**Test Connection** logs in, starts the service if it does not run yet and shows the computer's cores.
+*Analyze* then works as with a paired computer (progress, adaptive passes, Abort, results). The service
+listens only on the computer's own loopback address and is reached through an SSH tunnel that Hertzon opens
+with the `ssh` program of your system (Windows 10 and later: *OpenSSH Client*). It keeps running there when
+Hertzon closes, so the next connection is immediate; its log is `~/.hertzon/ssh-serve.log` (Docker: `docker
+logs hertzon-ssh`).
+
 ## Notes
 
 - Cores and parallel sweep processes are those of the **solving** computer: Tools > Options > HPC and
@@ -54,8 +77,8 @@ press Abort to stop it.
   While *Solve on a remote computer* is on, the laptop's HPC tab greys out its own cores and sweep
   processes and shows the values of the remote computer instead.
 
-- The connection is plain HTTP with a token and meant for a local network. Across the internet use an SSH
-  tunnel (`ssh -L 47820:localhost:47820 user@host`, then enter `localhost` as the computer).
+- Pairing is plain HTTP with a token and meant for a local network. Across the internet use the SSH login
+  ([Over SSH](#over-ssh)).
 - If both computers run different Hertzon versions, the GUI warns; results can differ.
 - Closing the GUI aborts a running remote analysis, as it does locally.
 - Job folders the GUI did not remove (for example after a lost connection) are deleted by the service after

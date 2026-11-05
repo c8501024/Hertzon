@@ -110,3 +110,21 @@ def test_optimizer_process_runs_the_sample_and_the_chains(tmp_path, monkeypatch)
     assert summary["evaluations"] <= 200
     best = [float(v.rstrip("m")) for v in opt.best["variables"].values()]
     assert np.allclose(best, target, atol=0.1), best
+
+
+def test_only_the_settings_tab_of_the_chosen_optimizer_is_shown():
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from hertzon.gui.props import TabbedPropertyGrid
+    app = QApplication.instance() or QApplication([])
+    values = {**schema.defaults(schema.OPTIMIZATION), "Optimizer": "Latin Hypercube + Nelder-Mead"}
+    g = TabbedPropertyGrid()
+    g.set(schema.OPTIMIZATION, values)
+    shown = lambda: [g.tabText(i) for i in range(g.count()) if g.isTabVisible(i)]   # noqa: E731
+    assert shown() == ["General", "Nelder-Mead"]
+    g.grids["General"]._set("Optimizer", "Derivative Trust Region", rebuild=True)
+    for _ in range(3):
+        app.processEvents()
+    assert shown() == ["General", "Derivative Trust Region"]
+    assert g.isTabVisible(g.currentIndex())
