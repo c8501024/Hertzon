@@ -11,12 +11,19 @@ the GitHub release notes.
   varies L, g and yP (centre frequency, coupling, match); w, b and M can be included. All six variables
   morph without remeshing. On the initial mesh the tuned S-parameters stay within 3e-4 of exact solves for
   L ±1 mm, within 2e-3 for w, b, yP and the gap ±0.05 mm, and within 0.05 (about 0.5 dB) for the gap
-  ±0.15 mm.
+  ±0.15 mm. A run of HairpinDTR from the example's start values on a 32-core machine lowered the cost from 6.83
+  to 0.64 in 10 rounds (5 h 36 min, about 33 min per round, up to 37 GB of memory). The solves confirmed the
+  model in rounds 1 to 8 (actual / predicted improvement 0.44 to 1.14). After that, the change of the cost
+  from one adaptive mesh to the next (about 5 % for the same design) was as large as the improvement still
+  left, so the last two steps were rejected. The mask was not met with these three variables.
 
 ### Changed
 - **Derivative tuning needs much less memory**: every morphed mesh state keeps only what its boundary terms
   need, and the matrix differences are kept in single precision. Hairpin filter, 2 variables: 2.6 GB → 0.16 GB
   with the same tuned response; 6 variables: 5.3 GB (before: more than 14 GB, the process was killed).
+- **Derivative Trust Region: a rejected step is not solved twice.** After a rejection the region shrinks to at
+  most half of that step, so the next round cannot return the same step. Before, a halved region could still
+  contain it, and the same design was solved again (seen on the hairpin filter).
 - **A tuning model that does not fit into memory stops at once** with the memory it needs and the number of
   variables that would fit, instead of the solver process being killed half way.
 
