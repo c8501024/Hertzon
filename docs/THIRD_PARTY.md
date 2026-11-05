@@ -23,6 +23,7 @@ Versions are those of a current installation; `pyproject.toml` lists the require
 | [Numba](https://numba.pydata.org) (with llvmlite) | 0.68.0 | BSD-2-Clause (llvmlite: BSD-2-Clause and Apache-2.0 with LLVM exception) | Hertzon's compiled kernels (curved elements, refinement size field) |
 | [pymmg](https://www.mmgtools.org/) | 1.0.0 | MIT wrapper, Mmg library LGPL-3.0-or-later | "Mmg" adaptive refinement |
 | [fast-simplification](https://github.com/pyvista/fast-simplification) | 0.2.0 | MIT | STL simplification on import |
+| [Shapely](https://github.com/shapely/shapely) (with GEOS, LGPL-2.1) | 2.2.0 | BSD-3-Clause | 2D polygons of the PCB import (Gerber apertures, lines, regions, polarity) |
 | [hfsynpy](https://github.com/GenerativeAntennaDesign/hfsynpy) | 0.1.3 | GPL-2.0-or-later | Microstrip synthesis in the filter and antenna design tools |
 | [pytest](https://pytest.org) (tests only) | | MIT | Test suite |
 | [SPARTA](https://github.com/FennisRobert/SPARTA) (optional, `sparta-solver`) | 0.3.2 | AGPL-3.0 | GPU/CPU sparse direct solver; installed only on request (Tools > Options > Install SPARTA), not by the setup |

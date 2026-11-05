@@ -80,7 +80,10 @@ GEOMETRY: dict[str, list[Prop]] = {
                          help="Comma separated: Line, Arc (3 point arc), Spline:n, AngularArc:angle:plane "
                               "(center point arc); empty = all lines"),
                        P("Closed", "bool", "False"),
-                       P("Covered", "bool", "False", help="Closed and covered polylines become sheets")],
+                       P("Covered", "bool", "False", help="Closed and covered polylines become sheets"),
+                       P("Holes", "text", "", visible_if=("Covered", "True"),
+                         help="Holes in the covered sheet: closed loops of points joined by straight lines, "
+                              "loops separated by '|' (the PCB import writes them)")],
     "CreateHelix": [P("CenterPosition", "point", "0,0,0"), P("Axis", "choice", "Z", choices=AXES),
                     P("Radius", "length", "1"), P("Pitch", "length", "0.5"), P("Turns", "expr", "3"),
                     P("RightHanded", "bool", "True", label="Right handed"),

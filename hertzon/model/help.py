@@ -42,6 +42,7 @@ HELP: dict[str, str] = {
     "Faces": "Face indices of the object, comma separated.",
     "Closed": "Connect the last point with the first one.",
     "Covered": "Fill a closed polyline with a sheet.",
+    "Holes": "Holes in a covered polyline sheet: loops of points separated by |.",
     "PaddingType": "Region padding: percentage of the model size or absolute offset per direction.",
     "+X": "Region padding in +X.", "-X": "Region padding in -X", "+Y": "Region padding in +Y.",
     "-Y": "Region padding in -Y.", "+Z": "Region padding in +Z.", "-Z": "Region padding in -Z.",

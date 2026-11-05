@@ -270,6 +270,7 @@ class MainWindow(QMainWindow):
         m.addAction("New Window", self.new_window)
         m.addSeparator()
         m.addAction(self.a_import)
+        m.addAction("Import PCB (Gerber, Excellon)...", self.import_pcb)
         ex = m.addMenu("Export")
         ex.addAction("Geometry (STEP)...", self.export_step)
         ex.addAction("Touchstone...", self.export_touchstone)
@@ -362,6 +363,7 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&Modeler")
         m.addAction("Import...", self.import_geometry)
         m.addAction("PCB Stackup...", self.edit_stackup)
+        m.addAction("Import PCB (Gerber, Excellon)...", self.import_pcb)
         b = m.addMenu("Boolean")
         for a in (self.a_unite, self.a_subtract, self.a_intersect):
             b.addAction(a)
@@ -517,6 +519,7 @@ class MainWindow(QMainWindow):
         g.small("Design Properties", "variables", lambda: self.edit_variables(False))
         g = pg.group("Import / Export")
         g.small("Import Geometry", "import", self.import_geometry)
+        g.small("Import PCB", "import", self.import_pcb)
         g.small("Export STEP", "export", self.export_step)
         g.small("Export Script", "export", self.export_script)
         g.small("Export Gerber", "export", self.export_gerber)
@@ -2137,6 +2140,30 @@ class MainWindow(QMainWindow):
         # stk_ variables, board coordinate systems and (when asked for or made before) the substrate
         S.apply_to_design(self.doc.project, self.des, st, dlg.substrate)
         self.doc.commit("stackup")
+
+    def import_pcb(self, paths=None) -> None:
+        """File > Import PCB: copper, vias, holes and substrate from Gerber, Excellon and job files."""
+        from .pcb_import_dialog import PcbImportDialog
+        dlg = PcbImportDialog(self, self.doc, paths)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        pl, mats = dlg.result()
+        from ..pcbimport import board as B
+        self.doc.checkpoint()
+        self.doc.project.materials.extend(mats)
+        try:
+            rep = B.build(self.doc.project, self.des, pl)
+        except Exception as e:  # noqa: BLE001
+            self.doc.discard_last()
+            QMessageBox.critical(self, "Import PCB", f"The board cannot be made:\n{e}")
+            return
+        self.doc.commit("pcb import")
+        self.msgs.add("info", "PCB import: " + "; ".join(rep.lines[:3]))
+        for w in rep.warnings:
+            self.msgs.add("warning", f"PCB import: {w}")
+        if rep.not_loaded:
+            self.msgs.add("warning", "PCB import, not loaded (not simulated): " + "; ".join(rep.not_loaded))
+        QMessageBox.information(self, "Import PCB", rep.text())
 
     def export_gerber(self) -> None:
         """File > Export > Gerber: copper layers (Gerber X2), board outline and Excellon drill files."""
