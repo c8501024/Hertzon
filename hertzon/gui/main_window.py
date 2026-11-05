@@ -935,6 +935,7 @@ class MainWindow(QMainWindow):
         part(g, "MGAP")
         g = pg.group("Other")
         part(g, "CPWLIN", True)
+        part(g, "MVIA", True)
         part(g, "SLIN", True)
         part(g, "COAX", True)
 

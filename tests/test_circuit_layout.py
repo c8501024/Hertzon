@@ -176,3 +176,18 @@ def test_line_to_ground_is_shorted_by_a_via_and_the_tee_marker_sits_where_the_wi
     assert L.has_obj("MS2_Short")
     tr = next(a for a in L.boundaries if a.name == "Copper_Traces")
     assert "MS2_Short" in tr.objects
+
+
+def test_via_part_is_laid_out_as_round_vias_inside_the_line_end():
+    from hertzon.model.circuit import Wire
+    p, d = _circuit(P("Port1", 0, 0), _line("MS1", 160, 0, L="18mm"),
+                    C("V1", "MVIA", 200, 20, 0, {"Subst": "Sub1", "D": "0.4mm", "N": "2", "P": "0.7mm"}))
+    d.wires = [Wire([[0, 0], [120, 0]])]
+    L, warn = CL.layout_design(p, d)
+    assert not warn
+    p.designs.append(L)
+    ev = L.evaluator(p)
+    centres = sorted(tuple(round(v * 1e3, 6) for v in ev.point(L.obj(n).history[0].props["CenterPosition"]))
+                     for n in ("V1_1", "V1_2"))
+    assert centres == [(17.8, -0.35, 0), (17.8, 0.35, 0)]
+    assert ev.length(L.obj("V1_1").history[0].props["Radius"]) == pytest.approx(0.2e-3)

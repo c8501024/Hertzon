@@ -136,7 +136,7 @@ class PropertiesPanel(QWidget):
         self.title.setText(f"{name} ({info.label})")
         hidden = ("Thumbnail", "PortNames", "Ports")
         subs = tuple(c.name for c in des.components if c.type == "SUBST")
-        length = {"W", "S", "L", "H", "T", "W1", "W2", "W3", "W4", "Di", "Do", "G"}
+        length = {"W", "S", "L", "H", "T", "W1", "W2", "W3", "W4", "Di", "Do", "G", "D", "P"}
         props = [schema.P("Name", "text", name)]
         for k in [*info.props, *[k for k in comp.props if k not in info.props]]:
             if k in hidden:

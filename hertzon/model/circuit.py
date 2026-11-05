@@ -43,6 +43,10 @@ _SUB = {"Subst": "Sub1"}
 TYPES: dict[str, TypeInfo] = {
     # ---- basic
     "GND": TypeInfo("Ground", "GND", {}, [(0, -10)], "Reference node", "Basic"),
+    "MVIA": TypeInfo("Via to Ground", "V", {"Subst": "Sub1", "D": "0.4mm", "N": "1", "P": "1mm"}, [(0, -20)],
+                     "N round vias of diameter D in a row at the pitch P through the substrate to the ground plane, "
+                     "in parallel (inductance with the mutual coupling, skin-effect resistance). A 3D layout draws "
+                     "them at the end of the line", "Basic"),
     "PORT": TypeInfo("Power Port", "Port", {"Num": "", "Z0": "50ohm"}, [(0, -40)],
                      "Port of the S-parameters: a source with internal resistance Z0 against ground. Num sets the "
                      "port order (empty: by name)", "Basic"),

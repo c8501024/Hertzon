@@ -165,6 +165,15 @@ def _params(c: CK.Component, ev, subst: dict) -> object:
         if any(v <= 0 for k, v in q.items() if k != "L") or q.get("L", 1) < 0:
             raise CircuitError("W and S must be positive, L not negative")
         return q, subst[name]
+    if t == "MVIA":
+        name = p.get("Subst", "")
+        if name not in subst:
+            raise CircuitError(f"no substrate named '{name}'. Place a Substrate (Transmission Lines) and "
+                               "enter its name.")
+        d, pitch, n = ev.length(p["D"]), ev.length(p["P"]), int(round(ev.value(p["N"])))
+        if d <= 0 or n < 1 or (n > 1 and pitch < d):
+            raise CircuitError("D must be positive, N at least 1 and the pitch P at least D")
+        return d, n, pitch, subst[name]
     if t == "COAX":
         q = {k: ev.length(p[k]) for k in ("Di", "Do", "L")}
         q.update(er=ev.value(p["Er"]), tand=ev.value(p["TanD"]), cond=ev.value(p["Cond"]))
@@ -215,6 +224,10 @@ def element_y(c: CK.Component, f: float, v, table=None) -> np.ndarray | None:
         else:
             y = 0.0 if f > 0 else 1e12
         return np.array([[y, -y], [-y, y]], complex)
+    if t == "MVIA":
+        d, n, pitch, s = v
+        lv, rv = TL.via_array(d, s["h"], n, pitch, s["cond"], f)
+        return np.array([[1 / (rv + 1j * w * lv + 1e-12)]])
     if t == "ATTEN":
         loss, z0 = v
         k = 10 ** (-loss / 20)

@@ -208,6 +208,7 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     def mm(v: float) -> str:
         return f"{v * 1e3:.6g}mm"
 
+    via_parts: list = []
     while queue:
         node = queue.pop(0)
         here = pos[node]
@@ -224,6 +225,9 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                 continue
             if t in SKIP:
                 warnings.append(f"{c.name}: {SKIP[t]}")
+                continue
+            if t == "MVIA":
+                via_parts.append((c, node))
                 continue
             if t in LINE2 or t == "DCBLOCK" or t in LUMPED:
                 other = 1 - k
@@ -496,6 +500,26 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     vias = []
     for c, p, dd, w in shorts:
         vias.append(vertical(d.unique_name(f"{c.name}_Short"), p, dd, w, zt).name)
+    # via parts: a row of round vias across the line, just inside its end
+    for c, n in via_parts:
+        if n not in pos:
+            warnings.append(f"{c.name}: not connected to the layout, left out")
+            continue
+        dd = next((x for x, _ in node_dirs.get(n, [])), (1, 0))
+        dv, pv = setvar(f"{c.name}_D", c.props.get("D", "0.4mm")), setvar(f"{c.name}_P", c.props.get("P", "1mm"))
+        try:
+            nv = max(1, int(round(ev.value(c.props.get("N", "1")))))
+        except Exception:  # noqa: BLE001
+            nv = 1
+        vals = _values(d, project)
+        if (nv - 1) * pv.num(vals) + dv.num(vals) > width_at(n).num(vals) * (1 + 1e-9):
+            warnings.append(f"{c.name}: the vias are wider than the line; they stand out of its end")
+        for i in range(nv):
+            q = pos[n] + along(dd, dv * 0.5) + along(_perp(dd), pv * (i - (nv - 1) / 2))
+            o = d.add_object("CreateCylinder", name=d.unique_name(f"{c.name}_{i + 1}" if nv > 1 else c.name),
+                             material="pec", CenterPosition=f"{q.x.text()},{q.y.text()},0", Axis="Z",
+                             Radius=(dv * 0.5).text(), Height=zt.text())
+            o.color = "#c08040"
 
     def assign(lst, table, kind, nm, objects, **props):
         q = schema.defaults(table[kind])

@@ -351,3 +351,14 @@ def test_shorted_ends_include_the_via_inductance():
     with_via = TL.shorted_line_y(z0, g * 5e-3, 1j * 2 * np.pi * 5e9 * lv)
     assert abs(with_via) < abs(ideal)                    # the via makes the shorted stub electrically longer
     assert TL.shorted_line_y(z0, g * 5e-3, 0) == pytest.approx(ideal)
+
+
+def test_via_array_inductance():
+    from hertzon.solver import tlines as TL
+    l1, r1 = TL.via_array(0.4e-3, 0.508e-3, f=5e9)
+    assert 0.1e-9 < l1 < 0.2e-9 and r1 > 0
+    l2, _ = TL.via_array(0.4e-3, 0.508e-3, 2, 0.7e-3)
+    l2far, _ = TL.via_array(0.4e-3, 0.508e-3, 2, 50e-3)
+    assert l1 / 2 < l2 < l1                              # coupled vias in parallel: less than one, more than half
+    assert l2far == pytest.approx(l1 / 2, rel=0.05)
+    assert TL.via_array(0.4e-3, 1.6e-3)[0] > 2 * l1      # a thicker board: more inductance
