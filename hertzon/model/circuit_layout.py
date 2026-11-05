@@ -14,6 +14,7 @@ microstrip of the same impedance and electrical length, a DC block becomes a dir
 from __future__ import annotations
 
 import json
+import re
 import math
 from collections import Counter
 
@@ -587,6 +588,7 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
             if k in ("XSize", "YSize", "ZSize", "Radius", "Height") and v.strip() in d.variables:
                 dims.setdefault(v.strip(), [o.name, k])
     d.settings[DIMS] = json.dumps(dims)
+    d.settings[VARS] = json.dumps(sorted(d.variables))
     return d, warnings
 
 
@@ -624,6 +626,8 @@ BACK = {"MLIN": ("W", "L"), "MLOC": ("W", "L"), "MLSC": ("W", "L"), "SLIN": ("W"
         "MSTEP": ("W1", "W2"), "MGAP": ("W1", "W2", "S"), "MCROSS": ("W1", "W2", "W3", "W4"),
         "SUBST": ("H", "T"), "CPWLIN": ("W", "S", "L"), "MVIA": ("D", "P")}
 DIMS = "LayoutDims"              # layout setting: which object size holds which dimension variable (JSON)
+VARS = "LayoutVars"              # layout setting: the design variables the layout made itself (JSON list)
+_GENERATED = re.compile(r"^(W_Pad|[A-Za-z]\w*?_(W\d*|L|S|D|P|Gap|H|T|Er|TanD))$")   # layouts made before VARS
 
 
 def source_circuit(project: Project, layout: Design) -> Design | None:
@@ -675,7 +679,15 @@ def update_layout(project: Project, layout: Design) -> list[str]:
     new, warnings = layout_design(project, circuit, layout.name)
     layout.objects, layout.boundaries, layout.excitations = new.objects, new.boundaries, new.excitations
     layout.mesh_ops = new.mesh_ops
-    layout.variables = {**{k: v for k, v in layout.variables.items() if k not in new.variables}, **new.variables}
-    layout.settings.update({k: v for k, v in new.settings.items() if k in (LINK, DIMS)})
+    try:
+        made = set(json.loads(layout.settings.get(VARS, "") or "null") or [])
+    except ValueError:
+        made = set()
+    if VARS not in layout.settings:
+        made = {k for k in layout.variables if _GENERATED.match(k)}
+    # variables of parts that are gone go with them; variables the user added stay
+    layout.variables = {**{k: v for k, v in layout.variables.items() if k not in new.variables and k not in made},
+                        **new.variables}
+    layout.settings.update({k: v for k, v in new.settings.items() if k in (LINK, DIMS, VARS)})
     layout.notes = new.notes
     return warnings

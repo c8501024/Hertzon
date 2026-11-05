@@ -207,3 +207,20 @@ def test_update_from_layout_reads_edited_object_sizes_and_the_layout_is_rebuilt_
     CL.update_layout(p, L)
     assert L.variables["MS1_W"] == "2mm" and L.variables["MS1_L"] == "20mm"
     assert L.setups[0].props["MaximumPasses"] == "4" and L.obj("MS1").history[0].props["XSize"] == "MS1_L"
+
+
+def test_update_layout_follows_exchanged_parts():
+    from hertzon.model.circuit import Wire
+    p, d = _circuit(P("Port1", 0, 0), _line("MS1", 160, 0, L="8mm"),
+                    C("TLS1", "TLSC", 200, 40, 0, {"Z0": "50ohm", "E": "10deg", "F": "1GHz"}))
+    d.wires = [Wire([[0, 0], [120, 0]])]
+    L, _ = CL.layout_design(p, d)
+    p.designs.append(L)
+    assert L.has_obj("TLS1_Short")
+    # the ideal short stub replaced by a microstrip line to a round via
+    d.components = [c for c in d.components if c.name != "TLS1"] + [
+        _line("MS2", 200, 40, 90, L="5mm"), C("V1", "MVIA", 200, 100, 0, {"Subst": "Sub1", "D": "0.4mm"})]
+    CL.update_layout(p, L)
+    names = {o.name for o in L.objects}
+    assert {"MS2", "V1"} <= names and not any(n.startswith("TLS1") for n in names)
+    assert "TLS1_W" not in L.variables
