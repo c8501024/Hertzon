@@ -242,12 +242,12 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
     d = Design(name=spec.name or f"Hairpin_N{n}", units="mm")
     d.variables.update({
         "h": _mm(spec.h), "t_cu": f"{spec.t:g}um", "Wsub": _mm(spec.board), "wf": _mm(nom["feed"]),
-        "L": _mm(nom["length"]), "w": _mm(nom["trace"]), "b": _mm(nom["inner"]), "g": _mm(nom["gap"]),
+        "L": _mm(nom["length"]), "dL": "0mm", "w": _mm(nom["trace"]), "b": _mm(nom["inner"]), "g": _mm(nom["gap"]),
         "yP": _mm(nom["yP"]), "M": f"{nom['miter']:g}", "dmin": _mm(spec.min_feature),
         # derived: outer width, effective miter, corner cut and depth, straight arm, pitch, row edge, tap
         "wo": "b+2*w", "Me": "min(M, 1-dmin/(sqrt(2)*w), (wo/2-dmin)/(2*w))", "cut": "2*Me*w",
-        "dep": "max(w, cut)", "s": "(L-b-2*dep)/2", "pitch": "wo+g", "xe": f"({n}*wo+{n - 1}*g)/2",
-        "ycap": "max(0mm, s/2-wf/2-dmin)", "yt": "max(-ycap, min(ycap, yP))",
+        "dep": "max(w, cut)", "s": "(L-b-2*dep)/2", "so": "(L+dL-b-2*dep)/2", "pitch": "wo+g",
+        "xe": f"({n}*wo+{n - 1}*g)/2", "ycap": "max(0mm, so/2-wf/2-dmin)", "yt": "max(-ycap, min(ycap, yP))",
     })
     d.settings["AutoOpen"] = "Auto Open - Filter"
     d.settings["FilterAirMargin"] = "12mm"
@@ -260,7 +260,8 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
         k = i - (n - 1) / 2
         cx = "" if k == 0 else f"{k:g}*pitch+"
         sign = "" if i % 2 == 0 else "-"
-        pts = [f"{cx}({x}),{sign}({y}),h" for x, y in zip(_X, _Y)]
+        ys = _Y if 0 < i < n - 1 else [y.replace("s/2", "so/2") for y in _Y]   # the outer, tapped ones: L+dL
+        pts = [f"{cx}({x}),{sign}({y}),h" for x, y in zip(_X, ys)]
         if sign:                                 # mirrored: keep the outline counter-clockwise (+z normal)
             pts = pts[:1] + pts[:0:-1]
         pts = ";".join(pts)
