@@ -14,8 +14,8 @@ microstrip of the same impedance and electrical length, a DC block becomes a dir
 from __future__ import annotations
 
 import json
-import re
 import math
+import re
 from collections import Counter
 
 from . import circuit as CK
