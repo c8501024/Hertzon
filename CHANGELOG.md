@@ -6,6 +6,17 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Import PCB (Gerber, Excellon)**: File > Import PCB (also Modeler, and *Import PCB* in the ribbon) reads
+  the manufacturing files of a board: Gerber X2 and older RS-274X (apertures and aperture macros, arcs,
+  regions with cut-ins, clear polarity, step and repeat, block apertures, deprecated parts), Excellon drill
+  files (tool tables, zero formats, slots), the job file (.gbrjob) for the stackup, and zip archives or whole
+  folders. Each file is recognised from its X2 attributes, the job file or the usual KiCad, Altium and Eagle
+  file names, and can be changed in the dialog. The copper becomes sheets with finite conductivity (or solid
+  copper, as the stackup says) on the copper layer coordinate systems, plated holes become copper cylinders
+  between the layers they connect (also blind and buried), non-plated holes and the board outline with its
+  cut-outs shape the substrate. A part of the board can be imported (Shift + drag in the preview).
+  Everything follows the stackup variables. What is not simulated (solder mask, legend, paste) is not
+  loaded and the import report names it. Covered polylines can now have holes (*Holes* property).
 - **PCB stackup drives the geometry**: the stackup writes design variables per layer (`stk_<layer>_t`
   thickness, `stk_<layer>_z` bottom, `stk_<layer>_zs` copper sheet height, `stk_total`), a board coordinate
   system `stk_Board` and one coordinate system per copper layer to draw on. *Substrate...* in the stackup
