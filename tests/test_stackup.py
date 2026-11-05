@@ -286,3 +286,78 @@ def test_editor_dialog(tmp_path):
     assert nice_step(40e-3) == 5e-3 and ruler_unit(5e-3)[0] == "mm" and ruler_unit(0.2)[0] == "m" and ruler_unit(1e-3)[0] == "mm"
     assert size_text(62e-3, 48.5e-3) == "62 × 48.5 mm"
     dlg.close()
+
+
+# ---- coupling to the geometry ---------------------------------------------------------------
+def _zrange(des, ev, name):
+    p = des.obj(name).history[0].props
+    z = ev.length(p["Position"].split(",")[2])
+    return z, z + ev.length(p["ZSize"])
+
+
+def test_variables_follow_the_stackup():
+    st = S.template(4, "1.6mm")
+    st.layers[0].thickness = "1oz"
+    v = S.variables(st, EV)
+    ev = Evaluator(v)
+    assert v["stk_L1_Top_t"] == "34.79um"                 # ounces become a length the evaluator knows
+    assert ev.length("stk_L4_Bottom_z") == 0.0
+    assert ev.length("stk_total") == pytest.approx(S.total_thickness(st, EV))
+    zs = S.evaluate(st, EV)
+    for z, s in zip(zs, S.slugs(st)):
+        assert ev.length(f"stk_{s}_z") == pytest.approx(z.z0, abs=1e-12)
+    # sheets: outer layers on the board surface, inner ones on the core (the prepreg fills the copper slab)
+    assert ev.length("stk_L1_Top_zs") == pytest.approx(zs[1].z1)
+    assert ev.length("stk_L4_Bottom_zs") == pytest.approx(zs[5].z0)
+    assert ev.length("stk_L2_zs") == pytest.approx(zs[3].z1)
+    assert ev.length("stk_L3_zs") == pytest.approx(zs[3].z0)
+    assert S.slugs(S.Stackup([S.StackLayer("F.Cu/In1.Cu"), S.StackLayer("F.Cu/In1.Cu"), S.StackLayer("1")])) == \
+        ["F_Cu_In1_Cu", "F_Cu_In1_Cu_2", "L1"]
+
+
+def test_apply_to_design_builds_a_gapless_substrate_and_follows_edits():
+    p = Project()
+    des = p.designs[0]
+    des.variables["stk_old_t"] = "1mm"                    # a stackup variable of an earlier stackup
+    st = S.template(4, "1.6mm")
+    st.layers[3].set("permittivity", "4.2")              # own value: a project material stk_<layer>
+    made = S.apply_to_design(p, des, st, ("-25mm", "-20mm", "50mm", "40mm"))
+    assert "stk_old_t" not in des.variables
+    assert sorted(made) == ["Fill_L2", "Fill_L3", "Sub_Core_2_3", "Sub_Prepreg_1_2", "Sub_Prepreg_3_4"]
+    assert {o.group for o in des.objects} == {"Stackup"} and des.obj("Sub_Core_2_3").orientation == "stk_Board"
+    assert des.obj("Sub_Core_2_3").material == "stk_Core_2_3" and p.material("stk_Core_2_3").permittivity == "4.2"
+    ev = des.evaluator(p)
+    spans = sorted(_zrange(des, ev, n) for n in made)
+    for (a0, a1), (b0, b1) in zip(spans, spans[1:]):
+        assert a1 == pytest.approx(b0, abs=1e-12)        # no air gap between the boxes
+    assert spans[0][0] == pytest.approx(35e-6) and spans[-1][1] == pytest.approx(1.565e-3)
+    assert [c.name for c in des.coord_systems] == ["stk_Board", "stk_L1_Top", "stk_L2", "stk_L3", "stk_L4_Bottom"]
+    # a thicker core moves everything above it; the substrate is kept without being asked again
+    st.layers[3].thickness = "1.2mm"
+    S.apply_to_design(p, des, st)
+    ev = des.evaluator(p)
+    assert _zrange(des, ev, "Sub_Prepreg_1_2")[1] == pytest.approx(1.705e-3)
+    # a 2-layer stack drops the boxes and planes of the inner layers
+    S.apply_to_design(p, des, S.template(2, "1.6mm"))
+    assert [o.name for o in des.objects] == ["Sub_Core_1_2"]
+    assert [c.name for c in des.coord_systems] == ["stk_Board", "stk_L1_Top", "stk_L2_Bottom"]
+    S.apply_to_design(p, des, None)
+    assert not [k for k in des.variables if k.startswith("stk_")]
+
+
+def test_substrate_builds_with_occ():
+    from hertzon.kernel import occ as K
+    p = Project()
+    des = p.designs[0]
+    st = S.template(4, "1.6mm")
+    st.plane = "ZX"                                       # board in the ZX plane: the stack grows along +Y
+    S.apply_to_design(p, des, st, ("0mm", "0mm", "30mm", "20mm"))
+    ev = des.evaluator(p)
+    K.ensure_gmsh()
+    ctx = K.build_design(des, ev)
+    built = ctx.built
+    names = [o.name for o in des.objects]
+    assert not ctx.errors and all(built.get(n) for n in names)
+    assert not K.solid_overlaps(des, ev, names)
+    b = K._bbox([dt for n in names for dt in built[n]])
+    assert (b[1], b[4]) == pytest.approx((0.035e-3, 1.565e-3), abs=1e-6)   # the stack along Y
