@@ -90,6 +90,31 @@ def via_inductance(w: float, h: float) -> float:
     return max(MU0 * h / (2 * math.pi) * (math.log(4 * h / w) + 0.5 + 0.11175 * w / h), 0.0)
 
 
+def _partial(length: float, r: float) -> float:
+    """Partial inductance of a straight round conductor of the given length and radius r, or the partial
+    mutual inductance of two parallel ones at the distance r (Ruehli)."""
+    x = length / r
+    return MU0 * length / (2 * math.pi) * (math.log(x + math.sqrt(1 + x * x)) - math.sqrt(1 + 1 / (x * x)) + 1 / x)
+
+
+def via_array(d: float, h: float, n: int = 1, pitch: float = 0.0, cond: float = 5.8e7,
+              f: float = 0.0) -> tuple[float, float]:
+    """(Inductance, resistance) of n round vias of diameter d in a row at the distance pitch, from the top of
+    a substrate of height h to the ground plane, in parallel. Each via with its image in the ground plane is a
+    conductor of length 2h; the via is half of it. The mutual inductance between the vias is included; the
+    resistance is that of the barrel surface at frequency f (skin effect)."""
+    if d <= 0 or h <= 0 or n < 1:
+        return 0.0, 0.0
+    r = d / 2
+    m = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            m[i, j] = _partial(2 * h, r) if i == j else _partial(2 * h, max(abs(i - j) * pitch, d))
+    lv = 0.5 * float(m.sum()) / (n * n)
+    rv = surface_resistance(f, cond) * h / (math.pi * d) / n
+    return lv, rv
+
+
 def shorted_line_y(z0: complex, gl: complex, zl: complex) -> complex:
     """Input admittance of a line of propagation gamma*length gl ending in the impedance zl to ground."""
     th = np.tanh(_regular(gl))

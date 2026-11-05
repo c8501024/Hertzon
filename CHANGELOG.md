@@ -6,6 +6,12 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Via to Ground** (circuit, Transmission Lines › Other): N round vias of diameter D in a row at the pitch P
+  through the substrate to the ground plane. Inductance from the partial inductances of the vias and their images
+  in the ground plane, mutual coupling between the vias included; skin-effect resistance of the barrels. The 3D
+  layout draws the vias as cylinders just inside the end of the line. Against full-wave solves of a shorted
+  18 mm microstrip line with one and with two 0.4 mm vias, the S11 phase agrees within 3 degrees rms
+  (1 to 10 GHz).
 - **Full-wave line model** (circuit, Transmission Lines › Line Model › *Full Wave*): microstrip lines and stubs
   and coplanar lines take their propagation constant and impedance from a full-wave solve of their cross-section
   (the port mode solver on the substrate and widths of the schematic, metal thickness included, in a shielded

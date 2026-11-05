@@ -30,7 +30,7 @@ SUBSTRATE = QColor("#dfe6d0")
 FILL = QColor("#e9f1fb")
 
 # size (w, h) of the body at rotation 0, for the outline used in selection and label placement
-SIZES = {"GND": (24, 28), "PORT": (26, 80), "LABEL": (20, 20), "TLIN": (80, 20), "TLOC": (18, 70),
+SIZES = {"GND": (24, 28), "MVIA": (28, 44), "PORT": (26, 80), "LABEL": (20, 20), "TLIN": (80, 20), "TLOC": (18, 70),
          "TLSC": (24, 80), "MLIN": (80, 20), "MLOC": (18, 70), "MLSC": (24, 80), "MCLIN": (80, 40),
          "MTEE": (60, 40), "MCORN": (60, 60), "MMBEND": (60, 60), "MSTEP": (60, 22), "MGAP": (60, 18),
          "MCROSS": (60, 60), "SLIN": (80, 24), "CPWLIN": (80, 26), "COAX": (80, 22), "SUBST": (80, 46), "SRLC": (80, 20), "PRLC": (80, 40),
@@ -158,6 +158,16 @@ def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = N
     elif t == "GND":
         p.drawLine(0, -10, 0, 0)
         _ground(p, 0)
+    elif t == "MVIA":
+        # pad on top, plated barrel through the substrate, ground plane
+        p.drawLine(0, -20, 0, -12)
+        p.setBrush(SUBSTRATE)
+        p.drawRect(QRectF(-12, -10, 24, 14))
+        p.setBrush(COPPER)
+        p.drawRect(QRectF(-8, -12, 16, 3))
+        p.drawRect(QRectF(-3, -10, 6, 14))
+        p.drawLine(0, 4, 0, 8)
+        _ground(p, 8)
     elif t == "PORT":
         # power port: pin at the top, internal resistance, source, ground
         p.drawLine(0, -40, 0, -32)
@@ -315,6 +325,9 @@ def value_lines(c: CK.Component) -> list[str]:
         return [f"Z={p.get('Z0')}  E={p.get('E')}", f"F={p.get('F')}"]
     if t in ("MLIN", "MLOC", "MLSC", "SLIN"):
         return [f"W={p.get('W')}  L={p.get('L')}", f"{p.get('Subst')}"]
+    if t == "MVIA":
+        n = p.get("N", "1").strip() or "1"
+        return [f"D={p.get('D')}" + (f"  N={n}  P={p.get('P')}" if n != "1" else ""), f"{p.get('Subst')}"]
     if t == "CPWLIN":
         gnd = "  backed" if p.get("Backed", "False") == "True" else ""
         return [f"W={p.get('W')}  S={p.get('S')}", f"L={p.get('L')}  {p.get('Subst')}{gnd}"]
@@ -1153,7 +1166,8 @@ LABELS = {"Z0": "Impedance Z0", "E": "Electrical length", "F": "at frequency", "
           "Cond": "Conductivity (S/m)", "W": "Width W", "S": "Spacing (gap) S", "L": "Length L", "Di": "Inner diameter",
           "Do": "Outer diameter", "Subst": "Substrate", "Net": "Net name", "Loss": "Attenuation",
           "W1": "Width W1 (main line)", "W2": "Width W2 (main line)", "W3": "Width W3 (branch)", "W4": "Width W4",
-          "Backed": "Ground under the substrate"}
+          "Backed": "Ground under the substrate", "D": "Via diameter D", "N": "Number of vias N",
+          "P": "Pitch P (centre to centre)"}
 
 
 CALC_TYPES = ("MLIN", "MLOC", "MLSC", "SLIN")
