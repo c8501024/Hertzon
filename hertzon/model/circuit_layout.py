@@ -13,6 +13,7 @@ microstrip of the same impedance and electrical length, a DC block becomes a dir
 """
 from __future__ import annotations
 
+import json
 import math
 from collections import Counter
 
@@ -577,6 +578,15 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                                           color="#2e7d32", description=f"Substrate {sname} of {circuit.name}"))
     d.notes = (f"Layout of the circuit design '{circuit.name}'. The dimensions are the design variables named "
                "after the parts; 'Update from Layout' (Simulation tab of the schematic) copies them back.")
+    # the object sizes that are exactly a dimension variable: "Update from Layout" also reads a size that was
+    # edited on the object instead of in the variable
+    dims = {}
+    board = ("Substrate", "Ground", "Ground_Top")         # their size follows the traces: the traces first
+    for o in sorted(d.objects, key=lambda o: o.name in board):
+        for k, v in (o.history[0].props.items() if o.history else ()):
+            if k in ("XSize", "YSize", "ZSize", "Radius", "Height") and v.strip() in d.variables:
+                dims.setdefault(v.strip(), [o.name, k])
+    d.settings[DIMS] = json.dumps(dims)
     return d, warnings
 
 
@@ -612,7 +622,8 @@ def _rlc(c: CK.Component) -> dict[str, str]:
 BACK = {"MLIN": ("W", "L"), "MLOC": ("W", "L"), "MLSC": ("W", "L"), "SLIN": ("W", "L"),
         "MCLIN": ("W", "S", "L"), "MTEE": ("W1", "W2", "W3"), "MCORN": ("W",), "MMBEND": ("W",),
         "MSTEP": ("W1", "W2"), "MGAP": ("W1", "W2", "S"), "MCROSS": ("W1", "W2", "W3", "W4"),
-        "SUBST": ("H", "T")}
+        "SUBST": ("H", "T"), "CPWLIN": ("W", "S", "L"), "MVIA": ("D", "P")}
+DIMS = "LayoutDims"              # layout setting: which object size holds which dimension variable (JSON)
 
 
 def source_circuit(project: Project, layout: Design) -> Design | None:
@@ -630,10 +641,41 @@ def update_schematic(project: Project, layout: Design) -> tuple[Design, list[str
         raise LayoutError("this 3D design was not created from a schematic (or its circuit design was renamed "
                           "or deleted)")
     changes = []
+    edited = {}
+    try:
+        dims = json.loads(layout.settings.get(DIMS, "") or "{}")
+    except ValueError:
+        dims = {}
+    ev = layout.evaluator(project)
+    for var, (obj, prop) in dims.items():
+        if not layout.has_obj(obj) or not layout.obj(obj).history:
+            continue
+        text = layout.obj(obj).history[0].props.get(prop, "").strip()
+        if text and text != var:              # the size was edited on the object: its value
+            try:
+                edited[var] = f"{ev.length(text) * 1e3:.6g}mm"
+            except Exception:  # noqa: BLE001
+                pass
     for c in circuit.components:
         for prop in BACK.get(c.type, ()):
-            v = layout.variables.get(f"{c.name}_{prop}")
+            v = edited.get(f"{c.name}_{prop}") or layout.variables.get(f"{c.name}_{prop}")
             if v is not None and v.strip() != c.props.get(prop, "").strip():
                 changes.append(f"{c.name}.{prop}: {c.props.get(prop, '')} → {v}")
                 c.props[prop] = v.strip()
     return circuit, changes
+
+
+def update_layout(project: Project, layout: Design) -> list[str]:
+    """Rebuild a generated layout from its schematic in place: geometry, variables, boundaries, ports and mesh
+    operations are made anew, the setups, reports and other analysis settings stay. Returns the warnings."""
+    circuit = source_circuit(project, layout)
+    if circuit is None:
+        raise LayoutError("this 3D design was not created from a schematic (or its circuit design was renamed "
+                          "or deleted)")
+    new, warnings = layout_design(project, circuit, layout.name)
+    layout.objects, layout.boundaries, layout.excitations = new.objects, new.boundaries, new.excitations
+    layout.mesh_ops = new.mesh_ops
+    layout.variables = {**{k: v for k, v in layout.variables.items() if k not in new.variables}, **new.variables}
+    layout.settings.update({k: v for k, v in new.settings.items() if k in (LINK, DIMS)})
+    layout.notes = new.notes
+    return warnings

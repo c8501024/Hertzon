@@ -967,19 +967,30 @@ class MainWindow(QMainWindow):
         g = pg.group("Analyze")
         g.large("Analyze", "analyze", self.analyze_all)
         g = pg.group("3D Layout")
-        g.large("Create 3D Layout", "design", self.circuit_to_layout,
-                tip="A new 3D design with the physical layout of the schematic: substrate, traces, lumped parts "
-                    "and ports, every dimension a design variable")
-        b = g.small("Update from Layout", "import", None, menu=[],
-                    tip="Copy the dimensions of a 3D layout made from this schematic back into the schematic")
+        b = g.large("Create 3D Layout", "design", self.circuit_to_layout, menu=[],
+                    tip="A new 3D design with the physical layout of the schematic: substrate, traces, lumped "
+                        "parts and ports, every dimension a design variable. The arrow: rebuild an existing "
+                        "layout from the schematic")
+        mc = b.menu()
+
+        def fill_create(m=mc):
+            m.clear()
+            m.addAction("New 3D Layout", self.circuit_to_layout)
+            names = self._layouts()
+            if names:
+                m.addSeparator()
+            for n in names:
+                m.addAction(f"Update {n} from Schematic", lambda n=n: self.circuit_to_existing_layout(n))
+        mc.aboutToShow.connect(fill_create)
+        b = g.large("Update from Layout", "layout_back", lambda: self.layout_to_circuit(None), menu=[],
+                    tip="Copy the dimensions of the 3D layout made from this schematic back into the schematic "
+                        "(design variables, and sizes edited on the objects). The arrow: choose the layout")
         ml = b.menu()
 
         def fill_layouts(m=ml):
-            from ..model.circuit_layout import LINK
             m.clear()
-            for d in self.doc.project.designs:
-                if d.kind == "3d" and d.settings.get(LINK) == self.des.name:
-                    m.addAction(d.name, lambda n=d.name: self.layout_to_circuit(n))
+            for n in self._layouts():
+                m.addAction(n, lambda n=n: self.layout_to_circuit(n))
             if m.isEmpty():
                 m.addAction("(no 3D layout of this schematic)").setEnabled(False)
         ml.aboutToShow.connect(fill_layouts)
@@ -5953,9 +5964,36 @@ class MainWindow(QMainWindow):
         for w in warnings:
             self.msgs.add("warning", f"{d.name}: {w}")
 
-    def layout_to_circuit(self, layout_name: str) -> None:
-        """Copies the dimensions of a 3D layout back into the schematic it was made from."""
+    def _layouts(self) -> list[str]:
+        """The 3D layouts made from the current schematic, the newest last."""
+        from ..model.circuit_layout import LINK
+        return [d.name for d in self.doc.project.designs if d.kind == "3d" and d.settings.get(LINK) == self.des.name]
+
+    def circuit_to_existing_layout(self, layout_name: str) -> None:
+        """Rebuild a 3D layout of this schematic in place (its setups and reports stay)."""
+        from ..model.circuit_layout import LayoutError, update_layout
+        self.doc.checkpoint()
+        try:
+            warns = update_layout(self.doc.project, self.doc.project.design(layout_name))
+        except LayoutError as e:
+            QMessageBox.warning(self, "Update 3D Layout", str(e))
+            return
+        self.doc.commit("all", geometry=True)
+        for w in warns:
+            self.msgs.add("warning", f"{layout_name}: {w}")
+        self.msgs.add("info", f"{layout_name} rebuilt from {self.des.name}; its solutions are out of date")
+
+    def layout_to_circuit(self, layout_name: str | None) -> None:
+        """Copies the dimensions of a 3D layout back into the schematic it was made from (None: the newest
+        layout of the current schematic)."""
         from ..model.circuit_layout import LayoutError, update_schematic
+        if layout_name is None:
+            names = self._layouts()
+            if not names:
+                QMessageBox.information(self, "Update from Layout", "This schematic has no 3D layout yet. Make "
+                                        "one with Create 3D Layout.")
+                return
+            layout_name = names[-1]
         self.doc.checkpoint()
         try:
             circ, changes = update_schematic(self.doc.project, self.doc.project.design(layout_name))
@@ -5967,6 +6005,10 @@ class MainWindow(QMainWindow):
             self.msgs.add("info", f"{circ.name} updated from {layout_name}: " + ", ".join(changes))
         else:
             self.msgs.add("info", f"{circ.name} has the dimensions of {layout_name} already")
+            QMessageBox.information(self, "Update from Layout",
+                                    f"{circ.name} has the dimensions of {layout_name} already. Change the "
+                                    f"dimensions in {layout_name} first: its design variables (named after the "
+                                    "parts, e.g. MS1_L) or the sizes of the traces.")
 
     def _insert_generated(self, dlg, what: str) -> None:
         if dlg.exec() != QDialog.Accepted or dlg.design is None:

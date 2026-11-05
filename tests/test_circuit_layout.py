@@ -191,3 +191,19 @@ def test_via_part_is_laid_out_as_round_vias_inside_the_line_end():
                      for n in ("V1_1", "V1_2"))
     assert centres == [(17.8, -0.35, 0), (17.8, 0.35, 0)]
     assert ev.length(L.obj("V1_1").history[0].props["Radius"]) == pytest.approx(0.2e-3)
+
+
+def test_update_from_layout_reads_edited_object_sizes_and_the_layout_is_rebuilt_in_place():
+    from hertzon.model.circuit import Wire
+    p, d = _circuit(P("Port1", 0, 0), _line("MS1", 160, 0, L="18mm"), P("Port2", 240, 0))
+    d.wires = [Wire([[0, 0], [120, 0]]), Wire([[200, 0], [240, 0]])]
+    L, _ = CL.layout_design(p, d)
+    p.designs.append(L)
+    L.obj("MS1").history[0].props["XSize"] = "20mm"          # resized on the object, not in MS1_L
+    circ, changes = CL.update_schematic(p, L)
+    assert changes == ["MS1.L: 18mm → 20mm"] and circ.components[2].props["L"] == "20mm"
+    L.setups[0].props["MaximumPasses"] = "4"
+    d.components[2].props["W"] = "2mm"
+    CL.update_layout(p, L)
+    assert L.variables["MS1_W"] == "2mm" and L.variables["MS1_L"] == "20mm"
+    assert L.setups[0].props["MaximumPasses"] == "4" and L.obj("MS1").history[0].props["XSize"] == "MS1_L"
