@@ -1,6 +1,6 @@
 """Hairpin filter with derivative tuning: proof on a large machine.
 
-python hairpin_tuning_check.py WORKDIR [--skip-accuracy] [--skip-opt]
+python hairpin_tuning_check.py WORKDIR [--skip-accuracy] [--skip-opt] [--only-dtr3]
 PYTHONPATH must point at the Hertzon source.
 
 1. full analysis of the hairpin example (adaptive mesh + interpolating sweep)
@@ -122,7 +122,8 @@ if "--skip-accuracy" not in sys.argv:
 
 if "--skip-opt" not in sys.argv:
     # 4
-    for label, incl in (("dtr3", ("L", "g", "yP")), ("dtr6", tuple(VARS))):
+    runs = (("dtr3", ("L", "g", "yP")), ("dtr6", tuple(VARS)))
+    for label, incl in runs[:1] if "--only-dtr3" in sys.argv else runs:
         if label in summary.get("opt", {}):
             continue
         p = example()
