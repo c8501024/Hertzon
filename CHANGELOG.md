@@ -106,6 +106,14 @@ the GitHub release notes.
   Data work the same way.
 - **Design type in the project file**: every design stores its type (`"kind": "3d"` or `"circuit"`); files
   without it open as 3D designs.
+- **Plot Mesh on the Auto Open region** (Mesh menu, or right-click *Auto Open* in the project tree): the
+  mesh on the open boundary of the air box Auto Open builds, drawn see-through. That box is no model object,
+  so it could not be picked for Plot Mesh before (#231).
+- **Families for far field reports** (#221): Radiation Pattern, Antenna Parameters (plot and table) and the 3D
+  Polar Plot offer *Families* like the S-parameter reports: one curve per variation of a parametric setup
+  (Values... chooses the variable values shown), exported as drawn. The 3D Polar Plot shows one variation at
+  a time, chosen under *Variation*. A new far field report of an unsolved nominal design opens on the
+  families of a solved parametric setup.
 
 ### Changed
 - **Circuit reports**: right-click on *Results* of a schematic offers only what a circuit produces: rectangular
@@ -126,6 +134,12 @@ the GitHub release notes.
   connected to ground is now shorted there by a via, like a short stub. Before, the 3D layout had an open end
   where the circuit had a short, so the two results differed completely.
 - The marker of an automatic junction is drawn where the wires of the lines meet, not at the pin of one line.
+- **Radiated power above the accepted power** (#231): with Auto Open, the radiated power and the far field of
+  an antenna were integrated on the mesh faces of the absorbing boundary, where the mesh is coarsest and the
+  boundary reflects a little; lossless antennas showed a radiated power up to ~10 % above the accepted
+  power. They are now integrated on a box of Gauss points close around the model (as for incident plane
+  waves already). A lossless half-wave dipole: radiated / accepted power 1.016 before, 0.999 now. A Region
+  object with a Radiation boundary still integrates on its faces.
 - **Field plots of eigenmode solutions were empty**: the eigenmode solve saved no fields. Each mode is now
   stored as solution *LastAdaptive*, one frequency per mode; the field plot dialog lists them as
   "Mode 1: 4.576 GHz", ... and the plot text names the mode. An eigenmode has no amplitude of its own, so its
