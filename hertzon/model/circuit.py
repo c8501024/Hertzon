@@ -81,7 +81,8 @@ TYPES: dict[str, TypeInfo] = {
     "MLOC": TypeInfo("Microstrip Open Stub", "MSO", {**_SUB, "W": "1.1mm", "L": "10mm"}, [(0, -40)],
                      "Microstrip stub open at its end, with the open-end length extension", "Transmission Lines"),
     "MLSC": TypeInfo("Microstrip Short Stub", "MSS", {**_SUB, "W": "1.1mm", "L": "10mm"}, [(0, -40)],
-                     "Microstrip stub shorted to ground at its end (ideal via)", "Transmission Lines"),
+                     "Microstrip stub shorted to ground at its end by a via of the line width (its inductance "
+                     "included)", "Transmission Lines"),
     "MCLIN": TypeInfo("Coupled Microstrip", "MSC", {**_SUB, "W": "1mm", "S": "0.3mm", "L": "10mm"},
                       [(-40, -10), (40, -10), (-40, 10), (40, 10)],
                       "Symmetric coupled microstrip lines, even and odd mode (Garg-Bahl)", "Transmission Lines"),

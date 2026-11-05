@@ -80,6 +80,11 @@ the GitHub release notes.
   mode shows Q as infinite instead of a huge number of either sign).
 
 ### Fixed
+- **Circuit and 3D layout agree at shorted ends**: a short stub or a microstrip line to ground now includes
+  the inductance of the via that shorts it in the 3D layout (a wall of the line width through the substrate,
+  about 0.14 nH for 1.1 mm on 0.508 mm). An ideal short stub is laid out shorter by the length the via adds.
+  Against a full-wave solve of a circuit with two shorted stubs, the S11 phase error drops from about 25 to
+  9 degrees rms (1 to 10 GHz).
 - **Schematic to 3D layout: a line ending at ground was left open**: a microstrip line whose far end is
   connected to ground is now shorted there by a via, like a short stub. Before, the 3D layout had an open end
   where the circuit had a short, so the two results differed completely.

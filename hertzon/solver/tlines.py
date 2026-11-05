@@ -81,6 +81,21 @@ def microstrip(f: float, w: float, h: float, t: float, er: float, tand: float, c
     return z0, complex(ad + ac, beta)
 
 
+def via_inductance(w: float, h: float) -> float:
+    """Inductance of the via that shorts a line to the ground plane in a 3D layout: a wall of the line width w
+    through the substrate of height h, a flat strip over the ground plane (strip of length 2h with its image,
+    half of its partial self inductance)."""
+    if w <= 0 or h <= 0:
+        return 0.0
+    return max(MU0 * h / (2 * math.pi) * (math.log(4 * h / w) + 0.5 + 0.11175 * w / h), 0.0)
+
+
+def shorted_line_y(z0: complex, gl: complex, zl: complex) -> complex:
+    """Input admittance of a line of propagation gamma*length gl ending in the impedance zl to ground."""
+    th = np.tanh(_regular(gl))
+    return (z0 + zl * th) / (z0 * (zl + z0 * th))
+
+
 def open_end_extension(w: float, h: float, t: float, er: float) -> float:
     """Length extension of an open microstrip end (Hammerstad)."""
     _, ee = microstrip_static(w, h, t, er)
