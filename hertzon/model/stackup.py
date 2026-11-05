@@ -768,7 +768,37 @@ def _layer_material(project, st: Stackup, i: int, slug: str, ev: Evaluator) -> s
     return name
 
 
-def build_substrate(project, des, st: Stackup, ev: Evaluator, x0: str, y0: str, xsize: str, ysize: str) -> list[str]:
+def _at_z(loop2d: str, z: str) -> str:
+    """'x,y;x,y' -> 'x,y,z;x,y,z'."""
+    return ";".join(f"{q.strip()},{z}" for q in loop2d.split(";") if q.strip())
+
+
+def _slab(des, obj_name: str, mat: str, x0, y0, xsize, ysize, z: str, t: str, outline) -> "object":
+    """Box (rectangle) or swept outline (board shape) of one substrate slab; an existing object keeps the
+    rest of its history (holes subtracted by the PCB import)."""
+    from .design import Command
+    if outline is None:
+        first = [Command.new("CreateBox", Position=f"{x0},{y0},{z}", XSize=xsize, YSize=ysize, ZSize=t)]
+    else:
+        pts, holes = outline
+        first = [Command.new("CreatePolyline", Points=_at_z(pts, z), Closed="True", Covered="True",
+                             Holes="|".join(_at_z(h, z) for h in holes.split("|") if h.strip())),
+                 Command.new("SweepAlongVector", Vector=f"0,0,{t}")]
+    if des.has_obj(obj_name):
+        o = des.obj(obj_name)
+        rest = o.history[1:]
+        if o.history[0].kind == "CreatePolyline" and rest and rest[0].kind == "SweepAlongVector":
+            rest = rest[1:]
+        o.history = first + rest
+        o.material = mat
+        return o, False
+    o = des.add_object(first[0].kind, obj_name, material=mat, **first[0].props)
+    o.history += first[1:]
+    return o, True
+
+
+def build_substrate(project, des, st: Stackup, ev: Evaluator, x0: str = "0", y0: str = "0", xsize: str = "1",
+                    ysize: str = "1", outline: tuple[str, str] | None = None) -> list[str]:
     """One box per dielectric layer (rectangle x0, y0, xsize, ysize in the board plane, model units or
     expressions), with the stackup variables for height and thickness, in the group "Stackup", and for each
     inner copper layer a box of its fill material over the copper thickness. Boxes made
@@ -786,14 +816,8 @@ def build_substrate(project, des, st: Stackup, ev: Evaluator, x0: str, y0: str, 
         s = names[i]
         obj_name = f"Sub_{s}"
         mat = _layer_material(project, st, i, s, ev)
-        props = {"Position": f"{x0},{y0},{VAR_PREFIX}{s}_z", "XSize": xsize, "YSize": ysize,
-                 "ZSize": f"{VAR_PREFIX}{s}_t"}
-        if des.has_obj(obj_name):
-            o = des.obj(obj_name)
-            o.history[0].props.update(props)
-            o.material = mat
-        else:
-            o = des.add_object("CreateBox", obj_name, material=mat, **props)
+        o, new = _slab(des, obj_name, mat, x0, y0, xsize, ysize, f"{VAR_PREFIX}{s}_z", f"{VAR_PREFIX}{s}_t", outline)
+        if new:
             o.color = default_color(mat) if mat != f"{VAR_PREFIX}{s}" else "#8fb070"
             o.transparency = 0.6
         o.orientation = BOARD_CS
@@ -809,14 +833,8 @@ def build_substrate(project, des, st: Stackup, ev: Evaluator, x0: str, y0: str, 
         s = names[i]
         mat = L.fill or _layer_material(project, st, j, names[j], ev)
         obj_name = f"Fill_{s}"
-        props = {"Position": f"{x0},{y0},{VAR_PREFIX}{s}_z", "XSize": xsize, "YSize": ysize,
-                 "ZSize": f"{VAR_PREFIX}{s}_t"}
-        if des.has_obj(obj_name):
-            o = des.obj(obj_name)
-            o.history[0].props.update(props)
-            o.material = mat
-        else:
-            o = des.add_object("CreateBox", obj_name, material=mat, **props)
+        o, new = _slab(des, obj_name, mat, x0, y0, xsize, ysize, f"{VAR_PREFIX}{s}_z", f"{VAR_PREFIX}{s}_t", outline)
+        if new:
             o.color = "#a9c48a"
             o.transparency = 0.6
         o.orientation = BOARD_CS
@@ -838,6 +856,19 @@ def substrate_rect(des) -> tuple[str, str, str, str] | None:
     return None
 
 
+def substrate_outline(des) -> tuple[str, str] | None:
+    """Board shape (outline points, holes; 'x,y;...' in the board plane) of a substrate made from an
+    outline before, None if there is none."""
+    for o in des.objects:
+        if o.group == SUBSTRATE_GROUP and o.name.startswith("Sub_") and o.history and o.history[0].kind == "CreatePolyline":
+            p = o.history[0].props
+
+            def flat(loop: str) -> str:
+                return ";".join(",".join(q.split(",")[:2]) for q in loop.split(";") if q.strip())
+            return flat(p.get("Points", "")), "|".join(flat(h) for h in p.get("Holes", "").split("|") if h.strip())
+    return None
+
+
 def apply_to_design(project, des, st: Stackup | None, substrate: tuple[str, str, str, str] | None = None) -> list[str]:
     """Store the stackup in the design and bring what depends on it up to date: the ``stk_`` variables, the
     board coordinate systems and, when asked for or made before, the substrate. Returns the objects made."""
@@ -849,4 +880,7 @@ def apply_to_design(project, des, st: Stackup | None, substrate: tuple[str, str,
     sync_variables(des, st, ev)
     sync_coordinate_systems(des, st)
     rect = substrate or substrate_rect(des)
-    return build_substrate(project, des, st, des.evaluator(project), *rect) if rect else []
+    if rect:
+        return build_substrate(project, des, st, des.evaluator(project), *rect)
+    shape = substrate_outline(des)
+    return build_substrate(project, des, st, des.evaluator(project), outline=shape) if shape else []

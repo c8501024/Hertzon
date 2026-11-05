@@ -28,6 +28,7 @@ dependencies = [
     "numpy",
     "pymmg>=1.0",                 # mmg3d (LGPL) for the "Mmg" adaptive refinement
     "fast-simplification>=0.1",   # MIT, shape-preserving STL simplification on import
+    "shapely>=2.0",               # BSD-3-Clause, 2D polygons of the PCB (Gerber) import
     "hfsynpy>=0.1.3",             # GPL-2.0+, microstrip synthesis of the filter and antenna design tools
 ]
 
