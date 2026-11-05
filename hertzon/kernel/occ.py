@@ -517,8 +517,25 @@ def _create(cmd: Command, ctx: BuildContext) -> list[tuple[int, int]]:
         if closed and not ends_on_start:
             segs.append(o.addLine(ptags[-1], ptags[0]))
         if closed and p.get("Covered") == "True":
-            loop = o.addCurveLoop(segs)
-            return [(2, o.addPlaneSurface([loop]))]
+            loops = [o.addCurveLoop(segs)]
+
+            def newell(q):   # normal of a planar loop (its direction gives the orientation)
+                q = np.asarray(q, float)
+                return np.cross(q, np.roll(q, -1, axis=0)).sum(axis=0)
+            n_out = newell(pts)
+            for text in (p.get("Holes") or "").split("|"):
+                hp = ev.points(text) if text.strip() else []
+                if len(hp) >= 3 and np.allclose(hp[-1], hp[0]):
+                    hp = hp[:-1]
+                if len(hp) < 3:
+                    if text.strip():
+                        raise GeometryError("A hole of a polyline needs at least three points")
+                    continue
+                if float(np.dot(newell(hp), n_out)) < 0:   # OCC takes the holes with the outer orientation
+                    hp = hp[::-1]
+                ht = [o.addPoint(*q) for q in hp]
+                loops.append(o.addCurveLoop([o.addLine(a, b) for a, b in zip(ht, ht[1:] + ht[:1])]))
+            return [(2, o.addPlaneSurface(loops))]
         return [(1, s) for s in segs]
     if k == "CreateBondwire":
         # bondwire, JEDEC 4-point profile: up by H1, over at the top, down to the end pad
