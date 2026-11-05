@@ -4402,11 +4402,12 @@ class MainWindow(QMainWindow):
             i += 1
         r = Report(f"{prefix} {i}", kind, sol, with_traces if with_traces is not None else traces)
         r.props.update(props or {})
-        if kind in ("Rectangular", "Smith Chart", "Data Table") and not sols and self.doc.project.path:
+        from .reports import FAMILY_KINDS
+        if kind in FAMILY_KINDS and not sols and self.doc.project.path:
             # nominal design not solved: show the variations of a solved parametric setup (families)
             from .reports import family_solution_list
             for ps in self.des.parametrics:
-                fs = family_solution_list(self.doc, ps.name)
+                fs = family_solution_list(self.doc, ps.name, kind)
                 if fs:
                     r.solution = next((s for s in fs if not s.endswith("LastAdaptive") and "AdaptivePasses" not in s),
                                       fs[0])

@@ -37,6 +37,11 @@ the GitHub release notes.
 - **Plot Mesh on the Auto Open region** (Mesh menu, or right-click *Auto Open* in the project tree): the
   mesh on the open boundary of the air box Auto Open builds, drawn see-through. That box is no model object,
   so it could not be picked for Plot Mesh before (#231).
+- **Families for far field reports** (#221): Radiation Pattern, Antenna Parameters (plot and table) and the 3D
+  Polar Plot offer *Families* like the S-parameter reports: one curve per variation of a parametric setup
+  (Values... chooses the variable values shown), exported as drawn. The 3D Polar Plot shows one variation at
+  a time, chosen under *Variation*. A new far field report of an unsolved nominal design opens on the
+  families of a solved parametric setup.
 
 ### Changed
 - The remote service no longer answers network discovery when it listens only on the loopback address.
