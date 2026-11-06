@@ -98,9 +98,11 @@ def farfield_quantities(ff: dict, port: int = 1, k: int = 0, s11: complex | None
         "rETheta": np.abs(Eth),
         "rEPhi": np.abs(Eph),
     }
-    # axial ratio from circular components
-    El = (Eth + 1j * Eph) / np.sqrt(2)
-    Er = (Eth - 1j * Eph) / np.sqrt(2)
+    # circular components (IEEE, time convention e^{+jwt}): RHCP is the unit vector (theta - j phi) / sqrt(2),
+    # rotating from theta to phi with the thumb along the outgoing r; the projections onto it and onto LHCP
+    # (theta + j phi) / sqrt(2) are (Eth + j Eph) / sqrt(2) and (Eth - j Eph) / sqrt(2) (#220: were swapped)
+    Er = (Eth + 1j * Eph) / np.sqrt(2)
+    El = (Eth - 1j * Eph) / np.sqrt(2)
     a, b = np.abs(El), np.abs(Er)
     out["AxialRatioValue"] = (a + b) / np.maximum(np.abs(a - b), 1e-12)
     tot = np.maximum(np.abs(Eth) ** 2 + np.abs(Eph) ** 2, 1e-300)

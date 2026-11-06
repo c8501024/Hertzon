@@ -86,6 +86,19 @@ def test_examples_have_cut_plane_field_plots():
         assert fp.plane and not fp.faces and not fp.objects
 
 
+def _gps_mirrored(d) -> None:
+    """GPS L1 was mirrored at the XZ plane to be RHCP after the RHCP/LHCP sense was corrected (#220)."""
+    d.variables["fy"] = "-2.0mm"
+    h = {o.name: o.history[0].props for o in d.objects}
+    h["Patch"]["Points"] = "-L/2+c,L/2,h;L/2,L/2,h;L/2,-L/2+c,h;L/2-c,-L/2,h;-L/2,-L/2,h;-L/2,L/2-c,h"
+    h["Stub"]["Position"] = "gs/2-ds-wf/2,fy-(ls+rv+0.2mm),-hf"
+    h["StubVia"]["CenterPosition"] = "gs/2-ds,fy-ls,-hf"
+
+
+# deliberate model changes of an example since its legacy copy was saved
+_CHANGED = {"GPS_L1_RHCP": _gps_mirrored}
+
+
 @pytest.mark.parametrize("name", ["Dipole", "Microstrip", "PlaneWave", "GPS_L1_RHCP"])
 def test_projects_of_format_1_still_open(name):
     """Copies of the examples as saved by 0.2.2 and earlier (format 1, Windows line ends in part): they load with
@@ -105,6 +118,7 @@ def test_projects_of_format_1_still_open(name):
                 assert "Width" not in o.history[0].props and "Height" not in o.history[0].props
     new = Project.load(EX / f"{name}.hzn")
     for d in old.designs:
+        _CHANGED.get(name, lambda d: None)(d)
         n = new.design(d.name)
         assert d.variables == n.variables
         assert [(o.name, [(c.kind, c.props) for c in o.history]) for o in d.objects if o.name != "Rectangle1"] == \
