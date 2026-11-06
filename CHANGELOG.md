@@ -6,6 +6,16 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Loss power, efficiency and power balance of antennas** (#231): the power dissipated in lossy dielectrics,
+  magnetic materials, conductors and on finite conductivity, impedance and lumped RLC boundaries (Ploss) is
+  computed with the far field data, only for the lossy parts of the mesh. The radiation efficiency is now
+  Prad / (Prad + Ploss): it does not depend on 1 − |S11|², which is inaccurate where the antenna is badly
+  matched, and is exactly 1 for a lossless antenna. The Antenna Parameters show the Loss Power and the Power
+  Balance (Prad + Ploss − Pacc) / Pin, with a warning above 2 %; both are also report quantities
+  (`LossPower`, `PowerBalance`). Results solved before keep the efficiency Prad / Pacc.
+- **Power balance convergence** (setup, off by default): *Use power balance convergence* with *Max power
+  balance* and *Max delta efficiency* makes a pass converge only when the power is conserved and the
+  efficiency stable, next to Delta S. The Convergence tab lists and plots both per pass.
 - **Import PCB (Gerber, Excellon)**: File > Import PCB (also Modeler, and *Import PCB* in the ribbon) reads
   the manufacturing files of a board: Gerber X2 and older RS-274X (apertures and aperture macros, arcs,
   regions with cut-ins, clear polarity, step and repeat, block apertures, deprecated parts), Excellon drill
