@@ -1,0 +1,168 @@
+"""Power balance of antennas (#231): Ploss in lossy materials and on lossy boundaries, the radiation efficiency
+Prad / (Prad + Ploss), the balance (Prad + Ploss - Pacc) / Pin in the Antenna Parameters and the optional
+convergence criteria Max power balance / Max delta efficiency of the setup."""
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from hertzon.solver import power
+from hertzon.solver.ffquant import (BALANCE_WARNING, antenna_parameters, antenna_values, farfield_quantities,
+                                    loss_power)
+
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+
+
+class _Field:
+    """A field with a fixed E and H everywhere per excitation, on one tetrahedron."""
+
+    def __init__(self, er, f, fields, sig=0.0, ur=1.0):
+        self._der = np.array([er], complex)
+        self._dur = np.array([ur], complex)
+        self._dsig = np.array([sig], complex)
+        self.freq = f
+        self.fields = fields
+        self.basis = SimpleNamespace(interpolate_index=lambda x, y, z: np.zeros(len(x), np.int64))
+
+    def interpolate(self, x, y, z, usenan=False, mapping=None):
+        E, H = self.fields[self.x]
+        n = len(x)
+        self.Ex, self.Ey, self.Ez = (np.full(n, c, complex) for c in E)
+        self.Hx, self.Hy, self.Hz = (np.full(n, c, complex) for c in H)
+
+
+def _unit_tet():
+    nodes = np.array([[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], float) * 1e-2
+    mesh = SimpleNamespace(nodes=nodes, tets=np.array([[0], [1], [2], [3]]), tris=np.zeros((3, 0), int))
+    return SimpleNamespace(mesh=mesh, mw=SimpleNamespace(bc=SimpleNamespace(boundary_conditions=[])))
+
+
+def _excite(fld, x):
+    fld.x = x
+
+
+def test_dielectric_and_conduction_loss_of_a_uniform_field():
+    m = _unit_tet()
+    vol = 1e-6 / 6
+    f = 1e9
+    w = 2 * np.pi * f
+    fields = {0: ((1.0, 0, 0), (0, 0, 0)), 1: ((0, 2j, 0), (0, 0, 0))}
+    # e^{+jwt}: a lossy permittivity has a negative imaginary part
+    fld = _Field(4 - 0.08j, f, fields, sig=0.01)
+    model = power.LossModel(m, fld)
+    assert not model.empty
+    L = power.loss_matrix(model, fld, [0, 1], _excite)
+    p1 = 0.5 * (w * power.EPS0 * 0.08 + 0.01) * vol         # 1/2 (sigma + w eps0 eps'') |E|^2 V
+    assert L[0, 0].real == pytest.approx(p1, rel=1e-9)
+    assert L[1, 1].real == pytest.approx(4 * p1, rel=1e-9)
+    assert abs(L[0, 1]) < 1e-12 * p1                          # orthogonal fields
+    assert np.allclose(L, L.conj().T)
+    # superposition: a^H L a is the loss of the summed field
+    a = np.array([1.0, 0.5j])
+    assert float(np.real(a.conj() @ L @ a)) == pytest.approx(p1 * (1 + 1), rel=1e-9)
+
+
+def test_magnetic_loss_and_lossless_material():
+    m = _unit_tet()
+    f = 2e9
+    fields = {0: ((0, 0, 0), (0, 0, 1.0))}
+    fld = _Field(4.0, f, fields, ur=2 - 0.1j)
+    L = power.loss_matrix(power.LossModel(m, fld), fld, [0], _excite)
+    assert L[0, 0].real == pytest.approx(0.5 * 2 * np.pi * f * power.MU0 * 0.1 / 6e6, rel=1e-9)
+    assert power.LossModel(m, _Field(4.0, f, fields)).empty     # nothing lossy: no loss points at all
+
+
+class SurfaceImpedance:                    # named like the EMerge boundary
+    tags = [7]
+
+    def __init__(self, zs):
+        self.zs = zs
+
+    def get_gamma(self, k0):
+        return 1j * k0 * power.Z0 / self.zs
+
+
+def test_surface_loss_of_an_impedance_boundary():
+    """1/2 Re(1/Zs) |E_t|^2 over the face; the normal E does not count."""
+    m = _unit_tet()
+    m.mesh.tris = np.array([[0], [1], [2]])                      # the face z = 0, area 0.5e-4 m^2
+    m.mesh.get_triangles = lambda tags: [0] if tags == [7] else []
+    zs = 0.02 + 0.02j
+    m.mw.bc.boundary_conditions = [SurfaceImpedance(zs), SimpleNamespace(tags=[7])]
+    fld = _Field(1.0, 1e9, {0: ((3.0, 0, 5.0), (0, 0, 0))})
+    model = power.LossModel(m, fld)
+    assert model.vol is None and len(model.surf) == 1
+    L = power.loss_matrix(model, fld, [0], _excite)
+    assert L[0, 0].real == pytest.approx(0.5 * (1 / zs).real * 9 * 0.5e-4, rel=1e-9)
+
+
+def test_efficiency_and_balance_in_the_antenna_parameters(tmp_path):
+    th = np.linspace(0, np.pi, 19)
+    ph = np.linspace(0, 2 * np.pi, 37)
+    E = np.zeros((3, len(th), len(ph)), complex)
+    E[2] = -np.sin(th)[:, None] * 10.0
+    ff = {"theta": th, "phi": ph, "E_0_1": E, "Prad_0_1": np.array([0.45]), "freq_0": np.array([1e9])}
+    q = farfield_quantities(ff, 1, 0, None, pacc=0.95, ploss=0.49)
+    assert q["_eff"][0] == pytest.approx(0.45 / 0.94)
+    v = antenna_values(q)
+    assert v["LossPower"] == pytest.approx(0.49) and v["PowerBalance"] == pytest.approx(-0.01)
+    rows = dict(antenna_parameters(q))
+    assert rows["Loss Power"] == "0.49 W" and "-1.00 %" in rows["Power Balance"]
+    assert BALANCE_WARNING not in rows["Power Balance"]
+    rows = dict(antenna_parameters(farfield_quantities(ff, 1, 0, None, pacc=0.8, ploss=0.1)))
+    assert BALANCE_WARNING in rows["Power Balance"]              # 0.45 + 0.1 vs 0.8: -25 %
+    # older results without the losses: efficiency Prad / Pacc as before, no balance row
+    q = farfield_quantities(ff, 1, 0, None, pacc=0.9)
+    assert q["_eff"][0] == pytest.approx(0.5) and "Power Balance" not in dict(antenna_parameters(q))
+    assert np.isnan(antenna_values(q)["PowerBalance"])
+
+
+def test_loss_power_of_port_amplitudes(tmp_path):
+    from hertzon.solver.results import ResultStore
+    st = ResultStore(tmp_path)
+    L = np.array([[0.4, 0.1j], [-0.1j, 0.2]])
+    st.save_npz("losses_X.npz", ports=np.array([1, 2]), ok=np.array([1]), freq_0=np.array([1e9]), Ploss_0=L,
+                freq_1=np.array([2e9]))
+    assert loss_power(st, "X", 1e9, {1: 1.0}) == pytest.approx(0.4)
+    a = np.array([1.0, 1j])
+    assert loss_power(st, "X", 1e9, {1: 1.0, 2: 1j}) == pytest.approx(float(np.real(a.conj() @ L @ a)))
+    assert loss_power(st, "X", 2e9, {1: 1.0}) == 0.0              # lossless at that frequency
+    assert loss_power(st, "X", 3e9, {1: 1.0}) is None             # not computed
+    assert loss_power(st, "Y", 1e9, {1: 1.0}) is None             # older results
+    st.save_npz("losses_Y.npz", ports=np.array([1]), ok=np.array([0]))
+    assert loss_power(st, "Y", 1e9, {1: 1.0}) is None             # failed
+
+
+def test_lossy_patch_conserves_power(tmp_path):
+    """FR4 patch: Prad + Ploss = Pacc within ~1 % of the incident power, the losses are about half; the power
+    balance criterion of the setup records the balance and the efficiency change of every pass."""
+    from hertzon.solver import bridge
+    d = json.loads((EXAMPLES / "PatchAntenna.hzn").read_text(encoding="utf-8"))
+    design = d["designs"][0]
+    d["designs"] = [design]
+    setup = design["setups"][0]
+    setup["props"].update(MaximumPasses="4", MinimumPasses="4", UsePowerBalance="True")
+    for sw in setup.get("sweeps", []):
+        sw["props"]["Enabled"] = "False"
+    proj = tmp_path / "patch.hzn"
+    proj.write_text(json.dumps(d), encoding="utf-8")
+    out = tmp_path / "out"
+    assert bridge.run(str(proj), design["name"], setup["name"], str(out)) == 0
+    h = np.load(out / "huygens_LastAdaptive.npz")
+    lo = np.load(out / "losses_LastAdaptive.npz")
+    S = np.load(out / "sparams_LastAdaptive.npz")["S"]
+    prad, ploss = float(h["Prad_0_1"][0]), float(np.real(lo["Ploss_0"][0, 0]))
+    pacc = 1 - abs(S.ravel()[0]) ** 2
+    assert 0.3 < ploss < 0.7
+    assert abs(prad + ploss - pacc) < 0.015
+    conv = json.loads((out / "convergence.json").read_text())
+    rows = conv["passes"]
+    assert all("power_balance" in r for r in rows) and all("delta_eff" in r for r in rows[1:])
+    assert rows[-1]["power_balance"] < 0.015
+    assert conv["max_power_balance"] == 0.01
+    vals = json.loads((out / "antenna_passes.json").read_text())
+    v = next(iter(vals.values()))[-1]["values"][0]
+    assert v["RadiationEfficiency"] == pytest.approx(prad / (prad + ploss), rel=1e-6)
+    assert abs(v["PowerBalance"]) < 0.015

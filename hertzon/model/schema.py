@@ -297,6 +297,13 @@ SETUP: list[Prop] = [
     P("UseMatrixConvergence", "bool", "False", label="Use matrix convergence"),
     P("MaxDeltaMag", "float", "0.02", label="Max delta |S|", visible_if=("UseMatrixConvergence", "True")),
     P("MaxDeltaPhase", "float", "2", label="Max delta phase S (deg)", visible_if=("UseMatrixConvergence", "True")),
+    P("UsePowerBalance", "bool", "False", label="Use power balance convergence",
+      help="Antennas: a pass also has to conserve power, |Prad + Ploss - Pacc| / Pin below Max power balance, "
+           "and the radiation efficiency may change by at most Max delta efficiency between passes. Prad is "
+           "integrated on the far field surface, Ploss in lossy materials and on finite conductivity, "
+           "impedance and lumped RLC boundaries. Costs a far field surface integral per pass"),
+    P("MaxPowerBalance", "float", "0.01", label="Max power balance", visible_if=("UsePowerBalance", "True")),
+    P("MaxDeltaEfficiency", "float", "0.01", label="Max delta efficiency", visible_if=("UsePowerBalance", "True")),
     # Options
     P("LambdaRefinement", "bool", "True", label="Do lambda refinement", tab="Options",
       help="On: the initial mesh has no element longer than Lambda target x wavelength in "
