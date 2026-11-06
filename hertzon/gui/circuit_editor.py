@@ -7,14 +7,15 @@ use its S-parameters as a block. Double-click a part to edit it; R rotates, M mi
 from __future__ import annotations
 
 import base64
+import json
 
 from PySide6.QtCore import QByteArray, QMimeData, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetricsF, QIcon, QImage, QPainter, QPainterPath, QPen,
+from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetricsF, QIcon, QImage, QPainter, QPainterPath, QPen,
                            QPixmap, QPolygonF, QTransform)
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-                               QGraphicsItem, QGraphicsPathItem, QGraphicsScene, QGraphicsView, QHBoxLayout, QLabel,
-                               QLineEdit, QMenu, QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
+                               QFormLayout, QGraphicsItem, QGraphicsPathItem, QGraphicsScene, QGraphicsView,
+                               QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSplitter,
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..model import circuit as CK
 from .circuit_thumb import THUMB, design_thumbnail
@@ -22,6 +23,7 @@ from .theme import GOLD, INK, MUTED
 from .trees import MIME_DESIGN
 
 MIME_PART = "application/x-hertzon-part"
+MIME_CIRCUIT = "application/x-hertzon-circuit"          # copied schematic parts on the clipboard
 INKC = QColor(INK)
 PIN = QColor("#1d4f91")
 WIRE = QColor("#1f6f3f")
@@ -714,6 +716,7 @@ class CircuitEditor(QWidget):
         self._dragging_wires: list | None = None     # wires redrawn while parts are dragged
         self._drag_extra: list = []
         self._ghost_rot, self._ghost_mirror = 0, False
+        self._last_paste: tuple[int, int] | None = None    # where the last paste went (repeated pastes step on)
         self.library: PartLibrary | None = None
         self.scene = QGraphicsScene(self)
         self._rebuilding = False
@@ -829,7 +832,8 @@ class CircuitEditor(QWidget):
             self._make_ghost()
         self.hint.setText({
             "select": "Drag parts from the library or a 3D design from the Project Manager into the schematic. "
-                      "Double-click a part to edit it; R rotates, M mirrors, Del deletes, W draws wires, F fits.",
+                      "Double-click a part to edit it; R rotates, M mirrors, Del deletes, Ctrl+C / Ctrl+V copy "
+                      "and paste, W draws wires, F fits.",
             "wire": "Wire: click the corners; a click on a pin or a wire ends it, as do a double-click and a "
                     "right-click. Esc cancels.",
             "place": f"{CK.TYPES[ctype].label if ctype else ''}: click to place, R rotates, M mirrors, "
@@ -1092,6 +1096,73 @@ class CircuitEditor(QWidget):
             it.comp.mirror = not it.comp.mirror
         self._commit()
 
+    # ---- clipboard ----------------------------------------------------------------------------
+    def can_paste(self) -> bool:
+        return QApplication.clipboard().mimeData().hasFormat(MIME_CIRCUIT)
+
+    def copy_selected(self) -> bool:
+        """Selected parts and wires to the clipboard (also into other circuit designs and Hertzon windows)."""
+        names = [it.comp.name for it in self.selected_components()]
+        wires = [it.index for it in self.scene.selectedItems() if isinstance(it, WireItem) and it.index >= 0]
+        if not names and not wires:
+            return False
+        data = CK.copy_parts(self.des.components, self.des.wires, names, wires)
+        md = QMimeData()
+        md.setData(MIME_CIRCUIT, QByteArray(json.dumps(data).encode()))
+        QApplication.clipboard().setMimeData(md)
+        self._last_paste = None
+        n = len(data["components"])
+        self.hint.setText(f"Copied {n} part{'s' if n != 1 else ''}"
+                          + (f" and {len(data['wires'])} wire{'s' if len(data['wires']) != 1 else ''}"
+                             if data["wires"] else "") + ". Ctrl+V pastes at the mouse pointer.")
+        return True
+
+    def paste(self) -> bool:
+        """The clipboard parts at the mouse pointer (centred on it), else shifted from where they were copied.
+        Pasting again without moving the mouse steps on, so copies never land on top of each other."""
+        md = QApplication.clipboard().mimeData()
+        if not md.hasFormat(MIME_CIRCUIT):
+            return False
+        try:
+            data = json.loads(bytes(md.data(MIME_CIRCUIT)).decode())
+        except (ValueError, UnicodeDecodeError):
+            return False
+        src, wires = CK.from_dict(data)
+        if not src and not wires:
+            return False
+        xs = [c.x for c in src] + [p[0] for w in wires for p in w.points]
+        ys = [c.y for c in src] + [p[1] for w in wires for p in w.points]
+        cx, cy = snap((min(xs) + max(xs)) / 2), snap((min(ys) + max(ys)) / 2)
+        step = 4 * CK.GRID
+        vp = self.view.viewport()
+        local = vp.mapFromGlobal(QCursor.pos())
+        if vp.rect().contains(local):
+            m = self.view.mapToScene(local)
+            tx, ty = snap(m.x()), snap(m.y())
+        else:
+            tx, ty = cx + step, cy + step
+        if self._last_paste is not None and (tx, ty) in (self._last_paste, (cx, cy)):
+            lx, ly = self._last_paste
+            tx, ty = lx + step, ly + step
+        if (tx, ty) == (cx, cy):
+            tx, ty = cx + step, cy + step
+        self._last_paste = (tx, ty)
+        self.cancel()
+        new, new_w = CK.paste_parts(self.des.components, data, tx - cx, ty - cy)
+        self._change()
+        first_wire = len(self.des.wires)
+        self.des.components.extend(new)
+        self.des.wires.extend(new_w)
+        self._commit()
+        names = {c.name for c in new}
+        self.scene.clearSelection()
+        for it in self.scene.items():
+            if isinstance(it, ComponentItem) and not it.ghost and it.comp.name in names:
+                it.setSelected(True)
+            elif isinstance(it, WireItem) and it.index >= first_wire:
+                it.setSelected(True)
+        return True
+
     def edit_component(self, name: str) -> None:
         c = self.comp(name)
         dlg = ComponentDialog(self.doc, c, self)
@@ -1143,9 +1214,13 @@ class CircuitEditor(QWidget):
                 m.addAction("Open 3D design", lambda: self.doc.set_design(it.comp.props.get("Design", "")))
             m.addAction("Rotate (R)", self.rotate_selected)
             m.addAction("Mirror (M)", self.mirror_selected)
+            m.addAction("Copy (Ctrl+C)", self.copy_selected)
             m.addAction("Delete", self.delete_selected)
         elif isinstance(it, WireItem):
-            it.setSelected(True)
+            if not it.isSelected():
+                self.scene.clearSelection()
+                it.setSelected(True)
+            m.addAction("Copy (Ctrl+C)", self.copy_selected)
             m.addAction("Delete", self.delete_selected)
         else:
             sp = self.view.mapToScene(pos)
@@ -1156,6 +1231,8 @@ class CircuitEditor(QWidget):
                         sub.addAction(component_icon(t), info.label,
                                       lambda t=t: self.place(t, snap(sp.x()), snap(sp.y())))
             m.addSeparator()
+            a = m.addAction("Paste (Ctrl+V)", self.paste)
+            a.setEnabled(self.can_paste())
             m.addAction("Fit All (F)", self.fit_all)
             m.addAction("Analyze", self.analyzeRequested.emit)
         m.exec(self.view.viewport().mapToGlobal(pos))

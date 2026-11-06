@@ -6,6 +6,10 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Copy and paste in the schematic**: Ctrl+C / Ctrl+V (Edit menu, ribbon and right-click menu) copy the
+  selected parts with their values, the wires between them and the selected wires. The copies land at the mouse
+  pointer (else shifted), pasting again steps on, names and port numbers stay unique, and copied lines keep their
+  substrate (it comes along into another circuit design). The clipboard works across circuit designs.
 - **Loss power, efficiency and power balance of antennas** (#231): the power dissipated in lossy dielectrics,
   magnetic materials, conductors and on finite conductivity, impedance and lumped RLC boundaries (Ploss) is
   computed with the far field data, only for the lossy parts of the mesh. The radiation efficiency is now
