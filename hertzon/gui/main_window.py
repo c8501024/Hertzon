@@ -4526,6 +4526,12 @@ class MainWindow(QMainWindow):
             return
         folder = evaluation_dir(self.doc.project.path, self.des.name, name, row["eval"])
         if result_dir(self.doc, setup) != folder:
+            from ..solver.keys import open_region_frequency
+            if op.solution.partition(":")[2].strip() == "LastAdaptive" and \
+                    open_region_frequency(self.doc.project, self.des, self.des.setup(setup)) is not None:
+                self.msgs.add("info", f"{name} optimized {setup} alone, with the air box of the solution "
+                                      f"frequency; the switched-on sweeps of {setup} need a larger air box: "
+                                      f"analyze {setup} again for them (new adaptive mesh)")
             return                    # the nominal solution is current, or the evaluation's one is gone
         fields = bool(list(folder.glob("solution_*.npz")) or list(folder.glob("fields_*.npz")))
         F._cache.clear()
