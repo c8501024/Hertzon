@@ -338,3 +338,5 @@ def test_3d_designs_of_a_project_file_are_copied_in_and_placed_as_blocks(tmp_pat
     doc.undo()
     assert not any(c.type == "EM" for c in doc.design.components)
     assert "Inner3D" not in {x.name for x in doc.project.designs}
+    ed.deleteLater()                  # the editor goes now, not at a garbage collection inside a later test
+    QApplication.processEvents()
