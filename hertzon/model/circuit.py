@@ -284,6 +284,71 @@ def from_dict(d: dict) -> tuple[list[Component], list[Wire]]:
     return comps, wires
 
 
+def copy_parts(components: list[Component], wires: list[Wire], names, wire_indices=()) -> dict:
+    """Clipboard data for the named parts: the parts, the selected wires and every wire whose two ends sit on
+    pins of the copied parts, and the substrates the copied lines use (so a paste into another circuit can bring
+    them along)."""
+    names = set(names)
+    comps = [c for c in components if c.name in names]
+    pts = {q for c in comps for q in pins(c)}
+    idx = set(wire_indices)
+    ws = [w for i, w in enumerate(wires)
+          if i in idx or (len(w.points) >= 2 and tuple(w.points[0]) in pts and tuple(w.points[-1]) in pts)]
+    used = {c.props.get("Subst") for c in comps if c.type != "SUBST" and c.props.get("Subst")}
+    subs = [c for c in components if c.type == "SUBST" and c.name in used and c.name not in names]
+
+    def pack(c):
+        return {"name": c.name, "type": c.type, "x": c.x, "y": c.y, "rot": c.rot, "props": dict(c.props),
+                "mirror": c.mirror}
+    return {"components": [pack(c) for c in comps], "wires": [{"points": [list(p) for p in w.points]} for w in ws],
+            "substrates": [pack(c) for c in subs]}
+
+
+def paste_parts(components: list[Component], data: dict, dx: int, dy: int
+                ) -> tuple[list[Component], list[Wire]]:
+    """New parts and wires from clipboard data, shifted by (dx, dy). The copies get free names and port numbers;
+    copied lines use the copied substrate, else a substrate of that name in this circuit, else the substrate
+    they had (added here when missing, at its old place), else the first substrate here. Values (including
+    variables) are kept as they are."""
+    src, wires = from_dict({"components": data.get("components", []), "wires": data.get("wires", [])})
+    extra, _ = from_dict({"components": data.get("substrates", [])})
+    taken = list(components)
+    new: list[Component] = []
+    rename: dict[str, str] = {}
+    nums = {int(c.props["Num"]) for c in components if c.type == "PORT" and str(c.props.get("Num", "")).isdigit()}
+    for c in src:
+        n = Component(c.name, c.type, c.x + dx, c.y + dy, c.rot, dict(c.props), c.mirror)
+        n.name = next_name(taken, c.type) if any(o.name == c.name for o in taken) else c.name
+        rename[c.name] = n.name
+        if n.type == "PORT":
+            k = 1
+            while k in nums:
+                k += 1
+            nums.add(k)
+            n.props["Num"] = str(k)
+        taken.append(n)
+        new.append(n)
+    have = {c.name for c in taken if c.type == "SUBST"}
+    for c in new:
+        s = c.props.get("Subst")
+        if c.type == "SUBST" or not s:
+            continue
+        if s in rename and any(o.name == rename[s] and o.type == "SUBST" for o in new):
+            c.props["Subst"] = rename[s]
+        elif s in have:
+            continue
+        else:
+            sub = next((e for e in extra if e.name == s), None)
+            if sub is not None and not any(o.name == s for o in taken):
+                taken.append(sub)
+                new.append(sub)
+                have.add(s)
+            elif have:
+                c.props["Subst"] = next(o.name for o in taken if o.type == "SUBST")
+    out_w = [Wire([[x + dx, y + dy] for x, y in w.points]) for w in wires]
+    return new, out_w
+
+
 def drag_wires(components: list[Component], wires: list[Wire], moves: dict[str, tuple[int, int]]) -> list[Wire]:
     """The wires after moving the components named in moves by (dx, dy): wire points on their pins follow,
     with an elbow where a segment would become slanted, and a pin that touched a wire in the middle of a segment

@@ -252,6 +252,12 @@ def test_escape_and_delete_in_the_schematic(monkeypatch):
     assert w.doc.design.wires[0].points == [[-60, 0], [-30, 0], [-30, 40]]
     it = next(i for i in ed.scene.items() if getattr(i, "comp", None) is not None and i.comp.name == "R1")
     it.setSelected(True)
+    w.a_copy.trigger()                          # Ctrl+C / Ctrl+V of the Edit menu work in the schematic
+    w.a_paste.trigger()
+    assert [c.name for c in w.doc.design.components] == ["R1", "Port1", "R2"]
+    w.doc.undo()
+    it = next(i for i in ed.scene.items() if getattr(i, "comp", None) is not None and i.comp.name == "R1")
+    it.setSelected(True)
     w.a_delete.trigger()
     assert [c.name for c in w.doc.design.components] == ["Port1"]
     w.doc.dirty = False
@@ -362,3 +368,55 @@ def test_via_array_inductance():
     assert l1 / 2 < l2 < l1                              # coupled vias in parallel: less than one, more than half
     assert l2far == pytest.approx(l1 / 2, rel=0.05)
     assert TL.via_array(0.4e-3, 1.6e-3)[0] > 2 * l1      # a thicker board: more inductance
+
+
+def test_copy_paste_parts_renames_renumbers_and_keeps_the_substrate():
+    sub = C("Sub1", "SUBST", 0, -120)
+    tl = C("MS1", "MLIN", 0, 0, 0, {"Subst": "Sub1", "W": "w1", "L": "10mm"})
+    port = P("Port1", -60, 0, Num="1")
+    a, b = CK.pins(port)[0], CK.pins(tl)[0]
+    wire = W([list(a), [a[0], b[1]], list(b)])
+    other = W([[500, 500], [600, 500]])
+    comps, wires = [sub, tl, port], [wire, other]
+    data = CK.copy_parts(comps, wires, ["MS1", "Port1"])
+    assert [c["name"] for c in data["components"]] == ["MS1", "Port1"]
+    assert len(data["wires"]) == 1 and [s["name"] for s in data["substrates"]] == ["Sub1"]
+    new, nw = CK.paste_parts(comps, data, 40, 40)
+    t2, p2 = new
+    assert (t2.name, t2.x, t2.y, t2.props["Subst"], t2.props["W"]) == ("MS2", 40, 40, "Sub1", "w1")
+    assert (p2.name, p2.props["Num"]) == ("Port2", "2")
+    assert nw[0].points[0] == [a[0] + 40, a[1] + 40] and tl.x == 0          # the originals stay
+    # into an empty circuit: the substrate comes along, names stay
+    new, _ = CK.paste_parts([], data, 0, 0)
+    assert [c.name for c in new] == ["MS1", "Port1", "Sub1"] and new[1].props["Num"] == "1"
+    # a copied substrate is renamed and its copied lines follow it
+    data = CK.copy_parts(comps, wires, ["Sub1", "MS1"])
+    new, _ = CK.paste_parts(comps, data, 0, 200)
+    assert [(c.name, c.props.get("Subst")) for c in new] == [("Sub2", None), ("MS2", "Sub2")]
+
+
+def test_editor_copy_and_paste_with_the_clipboard():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from hertzon.gui.circuit_editor import CircuitEditor, ComponentItem
+    from hertzon.gui.doc import Document
+    p = Project()
+    p.designs.append(Design(name="Net", kind="circuit"))
+    doc = Document(p)
+    doc.set_design("Net")
+    ed = CircuitEditor(doc)
+    ed.place("R", 0, 0, {"R": "47ohm"})
+    ed.place("C", 200, 0)
+    assert not ed.copy_selected()                       # nothing selected
+    for it in ed.scene.items():
+        if isinstance(it, ComponentItem) and it.comp.name == "R1":
+            it.setSelected(True)
+    assert ed.copy_selected() and ed.can_paste()
+    assert ed.paste() and ed.paste()
+    names = [(c.name, c.props.get("R"), c.x, c.y) for c in doc.design.components]
+    assert names[2][:2] == ("R2", "47ohm") and names[3][:2] == ("R3", "47ohm")
+    assert len({(n[2], n[3]) for n in names}) == 4      # no copy lies on another part
+    assert [it.comp.name for it in ed.selected_components()] == ["R3"]
+    doc.undo()
+    assert [c.name for c in doc.design.components] == ["R1", "C1", "R2"]

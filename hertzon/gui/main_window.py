@@ -3123,6 +3123,9 @@ class MainWindow(QMainWindow):
             self._duplicate(objs, [[Command("Mirror", dict(dlg.values))]])
 
     def copy_objects(self) -> None:
+        if self._is_circuit():
+            self.circuit.copy_selected()
+            return
         objs = self.doc.selected_objects()
         self.clipboard = []
         for n in objs:
@@ -3137,6 +3140,9 @@ class MainWindow(QMainWindow):
             self.msgs.add("info", f"Copied {', '.join(objs)}")
 
     def paste_objects(self) -> None:
+        if self._is_circuit():
+            self.circuit.paste()
+            return
         if not self.clipboard:
             return
         self.doc.checkpoint()
