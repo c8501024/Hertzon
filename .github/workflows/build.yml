@@ -58,6 +58,22 @@ jobs:
           $dir = "$env:RUNNER_TEMP\Hertzon"
           Start-Process -FilePath $exe -ArgumentList '/S', "/D=$dir" -Wait
           if (-not (Test-Path "$dir\.venv\hertzon_installed.txt")) { throw 'setup.ps1 did not finish: the package installation failed' }
+      - name: Update over a running background process (as an MCP server of an AI app)
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem dist\Hertzon-Setup-*.exe).FullName
+          $dir = "$env:RUNNER_TEMP\Hertzon"
+          # .venv\Scripts\python.exe is a redirector: the base Python it starts holds the files of .venv
+          $bg = Start-Process -FilePath "$dir\.venv\Scripts\python.exe" -ArgumentList '-c', '"import numpy, time; time.sleep(1800)"' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 10
+          Remove-Item "$dir\.venv\hertzon_installed.txt" -ErrorAction SilentlyContinue
+          Start-Process -FilePath $exe -ArgumentList '/S', "/D=$dir" -Wait
+          if (-not (Test-Path "$dir\.venv\hertzon_installed.txt")) { throw 'the update did not finish' }
+          $root = $dir.TrimEnd('\') + '\'
+          $left = @(Get-Process python* | Where-Object { try { @($_.Modules | Where-Object { $_.FileName -and $_.FileName.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) }).Count } catch { 0 } })
+          if (-not $bg.HasExited -or $left) { throw "background processes still running: $($left.Id -join ', ')" }
+          Get-Content "$dir\setup.log" -Tail 20
       - name: Warm-up log
         if: always()
         shell: pwsh

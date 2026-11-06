@@ -81,6 +81,16 @@ Section "!$(SecApp)" SEC_APP
     SectionIn RO
     SetOutPath "$INSTDIR"
     !insertmacro WaitClosed
+    ; the MCP server of an AI app, the remote service and solver processes run from this folder without a
+    ; window and keep files in use (hzmesh.dll, packages in .venv): stopped here, otherwise the update could
+    ; only replace those files after a restart of the computer
+    IfFileExists "$INSTDIR\.venv\*.*" 0 nobackground
+    InitPluginsDir
+    ; (a path relative to this script: makensis works in its folder)
+    File "/oname=$PLUGINSDIR\stop_background.ps1" "stop_background.ps1"
+    nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop_background.ps1" -Root "$INSTDIR"'
+    Pop $0
+    nobackground:
     ; an update replaces the program files completely; the Python environment (.venv) stays
     RMDir /r "$INSTDIR\hertzon"
     File /r "${STAGE}\*.*"
@@ -148,6 +158,7 @@ Section "Uninstall"
     Delete "$INSTDIR\Hertzon.exe"
     Delete "$INSTDIR\setup.ps1"
     Delete "$INSTDIR\setup.log"
+    Delete "$INSTDIR\setup.prev.log"
     Delete "$INSTDIR\run.ps1"
     Delete "$INSTDIR\pyproject.toml"
     Delete "$INSTDIR\README.md"
