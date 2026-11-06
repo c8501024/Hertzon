@@ -66,7 +66,7 @@ def test_hairpin_derivative_trust_region_optimization():
     assert dtr.solution == cg.solution and dtr.goals == cg.goals and dtr.goals is not cg.goals
     assert [(v["name"], v["min"], v["max"]) for v in dtr.variables] == [(v["name"], v["min"], v["max"]) for v in cg.variables]
     v = Variables(d, dtr, d.evaluator(p))
-    assert v.names == ["L", "g", "yP"]
+    assert v.names == ["L", "dL", "g", "yP"]
     assert all(cg.props[k] == dtr.props[k] for k in cg.props if k != "Optimizer")
 
 

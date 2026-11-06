@@ -135,6 +135,11 @@ def synthesis(spec: "HairpinSpec", trace: float, length: float, s_arm: float, ga
     return {"gap": gap, "yP": yp, "k": ks, "Qe": qe, "g": g, "ripple": ripple}
 
 
+# range of dL, the length offset of the outer (tapped) resonators, in % of the length: the tap pulls them about
+# 2 % below the inner ones
+DL_PCT = 3.0
+
+
 def _r(v: float, nd: int = 4) -> float:
     return float(f"{v:.{nd}f}")
 
@@ -199,7 +204,7 @@ def nominal(spec: HairpinSpec) -> dict:
     return {"feed": _r(feed), "trace": _r(trace), "lambda_g": lam, "length": _r(length), "inner": _r(b),
             "gap": _r(gap), "miter": _r(miter), "tap": _r(tap), "yP": _r(syn["yP"]) if syn else 0.0,
             "prototype": syn,
-            "ranges": {"L": (_r(l_lo), _r(l_hi)), "w": (_r(w_lo), _r(w_hi)), "b": (_r(b_lo), _r(b_hi)),
+            "ranges": {"L": (_r(l_lo), _r(l_hi)), "dL": (-_r(DL_PCT / 100 * length), _r(DL_PCT / 100 * length)), "w": (_r(w_lo), _r(w_hi)), "b": (_r(b_lo), _r(b_hi)),
                        "g": (_r(g_lo), _r(g_hi)), "yP": (-_r(tap), _r(tap)), "M": (_r(m_lo), _r(m_hi))},
             "warnings": warnings, "synthesis": engine()}
 
@@ -228,7 +233,7 @@ _Y = ["s/2", "-s/2-dep+cut", "-s/2-dep", "-s/2-dep", "-s/2-dep+cut", "s/2", "s/2
 
 
 # variables of the derivative trust region optimization that are included from the start
-DTR_VARIABLES = ("L", "g", "yP")
+DTR_VARIABLES = ("L", "dL", "g", "yP")
 
 
 def _mm(v: float) -> str:
@@ -303,7 +308,8 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
         op = Optimization("HairpinCG", "Setup1 : Sweep")
         for var, (lo, hi) in nom["ranges"].items():
             unit = "" if var == "M" else "mm"
-            op.variables.append({"name": var, "include": True, "min": f"{lo:g}{unit}", "max": f"{hi:g}{unit}"})
+            # dL is not one of the filterbench variables: offered, not included
+            op.variables.append({"name": var, "include": var != "dL", "min": f"{lo:g}{unit}", "max": f"{hi:g}{unit}"})
         op.goals = filter_mask_goals((f"{spec.passband[0]:g}GHz", f"{spec.passband[1]:g}GHz"),
                                      [(f"{lo:g}GHz", f"{hi:g}GHz") for lo, hi in spec.stopbands],
                                      spec.insertion_loss, spec.return_loss, spec.ripple, spec.rejection)
