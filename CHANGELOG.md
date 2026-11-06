@@ -149,6 +149,13 @@ the GitHub release notes.
   connected to ground is now shorted there by a via, like a short stub. Before, the 3D layout had an open end
   where the circuit had a short, so the two results differed completely.
 - The marker of an automatic junction is drawn where the wires of the lines meet, not at the pin of one line.
+- **Update from within Hertzon no longer hangs on Windows**: the installer now starts only after Hertzon has
+  exited, and it stops the Hertzon processes without a window that still use the installation (the MCP
+  server of an AI app, the remote service, solver processes) before it replaces the files. A Python started
+  through `.venv\Scripts\python.exe` runs as a second process outside the installation folder; it was not
+  found and kept files of `.venv` in use, so the setup could not finish until the computer was restarted.
+  The setup waits for a closing Hertzon instead of asking at once, stops background processes and repeats
+  the package installation only when it fails, and keeps the previous log as `setup.prev.log`.
 - **Radiated power above the accepted power** (#231): with Auto Open, the radiated power and the far field of
   an antenna were integrated on the mesh faces of the absorbing boundary, where the mesh is coarsest and the
   boundary reflects a little; lossless antennas showed a radiated power up to ~10 % above the accepted
