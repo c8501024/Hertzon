@@ -171,7 +171,7 @@ excitations in one pass over the tetrahedra (geometry and neighbour data once).
   faster than one call per port): `farfield_post` calls EMerge's `emr.sc_multi` (#76), which is about
   twice as fast again.
 - The curved elements (`emerge_patches.apply_curved`, the element matrices in `curvilinear.py`,
-  `ned2_kernels.py`): EMerge's own since #77. `curvilinear.py` keeps the curved map for the plots.
+  `ned2_kernels.py`): developed in Hertzon and moved to EMerge's `hertzon` branch with #77. `curvilinear.py` keeps the curved map for the plots.
 - `bridge._with_conductor_sheets`, which passed conductor sheets to the error estimate like PEC faces.
   It changed nothing: microstrip and hairpin give the same meshes and S-parameters without it (the face
   terms of EMerge's estimate contribute practically nothing, see
@@ -194,8 +194,8 @@ excitations in one pass over the tetrahedra (geometry and neighbour data once).
 
 Hertzon's own refinement methods, lazy field evaluation, stored boundary
 fields for far fields after the solve, far field quantities (realized gain, efficiency, superposition of
-ports), face matching. Curved elements are EMerge's (#77); Hertzon only switches them on and draws the curved
-tetrahedra.
+ports), face matching. The curved elements were developed in Hertzon and now live in EMerge's `hertzon` branch (#77); Hertzon
+switches them on and draws the curved tetrahedra.
 
 ## Open issues found on the way (Hertzon)
 
