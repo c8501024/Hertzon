@@ -11,6 +11,7 @@ SetCompressor /SOLID lzma
 RequestExecutionLevel user
 
 !include "MUI2.nsh"
+!include "x64.nsh"
 
 !define APP "Hertzon"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Hertzon"
@@ -85,6 +86,9 @@ Section "!$(SecApp)" SEC_APP
     ; window and keep files in use (hzmesh.dll, packages in .venv): stopped here, otherwise the update could
     ; only replace those files after a restart of the computer
     IfFileExists "$INSTDIR\.venv\*.*" 0 nobackground
+    ; the installer is a 32-bit program: without this it starts the 32-bit PowerShell, which cannot see the
+    ; modules loaded in a 64-bit Python and so does not find the processes that use .venv
+    ${DisableX64FSRedirection}
     InitPluginsDir
     ; (a path relative to this script: makensis works in its folder)
     File "/oname=$PLUGINSDIR\stop_background.ps1" "stop_background.ps1"
@@ -133,6 +137,7 @@ SectionEnd
 
 Section "$(SecEnv)" SEC_ENV
     DetailPrint "$(EnvRunning)"
+    ${DisableX64FSRedirection}   ; the 64-bit PowerShell (see above)
     ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1"' $0
     IfFileExists "$INSTDIR\.venv\hertzon_installed.txt" +2 0
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(EnvFailed)" /SD IDOK

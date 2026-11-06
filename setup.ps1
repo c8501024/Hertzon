@@ -56,6 +56,12 @@ function Get-HertzonProcesses {
 function Test-UsesFolder($p, [string]$root) {
     if ($p.Path -and $p.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
     if ($p.ProcessName -notmatch '^pythonw?(\d|\.|$)') { return $false }
+    # its parent is the redirector .venv\Scripts\python.exe (or another process from this folder)
+    $parent = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).ParentProcessId
+    if ($parent) {
+        $pp = (Get-CimInstance Win32_Process -Filter "ProcessId = $parent" -ErrorAction SilentlyContinue).ExecutablePath
+        if ($pp -and $pp.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
     try {
         foreach ($m in $p.Modules) {
             if ($m.FileName -and $m.FileName.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
