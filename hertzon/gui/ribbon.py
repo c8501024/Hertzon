@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QScrollArea, QSizePolicy, QTabWidget,
                                QToolButton, QVBoxLayout, QWidget)
 
@@ -66,7 +66,9 @@ class Group(QFrame):
         elif slot is not None:
             b.clicked.connect(lambda _=False, s=slot: s())
         b.setText(text)
-        if ic:
+        if isinstance(ic, QIcon):
+            b.setIcon(ic)
+        elif ic:
             b.setIcon(icon(ic))
         if large and ic == "analyze":            # the one main action: gold button with a white icon
             b.setObjectName("RibbonPrimary")

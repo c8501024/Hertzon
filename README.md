@@ -30,15 +30,22 @@ Hertzon is by **Dominik Mair**, built on EMerge, the FEM solver by **Robert Fenn
 > result, your own result quantities with equations, plus how to let an AI assistant (Claude Code, Codex, VS Code) build and run simulations for you
 > through Hertzon's **MCP server**.
 
-> **Built on EMerge.** The finite-element core of Hertzon (Nédélec formulation, element matrices, ports,
-> boundary conditions, solver interface) is [EMerge](https://github.com/FennisRobert/EMerge), the open-source
-> FEM solver developed by **Robert Fennis**. Many thanks to Robert Fennis for making
-> EMerge available under the GPL. The adaptive mesh refinement (AURA), the error estimate and the curved
-> elements on curved surfaces are EMerge's as well. Hertzon adds the graphical workflow on top: the
-> adaptive pass loop with its convergence criteria, a second local refinement method (hzmesh, local
-> Delaunay), fast and interpolating sweeps with parallel sweep points, far-field and RCS post-processing
-> (also of half and quarter models with symmetry planes), optimization and parametric sweeps, and fixes
-> for large models.
+> **Built on EMerge.** The finite-element core of Hertzon is [EMerge](https://github.com/FennisRobert/EMerge),
+> the open-source FEM solver by **Robert Fennis**: the Nédélec formulation, element matrices, ports, boundary
+> conditions, the solver interface, the error estimate and the AURA mesh refinement are his work, and so is
+> the SPARTA direct solver that Hertzon offers as an option. Thanks to Robert for making EMerge available
+> under the GPL.
+>
+> Hertzon adds the graphical workflow on top: the adaptive pass loop with its convergence criteria, a
+> second local refinement method (hzmesh, local Delaunay), fast and interpolating sweeps with parallel sweep
+> points, far-field and RCS post-processing (also of half and quarter models with symmetry planes),
+> optimization, parametric sweeps, and derivative tuning with mesh morphing.
+>
+> Some solver features were developed in Hertzon and contributed to EMerge: the curved (isoparametric)
+> elements on curved surfaces, hzAURA (AURA with cavity re-meshing, so refined curved surfaces stay exact),
+> multi-mode wave ports, the far field of all ports in one pass and the parallel removal of PEC unknowns
+> (all in EMerge's `hertzon` branch), as well as the concave-wedge flip for AURA and fixes to port modes,
+> far fields with symmetry planes and the PARDISO interface (in EMerge `main`).
 
 Hertzon is a desktop application (Qt + VTK) built for responsiveness with large models:
 geometry is tessellated incrementally per object, the solver runs in its own process, and
@@ -93,9 +100,12 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
 
 ## The workflow
 
-1. **Project > Insert Design**, then **Simulation > Solution Type**: Modal, Terminal or Eigenmode,
+1. **File > New** or **Project > Insert Design** asks for the design type (3D FEM or Circuit) and the
+   solution type: Modal, Terminal or Eigenmode (Simulation > Solution Type changes it later),
    with **Auto Open** (radiation or PML chosen automatically) or **Auto Open - Filter**
    (air box with fixed margin and a radiation boundary, for filters and other closed-ish circuits).
+   A **Circuit** design opens a schematic instead: R, L, C, ideal lines, Touchstone files and 3D designs of the
+   project (drag them from the Project Manager into the schematic) as S-parameter blocks.
 2. **Draw** boxes, cylinders, spheres, cones, tori, polyhedra, rectangles, circles, ellipses,
    polygons, polylines and arcs (3 point, center point), region. Click on the grid (snaps to grid and vertices) or type coordinates
    in the status bar; every parameter accepts expressions with **variables** and units. Relative, face and

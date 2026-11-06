@@ -6,6 +6,10 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Copy and paste in the schematic**: Ctrl+C / Ctrl+V (Edit menu, ribbon and right-click menu) copy the
+  selected parts with their values, the wires between them and the selected wires. The copies land at the mouse
+  pointer (else shifted), pasting again steps on, names and port numbers stay unique, and copied lines keep their
+  substrate (it comes along into another circuit design). The clipboard works across circuit designs.
 - **Loss power, efficiency and power balance of antennas** (#231): the power dissipated in lossy dielectrics,
   magnetic materials, conductors and on finite conductivity, impedance and lumped RLC boundaries (Ploss) is
   computed with the far field data, only for the lossy parts of the mesh. The radiation efficiency is now
@@ -16,6 +20,29 @@ the GitHub release notes.
 - **Power balance convergence** (setup, off by default): *Use power balance convergence* with *Max power
   balance* and *Max delta efficiency* makes a pass converge only when the power is conserved and the
   efficiency stable, next to Delta S. The Convergence tab lists and plots both per pass.
+- **3D Layout buttons** (circuit, Simulation › 3D Layout): *Create 3D Layout* makes a new layout. *Update 3D
+  Layout* (schematic → 3D) rebuilds the layout from the schematic as it is now, with parts added, removed or
+  exchanged, and shows it; its setups and reports stay, the variables of removed parts go. *Update Schematic*
+  (3D → schematic) copies dimensions changed in the layout back, also trace sizes edited on the objects. A click
+  takes the newest layout of the schematic, the drop-down chooses one.
+- **Via to Ground** (circuit, Transmission Lines › Other): N round vias of diameter D in a row at the pitch P
+  through the substrate to the ground plane. Inductance from the partial inductances of the vias and their images
+  in the ground plane, mutual coupling between the vias included; skin-effect resistance of the barrels. The 3D
+  layout draws the vias as cylinders just inside the end of the line. Against full-wave solves of a shorted
+  18 mm microstrip line with one and with two 0.4 mm vias, the S11 phase agrees within 3 degrees rms
+  (1 to 10 GHz).
+- **Full-wave line model** (circuit, Transmission Lines › Line Model › *Full Wave*): microstrip lines and stubs
+  and coplanar lines take their propagation constant and impedance from a full-wave solve of their cross-section
+  (the port mode solver on the substrate and widths of the schematic, metal thickness included, in a shielded
+  box) at eight frequencies up to the highest sweep frequency. The length is applied in the circuit, so changing
+  a length needs no new solve; each cross-section is solved once (about 10 s) and cached next to the project
+  results. The mode solver gives dispersion, impedance (power and current) and the dielectric loss; the conductor
+  loss is added from the surface resistance. Junctions, coupled lines and open-end corrections keep their
+  closed-form models.
+- **Coplanar Line** (Transmission Lines › Other): coplanar waveguide with centre strip W and gaps S, optionally
+  with a ground plane under the substrate (*Backed*). Closed form by conformal mapping with the thickness
+  correction after Gupta and the dispersion after Frankel, or the full-wave line model. A 3D layout draws only
+  its centre strip for now.
 - **Import PCB (Gerber, Excellon)**: File > Import PCB (also Modeler, and *Import PCB* in the ribbon) reads
   the manufacturing files of a board: Gerber X2 and older RS-274X (apertures and aperture macros, arcs,
   regions with cut-ins, clear polarity, step and repeat, block apertures, deprecated parts), Excellon drill
@@ -44,6 +71,55 @@ the GitHub release notes.
   (or a host of `~/.ssh/config`) and an optional key file. Hertzon logs in, starts its remote service there if
   it does not run yet (installed Hertzon, or the solver image with Docker) and solves through an SSH tunnel:
   no pairing and no open port besides SSH. Pairing in the local network stays as it is. See docs/REMOTE.md.
+- **Start page** (File > New and at program start): choose what to simulate, **3D FEM** or **Circuit**, with a
+  symbol for each, then the solution type (Modal, Terminal, Eigenmode), the units and the project name. On the
+  right: recent projects, the examples and the patch and hairpin templates. **Empty Project** keeps the old
+  behaviour; **Show at startup** switches the page off at program start. Project > Insert Design shows the same
+  choice, because a project can hold several designs, 3D and circuit designs mixed. The low-frequency solution
+  types (electrostatic, DC conduction, magnetostatic, eddy current) and the transient and harmonic balance
+  circuit analyses are shown greyed out as "not implemented yet".
+- **Microstrip Tee** (Transmission Lines): the T junction of microstrip lines as a part of its own, with widths
+  W1 and W2 of the main line and W3 of the branch, after Hammerstad's equivalent circuit (reference plane
+  shifts, transformers and the junction susceptance). The lines attach at its edges. A 3D layout draws it as the
+  junction area with the lines at its edges. Against a full-wave solve of a stub notch filter the circuit with
+  the tee is within 0.4 % (an ideal node: 2 %).
+- **Microstrip discontinuities**: Corner, Mitered Bend (50 %), Cross, Step and Gap besides the Tee, on the
+  Transmission Lines tab (group Discontinuities), each with its 3D layout. **Automatic** (on by default) finds them
+  where microstrip lines meet: two lines at a right angle get a corner, two in line with different widths a step,
+  three a tee and four a cross, with the widths of the lines. A diamond marks each one, its tooltip names the model.
+  A junction part placed by hand, or Automatic off, overrides it. The 3D layout uses the same junctions.
+- **Line calculator** in the dialog of a microstrip line or stripline: Z0 and electrical length at a frequency give
+  W and L (an open stub's end extension is subtracted), and the current Z0, effective permittivity and electrical
+  length are shown while typing. The tooltip of a line shows the same at the middle of the sweep, and a selected
+  part is edited in the Properties panel.
+- **Schematic editing**: wires stay attached to a part that is dragged (with an elbow where a wire would become
+  slanted; a pin that sat on a wire or on another pin gets a new wire), Escape always ends wire drawing and part
+  placing and returns to Select, and Delete removes the selected parts and wires also when the focus is not on
+  the schematic.
+- **Schematic to 3D layout**: Simulation > *Create 3D Layout* in a circuit design builds a new 3D design from the
+  schematic: the substrate with its ground plane, the microstrip traces end to end in the direction they have in
+  the schematic (open and shorted stubs, coupled lines, corners and T junctions), R, L and C as Lumped RLC
+  sheets in a gap of the trace or from the trace to ground, and the power ports as Lumped Ports on the board
+  edge. Every dimension is a design variable named after its part (`MS1_W`, `MS1_L`, `Sub1_H`), with the sweep
+  of the circuit. Ideal lines become microstrip of the same impedance and electrical length; parts without a
+  layout (Touchstone and 3D blocks, attenuators, coaxial lines) are listed in the Message Manager.
+  *Update from Layout* copies the tuned dimensions of such a 3D design back into the schematic.
+- **Circuit designs** (linear network): a schematic editor in place of the 3D modeler, with its own ribbon
+  (Desktop, Schematic, Lumped Elements, Transmission Lines, Data, Simulation, Results) instead of the 3D ribbon
+  and a part library with search next to the schematic (drag a part in, or double-click and click to place; the
+  part follows the mouse, R rotates, M mirrors). Parts: power ports (source with internal resistance, port
+  number and impedance), ground, net labels; resistor, inductor, capacitor, series and parallel RLC, DC block,
+  DC feed, attenuator; ideal lines and open or shorted stubs; microstrip lines and stubs (Hammerstad-Jensen,
+  dispersion after Kirschning-Jansen, conductor and dielectric loss, open-end extension), coupled microstrip
+  (even and odd mode), stripline and coaxial line, all on a substrate part; Touchstone files. A wire ends on a
+  pin or another wire. Values are shown at each part and accept expressions with variables.
+  **Drag a 3D design from the Project Manager into the schematic**: it becomes a block with one pin per port and
+  a picture of the structure, and its solved S-parameters are used in the circuit (right-click > Update ports
+  and picture after a change). Analyze solves the network at once over the sweep of the circuit (1 to 10 GHz by
+  default) and writes the results like a 3D design, so the S-parameter reports, Touchstone export and Solution
+  Data work the same way.
+- **Design type in the project file**: every design stores its type (`"kind": "3d"` or `"circuit"`); files
+  without it open as 3D designs.
 - **Plot Mesh on the Auto Open region** (Mesh menu, or right-click *Auto Open* in the project tree): the
   mesh on the open boundary of the air box Auto Open builds, drawn see-through. That box is no model object,
   so it could not be picked for Plot Mesh before (#231).
@@ -54,6 +130,10 @@ the GitHub release notes.
   families of a solved parametric setup.
 
 ### Changed
+- **Circuit reports**: right-click on *Results* of a schematic offers only what a circuit produces: rectangular
+  plot, Smith chart and data table of the port parameters. No field or near-field reports any more.
+- **Ideal lines** (circuit, Transmission Lines): TLIN, TLOC and TLSC are in a group *Ideal (TEM)* of their own at
+  the end of the page and are named *Ideal Open Stub* / *Ideal Short Stub*: no substrate, no via.
 - The remote service no longer answers network discovery when it listens only on the loopback address.
 - Solution Data of an eigenmode setup opens on the *Eigenmode Data* tab (eigenfrequencies and Q; a lossless
   mode shows Q as infinite instead of a huge number of either sign).
@@ -64,6 +144,15 @@ the GitHub release notes.
   shown as LHCP and the left-hand part as RHCP, in the gains, directivities, rE and the Antenna Parameters. The
   axial ratio and the total quantities did not change. The GPS L1 example was mirrored at the XZ plane so that
   it is right-hand circular as its name says (same S11).
+- **Circuit and 3D layout agree at shorted ends**: a short stub or a microstrip line to ground now includes
+  the inductance of the via that shorts it in the 3D layout (a wall of the line width through the substrate,
+  about 0.14 nH for 1.1 mm on 0.508 mm). An ideal short stub is laid out shorter by the length the via adds.
+  Against a full-wave solve of a circuit with two shorted stubs, the S11 phase error drops from about 25 to
+  9 degrees rms (1 to 10 GHz).
+- **Schematic to 3D layout: a line ending at ground was left open**: a microstrip line whose far end is
+  connected to ground is now shorted there by a via, like a short stub. Before, the 3D layout had an open end
+  where the circuit had a short, so the two results differed completely.
+- The marker of an automatic junction is drawn where the wires of the lines meet, not at the pin of one line.
 - **Update from within Hertzon no longer hangs on Windows**: the installer now starts only after Hertzon has
   exited, and it stops the Hertzon processes without a window that still use the installation (the MCP
   server of an AI app, the remote service, solver processes) before it replaces the files. A Python started
