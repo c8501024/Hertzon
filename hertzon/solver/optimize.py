@@ -146,10 +146,10 @@ class Optimizer:
             if st.name != self.setup:
                 continue
             # the setup keeps its own Save fields (the fields at the adaptive frequency): the best evaluation
-            # keeps them, the others are removed after their cost is known (cleanup)
+            # keeps them, the others are removed after their cost is known (cleanup). The sweeps stay switched
+            # on or off as in the design: they size the open region, and the adaptive mesh of an evaluation is
+            # taken over by Apply to Design. Only the goal sweep is solved (HERTZON_GOAL_SWEEP, _env).
             for sw in st.sweeps:
-                on = sw.name == self.sol
-                sw.props["Enabled"] = "True" if on else "False"
                 sw.props["SaveFields"] = "False"
         return p
 
@@ -178,6 +178,7 @@ class Optimizer:
         env["HERTZON_MESH_ONLY"] = "0"
         env["HERTZON_ONLY_SWEEP"] = ""
         env["HERTZON_TUNING"] = tuning
+        env["HERTZON_GOAL_SWEEP"] = self.sol
         return env
 
     def finish(self, e: Evaluation, phase: str) -> float:

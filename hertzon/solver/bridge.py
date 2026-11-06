@@ -127,12 +127,12 @@ def sweep_frequencies(props: dict[str, str], ev: Evaluator) -> np.ndarray:
 
 
 def _sweep_extremes(setup: Setup, ev: Evaluator, pick) -> list[float]:
-    """pick (min or max) of the frequencies of every sweep of the setup, switched on or off. The open region
-    is sized from them, and switching a sweep off must not change the model: the optimizer solves its
-    evaluations with the goal sweep only, and their adaptive meshes are taken over as the solution of the
-    setup (the stored mesh has to fit the initial mesh of the design with all its sweeps)."""
+    """pick (min or max) of the frequencies of every switched-on sweep of the setup. The open region is sized
+    from them (switching a sweep on or off changes the model: keys.open_region_frequency)."""
     out = []
     for sw in setup.sweeps:
+        if sw.props.get("Enabled", "True") != "True":
+            continue
         try:
             f = float(pick(sweep_frequencies(sw.props, ev)))
         except Exception:  # noqa: BLE001
@@ -2039,6 +2039,11 @@ class Bridge:
     def _run_sweeps(self) -> None:
         m, ev = self.m, self.ev
         sweeps = [s for s in self.setup.sweeps if s.props.get("Enabled", "True") == "True"]
+        goal = os.environ.get("HERTZON_GOAL_SWEEP", "")
+        if goal:
+            # an optimization evaluation: the design keeps its sweeps (and with them its open region), only the
+            # sweep the goals are on is solved ("LastAdaptive": none)
+            sweeps = [s for s in self.setup.sweeps if s.name == goal]
         self.factor_memory()
         for i, sw in enumerate(sweeps):
             t = time.time()
