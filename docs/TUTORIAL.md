@@ -144,8 +144,9 @@ middle, from 8 to 12 GHz. The finished project is `examples/WaveguidePost.hzn`.
 
 ### 1.1 New design and variables
 
-1. **File > New**. The project starts with one empty design.
-2. **Simulation > Solution Type...**: choose **Modal** and leave **Auto open region** at **Off**.
+1. **File > New**. The start page asks what to simulate: choose **3D FEM**, solution type **Modal**, units
+   **mm**, and click **Create**. The project starts with one empty design.
+2. **Simulation > Solution Type...**: check **Modal** and leave **Auto open region** at **Off**.
    A waveguide is a closed problem: every outer face that is not a port is a perfect conductor.
 3. **Project > Design Properties...**: add the variables
 

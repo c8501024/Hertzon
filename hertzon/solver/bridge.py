@@ -28,6 +28,7 @@ from ..kernel import occ as K
 from . import facematch
 from . import sparta_setup
 from .results import ResultStore, port_entries, deembed_renormalize, running_status
+from .sweeps import sweep_frequencies  # noqa: F401  (re-exported: bridge.sweep_frequencies)
 from .emerge_compat import amr as _amr
 
 C0 = 299792458.0
@@ -107,23 +108,6 @@ def adaptive_frequencies(setup: Setup, ev: Evaluator) -> list[float]:
     if mode == "Broadband":
         return [ev.freq(p["LowFrequency"]), ev.freq(p["HighFrequency"])]
     return [ev.freq(p["Frequency"])]
-
-
-def sweep_frequencies(props: dict[str, str], ev: Evaluator) -> np.ndarray:
-    dist = props.get("Distribution", "Linear Step")
-    if dist == "Single Points":
-        return np.array(sorted(ev.freq(x) for x in props.get("Points", "").split(",") if x.strip()))
-    f1, f2 = ev.freq(props["Start"]), ev.freq(props["Stop"])
-    if dist == "Linear Count":
-        return np.linspace(f1, f2, max(2, ev.integer(props["Count"])))
-    if dist == "Log Scale":
-        n = max(2, int(round(math.log10(f2 / f1) * ev.integer(props["SamplesPerDecade"]))) + 1)
-        return np.logspace(math.log10(f1), math.log10(f2), n)
-    step = ev.freq(props["Step"])
-    if step <= 0:
-        raise ValueError("Sweep step must be positive")
-    n = int(math.floor((f2 - f1) / step + 1e-9)) + 1
-    return f1 + step * np.arange(n)
 
 
 def lowest_frequency(design: Design, setup: Setup, ev: Evaluator) -> float:
