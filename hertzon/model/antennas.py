@@ -6,7 +6,9 @@ resistance from the slot conductances G1 and G12, and the inset depth that match
 design comes with setup, sweep, far-field sphere and an optimization of the patch length and the inset
 on the return loss at the design frequency: on the adaptive solution (LastAdaptive), so no sweep is solved
 while optimizing, with the Derivative Trust Region (the start values are close, so a few solves with the
-derivative tuning model are enough). The sweep (+-15 %) is only there to look at the resonance afterwards.
+derivative tuning model are enough). The sweep (+-15 %) is only there to look at the resonance afterwards: it
+is switched off, so that it neither enlarges the open region of the optimization nor of the design (switch it on
+and analyze after applying the optimum).
 
 No Qt here: used by the dialog, the example generator and scripts.
 """
@@ -129,7 +131,7 @@ def patch_design(spec: PatchSpec) -> tuple[Design, dict]:
     sw = Sweep("Sweep")
     a, b = f0 * (1 - spec.sweep / 100), f0 * (1 + spec.sweep / 100)
     sw.props.update(SweepType="Interpolating", Distribution="Linear Count", Start=f"{a:.6g}GHz", Stop=f"{b:.6g}GHz",
-                    Count="301")
+                    Count="301", Enabled="False")
     st.sweeps.append(sw)
     d.setups.append(st)
     d.spheres.append(InfiniteSphere("Infinite Sphere1"))

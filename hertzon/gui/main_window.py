@@ -831,6 +831,7 @@ class MainWindow(QMainWindow):
         d.message.connect(self.msgs.add)
         d.titleChanged.connect(self._update_title)
         d.changed.connect(self._on_doc_changed)
+        self._note_open_region(False)            # the air box of the opened design: a later change is reported
         d.changed.connect(lambda *_: self._autosave_tick() if self.doc.dirty else None)
         d.selectionChanged.connect(self._on_selection)
         self.view.picked.connect(lambda picks, add: self.doc.select(picks, add))
@@ -905,6 +906,7 @@ class MainWindow(QMainWindow):
         self._follow_helper_plots()
         if what in ("variables", "all", "model", "results"):
             self._follow_variation()
+        self._note_open_region(what in ("analysis", "settings", "boundaries", "excitations"))
         if what in ("attributes",):
             self.view.restyle_all()
             self.model_tree.rebuild()
@@ -914,6 +916,24 @@ class MainWindow(QMainWindow):
                 self.view.show_assignments([self.des.assignment(tgt[1])])
             except KeyError:
                 pass
+
+    def _note_open_region(self, say: bool = True) -> None:
+        """Say when a sweep change resized the automatic open region (switched on, or a lower start): the
+        model changed, the setup is shown outdated and the next analysis adapts the mesh again."""
+        from ..solver.keys import open_region_frequency
+        seen = self.__dict__.setdefault("_open_region_f", {})
+        for st in self.des.setups:
+            try:
+                f = open_region_frequency(self.doc.project, self.des, st)
+            except Exception:  # noqa: BLE001
+                continue
+            key = (id(self.doc.project), self.des.name, st.name)
+            if say and key in seen and seen[key] != f:
+                where = (f"the lowest sweep frequency, {f / 1e9:.4g} GHz" if f is not None
+                         else "the solution frequency")
+                self.msgs.add("warning", f"{st.name}: the air box (automatic open region) was adapted to {where}; "
+                                         f"analyze {st.name} again (the adaptive mesh is computed anew)")
+            seen[key] = f
 
     def _update_sel_buttons(self) -> None:
         on = bool(self.doc.selection)
@@ -4142,6 +4162,12 @@ class MainWindow(QMainWindow):
             return
         folder = evaluation_dir(self.doc.project.path, self.des.name, name, row["eval"])
         if result_dir(self.doc, setup) != folder:
+            from ..solver.keys import open_region_frequency
+            if op.solution.partition(":")[2].strip() == "LastAdaptive" and \
+                    open_region_frequency(self.doc.project, self.des, self.des.setup(setup)) is not None:
+                self.msgs.add("info", f"{name} optimized {setup} alone, with the air box of the solution "
+                                      f"frequency; the switched-on sweeps of {setup} need a larger air box: "
+                                      f"analyze {setup} again for them (new adaptive mesh)")
             return                    # the nominal solution is current, or the evaluation's one is gone
         fields = bool(list(folder.glob("solution_*.npz")) or list(folder.glob("fields_*.npz")))
         F._cache.clear()

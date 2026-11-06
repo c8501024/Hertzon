@@ -126,26 +126,28 @@ def sweep_frequencies(props: dict[str, str], ev: Evaluator) -> np.ndarray:
     return f1 + step * np.arange(n)
 
 
-def lowest_frequency(design: Design, setup: Setup, ev: Evaluator) -> float:
-    fs = adaptive_frequencies(setup, ev)
+def _sweep_extremes(setup: Setup, ev: Evaluator, pick) -> list[float]:
+    """pick (min or max) of the frequencies of every switched-on sweep of the setup. The open region is sized
+    from them (switching a sweep on or off changes the model: keys.open_region_frequency)."""
+    out = []
     for sw in setup.sweeps:
-        if sw.props.get("Enabled", "True") == "True":
-            try:
-                fs.append(float(sweep_frequencies(sw.props, ev).min()))
-            except Exception:  # noqa: BLE001
-                pass
-    return min(fs)
+        if sw.props.get("Enabled", "True") != "True":
+            continue
+        try:
+            f = float(pick(sweep_frequencies(sw.props, ev)))
+        except Exception:  # noqa: BLE001
+            continue
+        if np.isfinite(f) and f > 0:
+            out.append(f)
+    return out
+
+
+def lowest_frequency(design: Design, setup: Setup, ev: Evaluator) -> float:
+    return min(adaptive_frequencies(setup, ev) + _sweep_extremes(setup, ev, np.min))
 
 
 def highest_frequency(design: Design, setup: Setup, ev: Evaluator) -> float:
-    fs = adaptive_frequencies(setup, ev)
-    for sw in setup.sweeps:
-        if sw.props.get("Enabled", "True") == "True":
-            try:
-                fs.append(float(sweep_frequencies(sw.props, ev).max()))
-            except Exception:  # noqa: BLE001
-                pass
-    return max(fs)
+    return max(adaptive_frequencies(setup, ev) + _sweep_extremes(setup, ev, np.max))
 
 
 # --------------------------------------------------------------------------------------------
@@ -1273,7 +1275,8 @@ class Bridge:
                 info(f"SPARTA: GPU warm-up failed ({ex})")
 
     # ----------------------------------------------------------------------------------------
-    def run_adaptive(self) -> None:
+    def run_adaptive(self, resume: bool = True) -> None:
+        """Adaptive passes; resume: continue from the stored adaptive mesh when it fits the model."""
         m, p = self.m, self.setup.props
         fa = adaptive_frequencies(self.setup, self.ev)
         t = time.time()
@@ -1288,8 +1291,8 @@ class Bridge:
             emit("passdata", step=step)
 
         key = self.keys["model_key"] if hasattr(self, "keys") else model_key(self.project, self.design, self.setup)
-        resume = load_amr_state(self.out, key, fa)
-        conv = adaptive_loop(m, fa, p, self.out, on_pass, key=key, resume=resume, power=self.pass_power)
+        state = load_amr_state(self.out, key, fa) if resume else None
+        conv = adaptive_loop(m, fa, p, self.out, on_pass, key=key, resume=state, power=self.pass_power)
         last = conv.pop("_last", None)
         conv["final_tets"] = int(m.mesh.n_tets)
         conv["frequencies"] = fa
@@ -1471,21 +1474,33 @@ class Bridge:
 
     def solve_one_sweep(self, name: str) -> None:
         """Analyze a single sweep. Rebuilds the converged adaptive mesh and solves only this sweep;
-        the adaptive solution and the other sweeps stay as they are."""
-        fa = adaptive_frequencies(self.setup, self.ev)
-        resume = load_amr_state(self.out, self.keys["model_key"], fa)
-        if not resume or not (len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura")):
-            raise RuntimeError("No adaptive solution to reuse; analyze the whole setup first")
-        restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
-        info(f"Reusing the adaptive mesh: {self.m.mesh.n_tets} tetrahedra")
-        self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
+        the adaptive solution and the other sweeps stay as they are. Without a stored adaptive mesh that fits
+        the model (none of the current design, or one that grew from another initial mesh) the setup is
+        analyzed instead: the adaptive passes, then this sweep and the switched-on ones (their stored
+        results belong to the old mesh)."""
         sweeps = [s for s in self.setup.sweeps if s.name == name]
         if not sweeps:
             raise RuntimeError(f"Sweep '{name}' not found")
+        fa = adaptive_frequencies(self.setup, self.ev)
+        resume = load_amr_state(self.out, self.keys["model_key"], fa)
+        why = "" if has_amr_mesh(resume) else "there is no adaptive mesh of the current design"
+        if not why:
+            try:
+                restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
+            except StaleMesh:
+                why = "the stored adaptive mesh does not fit the model any more (its initial mesh changed)"
+        if why:
+            warn(f"Sweep '{name}': {why}; analyzing the setup (adaptive passes, then the sweeps)")
+            self.run_adaptive(resume=False)
+            sweeps = [s for s in self.setup.sweeps if s.name == name or s.props.get("Enabled", "True") == "True"]
+        else:
+            info(f"Reusing the adaptive mesh: {self.m.mesh.n_tets} tetrahedra")
+            self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
         keep = self.setup.sweeps
         self.setup.sweeps = sweeps
         try:
-            sweeps[0].props["Enabled"] = "True"
+            for sw in sweeps:
+                sw.props["Enabled"] = "True"
             self.run_sweeps()
         finally:
             self.setup.sweeps = keep
@@ -1502,9 +1517,12 @@ class Bridge:
         from . import tuning
         fa = adaptive_frequencies(self.setup, self.ev)
         resume = load_amr_state(self.out, self.keys["model_key"], fa)
-        if not resume or not (len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura")):
+        if not has_amr_mesh(resume):
             raise RuntimeError("No adaptive solution to reuse; analyze the setup first")
-        restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
+        try:
+            restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
+        except StaleMesh as ex:
+            raise RuntimeError(f"{ex}; analyze the setup again (it starts the adaptive passes anew)") from None
         info(f"Reusing the adaptive mesh: {self.m.mesh.n_tets} tetrahedra")
         self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
         name = spec.get("sweep", "")
@@ -2021,6 +2039,11 @@ class Bridge:
     def _run_sweeps(self) -> None:
         m, ev = self.m, self.ev
         sweeps = [s for s in self.setup.sweeps if s.props.get("Enabled", "True") == "True"]
+        goal = os.environ.get("HERTZON_GOAL_SWEEP", "")
+        if goal:
+            # an optimization evaluation: the design keeps its sweeps (and with them its open region), only the
+            # sweep the goals are on is solved ("LastAdaptive": none)
+            sweeps = [s for s in self.setup.sweeps if s.name == goal]
         self.factor_memory()
         for i, sw in enumerate(sweeps):
             t = time.time()
@@ -2342,9 +2365,15 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     m._aura_mesh = None
     m._aura_initial = np.asarray(m.mesh.nodes).T.copy()      # hzAURA state: checked when it is restored
     first = 1
-    if resume and resume["passes"] and (len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura")) and len(resume["passes"]) <= maxp:
+    if resume and resume["passes"] and has_amr_mesh(resume) and len(resume["passes"]) <= maxp:
         # continue from the last adaptive mesh: rebuild it, re-solve its pass and go on refining
-        restore_amr_mesh(m, resume, growth)
+        try:
+            restore_amr_mesh(m, resume, growth)
+        except StaleMesh:
+            resume = None
+            warn("The stored adaptive mesh does not fit the model any more (its initial mesh changed, for "
+                 "example the open region); the adaptive passes start again from the initial mesh")
+    if resume:
         ratio = resume["ratio"]
         passes = resume["passes"][:-1]
         first = len(resume["passes"])
@@ -2820,16 +2849,21 @@ def restore_amr_mesh(m, resume: dict, growth: float) -> None:
     m.generate_mesh(True)
 
 
+class StaleMesh(RuntimeError):
+    """The stored adaptive mesh was refined from another initial mesh than the model has now."""
+
+
 def restore_aura_mesh(m, a: dict) -> None:
     """Rebuild a stored hzAURA mesh on the initial mesh ``m`` has now. hzAURA keeps the numbering of every old
-    node and appends the new ones, so the initial mesh supplies the tags and the geometry data of EMerge's mesh."""
+    node and appends the new ones, so the initial mesh supplies the tags and the geometry data of EMerge's mesh.
+    Raises StaleMesh (and leaves ``m`` as it is) when the stored mesh grew from another initial mesh."""
     from emerge._emerge.aura import RefineResult
     from emerge._emerge.aura.emerge_tools import refine_mesh3d
-    m.data.sim.new(iter_step=0)
     # the smoothing moves old nodes, so the initial mesh is compared with the one stored with the state
     n0, init = np.asarray(m.mesh.nodes).T, np.asarray(a.get("initial_nodes", np.zeros((0, 3))), float)
     if n0.shape != init.shape or not np.allclose(n0, init, rtol=0, atol=1e-9 * max(1.0, float(np.abs(n0).max()))):
-        raise RuntimeError("The stored adaptive mesh does not fit the initial mesh; analyze the whole setup again")
+        raise StaleMesh("The stored adaptive mesh does not fit the initial mesh of the model")
+    m.data.sim.new(iter_step=0)
     nodes = np.asarray(a["nodes"], float)
     tets = np.asarray(a["tets"], np.int64)
     res = RefineResult(nodes=nodes, tets=tets, tet_root=np.zeros(len(tets), np.int64),
@@ -2859,6 +2893,11 @@ def peak_memory() -> float:
         return float(r) / (2 ** 20 if sys.platform == "darwin" else 2 ** 10)
     except Exception:  # noqa: BLE001
         return rss
+
+
+def has_amr_mesh(resume: dict | None) -> bool:
+    """The stored refinement state holds an adaptive mesh (or the sizes to rebuild it)."""
+    return bool(resume) and bool(len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura"))
 
 
 def load_amr_state(out: Path, key: str, fa) -> dict | None:

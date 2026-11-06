@@ -70,9 +70,33 @@ def model_key(project, design, setup) -> str:
         d.pop("coord_systems", None)
     sp = _legacy_values({k: v for k, v in setup.props.items() if k not in CONVERGENCE_KEYS})
     mats = [asdict(m) for m in getattr(project, "materials", [])]
-    blob = json.dumps({"d": d, "setup": sp, "eigen": setup.eigen, "mats": mats,
-                       "pvars": getattr(project, "variables", {})}, sort_keys=True, default=str)
+    key = {"d": d, "setup": sp, "eigen": setup.eigen, "mats": mats, "pvars": getattr(project, "variables", {})}
+    f_open = open_region_frequency(project, design, setup)
+    if f_open is not None:
+        key["open_region_f"] = f"{f_open:.9g}"
+    blob = json.dumps(key, sort_keys=True, default=str)
     return hashlib.sha1(blob.encode()).hexdigest()
+
+
+def open_region_frequency(project, design, setup) -> float | None:
+    """The lowest frequency of the switched-on sweeps when it sizes the automatic open region (or a PML region) below the solution
+    frequency, else None. The sweeps are not part of the model key, but this frequency is: switching on or
+    lowering a sweep that way enlarges the region and changes the model (the solution becomes outdated and the
+    adaptive passes run again). None keeps the keys of all other designs."""
+    st = design.settings if isinstance(design.settings, dict) else {}
+    mode = st.get("AutoOpen", "Off")
+    pml = any(b.kind == "PML" and b.enabled for b in design.boundaries)
+    if (mode == "Off" and not pml) or mode == "Auto Open - Filter" or setup.eigen:
+        return None
+    if not pml and str(st.get("AutoOpenPadding", "")).strip() and st.get("AutoOpenBoundary", "Auto") != "PML":
+        return None                          # a given padding: the region does not depend on the frequency
+    try:
+        from .bridge import adaptive_frequencies, lowest_frequency
+        ev = design.evaluator(project)
+        f_low = lowest_frequency(design, setup, ev)
+        return f_low if f_low < min(adaptive_frequencies(setup, ev)) else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def setup_key(setup) -> str:
