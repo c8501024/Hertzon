@@ -204,7 +204,7 @@ HELP: dict[str, str] = {
     "AutoOpen": "Automatically add an air region with a radiation boundary around the model.",
     "AutoOpenBoundary": "Boundary type of the automatic open region. With an incident plane wave the radiation boundary is "
                         "always used (the incident wave enters through it).",
-    "AutoOpenPadding": "Distance of the open region from the model.",
+    "AutoOpenPadding": "Distance of the open region from the model. Empty: a third of the wavelength (a quarter with PML) at the lowest frequency of the setup, its sweeps included, also those switched off, so that switching a sweep off does not change the model.",
     "FilterAirMargin": "Air margin around filters for the open region.",
     "MaterialOverride": "Where solids overlap, a metal overrides a dielectric and an object completely inside "
                         "another overrides it. Any other partial overlap of different materials is an error. "

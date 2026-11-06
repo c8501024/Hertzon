@@ -60,3 +60,36 @@ def test_aura_state_needs_the_same_initial_mesh(tmp_path):
     B._save_amr_state(tmp_path, "k", B._amr(m), 0.6, [{"pass": 1}], [1e9], m)
     with pytest.raises(RuntimeError, match="does not fit the initial mesh"):
         B.restore_amr_mesh(_model(), B.load_amr_state(tmp_path, "k", [1e9]), 1.6)
+
+
+def test_stale_aura_state_leaves_the_model_untouched(tmp_path):
+    m = _model()
+    m._local_mesh = None
+    m._aura_initial = np.asarray(m.mesh.nodes).T.copy() + 1e-3
+    _refine(m, 1)
+    B._save_amr_state(tmp_path, "k", B._amr(m), 0.6, [{"pass": 1}], [1e9], m)
+    m2 = _model()
+    nodes = np.asarray(m2.mesh.nodes).copy()
+    with pytest.raises(B.StaleMesh):
+        B.restore_amr_mesh(m2, B.load_amr_state(tmp_path, "k", [1e9]), 1.6)
+    assert np.array_equal(np.asarray(m2.mesh.nodes), nodes)       # the adaptive passes can start from it
+
+
+def test_open_region_frequency_ignores_switched_off_sweeps():
+    """The optimizer solves its evaluations with the goal sweep only; their adaptive meshes are taken over as
+    the solution of the design, so the open region (sized from the lowest frequency) must not depend on which
+    sweeps are switched on."""
+    from hertzon.model.design import Project
+    p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "PatchAntenna.hzn")
+    d = p.designs[0]
+    st = d.setups[0]
+    ev = d.evaluator(p)
+    import copy
+    wide = copy.deepcopy(st.sweeps[0])
+    wide.name = "Wide"
+    wide.props.update(Start="0.8GHz", Stop="4GHz", Step="0.1GHz")
+    st.sweeps.append(wide)
+    on = (B.lowest_frequency(d, st, ev), B.highest_frequency(d, st, ev))
+    wide.props["Enabled"] = "False"
+    assert (B.lowest_frequency(d, st, ev), B.highest_frequency(d, st, ev)) == on
+    assert on[0] == pytest.approx(0.8e9) and on[1] == pytest.approx(4e9)
