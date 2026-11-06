@@ -69,11 +69,11 @@ jobs:
           Start-Sleep -Seconds 10
           Remove-Item "$dir\.venv\hertzon_installed.txt" -ErrorAction SilentlyContinue
           Start-Process -FilePath $exe -ArgumentList '/S', "/D=$dir" -Wait
+          Get-Content "$dir\setup.log" -Tail 30 -ErrorAction SilentlyContinue
           if (-not (Test-Path "$dir\.venv\hertzon_installed.txt")) { throw 'the update did not finish' }
           $root = $dir.TrimEnd('\') + '\'
           $left = @(Get-Process python* | Where-Object { try { @($_.Modules | Where-Object { $_.FileName -and $_.FileName.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) }).Count } catch { 0 } })
           if (-not $bg.HasExited -or $left) { throw "background processes still running: $($left.Id -join ', ')" }
-          Get-Content "$dir\setup.log" -Tail 20
       - name: Warm-up log
         if: always()
         shell: pwsh
