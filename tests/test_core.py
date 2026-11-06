@@ -1587,3 +1587,25 @@ def test_straight_wire_is_round(quality):
     n = np.cross(b - a, c - a)
     m = (a + b + c) / 3
     assert np.all(n[:, 0] * m[:, 0] + n[:, 1] * m[:, 1] > 0)
+
+
+def test_solver_preload(monkeypatch):
+    """The window starts python -m hertzon.solver.preload, which loads the solver's libraries (the first
+    Analyze after a restart or an update then does not wait for them); HERTZON_NO_PRELOAD=1 switches it off."""
+    import subprocess
+    from hertzon.gui import app
+    from hertzon.solver import preload
+    started = []
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: started.append((args, kw)))
+    monkeypatch.setenv("HERTZON_NO_PRELOAD", "1")
+    app._preload_solver()
+    assert started == []
+    monkeypatch.delenv("HERTZON_NO_PRELOAD")
+    app._preload_solver()
+    (args, kw), = started
+    assert args[1:] == ["-m", "hertzon.solver.preload"] and kw["stdout"] == subprocess.DEVNULL
+    assert str(Path(app.__file__).resolve().parents[2]) in kw["env"]["PYTHONPATH"]
+    monkeypatch.undo()           # EMerge runs subprocesses while it is imported
+    preload.preload()
+    import sys
+    assert "emerge" in sys.modules

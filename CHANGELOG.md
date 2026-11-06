@@ -149,6 +149,12 @@ the GitHub release notes.
   mode shows Q as infinite instead of a huge number of either sign).
 
 ### Fixed
+- **First analysis after a restart or an update no longer waits about a minute at "Starting solver"**: on
+  Windows the first solver process read EMerge and its libraries from disk while the virus scanner checked
+  them ("import emerge" took about 50 s on a laptop, about 1 s afterwards). Since 0.2.6 the setup no longer
+  runs the warm-up after every update, which had loaded them before. Hertzon now loads them once in a
+  background process at low priority right after its window opens, so they are ready before the first
+  Analyze. `HERTZON_NO_PRELOAD=1` switches it off.
 - **RHCP and LHCP were swapped** (#220): the right-hand circular part of the far field (IEEE: the field turns
   from θ to φ with the thumb along the outgoing direction; (θ − jφ)/√2 with the time convention e^{jωt}) was
   shown as LHCP and the left-hand part as RHCP, in the gains, directivities, rE and the Antenna Parameters. The
