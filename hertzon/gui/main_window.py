@@ -3782,12 +3782,12 @@ class MainWindow(QMainWindow):
 
     def _install_update(self, release: dict) -> None:
         """Download the installer (with progress, cancelable, checksum checked), ask to save open changes,
-        start the installer and close Hertzon so that the installer can replace the program files."""
-        import os
+        close Hertzon and start the installer once this process has exited, so that no file of the program
+        or of .venv is still in use when the installer replaces them."""
         import threading
         from PySide6.QtCore import QObject, Signal
         from PySide6.QtWidgets import QApplication, QProgressDialog
-        from .update_check import download, download_dir, installer_asset
+        from .update_check import download, download_dir, installer_asset, start_installer_after_exit
         a = installer_asset(release)
         if self.solver.busy and QMessageBox.question(
                 self, "Install Update", "A solve is running. Installing the update stops it. Continue?",
@@ -3838,11 +3838,11 @@ class MainWindow(QMainWindow):
             return
         self.doc.dirty = False  # answered above; closing must not ask again
         try:
-            os.startfile(str(path))  # noqa: S606 - the installer that was just downloaded and checked
+            start_installer_after_exit(path)
         except OSError as e:
             QMessageBox.warning(self, "Install Update", f"The installer could not be started:\n{e}\n\n{path}")
             return
-        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes for the installer.")
+        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes, then the installer starts.")
         self.close()
         QApplication.quit()
 

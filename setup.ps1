@@ -6,6 +6,8 @@ $Host.UI.RawUI.WindowTitle = 'Hertzon setup'
 # everything shown in this window also goes to setup.log next to this script, so a failed setup can be
 # diagnosed after the window is closed (the installer's error message points to it)
 $log = Join-Path $PSScriptRoot 'setup.log'
+# the log of the previous run is kept: a failed run followed by a successful one must not lose the error
+try { if (Test-Path -LiteralPath $log) { Move-Item -LiteralPath $log (Join-Path $PSScriptRoot 'setup.prev.log') -Force } } catch {}
 try { Start-Transcript -LiteralPath $log -Force | Out-Null } catch {}
 
 function Find-Python {
@@ -43,30 +45,93 @@ function Get-HertzonProcesses {
         $id = (Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue).ParentProcessId
     }
     Get-Process -ErrorAction SilentlyContinue | Where-Object {
-        -not $own.ContainsKey($_.Id) -and $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)
+        -not $own.ContainsKey($_.Id) -and (Test-UsesFolder $_ $root)
     }
 }
 
-function Wait-HertzonClosed {
-    while ($true) {
-        $procs = @(Get-HertzonProcesses)
-        if (-not $procs) { return }
-        Write-Host ''
-        Write-Host 'Hertzon is still running from this folder (window, remote server or MCP server of an AI app):' -ForegroundColor Yellow
-        foreach ($p in $procs) {
-            $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
-            Write-Host ("  {0,6}  {1}" -f $p.Id, $(if ($cmd) { $cmd } else { $p.Path }))
+# started from this folder, or a Python that has files of this folder loaded: .venv\Scripts\python.exe is
+# only a small redirector that starts the base Python (outside this folder) as a child process with the
+# packages of .venv. Stopping the redirector alone leaves that child running with the files of .venv in use,
+# until the computer is restarted.
+function Test-UsesFolder($p, [string]$root) {
+    if ($p.Path -and $p.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($p.ProcessName -notmatch '^pythonw?(\d|\.|$)') { return $false }
+    try {
+        foreach ($m in $p.Modules) {
+            if ($m.FileName -and $m.FileName.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
         }
-        if ($env:CI) { Write-Host 'Continuing anyway (unattended run).'; return }
-        $a = Read-Host 'Close them (for an MCP server: quit the AI app), then press Enter. S = stop them, C = continue anyway'
-        if ($a -match '^[sS]') { $procs | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
-        elseif ($a -match '^[cC]') { return }
+    } catch {}
+    return $false
+}
+
+function Get-CommandLine($p) {
+    (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
+}
+
+function Show-HertzonProcesses($procs) {
+    foreach ($p in $procs) {
+        $cmd = Get-CommandLine $p
+        Write-Host ("  {0,6}  {1}" -f $p.Id, $(if ($cmd) { $cmd } else { $p.Path }))
     }
+}
+
+# a Hertzon window (Hertzon.exe, or pythonw -m hertzon): it may hold unsaved work, so it is never stopped
+# without asking; everything else (MCP server, remote service, solver processes, Qt helper processes) has no
+# window of its own and is restarted when it is needed again
+function Test-HertzonWindow($p) {
+    if ($p.ProcessName -ieq 'Hertzon') { return $true }
+    $cmd = Get-CommandLine $p
+    return [bool]($cmd -and $cmd -match '\s-m\s+hertzon(\s|"|$)')
+}
+
+# a Hertzon that is closing (an update started from Hertzon) or solver processes that are being aborted
+# need a moment: wait for them quietly instead of asking at once
+function Wait-HertzonGone([int]$seconds) {
+    $end = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $end) {
+        if (-not @(Get-HertzonProcesses)) { return }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+# the package installation failed while Hertzon processes run from this folder: they are the likely cause
+# (files of .venv in use). Background processes are stopped, an open Hertzon window has to be closed.
+function Clear-HertzonProcesses {
+    $procs = @(Get-HertzonProcesses)
+    if (-not $procs) { return $false }
+    Write-Host ''
+    Write-Host 'These Hertzon processes from this folder keep files of the Python environment in use:' -ForegroundColor Yellow
+    Show-HertzonProcesses $procs
+    $bg = @($procs | Where-Object { -not (Test-HertzonWindow $_) })
+    if ($bg) {
+        Write-Host 'Stopping the background processes (MCP server, remote service, solver) ...'
+        $bg | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+    while ($true) {
+        $win = @(Get-HertzonProcesses | Where-Object { Test-HertzonWindow $_ })
+        if (-not $win) { break }
+        if ($env:CI) { $win | Stop-Process -Force -ErrorAction SilentlyContinue; break }
+        $a = Read-Host 'A Hertzon window is still open. Close it, then press Enter (S = stop it without saving)'
+        if ($a -match '^[sS]') { $win | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+        else { Wait-HertzonGone 10 }
+    }
+    # an AI app may already have started its MCP server again: stopped once more right before the retry
+    @(Get-HertzonProcesses) | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    return $true
 }
 
 try {
     $venvPy = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-    Wait-HertzonClosed
+    Wait-HertzonGone 30
+    $procs = @(Get-HertzonProcesses)
+    if ($procs) {
+        # usually harmless: most updates do not replace a file these processes use; only if the installation
+        # fails are they stopped and the installation repeated (see Clear-HertzonProcesses)
+        Write-Host 'Hertzon processes are running from this folder (MCP server of an AI app, remote service, ...):' -ForegroundColor Yellow
+        Show-HertzonProcesses $procs
+    }
     if (-not (Test-Path -LiteralPath $venvPy)) {
         $py = Find-Python
         if (-not $py) {
@@ -82,6 +147,10 @@ try {
     Write-Host 'Installing Hertzon and its packages (EMerge, Qt, VTK) ...'
     & $venvPy -m pip install --upgrade pip
     & $venvPy -m pip install -e ".[test]"
+    if ($LASTEXITCODE -ne 0 -and (Clear-HertzonProcesses)) {
+        Write-Host 'Installing the packages again ...'
+        & $venvPy -m pip install -e ".[test]"
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Package installation failed (see messages above).' }
     Write-Host 'Preparing the solver (first-time compilation, can take a few minutes) ...'
     # stdin from a pipe: the setup runs unattended (release check) and must never wait for input
