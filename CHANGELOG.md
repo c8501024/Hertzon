@@ -6,6 +6,16 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **3D designs in the 3D layout of a schematic**: *Create 3D Layout* and *Update 3D Layout* now build 3D design
+  blocks in with their geometry instead of leaving them out. Each block is turned in steps of 90 degrees and
+  moved so that the lines of the schematic attach exactly at its ports; the ports a line connects to are
+  removed, a port that only a Power Port connects to stays a port of the layout (numbered and terminated like
+  that Power Port). Objects, boundaries, mesh operations and design variables come along with the block name as
+  prefix (EM1_W), the air region and open boundaries of the block are left out, the board and ground plane reach
+  over the block. Works for blocks whose ports are vertical lumped or wave ports on the edge of the design.
+- **3D designs from another project file** (circuit, Data › 3D Design › From Project File, or drag a `.hzn`
+  file into the schematic): the 3D designs with ports of that project are copied into this one, with their
+  project variables, materials and solved results, and placed as blocks.
 - **Copy and paste in the schematic**: Ctrl+C / Ctrl+V (Edit menu, ribbon and right-click menu) copy the
   selected parts with their values, the wires between them and the selected wires. The copies land at the mouse
   pointer (else shifted), pasting again steps on, names and port numbers stay unique, and copied lines keep their

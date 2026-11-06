@@ -950,7 +950,8 @@ class MainWindow(QMainWindow):
         g.large("Touchstone", component_icon("SNP"), place("SNP"), tip="N-port from a Touchstone file (.sNp)")
         b = g.large("3D Design", component_icon("EM"), None, menu=[],
                     tip="S-parameters of a 3D design of this project as a block (or drag the design from the "
-                        "Project Manager into the schematic)")
+                        "Project Manager into the schematic). From Project File copies the 3D designs of another "
+                        "Hertzon project (also by dragging the .hzn file into the schematic)")
         m3 = b.menu()
 
         def fill3d(m=m3):
@@ -960,6 +961,8 @@ class MainWindow(QMainWindow):
                     m.addAction(d.name, lambda n=d.name: ed.add_em_block(n, *[int(v) for v in self._schem_center()]))
             if m.isEmpty():
                 m.addAction("(no 3D design in the project)").setEnabled(False)
+            m.addSeparator()
+            m.addAction("From Project File...", self._circuit_import_designs)
         m3.aboutToShow.connect(fill3d)
 
         # ---- Simulation
@@ -974,7 +977,8 @@ class MainWindow(QMainWindow):
         g = pg.group("3D Layout")
         g.large("Create 3D Layout", "design", self.circuit_to_layout,
                 tip="A new 3D design with the physical layout of the schematic: substrate, traces, vias, lumped "
-                    "parts and ports, every dimension a design variable")
+                    "parts and ports, every dimension a design variable. 3D design blocks are built in with their "
+                    "geometry, turned and moved so that the lines attach at their ports")
 
         def layout_button(label, icon, fn, tip, item):
             b = g.large(label, icon, lambda: fn(None), menu=[], tip=tip)
@@ -6021,6 +6025,12 @@ class MainWindow(QMainWindow):
         """Tools > Antenna Design > Rectangular Patch: inserts the parametrized patch as a new design."""
         from .antenna_tool import PatchAntennaDialog
         self._insert_generated(PatchAntennaDialog(self, self.doc.project), "patch antenna")
+
+    def _circuit_import_designs(self) -> None:
+        """Data > 3D Design > From Project File: the 3D designs of another project file as blocks."""
+        paths, _ = QFileDialog.getOpenFileNames(self, "3D Designs from a Project File", "", "Hertzon project (*.hzn)")
+        if paths:
+            self.circuit.import_project_files(paths, *[int(v) for v in self._schem_center()])
 
     def circuit_to_layout(self) -> None:
         """Circuit > Simulation > Create 3D Layout: the schematic as a new 3D design."""

@@ -608,6 +608,13 @@ class _LibraryTree(QTreeWidget):
 
 
 # ---- view ---------------------------------------------------------------------------------------------
+def _project_files(md) -> list[str]:
+    """Hertzon project files dropped from the file manager."""
+    if not md.hasUrls():
+        return []
+    return [u.toLocalFile() for u in md.urls() if u.isLocalFile() and u.toLocalFile().lower().endswith(".hzn")]
+
+
 class SchematicView(QGraphicsView):
     def __init__(self, editor: "CircuitEditor"):
         super().__init__(editor.scene)
@@ -635,7 +642,7 @@ class SchematicView(QGraphicsView):
         self.scale(f, f)
 
     def _accepts(self, md) -> bool:
-        return md.hasFormat(MIME_DESIGN) or md.hasFormat(MIME_PART)
+        return md.hasFormat(MIME_DESIGN) or md.hasFormat(MIME_PART) or bool(_project_files(md))
 
     def dragEnterEvent(self, e) -> None:
         if self._accepts(e.mimeData()):
@@ -659,6 +666,9 @@ class SchematicView(QGraphicsView):
             t = bytes(md.data(MIME_PART)).decode()
             if t in CK.TYPES:
                 self.editor.place(t, snap(pos.x()), snap(pos.y()))
+            e.acceptProposedAction()
+        elif _project_files(md):
+            self.editor.import_project_files(_project_files(md), snap(pos.x()), snap(pos.y()))
             e.acceptProposedAction()
         else:
             super().dropEvent(e)
@@ -754,7 +764,8 @@ class CircuitEditor(QWidget):
         return next(c for c in self.des.components if c.name == name)
 
     def _change(self) -> None:
-        self.doc.checkpoint()
+        if not getattr(self, "_importing", False):
+            self.doc.checkpoint()
 
     def _commit(self) -> None:
         self.doc.commit("circuit", geometry=False)
@@ -986,6 +997,33 @@ class CircuitEditor(QWidget):
                                 "PortNames": ",".join(names), "Thumbnail": design_thumbnail(self.doc, design)})
         if not sols:
             self.hint.setText(f"{design} is not solved yet: analyze it before the circuit.")
+
+    def import_project_files(self, paths: list[str], x: int, y: int) -> list[str]:
+        """Hertzon project files dropped on the schematic: their 3D designs are copied into this project (with
+        their results) and placed as 3D design blocks, one below the other. Returns the new block names."""
+        from ..model.circuit_embed import import_3d_designs
+        self.doc.checkpoint()
+        self._importing = True
+        made, notes = [], []
+        try:
+            for path in paths:
+                try:
+                    names, w = import_3d_designs(self.doc.project, path)
+                except Exception as e:  # noqa: BLE001 (unreadable or foreign file)
+                    notes.append(f"{path}: {e}")
+                    continue
+                notes += w
+                for n in names:
+                    before = {c.name for c in self.des.components}
+                    self.add_em_block(n, x, y + 120 * len(made))
+                    made += [c.name for c in self.des.components if c.name not in before and c.type == "EM"]
+        finally:
+            self._importing = False
+        self.doc.commit("all", geometry=False)
+        self.rebuild()
+        if notes:
+            QMessageBox.information(self, "3D designs from a project file", "\n".join(notes))
+        return made
 
     def update_block(self, name: str) -> None:
         """Ports, solution and picture of a 3D design block from the current 3D design."""
