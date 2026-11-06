@@ -127,6 +127,9 @@ def test_patch_synthesis_and_build():
     assert op.solution == "Setup1 : LastAdaptive" and len(op.goals) == 1
     assert op.goals[0]["start"] == op.goals[0]["stop"] == "2.45GHz" and op.goals[0]["value"] == "-20"
     assert v.names == ["Lp", "inset"] and np.allclose(v.x0(), [0.5, 0.5], atol=0.01)
+    # the sweep is there to look at the resonance afterwards: off, so that it does not enlarge the open region
+    # of the design beyond the one of the (setup only) optimization
+    assert [sw.props["Enabled"] for sw in d.setups[0].sweeps] == ["False"]
 
 
 def test_patch_dialog():
