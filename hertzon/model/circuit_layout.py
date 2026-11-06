@@ -8,8 +8,9 @@ so the layout can be tuned or optimized in 3D and update_schematic() copies the 
 
 The physical direction of a part follows its orientation in the schematic (right = +x, up = +y); the layout
 starts at the first power port. Parts that have no layout are reported: ideal lines are converted into
-microstrip of the same impedance and electrical length, a DC block becomes a direct connection, Touchstone and
-3D blocks, attenuators, coaxial lines and DC feeds are left out.
+microstrip of the same impedance and electrical length, a DC block becomes a direct connection, Touchstone
+blocks, attenuators, coaxial lines and DC feeds are left out. 3D design blocks bring their geometry along
+(circuit_embed.py): turned and moved so that the lines attach at their ports.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ import re
 from collections import Counter
 
 from . import circuit as CK
+from . import circuit_embed as CE
 from . import schema
 from .design import Assignment, Command, Design, Project, Setup, Sweep
 from .materials import Material
@@ -29,15 +31,15 @@ LUMPED = ("R", "L", "C", "SRLC", "PRLC")
 SKIP = {"ATTEN": "the attenuator has no layout and was left out",
         "COAX": "a coaxial line has no planar layout and was left out",
         "DCFEED": "the DC feed is open at RF and was left out",
-        "SNP": "Touchstone blocks have no layout and were left out",
-        "EM": "3D design blocks have no layout and were left out"}
+        "SNP": "Touchstone blocks have no layout and were left out"}
 LINK = "LayoutOf"                # design setting of a generated layout: the name of its circuit design
 GAP = "1mm"                      # gap of a series lumped part (pad to pad)
 MARGIN = "5mm"                   # substrate beyond the traces where no port sits on the board edge
 
 
 class Lin(dict):
-    """A linear combination of design variables {name: coefficient}: coordinates as exact expressions."""
+    """A linear combination of design variables {name: coefficient}: coordinates as exact expressions. The key
+    "" is a constant length in metres (the place of a 3D design block)."""
 
     def __add__(self, o: Lin) -> Lin:
         r = Lin(self)
@@ -60,16 +62,23 @@ class Lin(dict):
         for k, v in sorted(self.items()):
             sign = "-" if v < 0 else "+"
             a = abs(v)
-            term = k if abs(a - 1) < 1e-12 else f"{a:g}*{k}"
+            if k == "":
+                term = f"{a * 1e3:.9g}mm"
+            else:
+                term = k if abs(a - 1) < 1e-12 else f"{a:g}*{k}"
             out += (("-" if sign == "-" else "") if not out else sign) + term
         return out
 
     def num(self, vals: dict[str, float]) -> float:
-        return sum(v * vals[k] for k, v in self.items())
+        return sum(v * (1.0 if k == "" else vals[k]) for k, v in self.items())
 
 
 def var(name: str) -> Lin:
     return Lin({name: 1.0})
+
+
+def const(metres: float) -> Lin:
+    return Lin({"": metres}) if abs(metres) > 1e-15 else Lin()
 
 
 class Pt:
@@ -211,6 +220,8 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
         return f"{v * 1e3:.6g}mm"
 
     via_parts: list = []
+    blocks: list[tuple] = []          # 3D design blocks: (component, geometry, quarter turns, origin, z shift)
+    em_out: dict[int, tuple] = {}     # node at a block port -> direction out of the block
     while queue:
         node = queue.pop(0)
         here = pos[node]
@@ -230,6 +241,27 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                 continue
             if t == "MVIA":
                 via_parts.append((c, node))
+                continue
+            if t == "EM":
+                try:
+                    g = CE.geometry(project, c)
+                except CE.EmbedError as e:
+                    warnings.append(f"{e}; the block was left out")
+                    continue
+                # turned so that the port reached here faces the line that reaches it (or its side in the
+                # schematic), moved so that the port centre sits on the node
+                pk = g.ports[k]
+                ds = node_dirs.get(node)
+                q = CE.quarter_turns(pk.out, ds[0][0] if ds else _dir((c.x, c.y), pp[k]))
+                kx, ky = CE.turn(pk.centre, q)
+                origin = here - Pt(const(kx), const(ky))
+                n_ = nodes[c.name]
+                for j, pg in enumerate(g.ports):
+                    jx, jy = CE.turn(pg.centre, q)
+                    em_out[n_[j]] = CE.turn(pg.out, q)
+                    if j != k:
+                        reach(n_[j], origin + Pt(const(jx), const(jy)), c)
+                blocks.append((c, g, q, origin, -min(pg.zmin for pg in g.ports)))
                 continue
             if t in LINE2 or t == "DCBLOCK" or t in LUMPED:
                 other = 1 - k
@@ -349,7 +381,7 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     for c in comps:
         if c.name not in placed and c.type not in ("GND", "LABEL", "SUBST"):
             warnings.append(f"{c.name}: not connected to the layout, left out")
-    if not rects:
+    if not rects and not blocks:
         raise LayoutError("the circuit has no lines to lay out")
 
     vals = _values(d, project)
@@ -363,6 +395,8 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
         ds = node_dirs.get(node, [])
         if ds:
             return -ds[0][0][0], -ds[0][0][1]
+        if node in em_out:
+            return em_out[node]
         for c, p, dd, g, na, nb in gaps:
             if na == node:
                 return -dd[0], -dd[1]
@@ -394,6 +428,11 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
         a, b = ext(r)
         xs += a
         ys += b
+    for c, g, q, origin, dz in blocks:
+        for corner in ((g.bbox[0], g.bbox[1]), (g.bbox[2], g.bbox[3])):
+            tx, ty = CE.turn(corner, q)
+            xs.append(origin.x + const(tx))
+            ys.append(origin.y + const(ty))
     flush = {}                         # side -> coordinate of a port on that side
     for c in ports:
         n = nodes[c.name][0]
@@ -550,20 +589,26 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                IntegrationLine=f"{p.x.text()},{p.y.text()},0;{p.x.text()},{p.y.text()},{zt.text()}",
                Component=f"{c.name} of {circuit.name}", **_rlc(c))
 
+    # ---- 3D design blocks
+    em_port_nodes = _embed_blocks(d, blocks, comps, nodes, ports, node_dirs, em_out, grounds[0], zt, vals, warnings)
+
     # ---- ports, mesh, analysis
     for i, c in enumerate(ports, 1):
         n = nodes[c.name][0]
         if n not in pos:
             warnings.append(f"{c.name}: not connected to the layout, left out")
             continue
+        if n in em_port_nodes:         # the port of the 3D design block stays the port
+            continue
         p = pos[n]
         o = vertical(d.unique_name(f"Port{i}"), p, out_dir(n), width_at(n), zt)
         assign(d.excitations, schema.EXCITATIONS, "Lumped Port", str(i), [o.name], PortNumber=str(i),
                Impedance=c.props.get("Z0", "50ohm") or "50ohm",
                IntegrationLine=f"{p.x.text()},{p.y.text()},0;{p.x.text()},{p.y.text()},{zt.text()}")
-    wmin = min((r.w for r in rects), key=lambda q: q.num(vals))
-    assign(d.mesh_ops, schema.MESH_OPS, "Length Based On Selection", "Length_Traces", conductors,
-           MaxLength=(wmin * 0.5).text())
+    if rects:
+        wmin = min((r.w for r in rects), key=lambda q: q.num(vals))
+        assign(d.mesh_ops, schema.MESH_OPS, "Length Based On Selection", "Length_Traces", conductors,
+               MaxLength=(wmin * 0.5).text())
     st = Setup("Setup1")
     sw = Sweep("Sweep")
     src = circuit.setups[0].sweeps[0].props if circuit.setups and circuit.setups[0].sweeps else {}
@@ -590,6 +635,56 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     d.settings[DIMS] = json.dumps(dims)
     d.settings[VARS] = json.dumps(sorted(d.variables))
     return d, warnings
+
+
+def _embed_blocks(d: Design, blocks, comps, nodes, ports, node_dirs, em_out, ground, zt: Lin, vals, warnings) \
+        -> set[int]:
+    """Copy the 3D designs of the blocks into the layout; returns the nodes whose Power Port is a port of a
+    block."""
+    users: dict[int, list] = {}
+    for x in comps:
+        for n in nodes.get(x.name, ()):
+            users.setdefault(n, []).append(x)
+    number = {c.name: i for i, c in enumerate(ports, 1)}
+    port_nodes: set[int] = set()
+    h = zt.num(vals)
+    for c, g, q, origin, dz in blocks:
+        keep = {}
+        for j, pg in enumerate(g.ports):
+            nj = nodes[c.name][j]
+            if nj == 0:
+                warnings.append(f"{c.name}: pin {j + 1} ({pg.name}) is grounded; its port was removed, draw the "
+                                "short in the 3D design")
+                continue
+            others = [x for x in users.get(nj, []) if x is not c and x.type != "LABEL"]
+            if not others:
+                warnings.append(f"{c.name}: pin {j + 1} ({pg.name}) is open; its port was removed")
+            elif all(x.type == "PORT" for x in others):
+                keep[pg.name] = (str(number[others[0].name]), others[0].props.get("Z0", "") or "50ohm")
+                port_nodes.add(nj)
+            for dd, _ in node_dirs.get(nj, []):
+                if tuple(dd) != tuple(em_out[nj]):
+                    warnings.append(f"{c.name}: the line at pin {j + 1} ({pg.name}) does not leave the block "
+                                    "straight out of its port; turn the line in the schematic")
+                    break
+            if pg.kind == "Lumped Port" and abs((pg.zmax - pg.zmin) - h) > 0.01 * h:
+                warnings.append(f"{c.name}: the port {pg.name} is {(pg.zmax - pg.zmin) * 1e3:.4g} mm high, the "
+                                f"layout substrate {h * 1e3:.4g} mm")
+        move = f"{origin.x.text()},{origin.y.text()},{dz * 1e3:.9g}mm"
+        _, w = CE.embed(d, g, c, q, move, keep)
+        warnings += w
+        # a hole in the layout's ground plane where the block has its own ground
+        for x0, y0, x1, y1 in g.grounds:
+            ax, ay = CE.turn((x0, y0), q)
+            bx, by = CE.turn((x1, y1), q)
+            px = origin.x + const(min(ax, bx))
+            py = origin.y + const(min(ay, by))
+            hole = d.add_object("CreateRectangle", name=d.unique_name(f"{c.name}_GroundCut"),
+                                Position=f"{px.text()},{py.text()},0", Axis="Z",
+                                XSize=f"{abs(bx - ax) * 1e3:.9g}mm", YSize=f"{abs(by - ay) * 1e3:.9g}mm")
+            hole.consumed_by = ground.name
+            ground.history.append(Command.new("Subtract", Tools=hole.name, KeepOriginals="False"))
+    return port_nodes
 
 
 def _values(d: Design, project: Project) -> dict[str, float]:
@@ -679,6 +774,8 @@ def update_layout(project: Project, layout: Design) -> list[str]:
     new, warnings = layout_design(project, circuit, layout.name)
     layout.objects, layout.boundaries, layout.excitations = new.objects, new.boundaries, new.excitations
     layout.mesh_ops = new.mesh_ops
+    made_cs = {cs.name for cs in new.coord_systems}
+    layout.coord_systems = [cs for cs in layout.coord_systems if cs.name not in made_cs] + new.coord_systems
     try:
         made = set(json.loads(layout.settings.get(VARS, "") or "null") or [])
     except ValueError:

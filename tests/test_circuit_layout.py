@@ -224,3 +224,119 @@ def test_update_layout_follows_exchanged_parts():
     names = {o.name for o in L.objects}
     assert {"MS2", "V1"} <= names and not any(n.startswith("TLS1") for n in names)
     assert "TLS1_W" not in L.variables
+
+
+def _em_block(p, name, x, y, design, rot=0):
+    from hertzon.model import circuit_embed as CE
+    s = p.design(design)
+    c = C(name, "EM", x, y, rot, {"Design": design, "Solution": "", "Ports": str(len(s.ports())),
+                                   "PortNames": ",".join(q.name for q in s.ports())})
+    assert CE.pin_ports(s, c)
+    return c
+
+
+def _inner(p, length="6mm"):
+    """A 3D design to use as a block: a laid out microstrip line with a lumped port at each end."""
+    d = Design(name="Inner", kind="circuit")
+    d.components = [C("Sub1", "SUBST", -200, 200, props=dict(TYPES["SUBST"].props)), P("Port1", 0, 0),
+                    _line("MS", 40, 0, L=length), P("Port2", 80, 0)]
+    d.setups = [circuit_setup()]
+    p.designs.append(d)
+    inner, _ = CL.layout_design(p, d, "Inner3D")
+    del inner.settings[CL.LINK]
+    p.designs.append(inner)
+    return inner
+
+
+def test_3d_design_block_is_built_into_the_layout_between_its_lines():
+    from hertzon.mcp.tools import tessellate
+    from hertzon.model.validate import validate
+    p, d = _circuit(P("Port1", 0, 0), _line("MS1", 40, 0, L="10mm"), P("Port2", 280, 0))
+    _inner(p)
+    d.components += [_em_block(p, "EM1", 140, 0, "Inner3D"), _line("MS2", 240, 0, L="5mm")]
+    L, warn = CL.layout_design(p, d)
+    p.designs.append(L)
+    assert not warn, warn
+    # the block's line sits between MS1 and MS2, its ports were removed, its variables carry the block name
+    assert _box(L, p, "MS1") == (0, -0.55, 10, 1.1)
+    assert _box(L, p, "MS2") == (16, -0.55, 5, 1.1)
+    assert L.has_obj("EM1_MS") and L.obj("EM1_MS").group == "EM1"
+    assert L.variables["EM1_MS_L"] == "6mm"
+    assert sorted(e.name for e in L.ports()) == ["1", "2"]
+    assert not any(o.name.startswith("EM1_Port") for o in L.objects)
+    assert {a.name for a in L.boundaries} >= {"EM1_Copper_Traces", "EM1_Copper_Ground"}
+    sub = _box(L, p, "Substrate")
+    assert sub[0] == 0 and sub[2] == pytest.approx(21)
+    # the layout ground has a hole where the block brings its own ground
+    assert L.has_obj("EM1_GroundCut") and L.obj("EM1_GroundCut").consumed_by == "Ground"
+    tess, err = tessellate(p, L)
+    assert not err
+    assert all(c.level == "ok" for c in validate(p, L, tess, err))
+
+
+def test_3d_design_block_turned_and_its_port_kept_at_a_power_port():
+    import numpy as np
+    from hertzon.model import objframe
+    ms1 = _line("MS1", 0, 40, rot=90, L="10mm")
+    top, bottom = sorted(CK.pins(ms1), key=lambda q: q[1])
+    p, d = _circuit(P("Port1", top[0], top[1]), ms1)
+    _inner(p)
+    # the line runs down into the block: the block turns so that its port 1 faces up, its port 2 is a port
+    blk = _em_block(p, "EM1", 200, 200, "Inner3D")
+    pins = CK.pins(blk)
+    d.components += [blk, C("Port2", "PORT", pins[1][0], pins[1][1] + 40, 0, {"Z0": "25ohm"})]
+    d.wires.append(CK.Wire([list(bottom), list(pins[0])]))
+    L, warn = CL.layout_design(p, d)
+    p.designs.append(L)
+    assert not warn, warn
+    ports = {e.name: e for e in L.ports()}
+    assert sorted(ports) == ["1", "2"]
+    assert ports["2"].objects == ["EM1_Port2"] and ports["2"].props["Impedance"] == "25ohm"
+    assert ports["2"].props["PortNumber"] == "2"
+    assert _box(L, p, "MS1") == (-0.55, -10, 1.1, 10)
+    h = L.obj("EM1_MS").history
+    assert h[-2].kind == "Rotate" and h[-2].props["Angle"] == "270deg" and h[-1].kind == "Move"
+    M = objframe.object_matrix(L, L.obj("EM1_MS"), L.evaluator(p))
+    # the far end of the inner line (x = 6 mm in its design) lies 6 mm below the end of MS1
+    assert (M @ np.array([0.006, 0, 0, 1.0]))[:2] == pytest.approx([0, -0.016], abs=1e-12)
+
+
+def test_3d_designs_of_a_project_file_are_copied_in_and_placed_as_blocks(tmp_path, monkeypatch):
+    import os
+    from hertzon.model import circuit_embed as CE
+    from hertzon.solver.results import results_dir
+    # a saved project with a 3D design, a solved result and a project variable
+    src, _ = _circuit()
+    inner = _inner(src)
+    src.variables["$f0"] = "3GHz"
+    src.save(tmp_path / "parts.hzn")
+    r = results_dir(tmp_path / "parts.hzn", inner.name, "Setup1")
+    r.mkdir(parents=True)
+    (r / "Sweep.s2p").write_text("# GHz S MA R 50\n")
+    # the receiving project already has a design of that name
+    p, d = _circuit()
+    p.designs.append(Design(name="Inner3D"))
+    p.path = str(tmp_path / "board.hzn")
+    names, warn = CE.import_3d_designs(p, str(tmp_path / "parts.hzn"))
+    assert names == ["Inner3D_2"] and not warn
+    assert p.variables["$f0"] == "3GHz" and p.design("Inner3D_2").ports()
+    assert (results_dir(p.path, "Inner3D_2", "Setup1") / "Sweep.s2p").exists()
+    # in the editor: the dropped file becomes a block, one undo step takes it all back
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from hertzon.gui import circuit_editor
+    from hertzon.gui.doc import Document
+    monkeypatch.setattr(circuit_editor.QMessageBox, "information", lambda *a: None)
+    p, _ = _circuit()
+    doc = Document(p)
+    doc.set_design("Net")
+    ed = circuit_editor.CircuitEditor(doc)
+    assert ed.import_project_files([str(tmp_path / "parts.hzn")], 100, 0) == ["EM1"]
+    blk = doc.design.components[-1]
+    assert blk.type == "EM" and blk.props["Design"] == "Inner3D" and blk.props["Ports"] == "2"
+    doc.undo()
+    assert not any(c.type == "EM" for c in doc.design.components)
+    assert "Inner3D" not in {x.name for x in doc.project.designs}
+    ed.deleteLater()                  # the editor goes now, not at a garbage collection inside a later test
+    QApplication.processEvents()
