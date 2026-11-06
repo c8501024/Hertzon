@@ -24,7 +24,7 @@
     "rp": "0.4mm",
     "ra": "0.9mm",
     "wf": "1.5mm",
-    "fy": "2.0mm",
+    "fy": "-2.0mm",
     "ds": "1.8mm",
     "ls": "7.4mm",
     "rv": "0.3mm"
@@ -112,7 +112,7 @@
       {
        "kind": "CreatePolyline",
        "props": {
-        "Points": "-L/2+c,-L/2,h;L/2,-L/2,h;L/2,L/2-c,h;L/2-c,L/2,h;-L/2,L/2,h;-L/2,-L/2+c,h",
+        "Points": "-L/2+c,L/2,h;L/2,L/2,h;L/2,-L/2+c,h;L/2-c,-L/2,h;-L/2,-L/2,h;-L/2,L/2-c,h",
         "SegmentTypes": "",
         "Closed": "True",
         "Covered": "True"
@@ -245,7 +245,7 @@
       {
        "kind": "CreateRectangle",
        "props": {
-        "Position": "gs/2-ds-wf/2,fy,-hf",
+        "Position": "gs/2-ds-wf/2,fy-(ls+rv+0.2mm),-hf",
         "Axis": "Z",
         "XSize": "wf",
         "YSize": "ls+rv+0.2mm"
@@ -270,7 +270,7 @@
       {
        "kind": "CreateCylinder",
        "props": {
-        "CenterPosition": "gs/2-ds,fy+ls,-hf",
+        "CenterPosition": "gs/2-ds,fy-ls,-hf",
         "Axis": "Z",
         "Radius": "rv",
         "Height": "hf",

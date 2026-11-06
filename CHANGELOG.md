@@ -59,6 +59,11 @@ the GitHub release notes.
   mode shows Q as infinite instead of a huge number of either sign).
 
 ### Fixed
+- **RHCP and LHCP were swapped** (#220): the right-hand circular part of the far field (IEEE: the field turns
+  from θ to φ with the thumb along the outgoing direction; (θ − jφ)/√2 with the time convention e^{jωt}) was
+  shown as LHCP and the left-hand part as RHCP, in the gains, directivities, rE and the Antenna Parameters. The
+  axial ratio and the total quantities did not change. The GPS L1 example was mirrored at the XZ plane so that
+  it is right-hand circular as its name says (same S11).
 - **Radiated power above the accepted power** (#231): with Auto Open, the radiated power and the far field of
   an antenna were integrated on the mesh faces of the absorbing boundary, where the mesh is coarsest and the
   boundary reflects a little; lossless antennas showed a radiated power up to ~10 % above the accepted
