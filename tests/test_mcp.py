@@ -17,6 +17,7 @@ def server(tmp_path, monkeypatch):
     monkeypatch.setenv("HERTZON_HOME", str(tmp_path / "home"))      # no live Hertzon window
     monkeypatch.setenv("HERTZON_MCP_MODE", "file")
     tools.S.default_path = None
+    tools.S.designs.clear()
     return Server("hertzon", "test", tools.INSTRUCTIONS, tools.TOOLS)
 
 
