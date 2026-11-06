@@ -6,6 +6,15 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **AI assistants (MCP) reach the newer features**: the patch antenna and hairpin filter assistants
+  (`create_patch_antenna`, `create_hairpin_filter`), the choice of optimizer in `set_optimization` (Conjugate
+  Gradient, Latin Hypercube + Nelder-Mead, Derivative Trust Region) and `apply_optimization` (as *Apply to
+  Design*), derivative tuning (`compute_tuning`, `get_tuning`), circuit designs (`create_circuit`, `get_circuit`,
+  `edit_circuit` with parts, wires, 3D design and Touchstone blocks, `run_simulation` and `get_results` on
+  schematics, `render_image` draws the schematic, `circuit_layout` to the 3D layout and back,
+  `import_3d_designs`), exports (`export`: Touchstone, STEP, Gerber, EMerge script), `import_pcb`, `set_stackup`,
+  `manage_design` (copy, delete) and the examples (`list_examples`, `open_example`). Without a window, the
+  tools keep working on the design used last.
 - **3D designs in the 3D layout of a schematic**: *Create 3D Layout* and *Update 3D Layout* now build 3D design
   blocks in with their geometry instead of leaving them out. Each block is turned in steps of 90 degrees and
   moved so that the lines of the schematic attach exactly at its ports; the ports a line connects to are
