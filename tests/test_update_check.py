@@ -151,3 +151,13 @@ def test_disabled_by_env(monkeypatch):
     assert U.disabled_by_env()
     monkeypatch.setenv("HERTZON_NO_UPDATE_CHECK", "0")
     assert not U.disabled_by_env()
+
+
+def test_installer_waits_for_hertzon_to_exit(tmp_path):
+    # started by Hertzon itself the installer came up while Hertzon was still closing and still held files of
+    # .venv open; it now starts only once the Hertzon process is gone (or after the timeout)
+    inst = tmp_path / "it's here" / "Hertzon-Setup-0.2.14.exe"
+    s = U.installer_waiter(inst, 4321, timeout_s=90)
+    assert "Get-Process -Id 4321" in s and "WaitForExit(90000)" in s
+    assert s.index("WaitForExit") < s.index("Start-Process")
+    assert "'" + str(inst).replace("'", "''") + "'" in s     # quotes in the path are escaped

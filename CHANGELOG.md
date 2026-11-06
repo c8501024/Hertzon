@@ -64,6 +64,13 @@ the GitHub release notes.
   shown as LHCP and the left-hand part as RHCP, in the gains, directivities, rE and the Antenna Parameters. The
   axial ratio and the total quantities did not change. The GPS L1 example was mirrored at the XZ plane so that
   it is right-hand circular as its name says (same S11).
+- **Update from within Hertzon no longer hangs on Windows**: the installer now starts only after Hertzon has
+  exited, and it stops the Hertzon processes without a window that still use the installation (the MCP
+  server of an AI app, the remote service, solver processes) before it replaces the files. A Python started
+  through `.venv\Scripts\python.exe` runs as a second process outside the installation folder; it was not
+  found and kept files of `.venv` in use, so the setup could not finish until the computer was restarted.
+  The setup waits for a closing Hertzon instead of asking at once, stops background processes and repeats
+  the package installation only when it fails, and keeps the previous log as `setup.prev.log`.
 - **Radiated power above the accepted power** (#231): with Auto Open, the radiated power and the far field of
   an antenna were integrated on the mesh faces of the absorbing boundary, where the mesh is coarsest and the
   boundary reflects a little; lossless antennas showed a radiated power up to ~10 % above the accepted

@@ -6,10 +6,12 @@ the environment variable HERTZON_NO_UPDATE_CHECK=1 (which also blocks Help > Che
 Nothing is installed without a click on Install."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -18,7 +20,13 @@ from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QTextBrowser, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QTextBrowser,
+    QVBoxLayout,
+)
 
 REPO = "c8501024/Hertzon"
 RELEASES_API = f"https://api.github.com/repos/{REPO}/releases?per_page=30"
@@ -137,6 +145,30 @@ def download(url: str, dest: Path, digest: str = "", progress=None, cancelled=la
         raise ValueError("the downloaded installer does not match the checksum of the release")
     part.replace(dest)
     return dest
+
+
+def installer_waiter(installer: Path, pid: int, timeout_s: int = 120) -> str:
+    """PowerShell script that waits until the Hertzon process `pid` has exited (at most `timeout_s`
+    seconds) and then starts `installer`. Started by Hertzon itself, the installer would otherwise come up
+    while Hertzon is still closing and still holds files of .venv open, and it would run as a child of
+    that process."""
+    path = str(installer).replace("'", "''")
+    return (f"$p = Get-Process -Id {int(pid)} -ErrorAction SilentlyContinue; "
+            f"if ($p) {{ $null = $p.WaitForExit({int(timeout_s) * 1000}) }}; "
+            f"Start-Process -FilePath '{path}'")
+
+
+def start_installer_after_exit(installer: Path, pid: int | None = None) -> None:
+    """Start `installer` once this process has exited, through a hidden PowerShell that does not belong
+    to Hertzon (raises OSError when it cannot be started)."""
+    script = installer_waiter(installer, os.getpid() if pid is None else pid)
+    enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    kw: dict = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
+                "close_fds": True}
+    if sys.platform == "win32":
+        kw["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000   # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
+    subprocess.Popen(["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+                      "-EncodedCommand", enc], **kw)
 
 
 def download_dir() -> Path:
