@@ -5,7 +5,8 @@ import json
 
 # setup properties that only steer convergence: changing them keeps the adaptive mesh (continues)
 CONVERGENCE_KEYS = {"MaximumPasses", "MaximumDeltaS", "MinimumPasses", "MinimumConvergedPasses",
-                    "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "MaximumRefinement", "SaveFields"}
+                    "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "MaximumRefinement", "SaveFields",
+                    "UsePowerBalance", "MaxPowerBalance", "MaxDeltaEfficiency"}
 
 
 def _legacy(c: dict) -> dict:

@@ -1635,7 +1635,8 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
     conv = (st.read_json("convergence.json") if st else None) or {}
     if conv.get("passes"):
         res["passes"] = [{k: (round(v, 5) if isinstance(v, float) else v) for k, v in row.items()
-                          if k in ("pass", "tets", "delta_s", "delta_mag", "delta_phase", "passed")}
+                          if k in ("pass", "tets", "delta_s", "delta_mag", "delta_phase", "power_balance",
+                                   "delta_eff", "passed")}
                          for row in conv["passes"]]
         res["converged"] = bool(conv.get("converged"))
         if conv.get("final_tets"):

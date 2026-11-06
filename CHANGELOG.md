@@ -6,6 +6,16 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Loss power, efficiency and power balance of antennas** (#231): the power dissipated in lossy dielectrics,
+  magnetic materials, conductors and on finite conductivity, impedance and lumped RLC boundaries (Ploss) is
+  computed with the far field data, only for the lossy parts of the mesh. The radiation efficiency is now
+  Prad / (Prad + Ploss): it does not depend on 1 − |S11|², which is inaccurate where the antenna is badly
+  matched, and is exactly 1 for a lossless antenna. The Antenna Parameters show the Loss Power and the Power
+  Balance (Prad + Ploss − Pacc) / Pin, with a warning above 2 %; both are also report quantities
+  (`LossPower`, `PowerBalance`). Results solved before keep the efficiency Prad / Pacc.
+- **Power balance convergence** (setup, off by default): *Use power balance convergence* with *Max power
+  balance* and *Max delta efficiency* makes a pass converge only when the power is conserved and the
+  efficiency stable, next to Delta S. The Convergence tab lists and plots both per pass.
 - **3D Layout buttons** (circuit, Simulation › 3D Layout): *Create 3D Layout* makes a new layout. *Update 3D
   Layout* (schematic → 3D) rebuilds the layout from the schematic as it is now, with parts added, removed or
   exchanged, and shows it; its setups and reports stay, the variables of removed parts go. *Update Schematic*

@@ -1273,7 +1273,7 @@ class Bridge:
 
         key = self.keys["model_key"] if hasattr(self, "keys") else model_key(self.project, self.design, self.setup)
         resume = load_amr_state(self.out, key, fa)
-        conv = adaptive_loop(m, fa, p, self.out, on_pass, key=key, resume=resume)
+        conv = adaptive_loop(m, fa, p, self.out, on_pass, key=key, resume=resume, power=self.pass_power)
         last = conv.pop("_last", None)
         conv["final_tets"] = int(m.mesh.n_tets)
         conv["frequencies"] = fa
@@ -1869,7 +1869,69 @@ class Bridge:
                 except Exception as ex:  # noqa: BLE001
                     warn(f"Far field surface fields for port {port['number']} failed: {ex}")
         self.store.save_npz(f"huygens_{label}.npz", **out)
+        self.save_losses(fields, label)
         return True
+
+    def loss_model(self, fld):
+        """The quadrature points of the lossy parts of the current mesh (power.LossModel), found once per mesh."""
+        from .power import LossModel
+        key = (id(self.m.mesh), np.shape(self.m.mesh.tets))
+        if getattr(self, "_loss_key", None) != key:
+            self._loss_model, self._loss_key = LossModel(self.m, fld), key
+        return self._loss_model
+
+    def pass_power(self, fields: list, Ss: list) -> dict | None:
+        """Power balance of an adaptive pass: the largest |Prad + Ploss - Pacc| / Pin over the adaptive
+        frequencies and ports (1 W incident at one port, Pacc = 1 - sum |S_mn|^2 over the column of n) and the
+        radiation efficiencies Prad / (Prad + Ploss). None without a far field surface or ports."""
+        from .power import loss_matrix
+        surf = self.huygens_surface()
+        ports = [p for p in self.fields_of() if p.get("kind") != "Incident Plane Wave"]
+        if surf is None or not ports or not fields:
+            return None
+        vis, wns = surf["vis"], surf["wns"]
+        model = self.loss_model(fields[0])
+        mapping = np.asarray(fields[0].basis.interpolate_index(*vis), np.int64)
+        bal, eff = 0.0, []
+        for fld, S in zip(fields, Ss):
+            S = np.atleast_2d(np.asarray(S))
+            if S.shape[1] != len(ports):      # ports with several modes: the S columns are not the ports
+                raise RuntimeError("the power balance needs one S-parameter column per port (one mode each)")
+            L = loss_matrix(model, fld, ports, excite)
+            for i, port in enumerate(ports):
+                excite(fld, port)
+                if (mapping >= 0).all():
+                    _interp_known_tets(fld, *vis, mapping)
+                    E, H = np.array([fld.Ex, fld.Ey, fld.Ez]), np.array([fld.Hx, fld.Hy, fld.Hz])
+                else:
+                    eh = fld.interpolate(*vis)
+                    E, H = np.asarray(eh.E), np.asarray(eh.H)
+                prad = float(np.real(np.sum(0.5 * np.cross(E.T, np.conj(H).T).T * wns)))
+                ploss = max(0.0, float(np.real(L[i, i])))
+                pacc = 1.0 - float(np.sum(np.abs(S[:, i]) ** 2))
+                bal = max(bal, abs(prad + ploss - pacc))
+                eff.append(prad / max(prad + ploss, 1e-300))
+        return {"balance": bal, "eff": eff}
+
+    def save_losses(self, fields: list, label: str) -> None:
+        """losses_<label>.npz: the loss matrices L_k of the port excitations (Ploss = a^H L a, power.loss_matrix)
+        for the efficiency Prad / (Prad + Ploss) and the power balance. A lossless model stores only the port
+        list (Ploss = 0); ok = 0 when the losses could not be computed (efficiency from Prad / Pacc then)."""
+        ports = [p for p in self.fields_of() if p.get("kind") != "Incident Plane Wave"]
+        out = {"ports": np.array([int(p["number"]) for p in ports], np.int64), "ok": np.array([0])}
+        if ports and fields:
+            try:
+                from .power import loss_matrix
+                model = self.loss_model(fields[0])
+                for k, fld in enumerate(fields):
+                    out[f"freq_{k}"] = np.array([float(fld.freq)])
+                    if not model.empty:
+                        out[f"Ploss_{k}"] = loss_matrix(model, fld, ports, excite)
+                out["ok"] = np.array([1])
+            except Exception as ex:  # noqa: BLE001
+                warn(f"Loss power not computed: {ex}")
+                out = {"ports": out["ports"], "ok": np.array([0])}
+        self.store.save_npz(f"losses_{label}.npz", **out)
 
     def symmetry_planes(self) -> list[tuple[str, int, float]]:
         """Symmetry boundaries as mirror planes of the far field: (E or H, axis 0/1/2, position in m). Only a
@@ -2224,12 +2286,15 @@ def aligned_delta(S_old: np.ndarray, S_new: np.ndarray) -> tuple[float, float, f
     return d, dm, float(np.max(np.abs(ph)))
 
 
-def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str = "", resume: dict | None = None) -> dict:
+def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str = "", resume: dict | None = None,
+                  power=None) -> dict:
     """Adaptive mesh refinement with the reference tool's semantics.
 
     Pass 1 solves the initial mesh; from pass 2 on Delta S is the maximum change of any S-parameter
     between consecutive passes. The loop stops after `MinimumConvergedPasses` consecutive converged
     passes (but not before `MinimumPasses`), at `MaximumPasses`, or when the tetrahedra limit is hit.
+    With UsePowerBalance a pass also needs |Prad + Ploss - Pacc| / Pin <= MaxPowerBalance and an efficiency
+    change <= MaxDeltaEfficiency; power(fields, Ss) computes them (Bridge.pass_power).
     """
     from .emerge_compat import select_refinement_indices, tet_to_node
     maxp = max(1, int(p.get("MaximumPasses", "6")))
@@ -2237,6 +2302,9 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     use_mat = p.get("UseMatrixConvergence") == "True"
     max_dm = float(p.get("MaxDeltaMag", "0.02")) if use_mat else float("inf")
     max_dp = float(p.get("MaxDeltaPhase", "2")) if use_mat else float("inf")
+    use_pow = power is not None and p.get("UsePowerBalance") == "True"
+    max_pb = float(p.get("MaxPowerBalance", "0.01") or "0.01") if use_pow else float("inf")
+    max_de = float(p.get("MaxDeltaEfficiency", "0.01") or "0.01") if use_pow else float("inf")
     min_passes = max(2, int(p.get("MinimumPasses", "2")))
     min_conv = max(1, int(p.get("MinimumConvergedPasses", "1")))
     max_tets = int(float(p.get("MaximumRefinement", "1000000")))
@@ -2308,12 +2376,30 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         if passes:
             row["delta_tets"] = 100.0 * (m.mesh.n_tets / max(1, passes[-1]["tets"]) - 1)
         _solver_stats(row, step)
+        if use_pow:
+            exc = [dict(getattr(fl, "excitation", {}) or {}) for fl in fields]
+            try:
+                emit("progress", value=12 + 40 * (step - 0.8) / maxp, text=f"Pass {step}: power balance")
+                pw = power(fields, Ss)
+            except Exception as e:  # noqa: BLE001
+                warn(f"Pass {step}: power balance not computed ({e}); the pass is judged on Delta S only")
+                pw = None
+            for fl, ex in zip(fields, exc):
+                fl.excitation = ex
+            if pw is not None:
+                row["power_balance"] = pw["balance"]
+                row["eff"] = pw["eff"]
+                prev = passes[-1].get("eff") if passes else None
+                if prev is not None and len(prev) == len(pw["eff"]):
+                    row["delta_eff"] = max(abs(a - b) for a, b in zip(prev, pw["eff"]))
         if S_prev is not None:
             ds = [aligned_delta(a, b) for a, b in zip(S_prev, Ss)]
             row["delta_s"] = max(d[0] for d in ds)
             row["delta_mag"] = max(d[1] for d in ds)
             row["delta_phase"] = max(d[2] for d in ds)
             ok = row["delta_s"] <= max_ds and row["delta_mag"] <= max_dm and row["delta_phase"] <= max_dp
+            if "power_balance" in row:
+                ok = ok and row["power_balance"] <= max_pb and row.get("delta_eff", float("inf")) <= max_de
             passed = passed + 1 if ok else 0
             row["passed"] = ok
         S_prev = Ss
@@ -2408,9 +2494,15 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         info(f"Pass {step + 1}: mesh refined to {m.mesh.n_tets} tetrahedra (+{grow:.1f}%) "
              f"in {time.time() - t_ref:.2f} s")
         last_n = m.mesh.n_tets
+    if not converged and passes and passes[-1].get("power_balance", 0) > max_pb:
+        warn(f"Power balance {100 * passes[-1]['power_balance']:.2g} % of the incident power after the last pass "
+             f"(target {100 * max_pb:.2g} %): Prad + Ploss differs from the accepted power. More passes, a finer "
+             "initial mesh, or more space to the open boundary (padding) or a PML usually help")
     m.state.reload()
     m.state.store_geometry_data()
     res = {"passes": passes, "converged": converged, "max_delta_s": max_ds}
+    if use_pow:
+        res["max_power_balance"], res["max_delta_eff"] = max_pb, max_de
     if last is not None and last[4] == m.mesh.n_tets:
         res["_last"] = last          # solution of the final mesh: no need to solve it again
     return res

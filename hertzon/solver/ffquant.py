@@ -60,7 +60,7 @@ def rcs_pass_series(st, sphere: str, k: int = 0) -> dict[str, np.ndarray] | None
 
 
 def farfield_quantities(ff: dict, port: int = 1, k: int = 0, s11: complex | None = None, pin: float = 1.0,
-                        pacc: float | None = None) -> dict[str, np.ndarray]:
+                        pacc: float | None = None, ploss: float | None = None) -> dict[str, np.ndarray]:
     """Far field quantities over the sphere grid (n_theta, n_phi). Gain, directivity and realized gain are
     linear power ratios (a half-wave dipole: DirTotal 1.64 = 2.15 dBi), rE* field magnitudes in V; see
     docs/RESULT_FILES.md."""
@@ -82,7 +82,11 @@ def farfield_quantities(ff: dict, port: int = 1, k: int = 0, s11: complex | None
     Prad = Prad_solver if Prad_solver > 0 else 1.0
     Pin = pin                                   # incident power (1 W at one port unless Edit Sources says else)
     Pacc = pacc if pacc is not None else (Pin * (1 - abs(s11) ** 2) if s11 is not None else Prad)
-    eff = min(1.0, Prad / max(Pacc, 1e-30)) if Prad_solver > 0 else 1.0
+    if ploss is not None and Prad_solver > 0:
+        # Prad / (Prad + Ploss): no 1 - |S11|^2 in it, exactly 1 for a lossless antenna (power.py)
+        eff = Prad / max(Prad + ploss, 1e-300)
+    else:
+        eff = min(1.0, Prad / max(Pacc, 1e-30)) if Prad_solver > 0 else 1.0
     Dth = D * np.abs(Eth) ** 2 / np.maximum(np.abs(Eth) ** 2 + np.abs(Eph) ** 2, 1e-300)
     out = {
         "DirTotal": D,
@@ -118,6 +122,9 @@ def farfield_quantities(ff: dict, port: int = 1, k: int = 0, s11: complex | None
     out["_theta"] = th
     out["_phi"] = ph
     out["_Prad"] = np.array([Prad])
+    if ploss is not None and Prad_solver > 0:
+        out["_Ploss"] = np.array([ploss])
+        out["_balance"] = np.array([(Prad + ploss - Pacc) / max(Pin, 1e-300)])
     return out
 
 
@@ -136,6 +143,11 @@ def antenna_parameters(q: dict) -> list[tuple[str, str]]:
             ("Accepted Power", f"{float(q['_Pacc'][0]):.4g} W"),
             ("Incident Power", "1 W"),
             ("Radiation Efficiency", f"{float(q['_eff'][0]):.4g}")]
+    if "_Ploss" in q:
+        bal = float(q["_balance"][0])
+        rows.insert(-1, ("Loss Power", f"{float(q['_Ploss'][0]):.4g} W"))
+        rows.append(("Power Balance", f"{100 * bal:+.2f} % of the incident power"
+                     + (BALANCE_WARNING if abs(bal) > BALANCE_WARN else "")))
     # front to back: direction of max versus the opposite direction
     t0, p0 = th[k[0]], ph[k[1]]
     tb = np.pi - t0
@@ -157,9 +169,15 @@ def antenna_parameters(q: dict) -> list[tuple[str, str]]:
 # AxialRatioAtMax 20 log10 (like dB(AxialRatioValue)); angles are in degrees.
 ANTENNA_QUANTITIES = ["PeakDirectivity", "PeakGain", "PeakRealizedGain", "MaxU", "RadiatedPower",
                       "AcceptedPower", "IncidentPower", "RadiationEfficiency", "FrontToBackRatio",
-                      "ThetaAtMax", "PhiAtMax", "AxialRatioAtMax", "GainRHCPAtMax", "GainLHCPAtMax"]
+                      "ThetaAtMax", "PhiAtMax", "AxialRatioAtMax", "GainRHCPAtMax", "GainLHCPAtMax",
+                      "LossPower", "PowerBalance"]
 ANTENNA_POWER = {"PeakDirectivity", "PeakGain", "PeakRealizedGain", "MaxU", "RadiatedPower", "AcceptedPower",
-                 "IncidentPower", "RadiationEfficiency", "FrontToBackRatio", "GainRHCPAtMax", "GainLHCPAtMax"}
+                 "IncidentPower", "RadiationEfficiency", "FrontToBackRatio", "GainRHCPAtMax", "GainLHCPAtMax",
+                 "LossPower"}
+# |Prad + Ploss - Pacc| / Pin above this: the solution is not converged in power (the Antenna Parameters warn)
+BALANCE_WARN = 0.02
+BALANCE_WARNING = ("  -- not converged: Prad + Ploss differs from the accepted power. Tighten Max Delta S, "
+                   "add passes, or set Max Power Balance in the setup.")
 ANTENNA_PASSES = "antenna_passes.json"
 
 
@@ -179,6 +197,8 @@ def antenna_values(q: dict) -> dict[str, float]:
             "RadiatedPower": float(q["_Prad"][0]), "AcceptedPower": float(q["_Pacc"][0]),
             "IncidentPower": float(q.get("_Pinc", [1.0])[0]),
             "RadiationEfficiency": float(q["_eff"][0]), "FrontToBackRatio": fb,
+            "LossPower": float(q["_Ploss"][0]) if "_Ploss" in q else float("nan"),
+            "PowerBalance": float(q["_balance"][0]) if "_balance" in q else float("nan"),
             "ThetaAtMax": float(np.degrees(t0)), "PhiAtMax": float(np.degrees(p0)),
             "AxialRatioAtMax": float(q["AxialRatioValue"][k]), "GainRHCPAtMax": float(q["GainRHCP"][k]),
             "GainLHCPAtMax": float(q["GainLHCP"][k])}
@@ -218,10 +238,11 @@ def excited_quantities(st, design, ff: dict, label: str, k: int, port: int | Non
     if w is None:
         n = port if port is not None else _first_port(ff)
         idx = next((j for j, p in enumerate(ports) if int(p.get("number", 0)) == n), 0)
+        ploss = loss_power(st, label, f, {n: 1.0})
         if S is None or idx >= S.shape[0]:
-            return farfield_quantities(ff, n, k, None)
+            return farfield_quantities(ff, n, k, None, ploss=ploss)
         # accepted = incident - everything leaving through the ports (reflection and coupling)
-        return farfield_quantities(ff, n, k, None, pacc=float(1.0 - np.sum(np.abs(S[:, idx]) ** 2)))
+        return farfield_quantities(ff, n, k, None, pacc=float(1.0 - np.sum(np.abs(S[:, idx]) ** 2)), ploss=ploss)
     nums = [int(p["number"]) for p in ports]
     a = np.array([w.get(n, 0.0) for n in nums], complex)
     E = sum(w[n] * ff[f"E_{k}_{n}"] for n in w if f"E_{k}_{n}" in ff)
@@ -237,7 +258,27 @@ def excited_quantities(st, design, ff: dict, label: str, k: int, port: int | Non
         prad = float(sum(abs(w[n]) ** 2 * float(ff.get(f"Prad_{k}_{n}", [0.0])[0]) for n in w))
     one = {key: ff[key] for key in ("theta", "phi", "E0") if key in ff}
     one.update({f"E_{k}_0": E, f"Prad_{k}_0": np.array([prad]), f"freq_{k}": ff[f"freq_{k}"]})
-    return farfield_quantities(one, 0, k, None, pin=pin, pacc=pacc)
+    return farfield_quantities(one, 0, k, None, pin=pin, pacc=pacc, ploss=loss_power(st, label, f, w))
+
+
+def loss_power(st, label: str, f: float, w: dict[int, complex]) -> float | None:
+    """Ploss = a^H L a (W) of the port amplitudes w at frequency f, from losses_<label>.npz (Bridge.save_losses);
+    None when the losses were not computed (older results): the efficiency is then Prad / Pacc."""
+    d = st.npz(f"losses_{label}.npz")
+    if d is None or not int(np.ravel(d.get("ok", [0]))[0]):
+        return None
+    nums = [int(n) for n in np.ravel(d["ports"])]
+    if any(n not in nums for n in w):
+        return None
+    ks = [int(key.split("_")[1]) for key in d if key.startswith("freq_")]
+    k = next((k for k in ks if abs(float(d[f"freq_{k}"][0]) - f) <= 1e-6 * max(f, 1.0)), None)
+    if k is None:
+        return None
+    L = d.get(f"Ploss_{k}")
+    if L is None:                     # lossless model
+        return 0.0
+    a = np.array([w.get(n, 0.0) for n in nums], complex)
+    return max(0.0, float(np.real(np.conj(a) @ np.asarray(L) @ a)))
 
 
 def _first_port(ff) -> int:

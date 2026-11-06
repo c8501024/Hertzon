@@ -211,7 +211,8 @@ class PropertiesPanel(QWidget):
         des = self.doc.design
         pw = not des.ports() and any(e.kind == "Incident Plane Wave" and e.enabled for e in des.excitations)
         # an incident wave design converges on Delta Energy, a port design on Delta S
-        drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase"} if pw
+        drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
+                 "MaxPowerBalance", "MaxDeltaEfficiency"} if pw
                 else {"MaximumDeltaEnergy"})
         props = [p for p in props if p.name not in drop]
         for tab in dict.fromkeys(p.tab for p in props):
@@ -717,6 +718,9 @@ class SolutionDataDialog(QDialog):
         if pw:  # incident wave: no S-parameters, the pass criterion is Delta Energy
             qmap = {"Delta Energy": "delta_s", "Number of Tetrahedra": "tets", "% Delta Tets": "delta_tets",
                     "Solve Time (s)": "time"}
+        pb = any("power_balance" in p for p in passes)     # Use power balance convergence
+        if pb:
+            qmap.update({"Power Balance": "power_balance", "Delta Efficiency": "delta_eff"})
         lay.addWidget(QLabel(f"Solved Passes: {len(passes)}    {state}    Target Max {dq}: "
                              f"{conv.get('max_delta_s', '')}    Adaptive frequency: "
                              + ", ".join(f"{f / 1e9:.6g} GHz" for f in fa)))
@@ -738,11 +742,16 @@ class SolutionDataDialog(QDialog):
             if not pw:
                 r += [f"{p['delta_mag']:.5f}" if "delta_mag" in p else "N/A",
                       f"{p['delta_phase']:.3f}" if "delta_phase" in p else "N/A"]
+            if pb:
+                r += [f"{p['power_balance']:.5f}" if "power_balance" in p else "N/A",
+                      f"{p['delta_eff']:.4f}" if "delta_eff" in p else "N/A"]
             rows.append(r + ["Yes" if p.get("passed") else ("No" if "passed" in p else "N/A"),
                              f"{p.get('time', 0):.1f} s"])
         cols = ["Pass Number", "# Tetrahedra", "% Delta Tets", "Delta Energy" if pw else "Max Mag. Delta S"]
         if not pw:
             cols += ["Max Delta |S|", "Max Delta Phase (deg)"]
+        if pb:
+            cols += ["Power Balance", "Delta Efficiency"]
         table = self._table(cols + ["Converged", "Solve Time"], rows)
         lay.addWidget(table)
         fig = Figure(figsize=(6, 3), tight_layout=True)
@@ -763,6 +772,10 @@ class SolutionDataDialog(QDialog):
                     ax.legend(fontsize=8)
                 else:
                     ax.plot(x, y, "o-")
+                    tgt = {"power_balance": "max_power_balance", "delta_eff": "max_delta_eff"}.get(key)
+                    if tgt in conv:
+                        ax.axhline(conv[tgt], color="r", ls="--", label="Target")
+                        ax.legend(fontsize=8)
             from matplotlib.ticker import MaxNLocator
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
             ax.set_xlabel("Pass")

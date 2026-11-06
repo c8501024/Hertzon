@@ -144,6 +144,9 @@ HELP: dict[str, str] = {
     "MaximumDeltaS": "Convergence target: maximum change of any S-parameter magnitude between two passes.",
     "UseMatrixConvergence": "Use separate magnitude and phase targets instead of Delta S.",
     "MaxDeltaMag": "Maximum change of |S| between passes.",
+    "UsePowerBalance": "Antennas: also require Prad + Ploss = Pacc (power balance) and a stable radiation efficiency.",
+    "MaxPowerBalance": "Maximum |Prad + Ploss - Pacc| / Pin of a pass (0.01 = 1 % of the incident power).",
+    "MaxDeltaEfficiency": "Maximum change of the radiation efficiency Prad / (Prad + Ploss) between passes.",
     "MaxDeltaPhase": "Maximum change of the S-parameter phase between passes (degrees).",
     "LambdaRefinement": "Initial mesh refinement so that elements are smaller than a fraction of the wavelength.",
     "LambdaTarget": "Initial element size as a fraction of the wavelength (default: 0.1 / 0.3333 / 0.6667 "
