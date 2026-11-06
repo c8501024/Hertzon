@@ -126,3 +126,29 @@ def test_optimization_evaluations_keep_the_sweeps_of_the_design(tmp_path):
     assert [s.props.get("Enabled", "True") for s in qd.setup("Setup1").sweeps] == ["True", "True"]
     assert model_key(q, qd, qd.setup("Setup1")) == model_key(p, d, st)
     assert opt._env(1)["HERTZON_GOAL_SWEEP"] == "Sweep"
+
+
+def test_setup_only_optimization_uses_the_open_region_of_the_setup(tmp_path):
+    """Goals on LastAdaptive: the evaluations solve no sweep, so all sweeps are off and the open region is the
+    one of the solution frequency."""
+    import copy
+    from hertzon.model.design import Optimization, Project
+    from hertzon.solver import optimize as O
+    from hertzon.solver.keys import open_region_frequency
+    p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "PatchAntenna.hzn")
+    d = p.designs[0]
+    st = d.setups[0]
+    wide = copy.deepcopy(st.sweeps[0])
+    wide.name = "Wide"
+    wide.props.update(Start="0.8GHz", Stop="4GHz", Step="0.1GHz")
+    st.sweeps.append(wide)
+    d.optimetrics.append(Optimization("TR", "Setup1 : LastAdaptive",
+                                      variables=[{"name": "Lp", "include": True, "min": "26mm", "max": "31mm"}],
+                                      goals=[], props={"Optimizer": "Derivative Trust Region"}))
+    p.save(tmp_path / "p.hzn")
+    opt = O.Optimizer(str(tmp_path / "p.hzn"), d.name, "TR", tmp_path / "out")
+    q = opt._project_for({"Lp": "28.5mm"})
+    qd = q.design(d.name)
+    assert all(s.props["Enabled"] == "False" for s in qd.setup("Setup1").sweeps)
+    assert open_region_frequency(q, qd, qd.setup("Setup1")) is None
+    assert open_region_frequency(p, d, st) is not None
