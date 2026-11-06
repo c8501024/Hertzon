@@ -101,7 +101,7 @@ J = np.array([[-0.065, -0.065, 0, 0], [-0.065, 0, 0, 0], [0, 0, -0.19, 0], [0, 0
 y = evaluate(p, "fit0")
 TOL = np.array([0.003, 0.003, 0.02, 0.02])     # relative: the fit itself scatters by a few MHz on a fixed mesh
 err = lambda v: float(np.max(np.abs(v - TGT) / TGT / TOL))  # noqa: E731
-best_p, best_e = p, err(y)
+best_e = err(y)
 for it in range(1, 6):
     if best_e < 1:
         break
@@ -111,8 +111,10 @@ for it in range(1, 6):
     J += np.outer((y2 - y) - J @ dp, dp) / (dp @ dp)
     p, y = p2, y2
     if err(y) < best_e:
-        best_p, best_e = p, err(y)
-p = best_p
+        best_e = err(y)
+# the circuit does not describe the field solution exactly (fit rms ~0.05 in |S|): the DTR starts from the step
+# with the best measured passband match, not from the one closest to the circuit targets
+p = np.array([min(summary["steps"], key=lambda r: r["S11_max_dB"])[n] for n in NAMES])
 summary["fit"] = {"values": dict(zip(NAMES, p.tolist())), "seconds": round(time.time() - t0, 1)}
 save()
 
