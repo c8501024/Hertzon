@@ -6,6 +6,8 @@ Meta Reality Labs published two antenna design benchmarks based on AI-glasses te
 Example 1, found by a general-purpose LLM agent (Claude Opus 5.5 in Claude Code) that drove Hertzon only
 through its MCP interface, and cross-checked in Ansys HFSS.
 
+**Full report:** [REPORT.md](REPORT.md) (method, design evolution, HFSS cross-check, timing and token usage).
+
 ## Result
 
 Coupled-fed shorted strip on the top layer of the 25 x 5 mm keep-out, **no matching components**.
