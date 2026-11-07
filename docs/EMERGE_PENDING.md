@@ -1,6 +1,6 @@
 # Waiting on EMerge
 
-Hertzon is built on a pinned commit of EMerge's `hertzon` branch (`packaging/emerge-commit`). This list
+Hertzon uses a pinned commit of EMerge's `hertzon` branch (`packaging/emerge-commit`). This list
 says which EMerge fixes Hertzon is waiting for, what in Hertzon depends on each one, and what to check once
 it arrives. Background on every EMerge change is in `docs/EMERGE_INTEGRATION.md` and
 `docs/EMERGE_CHANGES.md`.

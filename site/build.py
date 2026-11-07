@@ -216,8 +216,8 @@ SEARCH_DIALOG = """<div id="search" class="search" hidden onclick="if(event.targ
 def footer(prefix: str) -> str:
     return f"""<footer class="foot">
 <div class="foot-in">
-<div><strong>Hertzon</strong> is an independent open-source project by Dominik Mair, built on
-<a href="https://github.com/FennisRobert/EMerge">EMerge</a>, the FEM solver by Robert Fennis.
+<div><strong>Hertzon</strong> is an independent open-source project by Dominik Mair. Its FEM solver core is
+<a href="https://github.com/FennisRobert/EMerge">EMerge</a> by Robert Fennis.
 It is not affiliated with any vendor of commercial simulation software. Product names mentioned are trademarks of
 their respective owners.</div>
 <div class="foot-links"><a href="{REPO}">GitHub</a> · <a href="{REPO}/releases">Releases</a> ·
