@@ -386,18 +386,65 @@ class BandModel:
         self.states = [()] + [((i, 1),) for i in range(n)] + [((i, -1),) for i in range(n)] + \
             [((i, 1), (j, 1)) for i, j in pairs(n)]
         self.parts = {}
-        E, Bv = {}, {}
-        for key in self.states:
-            st = self._state(key, f_ref)
-            E[key], Bv[key] = st.pop("E"), st.pop("B")
-            self.parts[key] = st
-        self.ids = self.parts[()]["ids"]
-        self.mats = self.parts[()]["mats"]
         self.NF = mw.basis.n_field
-        self.E = _fd(E, n, steps)
-        self.B = _fd(Bv, n, steps)
-        del E, Bv
+        # the volume matrices of the states are combined into their differences as soon as these can be
+        # formed, so that only the nominal state and the +step states are held at a time; the differences
+        # are kept in single precision (their relative error from the differencing is far larger)
+        nom = self._state((), f_ref)
+        E0, B0 = nom.pop("E"), nom.pop("B")
+        self.parts[()] = nom
+        self.ids = nom["ids"]
+        self.mats = nom["mats"]
+        self._check_memory(E0, B0)
+        h = steps
+        low = lambda M: M.astype(np.complex64 if np.iscomplexobj(M.data) else np.float32)      # noqa: E731
+        Ed1, Ed2, Bd1, Bd2, plus = [], [], [], [], []
+        for i in range(n):
+            sp_, sm = self._state(((i, 1),), f_ref), self._state(((i, -1),), f_ref)
+            Ep, Bp, Em, Bm = sp_.pop("E"), sp_.pop("B"), sm.pop("E"), sm.pop("B")
+            self.parts[((i, 1),)], self.parts[((i, -1),)] = sp_, sm
+            Ed1.append(low((Ep - Em) / (2 * h[i])))
+            Bd1.append(low((Bp - Bm) / (2 * h[i])))
+            Ed2.append(low((Ep - 2 * E0 + Em) / h[i] ** 2))
+            Bd2.append(low((Bp - 2 * B0 + Bm) / h[i] ** 2))
+            del Em, Bm
+            plus.append((Ep, Bp))
+        Edx, Bdx = [], []
+        for i, j in pairs(n):
+            key = ((i, 1), (j, 1))
+            st = self._state(key, f_ref)
+            Epp, Bpp = st.pop("E"), st.pop("B")
+            self.parts[key] = st
+            Edx.append(low((Epp - plus[i][0] - plus[j][0] + E0) / (h[i] * h[j])))
+            Bdx.append(low((Bpp - plus[i][1] - plus[j][1] + B0) / (h[i] * h[j])))
+            del Epp, Bpp
+        del plus
+        self.E = (E0, Ed1, Ed2, Edx)
+        self.B = (B0, Bd1, Bd2, Bdx)
         asm.restore()
+
+    def _check_memory(self, E0, B0) -> None:
+        """Refuse a model whose volume matrices do not fit into the free memory (instead of being killed by
+        the operating system half way): every state keeps its matrix differences in single precision, the
+        +step states are held in double precision while the differences are formed, and the factorization of
+        an expansion frequency needs room as well."""
+        n = len(self.V)
+        nnz = E0.nnz + B0.nnz
+        need = len(self.states) * nnz * 12 + n * nnz * 20 + 2 * nnz * 20
+        try:
+            import psutil
+            free = psutil.virtual_memory().available
+        except Exception:  # noqa: BLE001
+            return
+        self.log(f"Tuning model of {n} variables: about {need / 2 ** 30:.1f} GB for the volume matrices of "
+                 f"{len(self.states)} mesh states ({free / 2 ** 30:.1f} GB free)")
+        if need > 0.6 * free:
+            fit = [k for k in range(1, n + 1)
+                   if ((k + 1) * (k + 2) // 2 * nnz * 12 + k * nnz * 20 + 2 * nnz * 20) <= 0.6 * free]
+            hint = (f"at most {fit[-1]} variable{'s' if fit[-1] > 1 else ''} fit on this mesh"
+                    if fit else "not even one variable fits on this mesh")
+            raise MO.MorphError(f"not enough memory for the tuning model of {n} variables: it needs about "
+                                f"{need / 2 ** 30:.1f} GB, {free / 2 ** 30:.1f} GB are free ({hint})")
 
     def _move(self, key: tuple) -> None:
         if key:
@@ -415,19 +462,34 @@ class BandModel:
         if fdep:
             raise NotAffine("frequency dependent materials")
         ct = asy._find_conductor_tets(field, bcs, cond)
-        system, E, Bm = asy._prepare_system(field, er, ur, ct, self.robin, True, bcs=bcs)
+        # no cache on the pattern: the matrices are taken over below, the pattern is rebuilt for every state
+        system, E, Bm = asy._prepare_system(field, er, ur, ct, self.robin, False, bcs=bcs)
         pec_ids, _ = asy._collect_pec_dofs(field, mesh, bcs, ct, cond)
         ids = np.asarray(asy._solve_ids(field.n_field, pec_ids))
         if key and not np.array_equal(ids, self.parts[()]["ids"]):
             raise MO.MorphError("the morphed mesh changes the unknowns of the solve")
-        g = np.full(field.n_field, -1)
-        g[ids] = np.arange(len(ids))
-        rows = np.asarray(system.indices)
-        cols = np.repeat(np.arange(system.N), np.diff(system.indptr))
-        return {"system": system, "er": er, "ids": ids, "mats": (er, ur, cond),
-                "E": csc_submatrix(system.as_csc_matrix(E), ids).tocsr(),
-                "B": csc_submatrix(system.as_csc_matrix(Bm), ids).tocsr(),
-                "rows": g[rows], "cols": g[cols], "mask": None}
+        Es = csc_submatrix(system.as_csc_matrix(E), ids).tocsr()
+        Bs = csc_submatrix(system.as_csc_matrix(Bm), ids).tocsr()
+        del E, Bm
+        nom = self.parts.get(())
+        if nom is not None and nom["system"].nnz == system.nnz and np.array_equal(nom["pattern"][0], system.indptr) \
+                and np.array_equal(nom["pattern"][1], system.indices):
+            rows, cols, pattern = nom["rows"], nom["cols"], nom["pattern"]    # the same pattern: shared
+        else:
+            g = np.full(field.n_field, -1)
+            g[ids] = np.arange(len(ids))
+            rows = g[np.asarray(system.indices)]
+            cols = g[np.repeat(np.arange(system.N), np.diff(system.indptr))]
+            pattern = (system.indptr, system.indices)
+        # the boundary terms of a state need its pattern with the boundary data only: a copy without the
+        # mapping of the volume assembly (the largest part of the pattern)
+        import copy
+        slim = copy.copy(system)
+        slim.volume_coo_to_csc = None
+        slim.cached_E = slim.cached_B = None
+        slim.indptr, slim.indices = pattern
+        return {"system": slim, "er": er, "ids": ids, "mats": (er, ur, cond), "E": Es, "B": Bs,
+                "rows": rows, "cols": cols, "pattern": pattern, "mask": None}
 
     def boundary(self, key: tuple, f: float, W: np.ndarray | None = None):
         """(R, b) of a state at frequency f: boundary matrix terms (solve dofs, sparse) and excitations;
