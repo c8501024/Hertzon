@@ -7,14 +7,14 @@ the GitHub release notes.
 
 ### Added
 - **Equation Based Curve** (Draw > Equation Based Curve..., and in the 1D group of the Draw ribbon): a curve
-  from X(_t), Y(_t), Z(_t) with _t running from a start to an end value in a given number of points. The
+  from X(t), Y(t), Z(t) with t running from a start to an end value in a given number of points. The
   functions may use design variables and units (plain numbers are model units), so the curve follows
   parametric sweeps and optimizations. A smooth spline or straight lines through the points; a closed curve
   can be covered into a sheet (e.g. spiral or exponentially tapered outlines).
 - **Equation Based Curve dialog**: its own window with presets (circle, arc, ellipse, helix, Archimedean
   spiral, exponential taper, sine meander), Cartesian, Cylindrical (r, phi, z) and Y = f(X) coordinates, and a
   live preview with start, end, length and number of points while typing. An error names the value of t where
-  it happens and marks the field. The parameter can be written t or _t.
+  it happens and marks the field. The parameter is t; _t (as in other tools) works too.
 - The Equation Based Curve dialog has the same **Constants & Functions...** button as Design Properties: a
   double-click inserts a constant, function, unit or variable at the cursor of the last edited field.
 
