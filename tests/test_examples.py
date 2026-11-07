@@ -163,3 +163,18 @@ def test_showcase_builds_and_passes_the_validation_check():
     h = p.design("H_TwoModeWaveguide")
     assert {e.props["NumberOfModes"] for e in h.excitations} == {"2"}
     assert any(s.props.get("PortsOnly") == "True" for d in p.designs for s in d.setups)
+
+
+def test_stub_filter_circuit_notch_of_the_tutorial():
+    """Tutorial section 11: the circuit of examples/StubFilter.hzn has its notch at 2.45 GHz and the layout
+    was created from it with the same stub length."""
+    import numpy as np
+    from hertzon.solver.circuit import analyze
+    from hertzon.model.design import project_from_dict
+    p = project_from_dict(json.loads((EX / "StubFilter.hzn").read_text(encoding="utf-8")))
+    d, lay = p.design("StubFilter"), p.design("StubFilter_Layout")
+    assert d.kind == "circuit" and lay.settings["LayoutOf"] == "StubFilter"
+    assert lay.variables["MSO1_L"] == lay.variables["MSO2_L"] == "18.2mm"
+    fr = np.linspace(2.4e9, 2.5e9, 101)
+    s21 = abs(analyze(p, d, fr).S[:, 1, 0])
+    assert fr[np.argmin(s21)] == pytest.approx(2.45e9, abs=2e6)

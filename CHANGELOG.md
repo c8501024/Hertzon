@@ -5,6 +5,14 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Documentation for circuits and PCB import**: [docs/CIRCUIT.md](docs/CIRCUIT.md) describes circuit designs
+  (parts, junctions, line calculator, full-wave line model, 3D designs as blocks, 3D layout and back). The
+  tutorial has two new sections: a stub filter as a circuit with its 3D layout, solved, tuned in 3D and copied
+  back (new example `examples/StubFilter.hzn`), and a board imported from Gerber files. README, feature
+  overview, roadmap and website describe the start page, circuits, PCB import, the Constants & Functions list
+  and the newer MCP tools; the tutorial screenshots show the current user interface.
+
 ## 0.3.2 (2026-11-07)
 
 ### Fixed
