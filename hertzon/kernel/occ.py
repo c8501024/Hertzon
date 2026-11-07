@@ -9,6 +9,7 @@ import hashlib
 from pathlib import Path
 import json
 import math
+import os
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -762,8 +763,61 @@ def _create(cmd: Command, ctx: BuildContext) -> list[tuple[int, int]]:
 
 def import_cad(path: str, unit_scale: float) -> list[tuple[int, int]]:
     """STEP/IGES/BREP bodies in metres (the model is built in SI units). STEP and IGES carry their
-    length unit, OpenCASCADE converts it; BREP has none and is read in model units (as STL)."""
+    length unit, OpenCASCADE converts it; BREP has none and is read in model units (as STL).
+
+    STEP and IGES are translated once and kept as BREP (~/.hertzon/cad_cache, keyed by path, size and
+    modification time): translating a large assembly takes minutes, reading its BREP seconds, and the file is
+    read again for every build (window, MCP, each simulation and optimization step)."""
     ext = Path(path).suffix.lower()
+    if ext not in (".step", ".stp", ".iges", ".igs"):
+        return _import_cad_file(path, ext, unit_scale)
+    try:
+        cache = _cad_cache_file(path)
+        if not cache.exists():
+            _write_cad_cache(path, ext, cache)
+        return _read_brep_m(cache)
+    except Exception:  # noqa: BLE001
+        return _import_cad_file(path, ext, unit_scale)    # no cache: read the file itself
+
+
+def _cad_cache_file(path: str) -> Path:
+    p = Path(path).resolve()
+    st = p.stat()
+    key = hashlib.sha1(f"v1|{p}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:20]
+    d = Path.home() / ".hertzon" / "cad_cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{p.stem}_{key}.brep"
+
+
+def _read_brep_m(file: Path) -> list[tuple[int, int]]:
+    """A BREP file whose coordinates are metres, read as they are."""
+    old = gmsh.option.getString("Geometry.OCCTargetUnit")
+    gmsh.option.setString("Geometry.OCCTargetUnit", "")
+    try:
+        return _occ().importShapes(str(file), highestDimOnly=True)
+    finally:
+        gmsh.option.setString("Geometry.OCCTargetUnit", old)
+
+
+def _write_cad_cache(path: str, ext: str, cache: Path) -> None:
+    """Translate the STEP/IGES file once in a scratch model (bodies in metres, in import order) and write it as
+    BREP; the first import and every later one then read the same BREP, so the body order is the same."""
+    cur = gmsh.model.getCurrent()
+    gmsh.model.add("_hertzon_cad_cache")
+    try:
+        out = _import_cad_file(path, ext, 1.0)
+        _occ().synchronize()
+        if not out:
+            raise GeometryError(f"no bodies in '{path}'")
+        tmp = cache.with_name(f"{cache.stem}.{os.getpid()}.tmp.brep")
+        gmsh.write(str(tmp))
+        tmp.replace(cache)
+    finally:
+        gmsh.model.remove()
+        gmsh.model.setCurrent(cur)
+
+
+def _import_cad_file(path: str, ext: str, unit_scale: float) -> list[tuple[int, int]]:
     old = gmsh.option.getString("Geometry.OCCTargetUnit")
     gmsh.option.setString("Geometry.OCCTargetUnit", "M" if ext in (".step", ".stp", ".iges", ".igs") else "")
     try:

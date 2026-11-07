@@ -82,21 +82,49 @@ def stop_worker() -> None:
         _WORKER = None
 
 
+def warm() -> None:
+    """Start the child in the background when the server starts, so that the first render_image, validate or
+    run_simulation does not wait for a new Python to load gmsh and Hertzon (tens of seconds on Windows with
+    cold DLLs). HERTZON_NO_PRELOAD=1 turns it off."""
+    if os.environ.get("HERTZON_NO_PRELOAD") == "1":
+        return
+
+    def start():
+        global _WORKER
+        with _LOCK:
+            if _WORKER is None or not _WORKER.alive():
+                try:
+                    _WORKER = _Worker()
+                except Exception:  # noqa: BLE001
+                    _WORKER = None
+    threading.Thread(target=start, daemon=True).start()
+
+
 def build(project_dict: dict, path: str | None, design: str, names: list[str] | None, timeout: float,
           on_progress=None, should_stop=None, kind: str = "tess"):
     """Build and tessellate the named live objects (all: None) of a design in the child process. Raises
     BuildTimeout or BuildCancelled after stopping the child; the next call starts a new one."""
+    return _run({"project": project_dict, "path": path, "design": design, "names": names, "kind": kind},
+                timeout, on_progress, should_stop)
+
+
+def probe(file: str, unit_scale: float, timeout: float, on_progress=None, should_stop=None) -> list:
+    """The bodies [(dim, tag)] of a CAD or STL file, read in the child process: a large STEP file that the
+    kernel reads for half an hour no longer holds the server (time limit, cancel, pings answered)."""
+    return _run({"kind": "probe", "file": file, "unit": unit_scale}, timeout, on_progress, should_stop)
+
+
+def _run(job: dict, timeout: float, on_progress=None, should_stop=None):
     global _WORKER
     with _LOCK:
         if _WORKER is None or not _WORKER.alive():
             _WORKER = _Worker()
         w = _WORKER
-        job = pickle.dumps({"project": project_dict, "path": path, "design": design, "names": names,
-                            "kind": kind})
+        data = pickle.dumps(job)
         t0 = time.monotonic()
         last = ""
         try:
-            w.p.stdin.write(b"J " + job.hex().encode("ascii") + b"\n")
+            w.p.stdin.write(b"J " + data.hex().encode("ascii") + b"\n")
             w.p.stdin.flush()
             while True:
                 left = timeout - (time.monotonic() - t0)
@@ -150,12 +178,24 @@ def main() -> int:
     def send(tag: str, body: str) -> None:
         out.write(f"{tag} {body}\n".encode("utf-8"))
 
+    # load the heavy modules now, while the server waits for its first call, not when the first job comes
+    try:
+        from ..kernel import occ as K
+        from ..model import design as _design  # noqa: F401
+        K.ensure_gmsh("hertzon_mcp")
+    except Exception as e:  # noqa: BLE001
+        print(f"[hertzon geometry] preload failed: {e}", file=sys.stderr, flush=True)
+
     for line in sys.stdin.buffer:
         tag, _, body = line.decode("ascii", "replace").strip().partition(" ")
         if tag != "J":
             continue
         try:
             job = pickle.loads(bytes.fromhex(body))
+            if job.get("kind") == "probe":
+                send("P", json.dumps({"done": 0, "total": 1, "message": f"reading {job['file']}"}))
+                send("R", pickle.dumps(probe_here(job["file"], job["unit"])).hex())
+                continue
             from ..model.design import project_from_dict
             proj = project_from_dict(job["project"])
             proj.path = job["path"]
@@ -170,6 +210,21 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             send("R", pickle.dumps({"error": f"{type(e).__name__}: {e}"}).hex())
     return 0
+
+
+def probe_here(file: str, unit_scale: float) -> list:
+    """The bodies of a CAD or STL file, read into a scratch model."""
+    import gmsh
+    from ..kernel import occ as K
+    K.ensure_gmsh("hertzon_mcp_probe")
+    gmsh.model.remove()
+    gmsh.model.add("hertzon_mcp_probe")
+    if file.lower().endswith(".stl"):
+        bodies = K.import_stl(file, unit_scale, count_only=True)
+    else:
+        bodies = K.import_cad(file, unit_scale)
+    gmsh.model.occ.synchronize()
+    return [(int(d), int(t)) for d, t in bodies]
 
 
 def sheets_here(proj, des) -> list:

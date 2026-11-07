@@ -3,6 +3,25 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Simulations start as fast as before 0.3.4**: the check for sheets that run through conductors no longer
+  runs before every simulation. It built the whole model a second time and cut every sheet with every solid
+  (on a board with 85 vias 26 s against 2 s for the model itself), before each run and each optimization
+  step. It now runs only when meshing or solving fails, to name the sheets in the error message; the
+  Validation Check shows the same warnings as before.
+- **MCP**: the geometry process for render_image, validate, get_geometry and run_simulation starts with the
+  server and loads gmsh and Hertzon right away, so the first call no longer waits for it
+  (HERTZON_NO_PRELOAD=1 turns it off).
+- **MCP import_geometry** reads the STEP, IGES, BREP or STL file in the geometry process, with a time limit
+  (timeout_s), progress and cancel like render_image. A large file no longer holds the whole server without
+  an answer.
+- **STEP and IGES imports are read from a cache**: the file is translated once and kept as BREP
+  (~/.hertzon/cad_cache). Every later build reads the cache, whether in the window, over MCP, or for each
+  simulation and optimization step. On an assembly with 800 bodies that took 0.4 s instead of 13 s. A changed
+  file is translated again.
+
 ## 0.3.4 (2026-11-07)
 
 ### Added
