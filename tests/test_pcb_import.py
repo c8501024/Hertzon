@@ -19,6 +19,7 @@ from hertzon.model.design import Project  # noqa: E402
 from hertzon.pcbimport import board as B  # noqa: E402
 from hertzon.pcbimport import excellon as E  # noqa: E402
 from hertzon.pcbimport import gerber as R  # noqa: E402
+from shapely.geometry import Polygon  # noqa: E402
 
 IN2 = 0.0254 ** 2
 MM2 = 1e-6
@@ -431,3 +432,62 @@ def test_import_dialog(tmp_path):
     app.processEvents()
     dlg.grab().save(str(tmp_path / "pcb_import.png"))
     dlg.close()
+
+
+# ---- copper shapes that touch themselves --------------------------------------------------------
+def _touching_shapes(eps: float) -> dict:
+    """Valid polygons (shapely) that the kernel cannot close as they are: rings whose corners come closer
+    than its tolerance (a net tie: two parts that meet in a point), a hole on the outline, two holes that
+    touch, a slit."""
+    m = 1e-3
+    sq = [(0, 0), (10 * m, 0), (10 * m, 10 * m), (0, 10 * m)]
+    return {
+        "pinch": Polygon([(0, 0), (5 * m, 5 * m - eps), (10 * m, 0), (10 * m, 10 * m), (5 * m, 5 * m + eps),
+                          (0, 10 * m)]),
+        "slit": Polygon([(0, 0), (10 * m, 0), (10 * m, 10 * m), (5 * m + eps, 10 * m), (5 * m, 5 * m),
+                         (5 * m - eps, 10 * m), (0, 10 * m)]),
+        "hole_on_outline": Polygon(sq, [[(0, 5 * m), (3 * m, 4 * m), (3 * m, 6 * m)]]),
+        "holes_touch": Polygon(sq, [[(2 * m, 2 * m), (5 * m, 2 * m), (5 * m, 5 * m)],
+                                    [(5 * m + eps, 5 * m), (8 * m, 5 * m), (8 * m, 8 * m)]]),
+    }
+
+
+def _build_shape(q: Polygon):
+    p = Project()
+    d = p.designs[0]
+    d.units = "mm"
+    d.add_object("CreatePolyline", "Cu", material="vacuum", Points=B._loop(q.exterior.coords, 1e-3, "0"),
+                 Closed="True", Covered="True",
+                 Holes="|".join(B._loop(h.coords, 1e-3, "0") for h in q.interiors))
+    return _build(d, p)["Cu"]
+
+
+@pytest.mark.parametrize("eps", [0.0, 1e-9, 5e-9, 1e-7])
+def test_copper_shapes_that_touch_themselves_build(eps):
+    for name, p in _touching_shapes(eps).items():
+        qs, note = B.normalize(p)
+        assert len(qs) == 1, name                        # parts that meet in a point stay one conductor
+        q = qs[0]
+        assert q.is_valid and not B.pinches(q), (name, note)
+        assert len(q.interiors) == len(p.interiors) or name == "slit", name
+        assert _area(_build_shape(q)) == pytest.approx(p.area, rel=1e-4), (name, note)
+
+
+def test_touching_copper_in_a_gerber_file_is_imported(tmp_path):
+    # top copper: two squares that meet in a corner (5 nm apart, as a net tie leaves them) in one region
+    g = ("%FSLAX46Y46*%\n%MOMM*%\nG36*\nX0Y0D02*\nX5000000Y4999995D01*\nX10000000Y0D01*\nX10000000Y10000000D01*\n"
+         "X5000000Y5000005D01*\nX0Y10000000D01*\nX0Y0D01*\nG37*\nM02*\n")
+    files, job, jn = B.load([_write(tmp_path / "tie", {"tie-F_Cu.gbr": g, "tie-B_Cu.gbr": _rect(0, 0, 10, 10)})])
+    pl = B.plan(files, job, jn)
+    p = Project()
+    d = p.designs[0]
+    d.units = "mm"
+    rep = B.build(p, d, pl)
+    top = [n for n, (layer, _) in rep.shapes.items() if layer == pl.stackup.layers[pl.stackup.copper()[0]].name]
+    assert len(top) == 1
+    assert any("touching rings repaired" in x for x in rep.lines)
+    built = _build(d, p)
+    assert _area(built[top[0]]) == pytest.approx(50e-6, rel=1e-4)
+    # a shape the kernel still cannot build is reported loudly, with its layer and area
+    w = rep.check_built({top[0]: "Curve loop is not closed"})
+    assert w and "MISSING" in w[0] and "50 mm²" in w[0] and w[0] in rep.warnings

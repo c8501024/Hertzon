@@ -2454,6 +2454,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Import PCB", f"The board cannot be made:\n{e}")
             return
         self.doc.commit("pcb import")
+        rep.check_built(dict(getattr(self.doc, "errors", {}) or {}))
         self.msgs.add("info", "PCB import: " + "; ".join(rep.lines[:3]))
         for w in rep.warnings:
             self.msgs.add("warning", f"PCB import: {w}")
