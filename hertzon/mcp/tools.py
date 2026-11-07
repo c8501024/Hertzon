@@ -1494,7 +1494,17 @@ def t_validate(args):
     from ..model.validate import validate
     ctx = load(args)
     tess, errors = tessellate(ctx.proj, ctx.des, timeout=args.get("timeout_s"))
-    checks = validate(ctx.proj, ctx.des, tess, errors)
+    sheets = None
+    if not errors:
+        from . import geomworker as W
+        from .protocol import cancelled
+        limit = W.default_timeout() if args.get("timeout_s") is None else float(args["timeout_s"])
+        try:
+            sheets = W.build(ctx.proj.to_dict(), ctx.proj.path, ctx.des.name, None, limit, should_stop=cancelled,
+                             kind="sheets")
+        except (W.BuildTimeout, W.BuildCancelled, RuntimeError):
+            sheets = None
+    checks = validate(ctx.proj, ctx.des, tess, errors, sheets=sheets)
     out = [{"category": c.category, "level": c.level, "message": c.message} for c in checks]
     return {"ok": not any(c.level == "error" for c in checks), "checks": out}
 

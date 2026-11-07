@@ -6,6 +6,10 @@ the GitHub release notes.
 ## Unreleased
 
 ### Fixed
+- **Sheets through conductors are named**: a sheet that runs through the inside of a conductor solid (for
+  example a via fence of Perfect E sheets with pec cylinders on it) is now a warning of the Validation Check and
+  of MCP `validate`, and the solver log lists it before meshing. When meshing or solving fails (singular
+  matrix, inconsistent mesh, an index error), the error message names these sheets as the probable cause.
 - **PCB import dropped a valid copper shape ("Curve loop is not closed")**: a copper area whose outline came
   closer to itself than the geometry kernel's tolerance (a net tie joining antenna and ground plane in one
   shape, a hole on the outline, holes that touch) could not be built, and the whole shape, for example the top

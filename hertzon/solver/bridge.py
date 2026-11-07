@@ -199,23 +199,33 @@ class Bridge:
         t = time.time()
         with em.Simulation(f"hertzon_{os.getpid()}", save_file=False) as m:
             info(f"Solver start: EMerge simulation ready in {time.time() - t:.1f} s")
-            self.prepare(m)
-            tune = os.environ.get("HERTZON_TUNING", "")
-            if tune:
-                self.run_tuning(json.loads(tune))
-                return
-            only = os.environ.get("HERTZON_ONLY_SWEEP", "")
-            if only:
-                self.solve_one_sweep(only)
-                return
-            if os.environ.get("HERTZON_MESH_ONLY") == "1":
-                self.save_mesh()
-                self.store.write_json("status.json", {"state": "meshed", "finished": time.time()})
-                emit("progress", value=100, text="Initial mesh generated")
-                emit("done", elapsed=time.time() - self.t0)
-                hard_exit()
-                return
-            self.solve()
+            try:
+                self._run_in(m)
+            except Exception as e:  # noqa: BLE001
+                hints = getattr(self, "sheet_hints", [])
+                if hints:
+                    raise RuntimeError(f"{type(e).__name__}: {e}\nPossible cause in the model:\n- "
+                                       + "\n- ".join(hints)) from e
+                raise
+
+    def _run_in(self, m) -> None:
+        self.prepare(m)
+        tune = os.environ.get("HERTZON_TUNING", "")
+        if tune:
+            self.run_tuning(json.loads(tune))
+            return
+        only = os.environ.get("HERTZON_ONLY_SWEEP", "")
+        if only:
+            self.solve_one_sweep(only)
+            return
+        if os.environ.get("HERTZON_MESH_ONLY") == "1":
+            self.save_mesh()
+            self.store.write_json("status.json", {"state": "meshed", "finished": time.time()})
+            emit("progress", value=100, text="Initial mesh generated")
+            emit("done", elapsed=time.time() - self.t0)
+            hard_exit()
+            return
+        self.solve()
 
     def prepare(self, m) -> None:
         """Build geometry, materials, boundaries, excitations and the initial mesh on ``m``."""
@@ -242,6 +252,7 @@ class Bridge:
         os.environ["RAYON_NUM_THREADS"] = str(threads)
         info(f"Using {threads} core(s)")
         self.probe()
+        self.check_sheets()
         self.build_model()
         self.step("Geometry", t)
         t = time.time()
@@ -432,6 +443,19 @@ class Bridge:
         self.overlap_vols = [(obj, g, cond) for g, obj, _, cond in vols if obj.history[0].kind != "CreateRegion"]
         self.build_auto_open()
         K._occ().synchronize()
+
+    def check_sheets(self) -> None:
+        """Sheets through conductors or ending inside solids: logged as warnings, and named in the error
+        message when meshing or solving fails (they are the usual cause of an inconsistent mesh)."""
+        from ..model.validate import sheet_messages
+        try:
+            cond = lambda n: is_conductor(self.project.material(self.design.obj(n).material))  # noqa: E731
+            self.sheet_hints = sheet_messages(self.design, K.sheet_placement(self.design, self.ev, cond))
+        except Exception as e:  # noqa: BLE001
+            self.sheet_hints = []
+            info(f"Sheet placement check skipped: {e}")
+        for h in self.sheet_hints:
+            warn(h)
 
     def check_overlaps(self) -> None:
         """Partial overlaps the reference tool rejects are errors: two dielectrics or two conductors of

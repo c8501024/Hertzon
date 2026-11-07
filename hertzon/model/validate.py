@@ -74,6 +74,36 @@ def classify_overlaps(project: Project, design: Design, overlaps) -> list[Overla
     return out
 
 
+def sheet_messages(design: Design, placement) -> list[str]:
+    """Messages for sheets that run through conductors or end inside a solid (kernel.occ.sheet_placement),
+    one per sheet, naming the solids. A sheet through a dielectric (an inner copper layer) is normal."""
+    through: dict[str, list[str]] = {}
+    ends: dict[str, list[str]] = {}
+    for s, v, how in placement or []:
+        if how == "through-conductor":
+            through.setdefault(s, []).append(v)
+        elif how == "ends-inside":
+            ends.setdefault(s, []).append(v)
+    ports = {o for a in design.ports() + [b for b in design.boundaries if b.kind == "Lumped RLC"]
+             for o in set(a.objects) | {f.obj for f in a.faces}}
+
+    def names(v):
+        v = sorted(set(v))
+        return ", ".join(f"'{x}'" for x in v[:6]) + (f" and {len(v) - 6} more" if len(v) > 6 else "")
+    out = []
+    for s, v in through.items():
+        out.append(f"Sheet '{s}' runs through the inside of the conductor {names(v)}: the part inside the "
+                   "conductor has no meaning and can break the mesh (singular matrix, inconsistent mesh). Cut "
+                   "the conductor out of the sheet (Subtract with Keep originals) or move the sheet onto the "
+                   "conductor's faces")
+    for s, v in ends.items():
+        if s in ports:
+            continue                    # a lumped port or element between two conductors in a dielectric
+        out.append(f"Sheet '{s}' ends inside {names(v)} (its edge is not on a face of the solid): if the "
+                   "mesh or the solve fails, let the sheet end on a face or model it as a thin solid")
+    return out
+
+
 def _check_touchstone(project: Project, a, add) -> None:
     from pathlib import Path
     from .touchstone import ComponentImpedance
@@ -90,7 +120,7 @@ def _check_touchstone(project: Project, a, add) -> None:
 
 
 def validate(project: Project, design: Design, tess: dict | None = None, errors: dict | None = None,
-             overlaps: list[Overlap] | None = None) -> list[Check]:
+             overlaps: list[Overlap] | None = None, sheets: list | None = None) -> list[Check]:
     out: list[Check] = []
     ev = design.evaluator(project)
     add = lambda c, l, m: out.append(Check(c, l, m))  # noqa: E731
@@ -138,6 +168,8 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                     add("3D Model", "warning", f"Objects '{a}' and '{b}' may intersect; partial overlaps of "
                                                "different materials are only allowed for a metal in a dielectric "
                                                "(material override)")
+    for m in sheet_messages(design, sheets):
+        add("3D Model", "warning", m)
     if not any(c.level == "error" for c in out if c.category == "3D Model"):
         add("3D Model", "ok", f"{len(live)} objects")
 

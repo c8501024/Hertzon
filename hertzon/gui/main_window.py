@@ -3991,8 +3991,22 @@ class MainWindow(QMainWindow):
         dlg.exec()
         return False
 
+    def sheet_placement(self):
+        """Sheets through conductors or ending inside solids (kernel.occ.sheet_placement), None if it failed."""
+        from ..kernel import occ as K
+        from ..model.materials import is_conductor
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            return K.sheet_placement(self.des, self.doc.evaluator(),
+                                     lambda n: is_conductor(self.doc.project.material(self.des.obj(n).material)))
+        except Exception as e:  # noqa: BLE001
+            self.msgs.add("warning", f"Sheet check failed: {e}")
+            return None
+        finally:
+            QApplication.restoreOverrideCursor()
+
     def validation_check(self) -> bool:
-        dlg = ValidationDialog(self.doc, self, self.solid_overlaps(), self.resolve_overlaps)
+        dlg = ValidationDialog(self.doc, self, self.solid_overlaps(), self.resolve_overlaps, self.sheet_placement())
         dlg.messageActivated.connect(self.goto_message)
         dlg.setModal(False)
         dlg.setAttribute(Qt.WA_DeleteOnClose)
