@@ -15,6 +15,8 @@ the GitHub release notes.
   spiral, exponential taper, sine meander), Cartesian, Cylindrical (r, phi, z) and Y = f(X) coordinates, and a
   live preview with start, end, length and number of points while typing. An error names the value of t where
   it happens and marks the field. The parameter can be written t or _t.
+- The Equation Based Curve dialog has the same **Constants & Functions...** button as Design Properties: a
+  double-click inserts a constant, function, unit or variable at the cursor of the last edited field.
 
 ### Added
 - **Hairpin filter with the Derivative Trust Region**: Tools > Filter Design (tapped hairpin) and the hairpin

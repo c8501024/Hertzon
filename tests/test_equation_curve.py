@@ -135,3 +135,34 @@ def test_dialog_preview_presets_and_error(monkeypatch):
     dlg.accept()
     assert dlg.cmd_values["YtFunction"] == "t"
     app.processEvents()
+
+
+def test_dialog_constants_and_functions_button_inserts_at_cursor():
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from hertzon.gui.dialogs import EquationCurveDialog
+    from hertzon.gui.doc import Document
+    from hertzon.gui.expr_reference import ExpressionReferenceDialog
+    app = QApplication.instance() or QApplication([])
+    doc = Document()
+    doc.design.variables["r0"] = "4mm"
+    o = doc.design.add_object("CreateEquationCurve", "C")
+    dlg = EquationCurveDialog(doc, o)
+    assert dlg.ref_btn.text() == "Constants && Functions..."
+    dlg.ref_btn.click()
+    ref = dlg.ref_dlg
+    assert isinstance(ref, ExpressionReferenceDialog) and "Variables" in ref._groups
+    assert ref._groups["Variables"].child(0).text(0) == "r0"
+    e = dlg.f_edits[2]
+    e.setText("2*")
+    dlg._target = e
+    e.setCursorPosition(2)
+    ref.inserted.emit("r0")
+    assert e.text() == "2*r0"
+    e.setSelection(0, 4)
+    ref.inserted.emit("sin()")                     # a function wraps the selection
+    assert e.text() == "sin(2*r0)"
+    dlg.reject()
+    app.processEvents()
