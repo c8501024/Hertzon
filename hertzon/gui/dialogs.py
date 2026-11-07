@@ -1802,6 +1802,13 @@ class EquationCurveDialog(QDialog):
         cb.addWidget(self.closed)
         cb.addWidget(self.covered)
         form.addRow("", cb)
+        self.ref_btn = QPushButton("Constants && Functions...")
+        self.ref_btn.setToolTip("Constants, functions, units and variables you can use in a value.\n"
+                                "Double-click one to insert it at the cursor of the last edited field.")
+        self.ref_btn.clicked.connect(self._show_reference)
+        self.ref_dlg = None
+        self._target = self.f_edits[0]
+        form.addRow("", self.ref_btn)
         hint = QLabel("t (or _t) is the parameter. Design variables and units work; plain numbers are model "
                       "units, angles in radians unless written with deg.")
         hint.setWordWrap(True)
@@ -1832,6 +1839,7 @@ class EquationCurveDialog(QDialog):
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
         self._ok = bb.button(QDialogButtonBox.Ok)
+        QApplication.instance().focusChanged.connect(self._remember_target)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(250)
@@ -1870,6 +1878,46 @@ class EquationCurveDialog(QDialog):
                  NumOfPointsOnCurve=str(self.npts.value()), CurveType=self.ctype.currentText(),
                  Closed=str(self.closed.isChecked()), Covered=str(self.closed.isChecked() and self.covered.isChecked()))
         return v
+
+    # ---- constants & functions (same window as in Design Properties) ------------------------------------
+    def _remember_target(self, _old, new) -> None:
+        if new in self.f_edits or new in (self.t0, self.t1):
+            self._target = new
+
+    def _show_reference(self) -> None:
+        if self.ref_dlg is not None:
+            self.ref_dlg.close()
+        v = dict(self.doc.project.variables)
+        v.update(self.doc.design.variables)
+        self.ref_dlg = ExpressionReferenceDialog(v, self.doc.design.units, self)
+        self.ref_dlg.inserted.connect(self._insert_text)
+        self.ref_dlg.show()
+
+    def _insert_text(self, snippet: str) -> None:
+        """Insert a constant / function / unit / variable at the cursor of the last edited field."""
+        e = self._target if self._target is not None and self._target.isEnabled() else self.f_edits[1]
+        if e.hasSelectedText():
+            start, length = e.selectionStart(), len(e.selectedText())
+        else:
+            start, length = e.cursorPosition(), 0
+        new, cursor = insert_into(e.text(), start, length, snippet)
+        e.setText(new)
+        e.setCursorPosition(cursor)
+        self._target = e
+        if self.ref_dlg is not None:
+            name = {self.t0: "t start", self.t1: "t end"}.get(e) or self.f_labels[self.f_edits.index(e)].text().rstrip(":")
+            self.ref_dlg.set_status(f"Inserted '{snippet}' into {name}.")
+        self.activateWindow()
+        e.setFocus()
+
+    def done(self, r: int) -> None:
+        if self.ref_dlg is not None:
+            self.ref_dlg.close()
+        try:
+            QApplication.instance().focusChanged.disconnect(self._remember_target)
+        except (RuntimeError, TypeError):
+            pass
+        super().done(r)
 
     def _apply_preset(self, i: int) -> None:
         from ..model.equation_presets import EQUATION_PRESETS
