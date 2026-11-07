@@ -2770,7 +2770,11 @@ class MainWindow(QMainWindow):
 
     def edit_object_dialog(self, name: str, created: bool = False) -> None:
         o = self.des.obj(name)
-        dlg = ObjectPropertiesDialog(self.doc, o, self)
+        if o.history[0].kind == "CreateEquationCurve":
+            from .dialogs import EquationCurveDialog
+            dlg = EquationCurveDialog(self.doc, o, self)
+        else:
+            dlg = ObjectPropertiesDialog(self.doc, o, self)
         if dlg.exec() != QDialog.Accepted:
             return
         if not created:
