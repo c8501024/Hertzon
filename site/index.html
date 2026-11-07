@@ -19,6 +19,8 @@
 <link rel="stylesheet" href="style.css">
 <script>window.HZ_PREFIX="";</script>
 <script defer src="search.js"></script>
+<script defer src="ai-demos-data.js"></script>
+<script defer src="ai-demos.js"></script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -66,6 +68,27 @@ For antennas, filters, waveguides, PCBs and RCS. The finite-element solver under
 <li>Half and quarter models with symmetry planes: the far field includes the mirror images</li>
 </ul>
 <img src="screenshots/patch_3d_gain.png" alt="3D gain pattern of a patch antenna simulated in Hertzon" loading="lazy">
+</div>
+</div></section>
+
+<section class="band" id="ai"><div class="wrap">
+<p class="eyebrow">AI assistants</p>
+<h2>One sentence to the AI, and Hertzon builds the model</h2>
+<p class="sub">Hertzon's MCP server lets an AI assistant draw the geometry, assign ports and boundaries, start the solver,
+read the results and decide what to try next, all in the open Hertzon window. These are replays of real runs:
+the times, run counts and results at the end are what came out.</p>
+<div id="ai-demos"></div>
+<noscript><p>The demos need JavaScript.</p></noscript>
+<h3 class="outlook-h">Next: fewer tokens, so that small models can do it too</h3>
+<p class="sub">In the glasses benchmark the AI spent most of its effort steering parametric sweeps by hand. The patch
+tool shows the other way: the AI states the goal, and Hertzon's optimizer does the iterations in one call.</p>
+<div class="outlook">
+<div class="card"><h3>Optimizers for every structure</h3><p>The efficient optimizer behind the patch antenna tool (a derivative trust region
+on the adaptive mesh, matched in two evaluations above) is being integrated for any geometry with design variables.</p></div>
+<div class="card"><h3>Goals instead of loops</h3><p>The AI describes the target (bands, return loss, efficiency) and gets back a finished,
+verified design, instead of reading and comparing dozens of runs itself.</p></div>
+<div class="card"><h3>For small local models</h3><p>With the iterations inside Hertzon, each step needs only a short tool call and a short answer.
+The aim is that small models running on your own computer can drive Hertzon as well.</p></div>
 </div>
 </div></section>
 
