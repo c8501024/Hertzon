@@ -1886,7 +1886,8 @@ class EquationCurveDialog(QDialog):
         unit = ev.model_unit
         L = float(np.linalg.norm(np.diff(P, axis=0), axis=1).sum()) / u
         a, b = P[0] / u, P[-1] / u
-        f = lambda q: ", ".join(f"{x:.4g}" for x in q)  # noqa: E731
+        tiny = 1e-9 * max(1.0, float(np.abs(P).max()) / u)
+        f = lambda q: ", ".join(f"{0.0 if abs(x) < tiny else x:.4g}" for x in q)  # noqa: E731
         self.info.setText(f"Start ({f(a)}) {unit}<br>End ({f(b)}) {unit}<br>Length {L:.4g} {unit}, "
                           f"{len(P)} points")
         self._plot(P / u, unit)
