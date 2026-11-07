@@ -16,6 +16,9 @@
 <meta property="og:image" content="https://c8501024.github.io/Hertzon/screenshots/patch_3d_gain.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="hertzon.png">
+<link rel="stylesheet" href="style.css">
+<script>window.HZ_PREFIX="";</script>
+<script defer src="search.js"></script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -32,85 +35,82 @@
   "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}
 }
 </script>
-<style>
-:root{--bg:#fff;--fg:#1b1f24;--muted:#57606a;--accent:#d9480f;--card:#f6f8fa;--line:#d0d7de}
-@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9da7b3;--accent:#ff8a4c;--card:#161b22;--line:#30363d}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:980px;margin:0 auto;padding:24px 16px 64px}
-h1{font-size:2.2rem;margin:.2em 0}
-h2{margin-top:2.2em;border-bottom:1px solid var(--line);padding-bottom:.2em}
-a{color:var(--accent)}
-.lead{font-size:1.15rem;color:var(--muted)}
-.btns a{display:inline-block;margin:8px 8px 0 0;padding:10px 16px;border-radius:6px;border:1px solid var(--line);text-decoration:none;background:var(--card)}
-.btns a.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
-figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-figure img{width:100%;height:auto;display:block}
-figcaption{padding:8px 12px;font-size:.9rem;color:var(--muted)}
-img.hero{width:100%;height:auto;border-radius:8px}
-ul{padding-left:1.2em}
-footer{margin-top:48px;font-size:.85rem;color:var(--muted)}
-</style>
+<style>.hero p strong{color:#fff}</style>
 </head>
-<body>
-<main>
-<img class="hero" src="splash.jpg" alt="Hertzon electromagnetic simulator splash screen">
-<h1>Hertzon</h1>
-<p class="lead">A free, open-source <strong>3D full-wave electromagnetic simulator</strong> with a classic engineering
-workflow: draw the model, assign boundaries and ports, solve with <strong>adaptive meshing</strong>, then look at
-S-parameters, fields and radiation patterns. The finite-element solver underneath is
-<a href="https://github.com/FennisRobert/EMerge">EMerge</a> (2nd-order Nédélec FEM).</p>
-<p>By Dominik Mair, built on EMerge, the FEM solver by Robert Fennis.</p>
+<body class="home">
+<!--HEADER-->
+<section class="hero"><div class="hero-in">
+<h1>Open-source 3D full-wave EM simulation with <em>adaptive meshing</em></h1>
+<p>Draw the model, assign boundaries and ports, solve, then look at S-parameters, fields and radiation patterns.
+For antennas, filters, waveguides, PCBs and RCS. The finite-element solver underneath is
+<strong>EMerge</strong> (2nd-order Nédélec FEM).</p>
 <div class="btns">
-<a class="primary" href="https://github.com/c8501024/Hertzon/releases/latest">Download for Windows / Linux</a>
-<a href="https://github.com/c8501024/Hertzon">Source code on GitHub</a>
-<a href="https://github.com/c8501024/Hertzon/blob/main/docs/TUTORIAL.md">Tutorial</a>
+<a class="btn primary" href="https://github.com/c8501024/Hertzon/releases/latest">Download for Windows / Linux</a>
+<a class="btn ghost" href="docs/tutorial.html">Start the tutorial</a>
+<a class="btn ghost" href="https://github.com/c8501024/Hertzon">Source on GitHub</a>
 </div>
+<small>Free under the GPL · by Dominik Mair, built on EMerge, the FEM solver by Robert Fennis</small>
+</div></section>
 
-<h2>What you can simulate</h2>
+<section class="band"><div class="wrap">
+<p class="eyebrow">What you can simulate</p>
+<h2>From a microstrip line to the radar cross section</h2>
+<div class="split">
 <ul>
 <li><strong>Antennas:</strong> patch and dipole antennas with far field, gain, directivity, beamwidth and 3D radiation patterns</li>
 <li><strong>Microwave circuits:</strong> microstrip lines and filters with S-parameters, Smith charts and frequency sweeps</li>
-<li><strong>Circuit designs:</strong> schematics with lumped parts, microstrip, coplanar and strip lines, junctions, vias, Touchstone files and solved 3D designs as blocks; the schematic becomes a 3D layout and back</li>
 <li><strong>Waveguides and coaxial lines:</strong> wave ports, modes and field plots</li>
-<li><strong>Radar cross section (RCS)</strong> with incident plane waves</li>
-<li><strong>PCB designs:</strong> import of Gerber and Excellon files with the stackup, and Gerber export of the simulated layout</li>
-</ul>
-
-<h2>Why Hertzon</h2>
-<ul>
-<li>Finite-element method (FEM) frequency-domain solver with <strong>adaptive mesh refinement</strong> until S-parameters converge</li>
-<li>Built on EMerge: its error estimate and AURA refinement, extended by Hertzon with hzAURA (cavity re-meshing on curved surfaces) and curved elements, plus Hertzon's own local Delaunay mesher (hzmesh) as an alternative</li>
-<li>Fast and interpolating frequency sweeps, parallel sweep points, optimization and parametric sweeps</li>
-<li><strong>Derivative tuning:</strong> sliders for design variables with S-parameters and patterns following live, and an optimizer that works on the tuning model</li>
-<li>Solve on another computer in the network or on a cloud server created for the session (experimental)</li>
+<li><strong>Radar cross section</strong> with incident plane waves</li>
+<li><strong>Circuits:</strong> schematics of lines, lumped parts and solved 3D designs, turned into a 3D layout</li>
+<li><strong>PCB designs:</strong> import from Gerber files and Gerber export of the simulated layout</li>
 <li>Half and quarter models with symmetry planes: the far field includes the mirror images</li>
-<li>Desktop GUI (Qt + VTK) that stays responsive with large models; the solver runs in its own process</li>
-<li>Python scripting and an <strong>MCP server</strong>, so AI assistants can build and run simulations</li>
-<li>Free and open source under the GPL, for Windows and Linux</li>
 </ul>
-
-<h2>Screenshots</h2>
-<div class="grid">
-<figure><img src="screenshots/modeler.png" alt="Hertzon 3D modeler with a microwave structure" loading="lazy"><figcaption>3D modeler</figcaption></figure>
-<figure><img src="screenshots/patch_3d_gain.png" alt="3D gain pattern of a patch antenna simulated in Hertzon" loading="lazy"><figcaption>3D gain of a patch antenna</figcaption></figure>
-<figure><img src="screenshots/patch_pattern.png" alt="Radiation pattern plot of a patch antenna" loading="lazy"><figcaption>Radiation pattern</figcaption></figure>
-<figure><img src="screenshots/smith_chart.png" alt="Smith chart of simulated S-parameters" loading="lazy"><figcaption>Smith chart</figcaption></figure>
-<figure><img src="screenshots/microstrip_fields.png" alt="Electric field on a microstrip line" loading="lazy"><figcaption>Fields on a microstrip line</figcaption></figure>
-<figure><img src="screenshots/xy_plot.png" alt="S-parameter plot over frequency" loading="lazy"><figcaption>S-parameters over frequency</figcaption></figure>
+<img src="screenshots/patch_3d_gain.png" alt="3D gain pattern of a patch antenna simulated in Hertzon" loading="lazy">
 </div>
+</div></section>
 
-<h2>Get started</h2>
-<p>Download the installer from the <a href="https://github.com/c8501024/Hertzon/releases/latest">releases page</a>, then follow the
-<a href="https://github.com/c8501024/Hertzon/blob/main/docs/TUTORIAL.md">step-by-step tutorial</a>: a waveguide with wave ports, a coaxial cable,
-a half-wave dipole and the RCS of a sphere, each from the empty window to the result.
-More: <a href="https://github.com/c8501024/Hertzon/blob/main/docs/FEATURE_MATRIX.md">feature matrix</a>,
-<a href="https://github.com/c8501024/Hertzon/blob/main/docs/BENCHMARKS.md">benchmarks</a>,
-<a href="https://github.com/c8501024/Hertzon/blob/main/CHANGELOG.md">changelog</a>.</p>
+<section class="band alt"><div class="wrap">
+<p class="eyebrow">Why Hertzon</p>
+<h2>A classic engineering workflow, open all the way down</h2>
+<p class="sub">A desktop application (Qt + VTK) that stays responsive with large models, for Windows and Linux.</p>
+<div class="cards">
+<div class="card"><div class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 16 9 5 9-5"/><path d="m3 12 9 5 9-5"/></svg></div><h3>Adaptive meshing</h3><p>The FEM frequency-domain solver refines the mesh until the S-parameters converge. EMerge's AURA refinement, extended with hzAURA and curved elements, or Hertzon's own Delaunay mesher.</p></div>
+<div class="card"><div class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div><h3>Sweeps and optimization</h3><p>Fast and interpolating frequency sweeps, parallel sweep points, parametric sweeps and an optimizer for design variables.</p></div>
+<div class="card"><div class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></div><h3>Derivative tuning</h3><p>Sliders for design variables: S-parameters, Smith charts and radiation patterns follow live without solving again.</p></div>
+<div class="card"><div class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg></div><h3>Circuits and 3D</h3><p>Schematics with lines, lumped parts and Touchstone blocks, analyzed in a moment, and turned into a 3D layout that is solved full-wave.</p></div>
+<div class="card"><div class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div><h3>Solve anywhere</h3><p>The solver runs in its own process, on this computer, another one in the network, or a cloud server created for the session (experimental).</p></div>
+<div class="card"><div class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a4 4 0 0 1 4 4v1h1a3 3 0 0 1 0 6h-1v1a4 4 0 0 1-8 0v-1H7a3 3 0 0 1 0-6h1V7a4 4 0 0 1 4-4Z"/></svg></div><h3>AI assistants and Python</h3><p>An MCP server lets AI assistants build, solve and tune models in the open window. Python scripting for everything else.</p></div>
+</div>
+</div></section>
 
-<footer>Hertzon is an independent open-source project by Dominik Mair, built on EMerge, the FEM solver by Robert Fennis. It is not affiliated with any vendor of
-commercial simulation software. Product names mentioned are trademarks of their respective owners.</footer>
-</main>
+<section class="band"><div class="wrap">
+<p class="eyebrow">Screenshots</p>
+<h2>What it looks like</h2>
+<div class="shots">
+<figure class="shot"><img src="screenshots/modeler.png" alt="3D modeler in Hertzon" loading="lazy"><figcaption>3D modeler</figcaption></figure>
+<figure class="shot"><img src="screenshots/patch_3d_gain.png" alt="3D gain of a patch antenna in Hertzon" loading="lazy"><figcaption>3D gain of a patch antenna</figcaption></figure>
+<figure class="shot"><img src="screenshots/smith_chart.png" alt="Smith chart in Hertzon" loading="lazy"><figcaption>Smith chart</figcaption></figure>
+<figure class="shot"><img src="screenshots/microstrip_fields.png" alt="Fields on a microstrip line in Hertzon" loading="lazy"><figcaption>Fields on a microstrip line</figcaption></figure>
+<figure class="shot"><img src="screenshots/patch_pattern.png" alt="Radiation pattern in Hertzon" loading="lazy"><figcaption>Radiation pattern</figcaption></figure>
+<figure class="shot"><img src="screenshots/xy_plot.png" alt="S-parameters over frequency in Hertzon" loading="lazy"><figcaption>S-parameters over frequency</figcaption></figure>
+</div>
+</div></section>
+
+<section class="band alt"><div class="wrap">
+<p class="eyebrow">Learn</p>
+<h2>Step by step, from the empty window to the result</h2>
+<p class="sub">Every tutorial model is also in the program under <strong>File &gt; Open Example</strong>.
+The <a href="docs/circuit.html">user guide</a> and the <a href="docs/feature-matrix.html">feature overview</a> go into detail.</p>
+<div class="learn">
+<a href="docs/tutorial-1.html"><img src="docs/tutorial/wg_field.png" alt="" loading="lazy"><div><b>Waveguide with wave ports</b><span>WR-90 with a post, field animation</span></div></a>
+<a href="docs/tutorial-3.html"><img src="docs/tutorial/dipole_pattern.png" alt="" loading="lazy"><div><b>Half-wave dipole</b><span>Lumped port, far field, half model</span></div></a>
+<a href="docs/tutorial-4.html"><img src="docs/tutorial/sphere_bistatic.png" alt="" loading="lazy"><div><b>RCS of a sphere</b><span>Incident plane wave, mono- and bistatic</span></div></a>
+<a href="docs/tutorial-10.html"><img src="docs/tutorial/tuning_panel.png" alt="" loading="lazy"><div><b>Tune a patch antenna</b><span>Sliders with live S11 and gain</span></div></a>
+<a href="docs/tutorial-11.html"><img src="docs/tutorial/circuit_schematic.png" alt="" loading="lazy"><div><b>Stub filter as a circuit</b><span>Schematic, 3D layout, tuned and copied back</span></div></a>
+<a href="docs/tutorial-12.html"><img src="docs/tutorial/pcb_import.png" alt="" loading="lazy"><div><b>Board from Gerber files</b><span>Copper layers, drills and the stackup</span></div></a>
+</div>
+</div></section>
+<!--FOOTER-->
+<!--SEARCH-->
 </body>
 </html>
