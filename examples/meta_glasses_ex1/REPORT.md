@@ -158,6 +158,7 @@ The missing body model also reflects the task as given: the prompt was only "fin
 
 - **Phantom models in the solver.** Hertzon should ship human phantom models at several levels of accuracy (homogeneous head, layered head, detailed head and hand), exposed through the MCP interface, so an agent can switch from free space to on-body evaluation without building the phantom itself.
 - **Antenna types for on-body use.** Some antenna types are better suited near the body than others, for example types with less near-field coupling into tissue. An on-body study should let the agent choose the topology with that criterion, not only free-space efficiency.
+- **Topology optimization through MCP.** In this run the agent chose and tuned known antenna topologies rather than generating new ones. We are adding topology-optimization tools to Hertzon's MCP interface, building on our earlier work on evolutionary optimization of pixelated IFA-inspired antennas [3], so the agent can also search unconventional structures like the generative approaches cited in [1].
 
 ## 8 Conclusion
 
@@ -167,3 +168,4 @@ An LLM agent driving an open FEM solver produced a matching-free design for Meta
 
 1. J. Zhu, J. De Luis, A. Vijayaraghavan, L. Zhang, A. Agrawal, L. Han et al., "[Advancing Artificial Intelligence-Driven Wireless Hardware Design Through Industry Collaboration](https://ieeexplore.ieee.org/document/11775874)" [Industry Activities], IEEE Antennas and Propagation Magazine, vol. 68, no. 5, Oct. 2026.
 2. L. Cui, X. Wang, S. Cui, G. Kang, J. Liu, J. Zhu, "[The LLM-Assisted Antenna Agent](https://ieeexplore.ieee.org/document/11775839)" [Industry Activities], IEEE Antennas and Propagation Magazine, vol. 68, no. 5, pp. 97–101, Oct. 2026.
+3. D. Mair and D. Baumgarten, "[Evolutionary optimisation of pixelated IFA inspired antennas](https://doi.org/10.1038/s41598-024-77695-x)", Scientific Reports, vol. 14, art. 26664, Nov. 2024.
