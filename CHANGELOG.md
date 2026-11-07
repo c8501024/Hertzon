@@ -5,6 +5,8 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.3.1 (2026-11-07)
+
 ### Fixed
 - **Cover Lines after uniting lines with several arcs**: united lines whose curves did not come out of the
   boolean in outline order (for example two arcs and two straight lines) failed with "Curve loop is not
