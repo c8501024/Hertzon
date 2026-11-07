@@ -75,6 +75,32 @@ Conventions
 - Fillet and Chamfer take edge indices (Edges) of solids, or vertex indices (Vertices) of sheets:
   get_geometry(include_edges=true) lists them; render_image(label_faces_of=..., label_what="edges") shows them.
 - Coordinate systems: set_coordinate_system makes one the working CS; new objects are created in it.
+
+Design assistants, optimizers and tuning
+- create_patch_antenna and create_hairpin_filter make complete parametrized designs (geometry, ports,
+  setup, sweep, optimization) from a specification; start there for patches and hairpin filters.
+- Optimizers (set_optimization optimizer=...): "Conjugate Gradient" (gradient by finite differences, many
+  solves, robust near a good start), "Latin Hypercube + Nelder-Mead" (sample of the ranges, then simplex
+  chains: far from the start, several resonances, antennas), "Derivative Trust Region" (one solve per round
+  plus the derivative tuning model on the morphed mesh; very few solves near the goal, at most 6 variables,
+  the topology must not change). apply_optimization takes the best result over into the design.
+- Derivative tuning: after a solve, compute_tuning(variables=[...]) and get_tuning(values={...}) give the
+  S-parameters at other variable values without solving (within the tuning range).
+
+Circuits
+- create_circuit makes a schematic design; edit_circuit adds parts (get_circuit include_library lists the
+  types, props and pin offsets), connects pins (connect from 'Port1:1' to 'MS1:1') or attaches a part's pin
+  onto another pin. Grid units are 10 per step; y grows downwards. Power Ports (PORT: one pin, against ground)
+  set S(i,j); GND grounds a pin; microstrip parts name a substrate part (SUBST, Subst=Sub1).
+- run_simulation and get_results work on circuit designs as on 3D designs (solved at once).
+- 3D design blocks (type EM, props Design) use the S-parameters of a solved 3D design; import_3d_designs
+  copies 3D designs from another file. circuit_layout(action='create') turns the schematic, blocks
+  included, into a 3D design; 'to_schematic' copies tuned layout dimensions back.
+
+Files and boards
+- export: Touchstone, STEP, Gerber (with drills) or a stand-alone EMerge script. import_pcb reads Gerber,
+  Excellon and job files into the design; set_stackup defines the PCB layer stack (stk_ variables, one
+  coordinate system per copper layer). list_examples / open_example start from a shipped example.
 """
 
 
@@ -85,6 +111,7 @@ class _Session:
     default_path: str | None = None
     procs: dict[str, subprocess.Popen] = {}
     tess: dict[str, tuple] = {}            # object key -> Tess (built in this process)
+    designs: dict[str, str] = {}           # project path -> design worked on last (file mode)
 
 
 S = _Session()
@@ -199,13 +226,15 @@ def load(args: dict, design_required: bool = True) -> Ctx:
         if not Path(path).exists():
             raise ToolError(f"Project file not found: {path}")
         proj = Project.load(path)
-        dname = args.get("design") or proj.designs[0].name
+        last = S.designs.get(_abspath(path))
+        dname = args.get("design") or (last if any(x.name == last for x in proj.designs) else proj.designs[0].name)
     try:
         des = proj.design(dname)
     except KeyError:
         raise ToolError(f"Design '{dname}' not found; designs: {[d.name for d in proj.designs]}") from None
     if proj.path:
         S.default_path = proj.path
+        S.designs[_abspath(proj.path)] = des.name     # file mode: the design worked on last is the default
     return Ctx(proj, des, gui)
 
 
@@ -309,7 +338,9 @@ def summary(ctx: Ctx) -> dict:
     p, d = ctx.proj, ctx.des
     return {
         "project": p.path, "name": p.name, "live_window": ctx.gui is not None,
-        "designs": [x.name for x in p.designs], "design": d.name, "units": d.units,
+        "designs": [x.name for x in p.designs], "design": d.name,
+        **({"kind": "circuit", "note": "a circuit design: get_circuit shows its schematic"}
+           if getattr(d, "kind", "3d") == "circuit" else {}), "units": d.units,
         "settings": d.settings, "project_variables": p.variables, "variables": d.variables,
         "objects": [_obj_summary(o) for o in d.objects],
         "boundaries": [_assign_summary(a) for a in d.boundaries],
@@ -319,6 +350,8 @@ def summary(ctx: Ctx) -> dict:
                     "sweeps": [{"name": w.name, "props": w.props} for w in s.sweeps]} for s in d.setups],
         "far_field_spheres": [{"name": s.name, "props": s.props} for s in d.spheres],
         "project_materials": [m.name for m in p.materials],
+        **({"stackup": {"source": d.stackup.source, "layers": [f"{L.name} ({L.kind}, {L.thickness})"
+                                                             for L in d.stackup.layers]}} if d.stackup else {}),
         **({"coordinate_systems": [{"name": c.name, "kind": c.kind, "reference": c.reference, "props": c.props}
                                    for c in d.coord_systems], "working_cs": d.working_cs} if d.coord_systems else {}),
         **(_equations_summary(d) if d.field_exprs or d.field_funcs else {}),
@@ -1182,7 +1215,7 @@ REPORT_KINDS = {"Rectangular": "XY Plot", "Smith Chart": "Smith Chart", "Data Ta
                 "Radiation Pattern": "Radiation Pattern", "3D Polar Plot": "3D Polar Plot",
                 "Near Field Line": "Near Field", "Monostatic RCS": "Monostatic RCS",
                 "Monostatic RCS Table": "Monostatic RCS Table", "Antenna Parameters": "Antenna Parameters Plot",
-                "Antenna Parameters Table": "Antenna Parameters Table"}
+                "Antenna Parameters Table": "Antenna Parameters Table", "Eigenmode Table": "Eigenmode Table"}
 
 
 def _solution(d: Design, sol: str | None, fallback_sweep: bool = True) -> str:
@@ -1220,7 +1253,7 @@ def t_set_report(args):
             raise ToolError("A Fields report is a Rectangular plot or a Data Table")
         prefix = ("Fields Plot" if kind == "Rectangular" else "Fields Table") if fields else REPORT_KINDS[kind]
         name = name or _next_name({x.name for x in d.reports}, prefix)
-        sol = _solution(d, args.get("solution"))
+        sol = _solution(d, args.get("solution"), fallback_sweep=kind != "Eigenmode Table")
         r = Report(name, kind, sol, [])
         if fields:
             r.props.update(fields="1", port="1")
@@ -1233,7 +1266,8 @@ def t_set_report(args):
         r.traces = [str(t) for t in args["traces"]]
     elif created and not fields:
         n = max(1, len(d.ports()))
-        r.traces = ["dB(GainTotal)"] if r.kind in ("Radiation Pattern", "3D Polar Plot") else \
+        r.traces = ["Freq", "Q"] if r.kind == "Eigenmode Table" else \
+            ["dB(GainTotal)"] if r.kind in ("Radiation Pattern", "3D Polar Plot") else \
             ["dBsm(MonostaticRCSTotal)"] if r.kind.startswith("Monostatic") else \
             ["dB(PeakGain)", "dB(PeakRealizedGain)", "dB(PeakDirectivity)"] if r.kind.startswith("Antenna") else \
             ["mag(NearETotal)"] if r.kind == "Near Field Line" else [f"dB(S({i},1))" for i in range(1, n + 1)][:4]
@@ -1403,7 +1437,15 @@ def t_set_optimization(args):
                 raise ToolError(f"cond must be one of {list(schema.GOAL_CONDITIONS)}")
             g.setdefault("cond", "<=")
             g.setdefault("weight", "1")
-    op.props = _props_in("Optimization", schema.OPTIMIZATION, args.get("props"), op.props)
+    props = dict(args.get("props") or {})
+    if args.get("optimizer"):
+        if args["optimizer"] not in schema.OPTIMIZERS:
+            raise ToolError(f"optimizer must be one of {list(schema.OPTIMIZERS)}")
+        props["Optimizer"] = args["optimizer"]
+    op.props = _props_in("Optimization", schema.OPTIMIZATION, props, op.props)
+    if op.props.get("Optimizer") == "Derivative Trust Region" and \
+            sum(1 for v in op.variables if v.get("include", True)) > 6:
+        raise ToolError("The Derivative Trust Region optimizes at most 6 variables (set include=false on the others)")
     try:
         Variables(d, op, d.evaluator(ctx.proj))
     except Exception as e:  # noqa: BLE001
@@ -1520,6 +1562,12 @@ def t_run_simulation(args):
         d.setup(setup)
     except KeyError:
         raise ToolError(f"Setup '{setup}' not found") from None
+    if getattr(d, "kind", "3d") == "circuit":
+        if ctx.gui is not None:
+            r = ctx.gui.call("analyze_circuit", design=d.name, setups=[setup], timeout=900)
+            return {"in_window": True, **(r or {}), "next": "get_results kind=sparameters"}
+        from .tools_more import analyze_circuit_file
+        return {"in_window": False, **analyze_circuit_file(ctx, [setup]), "next": "get_results kind=sparameters"}
     sweep = args.get("sweep") or ""
     mesh_only = bool(args.get("mesh_only"))
     if ctx.gui is not None:
@@ -1634,7 +1682,8 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
     conv = (st.read_json("convergence.json") if st else None) or {}
     if conv.get("passes"):
         res["passes"] = [{k: (round(v, 5) if isinstance(v, float) else v) for k, v in row.items()
-                          if k in ("pass", "tets", "delta_s", "delta_mag", "delta_phase", "passed")}
+                          if k in ("pass", "tets", "delta_s", "delta_mag", "delta_phase", "power_balance",
+                                   "delta_eff", "passed")}
                          for row in conv["passes"]]
         res["converged"] = bool(conv.get("converged"))
         if conv.get("final_tets"):
@@ -1852,6 +1901,28 @@ def _study_results(ctx: Ctx, name: str, kind: str, args) -> dict:
             "note": "Apply the best values with set_design variables when they are good."}
 
 
+def sp_table(f, Sm, args: dict, ev) -> list[dict]:
+    """Rows {freq_GHz, Sij_dB, Sij_deg} of S-parameters (args: params, frequencies or max_points)."""
+    f = np.asarray(f, float)
+    n = Sm.shape[1]
+    params = args.get("params") or [f"S{i + 1}{1}" for i in range(n)]
+    ij = [_parse_param(p, n) for p in params]
+    if args.get("frequencies"):
+        rows = [(x, int(np.argmin(np.abs(f - x)))) for x in (ev.freq(_s(v)) for v in args["frequencies"])]
+    else:
+        m = int(args.get("max_points", 41))
+        rows = [(f[k], k) for k in np.unique(np.linspace(0, len(f) - 1, min(m, len(f))).astype(int))]
+    table = []
+    for _, k in rows:
+        r = {"freq_GHz": _r(f[k] / 1e9)}
+        for p, (i, j) in zip(params, ij):
+            v = Sm[k, i, j]
+            r[p + "_dB"] = _r(_db(v), 4)
+            r[p + "_deg"] = _r(np.degrees(np.angle(v)), 4)
+        table.append(r)
+    return table
+
+
 def t_get_results(args):
     from ..solver.results import ResultStore
     ctx = load(args)
@@ -1908,27 +1979,7 @@ def t_get_results(args):
             raise ToolError(f"No S-parameters for '{sol}'; solutions: {sols}")
         f = np.asarray(data["freq"], float)
         Sm = np.asarray(data["S"])
-        n = Sm.shape[1]
-        params = args.get("params") or [f"S{i + 1}{1}" for i in range(n)]
-        ij = [_parse_param(p, n) for p in params]
-        if args.get("frequencies"):
-            fq = np.array([ev.freq(_s(x)) for x in args["frequencies"]])
-            rows = []
-            for x in fq:
-                k = int(np.argmin(np.abs(f - x)))
-                rows.append((x, k))
-        else:
-            m = int(args.get("max_points", 41))
-            rows = [(f[k], k) for k in np.unique(np.linspace(0, len(f) - 1, min(m, len(f))).astype(int))]
-        table = []
-        for x, k in rows:
-            r = {"freq_GHz": _r(f[k] / 1e9)}
-            for p, (i, j) in zip(params, ij):
-                v = Sm[k, i, j]
-                r[p + "_dB"] = _r(_db(v), 4)
-                r[p + "_deg"] = _r(np.degrees(np.angle(v)), 4)
-            table.append(r)
-        return {"solution": sol, "ports": n, "rows": table}
+        return {"solution": sol, "ports": Sm.shape[1], "rows": sp_table(f, Sm, args, ev)}
     if kind == "convergence":
         return _status(ctx, setup)
     if kind in ("farfield", "rcs"):
@@ -1970,9 +2021,12 @@ def t_get_results(args):
 # tools: picture of the model
 # ------------------------------------------------------------------------------------------------
 def t_render_image(args):
-    import pyvista as pv
     ctx = load(args)
     d = ctx.des
+    if getattr(d, "kind", "3d") == "circuit":
+        from .tools_more import render_schematic
+        return render_schematic(ctx.proj, d, int(args.get("width", 1000)), int(args.get("height", 700)))
+    import pyvista as pv
     tess, errors = tessellate(ctx.proj, d)
     sc = _unit(d)
     w, h = int(args.get("width", 1000)), int(args.get("height", 700))
@@ -2219,8 +2273,12 @@ TOOLS = [
                   "calcs": {"type": "array", "items": {"type": "object"}}, "props": OBJ}), t_set_parametric),
     Tool("set_optimization", "Create or change an optimization: variables [{name, include, min, max}], goals "
          "[{calc like dB(S(1,1)), start, stop (frequencies), cond (<=, >=, =, Ripple <=), value, weight}] on a "
-         "solution, and optimizer props.",
+         "solution ('Setup1 : Sweep', or 'Setup1 : LastAdaptive' for goals at the solution frequency without a "
+         "sweep), the optimizer and its props (get_schema section=optimization): Conjugate Gradient "
+         "(DifferenceStep, InitialStep ...), Latin Hypercube + Nelder-Mead (Samples, Chains, ChainEvaluations ...), "
+         "Derivative Trust Region (TrustRadius, MaxRounds, TuningPoints; at most 6 variables).",
          _schema({"name": {"type": "string"}, "solution": {"type": "string"},
+                  "optimizer": {"type": "string", "enum": list(schema.OPTIMIZERS)},
                   "variables": {"type": "array", "items": {"type": "object"}},
                   "goals": {"type": "array", "items": {"type": "object"}}, "props": OBJ}), t_set_optimization),
     Tool("validate", "Run the validation check (geometry, materials, boundaries, ports, setup).",
@@ -2254,7 +2312,7 @@ TOOLS = [
                   "phi_cuts": {"type": "array", "items": {"type": "number"}}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_get_results, True),
     Tool("render_image", "Picture of the model (PNG): objects in their colours, ports and boundaries on faces, "
-         "optionally the face indices of one object.",
+         "optionally the face indices of one object. For a circuit design: the schematic with pin numbers.",
          _schema({"view": {"type": "string", "enum": ["iso", "top", "bottom", "front", "back", "left", "right"]},
                   "objects": {"type": "array", "items": {"type": "string"}},
                   "label_faces_of": {"type": "string", "description": "object whose indices are drawn"},
@@ -2268,3 +2326,8 @@ TOOLS = [
          "afterwards; print() output is returned.",
          _schema({"code": {"type": "string"}}, ["code"]), t_run_python),
 ]
+
+from .tools_io import TOOLS as _IO_TOOLS  # noqa: E402
+from .tools_more import TOOLS as _MORE_TOOLS  # noqa: E402
+
+TOOLS += _MORE_TOOLS + _IO_TOOLS

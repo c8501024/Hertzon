@@ -28,6 +28,7 @@ from ..kernel import occ as K
 from . import facematch
 from . import sparta_setup
 from .results import ResultStore, port_entries, deembed_renormalize, running_status
+from .sweeps import sweep_frequencies  # noqa: F401  (re-exported: bridge.sweep_frequencies)
 from .emerge_compat import amr as _amr
 
 C0 = 299792458.0
@@ -109,32 +110,28 @@ def adaptive_frequencies(setup: Setup, ev: Evaluator) -> list[float]:
     return [ev.freq(p["Frequency"])]
 
 
-def sweep_frequencies(props: dict[str, str], ev: Evaluator) -> np.ndarray:
-    dist = props.get("Distribution", "Linear Step")
-    if dist == "Single Points":
-        return np.array(sorted(ev.freq(x) for x in props.get("Points", "").split(",") if x.strip()))
-    f1, f2 = ev.freq(props["Start"]), ev.freq(props["Stop"])
-    if dist == "Linear Count":
-        return np.linspace(f1, f2, max(2, ev.integer(props["Count"])))
-    if dist == "Log Scale":
-        n = max(2, int(round(math.log10(f2 / f1) * ev.integer(props["SamplesPerDecade"]))) + 1)
-        return np.logspace(math.log10(f1), math.log10(f2), n)
-    step = ev.freq(props["Step"])
-    if step <= 0:
-        raise ValueError("Sweep step must be positive")
-    n = int(math.floor((f2 - f1) / step + 1e-9)) + 1
-    return f1 + step * np.arange(n)
+def _sweep_extremes(setup: Setup, ev: Evaluator, pick) -> list[float]:
+    """pick (min or max) of the frequencies of every switched-on sweep of the setup. The open region is sized
+    from them (switching a sweep on or off changes the model: keys.open_region_frequency)."""
+    out = []
+    for sw in setup.sweeps:
+        if sw.props.get("Enabled", "True") != "True":
+            continue
+        try:
+            f = float(pick(sweep_frequencies(sw.props, ev)))
+        except Exception:  # noqa: BLE001
+            continue
+        if np.isfinite(f) and f > 0:
+            out.append(f)
+    return out
 
 
 def lowest_frequency(design: Design, setup: Setup, ev: Evaluator) -> float:
-    fs = adaptive_frequencies(setup, ev)
-    for sw in setup.sweeps:
-        if sw.props.get("Enabled", "True") == "True":
-            try:
-                fs.append(float(sweep_frequencies(sw.props, ev).min()))
-            except Exception:  # noqa: BLE001
-                pass
-    return min(fs)
+    return min(adaptive_frequencies(setup, ev) + _sweep_extremes(setup, ev, np.min))
+
+
+def highest_frequency(design: Design, setup: Setup, ev: Evaluator) -> float:
+    return max(adaptive_frequencies(setup, ev) + _sweep_extremes(setup, ev, np.max))
 
 
 # --------------------------------------------------------------------------------------------
@@ -511,15 +508,19 @@ class Bridge:
             box = em.geo.Box(W, D, H, position=pos).set_material(em.lib.AIR).background()
             self.region_geo = box
             self.open_kind = "Radiation"
-            if self.plane_wave() is not None:
-                # far-field integration surface: a box close around the scatterers, integrated with Gauss
-                # points (not over mesh faces), where the mesh is fine and the ABC reflection is weak
-                sb = np.asarray(self.scatter_bbox, np.float64)
-                gap = min(min(sb[i] - pos[i], pos[i] + (W, D, H)[i] - sb[i + 3]) for i in range(3))
+            # far-field and radiated-power integration surface: a box close around the model, integrated
+            # with Gauss points (not over the mesh faces of the absorbing boundary), where the mesh is fine
+            # and the ABC reflection is weak; on the ABC faces themselves the radiated power came out up to
+            # ~10 % above the accepted power of lossless antennas (#231). A scattering problem encloses the
+            # scatterers only, an antenna all model objects (ports and feeds included).
+            sb = np.asarray(self.scatter_bbox if self.plane_wave() is not None else self.probe_bbox, np.float64)
+            gap = min(min(sb[i] - pos[i], pos[i] + (W, D, H)[i] - sb[i + 3]) for i in range(3))
+            if gap > 0:
                 d = min(FF_OFFSET * lam, gap / 2)
                 self.ff_bounds = np.r_[sb[:3] - d, sb[3:] + d]
                 self.ff_region = np.r_[pos, pos[0] + W, pos[1] + D, pos[2] + H]
-                self.ff_panel = lam / 4
+                # Gauss panels of a quarter wavelength at the highest solved frequency
+                self.ff_panel = C0 / max(highest_frequency(self.design, self.setup, self.ev), f_low) / 4
         self.store.write_json("auto_open.json", {"kind": kind, "padding": margin, "lambda_low": lam,
                                                  "box": [*pos, W, D, H]})
 
@@ -1258,7 +1259,8 @@ class Bridge:
                 info(f"SPARTA: GPU warm-up failed ({ex})")
 
     # ----------------------------------------------------------------------------------------
-    def run_adaptive(self) -> None:
+    def run_adaptive(self, resume: bool = True) -> None:
+        """Adaptive passes; resume: continue from the stored adaptive mesh when it fits the model."""
         m, p = self.m, self.setup.props
         fa = adaptive_frequencies(self.setup, self.ev)
         t = time.time()
@@ -1273,8 +1275,8 @@ class Bridge:
             emit("passdata", step=step)
 
         key = self.keys["model_key"] if hasattr(self, "keys") else model_key(self.project, self.design, self.setup)
-        resume = load_amr_state(self.out, key, fa)
-        conv = adaptive_loop(m, fa, p, self.out, on_pass, key=key, resume=resume)
+        state = load_amr_state(self.out, key, fa) if resume else None
+        conv = adaptive_loop(m, fa, p, self.out, on_pass, key=key, resume=state, power=self.pass_power)
         last = conv.pop("_last", None)
         conv["final_tets"] = int(m.mesh.n_tets)
         conv["frequencies"] = fa
@@ -1456,21 +1458,33 @@ class Bridge:
 
     def solve_one_sweep(self, name: str) -> None:
         """Analyze a single sweep. Rebuilds the converged adaptive mesh and solves only this sweep;
-        the adaptive solution and the other sweeps stay as they are."""
-        fa = adaptive_frequencies(self.setup, self.ev)
-        resume = load_amr_state(self.out, self.keys["model_key"], fa)
-        if not resume or not (len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura")):
-            raise RuntimeError("No adaptive solution to reuse; analyze the whole setup first")
-        restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
-        info(f"Reusing the adaptive mesh: {self.m.mesh.n_tets} tetrahedra")
-        self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
+        the adaptive solution and the other sweeps stay as they are. Without a stored adaptive mesh that fits
+        the model (none of the current design, or one that grew from another initial mesh) the setup is
+        analyzed instead: the adaptive passes, then this sweep and the switched-on ones (their stored
+        results belong to the old mesh)."""
         sweeps = [s for s in self.setup.sweeps if s.name == name]
         if not sweeps:
             raise RuntimeError(f"Sweep '{name}' not found")
+        fa = adaptive_frequencies(self.setup, self.ev)
+        resume = load_amr_state(self.out, self.keys["model_key"], fa)
+        why = "" if has_amr_mesh(resume) else "there is no adaptive mesh of the current design"
+        if not why:
+            try:
+                restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
+            except StaleMesh:
+                why = "the stored adaptive mesh does not fit the model any more (its initial mesh changed)"
+        if why:
+            warn(f"Sweep '{name}': {why}; analyzing the setup (adaptive passes, then the sweeps)")
+            self.run_adaptive(resume=False)
+            sweeps = [s for s in self.setup.sweeps if s.name == name or s.props.get("Enabled", "True") == "True"]
+        else:
+            info(f"Reusing the adaptive mesh: {self.m.mesh.n_tets} tetrahedra")
+            self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
         keep = self.setup.sweeps
         self.setup.sweeps = sweeps
         try:
-            sweeps[0].props["Enabled"] = "True"
+            for sw in sweeps:
+                sw.props["Enabled"] = "True"
             self.run_sweeps()
         finally:
             self.setup.sweeps = keep
@@ -1487,9 +1501,12 @@ class Bridge:
         from . import tuning
         fa = adaptive_frequencies(self.setup, self.ev)
         resume = load_amr_state(self.out, self.keys["model_key"], fa)
-        if not resume or not (len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura")):
+        if not has_amr_mesh(resume):
             raise RuntimeError("No adaptive solution to reuse; analyze the setup first")
-        restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
+        try:
+            restore_amr_mesh(self.m, resume, float(self.setup.props.get("GrowthRate", "1.6")))
+        except StaleMesh as ex:
+            raise RuntimeError(f"{ex}; analyze the setup again (it starts the adaptive passes anew)") from None
         info(f"Reusing the adaptive mesh: {self.m.mesh.n_tets} tetrahedra")
         self.port_map = self.store.read_json("ports.json", self.port_map) or self.port_map
         name = spec.get("sweep", "")
@@ -1870,7 +1887,69 @@ class Bridge:
                 except Exception as ex:  # noqa: BLE001
                     warn(f"Far field surface fields for port {port['number']} failed: {ex}")
         self.store.save_npz(f"huygens_{label}.npz", **out)
+        self.save_losses(fields, label)
         return True
+
+    def loss_model(self, fld):
+        """The quadrature points of the lossy parts of the current mesh (power.LossModel), found once per mesh."""
+        from .power import LossModel
+        key = (id(self.m.mesh), np.shape(self.m.mesh.tets))
+        if getattr(self, "_loss_key", None) != key:
+            self._loss_model, self._loss_key = LossModel(self.m, fld), key
+        return self._loss_model
+
+    def pass_power(self, fields: list, Ss: list) -> dict | None:
+        """Power balance of an adaptive pass: the largest |Prad + Ploss - Pacc| / Pin over the adaptive
+        frequencies and ports (1 W incident at one port, Pacc = 1 - sum |S_mn|^2 over the column of n) and the
+        radiation efficiencies Prad / (Prad + Ploss). None without a far field surface or ports."""
+        from .power import loss_matrix
+        surf = self.huygens_surface()
+        ports = [p for p in self.fields_of() if p.get("kind") != "Incident Plane Wave"]
+        if surf is None or not ports or not fields:
+            return None
+        vis, wns = surf["vis"], surf["wns"]
+        model = self.loss_model(fields[0])
+        mapping = np.asarray(fields[0].basis.interpolate_index(*vis), np.int64)
+        bal, eff = 0.0, []
+        for fld, S in zip(fields, Ss):
+            S = np.atleast_2d(np.asarray(S))
+            if S.shape[1] != len(ports):      # ports with several modes: the S columns are not the ports
+                raise RuntimeError("the power balance needs one S-parameter column per port (one mode each)")
+            L = loss_matrix(model, fld, ports, excite)
+            for i, port in enumerate(ports):
+                excite(fld, port)
+                if (mapping >= 0).all():
+                    _interp_known_tets(fld, *vis, mapping)
+                    E, H = np.array([fld.Ex, fld.Ey, fld.Ez]), np.array([fld.Hx, fld.Hy, fld.Hz])
+                else:
+                    eh = fld.interpolate(*vis)
+                    E, H = np.asarray(eh.E), np.asarray(eh.H)
+                prad = float(np.real(np.sum(0.5 * np.cross(E.T, np.conj(H).T).T * wns)))
+                ploss = max(0.0, float(np.real(L[i, i])))
+                pacc = 1.0 - float(np.sum(np.abs(S[:, i]) ** 2))
+                bal = max(bal, abs(prad + ploss - pacc))
+                eff.append(prad / max(prad + ploss, 1e-300))
+        return {"balance": bal, "eff": eff}
+
+    def save_losses(self, fields: list, label: str) -> None:
+        """losses_<label>.npz: the loss matrices L_k of the port excitations (Ploss = a^H L a, power.loss_matrix)
+        for the efficiency Prad / (Prad + Ploss) and the power balance. A lossless model stores only the port
+        list (Ploss = 0); ok = 0 when the losses could not be computed (efficiency from Prad / Pacc then)."""
+        ports = [p for p in self.fields_of() if p.get("kind") != "Incident Plane Wave"]
+        out = {"ports": np.array([int(p["number"]) for p in ports], np.int64), "ok": np.array([0])}
+        if ports and fields:
+            try:
+                from .power import loss_matrix
+                model = self.loss_model(fields[0])
+                for k, fld in enumerate(fields):
+                    out[f"freq_{k}"] = np.array([float(fld.freq)])
+                    if not model.empty:
+                        out[f"Ploss_{k}"] = loss_matrix(model, fld, ports, excite)
+                out["ok"] = np.array([1])
+            except Exception as ex:  # noqa: BLE001
+                warn(f"Loss power not computed: {ex}")
+                out = {"ports": out["ports"], "ok": np.array([0])}
+        self.store.save_npz(f"losses_{label}.npz", **out)
 
     def symmetry_planes(self) -> list[tuple[str, int, float]]:
         """Symmetry boundaries as mirror planes of the far field: (E or H, axis 0/1/2, position in m). Only a
@@ -1944,6 +2023,11 @@ class Bridge:
     def _run_sweeps(self) -> None:
         m, ev = self.m, self.ev
         sweeps = [s for s in self.setup.sweeps if s.props.get("Enabled", "True") == "True"]
+        goal = os.environ.get("HERTZON_GOAL_SWEEP", "")
+        if goal:
+            # an optimization evaluation: the design keeps its sweeps (and with them its open region), only the
+            # sweep the goals are on is solved ("LastAdaptive": none)
+            sweeps = [s for s in self.setup.sweeps if s.name == goal]
         self.factor_memory()
         for i, sw in enumerate(sweeps):
             t = time.time()
@@ -2129,6 +2213,7 @@ class Bridge:
         n = max(1, int(p.get("NumberOfModes", "3")))
         t = time.time()
         found: list[complex] = []
+        fields = {}         # eigenfrequency -> its field data (the mode's FEM solution)
         fs = fmin
         for k in range(EIGEN_SEARCHES):
             emit("progress", value=30 + 60 * k / EIGEN_SEARCHES,
@@ -2138,6 +2223,7 @@ class Bridge:
                 f = complex(getattr(fld, "freq", 0))
                 if f.real >= fmin * (1 - 1e-6) and all(abs(f - g) > 1e-6 * abs(f) for g in found):
                     found.append(f)
+                    fields[f] = fld
             found.sort(key=lambda f: f.real)
             if len(found) >= n and found[n - 1].real <= fs:
                 break
@@ -2148,11 +2234,44 @@ class Bridge:
             if len(found) < n:
                 warn(f"Eigenmode: {len(found)} of {n} modes found above {fmin / 1e9:.4g} GHz "
                      f"(searched up to {fs / 1e9:.4g} GHz)")
-        modes = [{"freq": f.real, "Q": f.real / (2 * f.imag) if f.imag else float("inf")} for f in found[:n]]
+        # lossless: the imaginary part is round-off (of either sign), Q is infinite
+        modes = [{"freq": f.real, "Q": f.real / (2 * f.imag) if abs(f.imag) > 1e-12 * f.real else float("inf")}
+                 for f in found[:n]]
         self.store.write_json("eigenmodes.json", modes)
         self.save_mesh()
+        if modes:
+            self.save_eigen_fields([fields[f] for f in found[:n]])
         self.step("Eigenmode", t)
         info("Eigenmodes: " + ", ".join("%.5g GHz" % (x["freq"] / 1e9) for x in modes))
+
+    def save_eigen_fields(self, flds: list) -> None:
+        """The field of every eigenmode as solution 'LastAdaptive': mode k is frequency index k (its
+        eigenfrequency), with one excitation (number 1), so field plots, the fields calculator and animations
+        show it like a driven solution. An eigenvector has no amplitude of its own: each mode is scaled to
+        unit norm and turned in phase so that its largest coefficient is real (phase 0 shows the mode's
+        strongest E field)."""
+        from .lazy_fields import solution_arrays
+
+        class _Mode:            # the eigenmode as the solution of one excitation, at its real frequency
+            def __init__(self, fld):
+                v = np.asarray(fld._field, np.complex128)
+                i = int(np.argmax(np.abs(v)))
+                nrm = np.linalg.norm(v)
+                self._field = v * (np.exp(-1j * np.angle(v[i])) / nrm if nrm else 1.0)
+                self.freq = float(np.real(fld.freq))
+                self._dur = fld._dur
+                self.basis = fld.basis
+
+        try:
+            modes = [_Mode(f) for f in flds]
+            quad = np.asarray(self.m.mesh.tets).shape[1] * len(modes) <= 600_000
+            self.store.save_npz("solution_LastAdaptive.npz",
+                                **solution_arrays(self.m, modes, [{"number": 1, "kind": "Eigenmode"}],
+                                                  lambda fld, port: None, quad, self.curved_mesh()))
+            (self.store.folder / "fields_LastAdaptive.npz").unlink(missing_ok=True)   # an older solve's fields
+            info("Eigenmode fields saved (solution 'LastAdaptive', one frequency per mode)")
+        except Exception as ex:  # noqa: BLE001
+            warn(f"Eigenmode fields not saved, field plots are not available: {ex}")
 
 
 def _solver_stats(row: dict, step: int) -> None:
@@ -2190,12 +2309,15 @@ def aligned_delta(S_old: np.ndarray, S_new: np.ndarray) -> tuple[float, float, f
     return d, dm, float(np.max(np.abs(ph)))
 
 
-def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str = "", resume: dict | None = None) -> dict:
+def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str = "", resume: dict | None = None,
+                  power=None) -> dict:
     """Adaptive mesh refinement with the reference tool's semantics.
 
     Pass 1 solves the initial mesh; from pass 2 on Delta S is the maximum change of any S-parameter
     between consecutive passes. The loop stops after `MinimumConvergedPasses` consecutive converged
     passes (but not before `MinimumPasses`), at `MaximumPasses`, or when the tetrahedra limit is hit.
+    With UsePowerBalance a pass also needs |Prad + Ploss - Pacc| / Pin <= MaxPowerBalance and an efficiency
+    change <= MaxDeltaEfficiency; power(fields, Ss) computes them (Bridge.pass_power).
     """
     from .emerge_compat import select_refinement_indices, tet_to_node
     maxp = max(1, int(p.get("MaximumPasses", "6")))
@@ -2203,6 +2325,9 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     use_mat = p.get("UseMatrixConvergence") == "True"
     max_dm = float(p.get("MaxDeltaMag", "0.02")) if use_mat else float("inf")
     max_dp = float(p.get("MaxDeltaPhase", "2")) if use_mat else float("inf")
+    use_pow = power is not None and p.get("UsePowerBalance") == "True"
+    max_pb = float(p.get("MaxPowerBalance", "0.01") or "0.01") if use_pow else float("inf")
+    max_de = float(p.get("MaxDeltaEfficiency", "0.01") or "0.01") if use_pow else float("inf")
     min_passes = max(2, int(p.get("MinimumPasses", "2")))
     min_conv = max(1, int(p.get("MinimumConvergedPasses", "1")))
     max_tets = int(float(p.get("MaximumRefinement", "1000000")))
@@ -2224,9 +2349,15 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     m._aura_mesh = None
     m._aura_initial = np.asarray(m.mesh.nodes).T.copy()      # hzAURA state: checked when it is restored
     first = 1
-    if resume and resume["passes"] and (len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura")) and len(resume["passes"]) <= maxp:
+    if resume and resume["passes"] and has_amr_mesh(resume) and len(resume["passes"]) <= maxp:
         # continue from the last adaptive mesh: rebuild it, re-solve its pass and go on refining
-        restore_amr_mesh(m, resume, growth)
+        try:
+            restore_amr_mesh(m, resume, growth)
+        except StaleMesh:
+            resume = None
+            warn("The stored adaptive mesh does not fit the model any more (its initial mesh changed, for "
+                 "example the open region); the adaptive passes start again from the initial mesh")
+    if resume:
         ratio = resume["ratio"]
         passes = resume["passes"][:-1]
         first = len(resume["passes"])
@@ -2274,12 +2405,30 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         if passes:
             row["delta_tets"] = 100.0 * (m.mesh.n_tets / max(1, passes[-1]["tets"]) - 1)
         _solver_stats(row, step)
+        if use_pow:
+            exc = [dict(getattr(fl, "excitation", {}) or {}) for fl in fields]
+            try:
+                emit("progress", value=12 + 40 * (step - 0.8) / maxp, text=f"Pass {step}: power balance")
+                pw = power(fields, Ss)
+            except Exception as e:  # noqa: BLE001
+                warn(f"Pass {step}: power balance not computed ({e}); the pass is judged on Delta S only")
+                pw = None
+            for fl, ex in zip(fields, exc):
+                fl.excitation = ex
+            if pw is not None:
+                row["power_balance"] = pw["balance"]
+                row["eff"] = pw["eff"]
+                prev = passes[-1].get("eff") if passes else None
+                if prev is not None and len(prev) == len(pw["eff"]):
+                    row["delta_eff"] = max(abs(a - b) for a, b in zip(prev, pw["eff"]))
         if S_prev is not None:
             ds = [aligned_delta(a, b) for a, b in zip(S_prev, Ss)]
             row["delta_s"] = max(d[0] for d in ds)
             row["delta_mag"] = max(d[1] for d in ds)
             row["delta_phase"] = max(d[2] for d in ds)
             ok = row["delta_s"] <= max_ds and row["delta_mag"] <= max_dm and row["delta_phase"] <= max_dp
+            if "power_balance" in row:
+                ok = ok and row["power_balance"] <= max_pb and row.get("delta_eff", float("inf")) <= max_de
             passed = passed + 1 if ok else 0
             row["passed"] = ok
         S_prev = Ss
@@ -2374,9 +2523,15 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         info(f"Pass {step + 1}: mesh refined to {m.mesh.n_tets} tetrahedra (+{grow:.1f}%) "
              f"in {time.time() - t_ref:.2f} s")
         last_n = m.mesh.n_tets
+    if not converged and passes and passes[-1].get("power_balance", 0) > max_pb:
+        warn(f"Power balance {100 * passes[-1]['power_balance']:.2g} % of the incident power after the last pass "
+             f"(target {100 * max_pb:.2g} %): Prad + Ploss differs from the accepted power. More passes, a finer "
+             "initial mesh, or more space to the open boundary (padding) or a PML usually help")
     m.state.reload()
     m.state.store_geometry_data()
     res = {"passes": passes, "converged": converged, "max_delta_s": max_ds}
+    if use_pow:
+        res["max_power_balance"], res["max_delta_eff"] = max_pb, max_de
     if last is not None and last[4] == m.mesh.n_tets:
         res["_last"] = last          # solution of the final mesh: no need to solve it again
     return res
@@ -2678,16 +2833,21 @@ def restore_amr_mesh(m, resume: dict, growth: float) -> None:
     m.generate_mesh(True)
 
 
+class StaleMesh(RuntimeError):
+    """The stored adaptive mesh was refined from another initial mesh than the model has now."""
+
+
 def restore_aura_mesh(m, a: dict) -> None:
     """Rebuild a stored hzAURA mesh on the initial mesh ``m`` has now. hzAURA keeps the numbering of every old
-    node and appends the new ones, so the initial mesh supplies the tags and the geometry data of EMerge's mesh."""
+    node and appends the new ones, so the initial mesh supplies the tags and the geometry data of EMerge's mesh.
+    Raises StaleMesh (and leaves ``m`` as it is) when the stored mesh grew from another initial mesh."""
     from emerge._emerge.aura import RefineResult
     from emerge._emerge.aura.emerge_tools import refine_mesh3d
-    m.data.sim.new(iter_step=0)
     # the smoothing moves old nodes, so the initial mesh is compared with the one stored with the state
     n0, init = np.asarray(m.mesh.nodes).T, np.asarray(a.get("initial_nodes", np.zeros((0, 3))), float)
     if n0.shape != init.shape or not np.allclose(n0, init, rtol=0, atol=1e-9 * max(1.0, float(np.abs(n0).max()))):
-        raise RuntimeError("The stored adaptive mesh does not fit the initial mesh; analyze the whole setup again")
+        raise StaleMesh("The stored adaptive mesh does not fit the initial mesh of the model")
+    m.data.sim.new(iter_step=0)
     nodes = np.asarray(a["nodes"], float)
     tets = np.asarray(a["tets"], np.int64)
     res = RefineResult(nodes=nodes, tets=tets, tet_root=np.zeros(len(tets), np.int64),
@@ -2717,6 +2877,11 @@ def peak_memory() -> float:
         return float(r) / (2 ** 20 if sys.platform == "darwin" else 2 ** 10)
     except Exception:  # noqa: BLE001
         return rss
+
+
+def has_amr_mesh(resume: dict | None) -> bool:
+    """The stored refinement state holds an adaptive mesh (or the sizes to rebuild it)."""
+    return bool(resume) and bool(len(resume["amr_sizes"]) or resume.get("mesh") or resume.get("aura"))
 
 
 def load_amr_state(out: Path, key: str, fa) -> dict | None:

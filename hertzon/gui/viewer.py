@@ -35,6 +35,28 @@ def _rgb(color: str):
     return tuple(int(color[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
 
+def sorted_translucency(plotter) -> bool:
+    """Blend translucent surfaces depth-correctly under SSAA.
+
+    With a render pass such as SSAA, VTK draws through plain render steps whose translucent pass blends
+    the cells in mesh order without depth sorting. A closed translucent surface (the 3D radiation pattern)
+    then shows a sharp seam along a meridian where the order of front and back cells flips. An order
+    independent translucent pass in the render steps blends them correctly, as without SSAA."""
+    try:
+        from vtkmodules.vtkRenderingOpenGL2 import vtkOrderIndependentTranslucentPass
+        steps = plotter.renderer._render_passes._pass_collection.GetItemAsObject(0)
+        if steps is None or not hasattr(steps, "SetTranslucentPass"):
+            return False
+        if isinstance(steps.GetTranslucentPass(), vtkOrderIndependentTranslucentPass):
+            return True
+        oit = vtkOrderIndependentTranslucentPass()
+        oit.SetTranslucentPass(steps.GetTranslucentPass())
+        steps.SetTranslucentPass(oit)
+        return True
+    except Exception:  # noqa: BLE001 - private pyvista API; without it only the seam remains
+        return False
+
+
 @dataclass
 class ObjActors:
     surface: object = None
@@ -360,6 +382,7 @@ class ModelerView(QWidget):
         p = self.plotter
         p.set_background("#dfe3e8", top="#f1f3f6")
         p.enable_anti_aliasing("ssaa") if hasattr(p, "enable_anti_aliasing") else None
+        sorted_translucency(p)
         try:
             p.iren.clear_key_event_callbacks()
         except Exception:  # noqa: BLE001

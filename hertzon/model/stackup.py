@@ -223,18 +223,26 @@ def evaluate(st: Stackup, ev: Evaluator) -> list[LayerZ]:
     return out
 
 
+def fill_neighbour(st: Stackup, i: int) -> int | None:
+    """Index of the dielectric whose material fills copper layer ``i`` between the traces: the prepreg
+    next to it (else the first dielectric neighbour); None on an outer layer (air)."""
+    nb = [j for j in (i - 1, i + 1) if 0 <= j < len(st.layers) and st.layers[j].kind == DIELECTRIC]
+    if len(nb) < 2:
+        return None
+    return next((j for j in nb if st.layers[j].subtype == PREPREG), nb[0])
+
+
 def fill_of(st: Stackup, i: int) -> str:
-    """What fills the gaps between the traces of copper layer ``i`` modelled as a solid: its own ``fill``
-    material, else the prepreg (or other dielectric) next to it, on an outer layer air.
+    """What fills the gaps between the traces of copper layer ``i``: its own ``fill`` material, else the
+    prepreg (or other dielectric) next to it, on an outer layer air.
     Returned as a material name, or as "layer:<name>" for a layer that carries its own values."""
     L = st.layers[i]
     if L.fill:
         return L.fill
-    nb = [st.layers[j] for j in (i - 1, i + 1) if 0 <= j < len(st.layers)]
-    diel = [x for x in nb if x.kind == DIELECTRIC]
-    if len(diel) < 2:
+    j = fill_neighbour(st, i)
+    if j is None:
         return "air"
-    pick = next((x for x in diel if x.subtype == PREPREG), diel[0])
+    pick = st.layers[j]
     return pick.material or f"layer:{pick.name}"
 
 
@@ -640,3 +648,239 @@ def _fill_missing(st: Stackup, board_t_mm: float | None) -> None:
     each = rest / len(missing) if rest > len(missing) * RANGES[DIELECTRIC][0] else 1.5e-3 / len(missing)
     for L in missing:
         L.set("thickness", fmt_thickness(each), "assumed")
+
+
+# ================================================================================================
+# coupling to the geometry: variables, board coordinate systems, substrate
+# ================================================================================================
+VAR_PREFIX = "stk_"
+BOARD_CS = "stk_Board"
+SUBSTRATE_GROUP = "Stackup"
+PLANE_AXES = {"XY": ("1,0,0", "0,1,0"), "YZ": ("0,1,0", "0,0,1"), "ZX": ("0,0,1", "1,0,0")}
+
+
+def slugs(st: Stackup) -> list[str]:
+    """A unique identifier per layer, made from its name ('F.Cu/In1.Cu' -> 'F_Cu_In1_Cu')."""
+    out: list[str] = []
+    for i, L in enumerate(st.layers):
+        s = re.sub(r"[^0-9A-Za-z]+", "_", L.name).strip("_") or f"L{i + 1}"
+        if s[0].isdigit():
+            s = "L" + s
+        base, k = s, 2
+        while s in out:
+            s, k = f"{base}_{k}", k + 1
+        out.append(s)
+    return out
+
+
+def _thickness_expr(L: StackLayer, ev: Evaluator) -> str:
+    """The thickness as an expression the evaluator understands (ounces become um)."""
+    t = str(L.thickness or "").strip()
+    if _OZ_RE.match(t) or (t and ev.check(t)):
+        v = thickness_m(L, ev)
+        return fmt_thickness(v) if v else "0"
+    return t or "0"
+
+
+def variables(st: Stackup, ev: Evaluator) -> dict[str, str]:
+    """Design variables of the stackup: per layer the thickness ``stk_<layer>_t`` and the height of its
+    bottom ``stk_<layer>_z`` (z = 0 at the bottom of the lowest copper layer), for copper layers the height
+    of the copper sheet ``stk_<layer>_zs``, and ``stk_total``."""
+    names = slugs(st)
+    tv = [f"{VAR_PREFIX}{s}_t" for s in names]
+    out = {v: _thickness_expr(L, ev) for v, L in zip(tv, st.layers)}
+    cu = st.copper()
+    ref = cu[-1] if cu else len(st.layers) - 1
+    for i, s in enumerate(names):
+        if i < ref:
+            z = " + ".join(tv[i + 1:ref + 1])
+        elif i == ref:
+            z = "0"
+        else:
+            z = "-(" + " + ".join(tv[ref + 1:i + 1]) + ")"
+        out[f"{VAR_PREFIX}{s}_z"] = z
+    out[f"{VAR_PREFIX}total"] = " + ".join(tv) if tv else "0"
+    # the copper sheet lies on the face towards the dielectric it does not share its layer with: on an
+    # outer layer the board, on an inner layer the side away from the fill (the fill takes the copper slab)
+    for i in cu:
+        s = names[i]
+        j = fill_neighbour(st, i)
+        if j is None:
+            other = [k for k in (i - 1, i + 1) if 0 <= k < len(st.layers) and st.layers[k].kind == DIELECTRIC]
+            below = bool(other) and other[0] > i
+        else:
+            below = j < i                     # fill above: sheet on the bottom face
+        out[f"{VAR_PREFIX}{s}_zs"] = (f"{VAR_PREFIX}{s}_z" if below
+                                      else f"{VAR_PREFIX}{s}_z + {VAR_PREFIX}{s}_t")
+    return out
+
+
+def sync_variables(des, st: Stackup | None, ev: Evaluator) -> list[str]:
+    """Write the stackup variables into the design and remove stackup variables that no longer exist.
+    The ``stk_`` variables belong to the stackup: it overwrites them. Returns the names written."""
+    new = variables(st, ev) if st else {}
+    for k in [k for k in des.variables if k.startswith(VAR_PREFIX) and k not in new]:
+        del des.variables[k]
+    des.variables.update(new)
+    return list(new)
+
+
+def sync_coordinate_systems(des, st: Stackup) -> list[str]:
+    """The board coordinate system (``stk_Board``, the stackup's plane as its XY plane) and one coordinate
+    system per copper layer at the height of its copper sheet, to draw on. Existing ones are updated."""
+    from .design import CoordSys
+    x, y = PLANE_AXES.get(st.plane, PLANE_AXES["XY"])
+    want = [(BOARD_CS, st.cs, {"Mode": "Axis/Position", "Origin": "0,0,0", "XAxis": x, "YPoint": y})]
+    names = slugs(st)
+    for i in st.copper():
+        want.append((f"{VAR_PREFIX}{names[i]}", BOARD_CS,
+                     {"Mode": "Axis/Position", "Origin": f"0,0,{VAR_PREFIX}{names[i]}_zs",
+                      "XAxis": "1,0,0", "YPoint": "0,1,0"}))
+    keep = {n for n, _, _ in want}
+    des.coord_systems = [c for c in des.coord_systems
+                         if not (c.name.startswith(VAR_PREFIX) and c.name not in keep
+                                 and c.name != BOARD_CS)]
+    for name, ref, props in want:
+        cs = next((c for c in des.coord_systems if c.name == name), None)
+        if cs is None:
+            cs = CoordSys(name, "Relative", ref)
+            des.coord_systems.append(cs)
+        cs.reference = ref
+        cs.props.update(props)
+    return [n for n, _, _ in want]
+
+
+def _layer_material(project, st: Stackup, i: int, slug: str, ev: Evaluator) -> str:
+    """The material of a dielectric layer: its own material, or a project material ``stk_<layer>`` that
+    carries the layer's own er / tan d (created or updated)."""
+    from .materials import Material
+    L = st.layers[i]
+    if L.material and not L.permittivity and not L.loss_tangent:
+        return L.material
+    er, td = layer_er_tand(L, ev, project)
+    name = f"{VAR_PREFIX}{slug}"
+    m = next((m for m in project.materials if m.name == name), None)
+    if m is None:
+        m = Material(name=name, color="#8fb070", description=f"Stackup layer {L.name}")
+        project.materials.append(m)
+    m.permittivity = L.permittivity or (f"{er:g}" if er is not None else "1")
+    m.loss_tangent = L.loss_tangent or (f"{td:g}" if td is not None else "0")
+    return name
+
+
+def _at_z(loop2d: str, z: str) -> str:
+    """'x,y;x,y' -> 'x,y,z;x,y,z'."""
+    return ";".join(f"{q.strip()},{z}" for q in loop2d.split(";") if q.strip())
+
+
+def _slab(des, obj_name: str, mat: str, x0, y0, xsize, ysize, z: str, t: str, outline) -> "object":
+    """Box (rectangle) or swept outline (board shape) of one substrate slab; an existing object keeps the
+    rest of its history (holes subtracted by the PCB import)."""
+    from .design import Command
+    if outline is None:
+        first = [Command.new("CreateBox", Position=f"{x0},{y0},{z}", XSize=xsize, YSize=ysize, ZSize=t)]
+    else:
+        pts, holes = outline
+        first = [Command.new("CreatePolyline", Points=_at_z(pts, z), Closed="True", Covered="True",
+                             Holes="|".join(_at_z(h, z) for h in holes.split("|") if h.strip())),
+                 Command.new("SweepAlongVector", Vector=f"0,0,{t}")]
+    if des.has_obj(obj_name):
+        o = des.obj(obj_name)
+        rest = o.history[1:]
+        if o.history[0].kind == "CreatePolyline" and rest and rest[0].kind == "SweepAlongVector":
+            rest = rest[1:]
+        o.history = first + rest
+        o.material = mat
+        return o, False
+    o = des.add_object(first[0].kind, obj_name, material=mat, **first[0].props)
+    o.history += first[1:]
+    return o, True
+
+
+def build_substrate(project, des, st: Stackup, ev: Evaluator, x0: str = "0", y0: str = "0", xsize: str = "1",
+                    ysize: str = "1", outline: tuple[str, str] | None = None) -> list[str]:
+    """One box per dielectric layer (rectangle x0, y0, xsize, ysize in the board plane, model units or
+    expressions), with the stackup variables for height and thickness, in the group "Stackup", and for each
+    inner copper layer a box of its fill material over the copper thickness. Boxes made
+    before (same name) are updated, boxes of layers that no longer exist are removed. Variables and
+    coordinate systems are synced first. Copper is not created here: it comes from drawing or the import."""
+    sync_variables(des, st, ev)
+    sync_coordinate_systems(des, st)
+    ev = des.evaluator(project)
+    names = slugs(st)
+    made: list[str] = []
+    from .materials import default_color
+    for i, L in enumerate(st.layers):
+        if L.kind != DIELECTRIC:
+            continue
+        s = names[i]
+        obj_name = f"Sub_{s}"
+        mat = _layer_material(project, st, i, s, ev)
+        o, new = _slab(des, obj_name, mat, x0, y0, xsize, ysize, f"{VAR_PREFIX}{s}_z", f"{VAR_PREFIX}{s}_t", outline)
+        if new:
+            o.color = default_color(mat) if mat != f"{VAR_PREFIX}{s}" else "#8fb070"
+            o.transparency = 0.6
+        o.orientation = BOARD_CS
+        o.group = SUBSTRATE_GROUP
+        made.append(obj_name)
+    # inner copper layers: the slab of the copper layer is filled with the fill material (the copper sheet
+    # lies on its face; solid copper from the import is cut out of it), so no air gap is left behind
+    for i in st.copper():
+        j = fill_neighbour(st, i)
+        L = st.layers[i]
+        if j is None and not L.fill:
+            continue
+        s = names[i]
+        mat = L.fill or _layer_material(project, st, j, names[j], ev)
+        obj_name = f"Fill_{s}"
+        o, new = _slab(des, obj_name, mat, x0, y0, xsize, ysize, f"{VAR_PREFIX}{s}_z", f"{VAR_PREFIX}{s}_t", outline)
+        if new:
+            o.color = "#a9c48a"
+            o.transparency = 0.6
+        o.orientation = BOARD_CS
+        o.group = SUBSTRATE_GROUP
+        made.append(obj_name)
+    for o in [o for o in des.objects if o.group == SUBSTRATE_GROUP and o.name.startswith(("Sub_", "Fill_"))
+              and o.name not in made and o.consumed_by is None]:
+        des.objects.remove(o)
+    return made
+
+
+def substrate_rect(des) -> tuple[str, str, str, str] | None:
+    """Rectangle (x0, y0, xsize, ysize) of the substrate made before, None if there is none."""
+    for o in des.objects:
+        if o.group == SUBSTRATE_GROUP and o.name.startswith("Sub_") and o.history and o.history[0].kind == "CreateBox":
+            p = o.history[0].props
+            x0, y0 = [x.strip() for x in p.get("Position", "0,0,0").split(",")][:2]
+            return x0, y0, p.get("XSize", "1"), p.get("YSize", "1")
+    return None
+
+
+def substrate_outline(des) -> tuple[str, str] | None:
+    """Board shape (outline points, holes; 'x,y;...' in the board plane) of a substrate made from an
+    outline before, None if there is none."""
+    for o in des.objects:
+        if o.group == SUBSTRATE_GROUP and o.name.startswith("Sub_") and o.history and o.history[0].kind == "CreatePolyline":
+            p = o.history[0].props
+
+            def flat(loop: str) -> str:
+                return ";".join(",".join(q.split(",")[:2]) for q in loop.split(";") if q.strip())
+            return flat(p.get("Points", "")), "|".join(flat(h) for h in p.get("Holes", "").split("|") if h.strip())
+    return None
+
+
+def apply_to_design(project, des, st: Stackup | None, substrate: tuple[str, str, str, str] | None = None) -> list[str]:
+    """Store the stackup in the design and bring what depends on it up to date: the ``stk_`` variables, the
+    board coordinate systems and, when asked for or made before, the substrate. Returns the objects made."""
+    des.stackup = st
+    ev = des.evaluator(project)
+    if st is None:
+        sync_variables(des, None, ev)
+        return []
+    sync_variables(des, st, ev)
+    sync_coordinate_systems(des, st)
+    rect = substrate or substrate_rect(des)
+    if rect:
+        return build_substrate(project, des, st, des.evaluator(project), *rect)
+    shape = substrate_outline(des)
+    return build_substrate(project, des, st, des.evaluator(project), outline=shape) if shape else []

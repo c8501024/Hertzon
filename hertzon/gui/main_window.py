@@ -19,7 +19,7 @@ from .. import __version__
 from ..model import groups as G
 from ..model import schema
 from ..model.design import (Project, Design, Command, Assignment, FaceRef, Setup, Sweep, InfiniteSphere, Report,
-                            FieldPlot, design_from_dict)
+                            FieldPlot, circuit_setup, design_from_dict)
 from ..model.expr import LENGTH_UNITS
 from ..model.materials import is_conductor, normalize_color
 from ..solver.results import results_dir, ResultStore
@@ -110,7 +110,17 @@ class MainWindow(QMainWindow):
         vl.addWidget(self.anim_bar)
         split.addWidget(vbox)
         split.setSizes([230, 1000])
-        self.tabs.addTab(split, "3D Modeler")
+        from PySide6.QtWidgets import QStackedWidget
+        from .circuit_editor import CircuitEditor
+        self.circuit = CircuitEditor(self.doc)
+        self.circuit.analyzeRequested.connect(self.analyze_all)
+        self.circuit.componentsSelected.connect(
+            lambda names: self.props.show_component(names[0]) if len(names) == 1 else self.props.clear())
+        self.circuit.reportRequested.connect(lambda: self.create_report("Rectangular"))
+        self.main_stack = QStackedWidget()
+        self.main_stack.addWidget(split)
+        self.main_stack.addWidget(self.circuit)
+        self.tabs.addTab(self.main_stack, "3D Modeler")
         self.tabs.tabBar().setTabButton(0, self.tabs.tabBar().ButtonPosition.RightSide, None)
         self.setCentralWidget(self.tabs)
 
@@ -270,6 +280,7 @@ class MainWindow(QMainWindow):
         m.addAction("New Window", self.new_window)
         m.addSeparator()
         m.addAction(self.a_import)
+        m.addAction("Import PCB (Gerber, Excellon)...", self.import_pcb)
         ex = m.addMenu("Export")
         ex.addAction("Geometry (STEP)...", self.export_step)
         ex.addAction("Touchstone...", self.export_touchstone)
@@ -362,6 +373,7 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&Modeler")
         m.addAction("Import...", self.import_geometry)
         m.addAction("PCB Stackup...", self.edit_stackup)
+        m.addAction("Import PCB (Gerber, Excellon)...", self.import_pcb)
         b = m.addMenu("Boolean")
         for a in (self.a_unite, self.a_subtract, self.a_intersect):
             b.addAction(a)
@@ -422,6 +434,7 @@ class MainWindow(QMainWindow):
         for k in schema.MESH_OPS:
             ma.addAction(k, lambda _=False, k=k: self.assign("mesh", k))
         mm.addAction("Plot Mesh on Selection", self.plot_mesh)
+        mm.addAction("Plot Mesh on Auto Open Region", self.plot_mesh_auto_open)
         an = m.addMenu("Analysis Setup")
         an.addAction("Add Solution Setup...", self.add_setup)
         an.addAction("Add Eigenmode Setup...", lambda: self.add_setup(eigen=True))
@@ -490,7 +503,8 @@ class MainWindow(QMainWindow):
         t.setFloatable(False)
         t.setContextMenuPolicy(Qt.PreventContextMenu)
         t.setStyleSheet("QToolBar#RibbonTB { border: none; padding: 0px; spacing: 0px; }")
-        t.addWidget(rb)
+        self._ribbon_3d_action = t.addWidget(rb)
+        self._circuit_ribbon(t)
         draw = lambda k: (lambda: self.start_draw(k))          # noqa: E731
         view = lambda w: (lambda: self.view.view(w))           # noqa: E731
         bnd = lambda k: (lambda: self.assign("boundary", k))   # noqa: E731
@@ -517,6 +531,7 @@ class MainWindow(QMainWindow):
         g.small("Design Properties", "variables", lambda: self.edit_variables(False))
         g = pg.group("Import / Export")
         g.small("Import Geometry", "import", self.import_geometry)
+        g.small("Import PCB", "import", self.import_pcb)
         g.small("Export STEP", "export", self.export_step)
         g.small("Export Script", "export", self.export_script)
         g.small("Export Gerber", "export", self.export_gerber)
@@ -822,11 +837,214 @@ class MainWindow(QMainWindow):
                 tip="Fields Calculator: equations of E, H and J in the Equations tab")
         rb.setCurrentIndex(2)
 
+    def _circuit_ribbon(self, t) -> None:
+        """The ribbon of circuit designs: schematic editing, the parts by category, analysis and results. It
+        replaces the 3D ribbon while a circuit design is active."""
+        from .circuit_editor import component_icon
+        from .ribbon import Ribbon
+        from ..model import circuit as CK
+        rb = self.circuit_ribbon = Ribbon(self)
+        self._ribbon_circuit_action = t.addWidget(rb)
+        self._ribbon_circuit_action.setVisible(False)
+        ed = self.circuit
+
+        def place(k):
+            return lambda: (ed.set_mode("place", k), ed.view.setFocus())
+
+        def part(g, k, large=False):
+            info = CK.TYPES[k]
+            fn = g.large if large else g.small
+            return fn(info.label, component_icon(k), place(k), tip=f"{info.label}: {info.help}")
+
+        # ---- Desktop
+        pg = rb.page("Desktop")
+        g = pg.group("Project")
+        g.large("Save", "save", self.a_save)
+        g.small("New", "new", self.a_new)
+        g.small("Open", "open", self.a_open)
+        g.small("Save As", "saveas", self.a_saveas)
+        g = pg.group("Edit")
+        g.small("Undo", "undo", self.a_undo)
+        g.small("Redo", "redo", self.a_redo)
+        g.small("Delete", "delete", ed.delete_selected)
+        g = pg.group("Design")
+        g.large("Insert Design", "design", self.insert_design)
+        g.small("Copy Design", "copy", self.copy_design)
+        g.small("Project Variables", "variables", lambda: self.edit_variables(True))
+        g.small("Design Variables", "variables", lambda: self.edit_variables(False))
+        g = pg.group("Help")
+        g.large("Help", "help", self.show_help)
+
+        # ---- Schematic
+        pg = rb.page("Schematic")
+        g = pg.group("Edit")
+        g.large("Select", "sel_object", lambda: ed.set_mode("select"), tip="Select and move parts (Esc)")
+        g.large("Wire", "polyline", lambda: (ed.set_mode("wire"), ed.view.setFocus()),
+                tip="Draw a wire: click the corners, a click on a pin or wire ends it (W)")
+        g.small("Rotate", "rotate", ed.rotate_selected, tip="Rotate the selected parts by 90 degrees (R)")
+        g.small("Mirror", "mirror", ed.mirror_selected, tip="Mirror the selected parts top-bottom (M)")
+        g.small("Delete", "delete", ed.delete_selected, tip="Delete the selected parts and wires (Del)")
+        g = pg.group("Connect")
+        part(g, "GND", True)
+        part(g, "PORT", True)
+        part(g, "LABEL", True)
+        g = pg.group("View")
+        g.large("Fit All", "fit", ed.fit_all, tip="Show the whole schematic (F)")
+        g.small("Zoom In", "zoom", lambda: ed.zoom(1.25))
+        g.small("Zoom Out", "zoom", lambda: ed.zoom(0.8))
+
+        # ---- Lumped Elements
+        pg = rb.page("Lumped Elements")
+        g = pg.group("Components")
+        for k in ("R", "L", "C"):
+            part(g, k, True)
+        g = pg.group("Networks")
+        for k in ("SRLC", "PRLC"):
+            part(g, k, True)
+        part(g, "ATTEN", True)
+        g = pg.group("Bias")
+        part(g, "DCBLOCK", True)
+        part(g, "DCFEED", True)
+        g = pg.group("Measured")
+        g.large("Touchstone", component_icon("SNP"), place("SNP"), tip="N-port from a Touchstone file (.sNp)")
+
+        # ---- Transmission Lines
+        pg = rb.page("Transmission Lines")
+        g = pg.group("Microstrip")
+        part(g, "SUBST", True)
+        part(g, "MLIN", True)
+        part(g, "MCLIN", True)
+        part(g, "MLOC")
+        part(g, "MLSC")
+        g = pg.group("Line Model")
+        self._full_wave = g.small("Full Wave", "validate", self._toggle_full_wave, checkable=True,
+                                  tip="Microstrip and coplanar lines from a full-wave solve of their cross-section "
+                                      "(port mode solver) with the substrate and widths of the schematic, at a few "
+                                      "frequencies up to the highest sweep frequency; the length is applied in the "
+                                      "circuit. Solved once per cross-section and cached. Off: closed-form models")
+        g = pg.group("Discontinuities")
+        self._auto_junctions = g.small("Automatic", "validate", self._toggle_auto_junctions, checkable=True,
+                                       tip="Find corners, steps, tees and crosses where microstrip lines meet and "
+                                           "model them (marked with a diamond). Off: the lines meet at an ideal "
+                                           "node unless a junction part is placed")
+        part(g, "MTEE", True)
+        part(g, "MCROSS", True)
+        part(g, "MCORN")
+        part(g, "MMBEND")
+        part(g, "MSTEP")
+        part(g, "MGAP")
+        g = pg.group("Other")
+        part(g, "CPWLIN", True)
+        part(g, "MVIA", True)
+        part(g, "SLIN", True)
+        part(g, "COAX", True)
+        # no substrate: impedance and electrical length only (first designs, textbook circuits)
+        g = pg.group("Ideal (TEM)")
+        part(g, "TLIN", True)
+        part(g, "TLOC")
+        part(g, "TLSC")
+
+        # ---- Data
+        pg = rb.page("Data")
+        g = pg.group("S-Parameters")
+        g.large("Touchstone", component_icon("SNP"), place("SNP"), tip="N-port from a Touchstone file (.sNp)")
+        b = g.large("3D Design", component_icon("EM"), None, menu=[],
+                    tip="S-parameters of a 3D design of this project as a block (or drag the design from the "
+                        "Project Manager into the schematic). From Project File copies the 3D designs of another "
+                        "Hertzon project (also by dragging the .hzn file into the schematic)")
+        m3 = b.menu()
+
+        def fill3d(m=m3):
+            m.clear()
+            for d in self.doc.project.designs:
+                if getattr(d, "kind", "3d") == "3d":
+                    m.addAction(d.name, lambda n=d.name: ed.add_em_block(n, *[int(v) for v in self._schem_center()]))
+            if m.isEmpty():
+                m.addAction("(no 3D design in the project)").setEnabled(False)
+            m.addSeparator()
+            m.addAction("From Project File...", self._circuit_import_designs)
+        m3.aboutToShow.connect(fill3d)
+
+        # ---- Simulation
+        pg = rb.page("Simulation")
+        g = pg.group("Analysis")
+        g.large("Sweep", "freq_sweep", self._edit_circuit_sweep, tip="Frequency sweep of the S-parameter analysis")
+        g.small("Add Sweep", "freq_sweep", lambda: self.des.setups and self.add_sweep(self.des.setups[0].name))
+        g = pg.group("Variables")
+        g.large("Design Variables", "variables", lambda: self.edit_variables(False))
+        g = pg.group("Analyze")
+        g.large("Analyze", "analyze", self.analyze_all)
+        g = pg.group("3D Layout")
+        g.large("Create 3D Layout", "design", self.circuit_to_layout,
+                tip="A new 3D design with the physical layout of the schematic: substrate, traces, vias, lumped "
+                    "parts and ports, every dimension a design variable. 3D design blocks are built in with their "
+                    "geometry, turned and moved so that the lines attach at their ports")
+
+        def layout_button(label, icon, fn, tip, item):
+            b = g.large(label, icon, lambda: fn(None), menu=[], tip=tip)
+            m = b.menu()
+
+            def fill(m=m):
+                m.clear()
+                for n in self._layouts():
+                    m.addAction(item.format(n), lambda n=n: fn(n))
+                if m.isEmpty():
+                    m.addAction("(no 3D layout of this schematic)").setEnabled(False)
+            m.aboutToShow.connect(fill)
+        layout_button("Update 3D Layout", "layout_fwd", self.circuit_to_existing_layout,
+                      "Schematic → 3D: rebuild the 3D layout from the schematic as it is now (parts added, "
+                      "removed or exchanged, new values); its setups and reports stay. A click takes the newest "
+                      "layout, the arrow chooses one", "Rebuild {} from the Schematic")
+        layout_button("Update Schematic", "layout_back", self.layout_to_circuit,
+                      "3D → schematic: copy the dimensions changed in the 3D layout (design variables, and sizes "
+                      "edited on the objects) back into the schematic. A click takes the newest layout, the "
+                      "arrow chooses one", "Copy Dimensions of {}")
+
+        # ---- Results
+        pg = rb.page("Results")
+        g = pg.group("Reports")
+        g.large("Rectangular Plot", "rect_plot", lambda: self.create_report("Rectangular"))
+        g.large("Smith Chart", "rect_plot", lambda: self.create_report("Smith Chart"))
+        g.small("Data Table", "soldata", lambda: self.create_report("Data Table"))
+        g = pg.group("Data")
+        g.large("Solution Data", "soldata", lambda: self.solution_data())
+        g.large("Touchstone", "export", lambda: self.export_touchstone())
+        rb.setCurrentIndex(1)
+
+    def _toggle_full_wave(self) -> None:
+        from ..model.circuit import LINE_MODEL
+        self.doc.checkpoint()
+        self.des.settings[LINE_MODEL] = "Full wave" if self._full_wave.isChecked() else "Closed form"
+        self.doc.commit("circuit", geometry=False)
+
+    def _toggle_auto_junctions(self) -> None:
+        from ..model.circuit import AUTO
+        on = self._auto_junctions.isChecked()
+        self.doc.checkpoint()
+        self.des.settings[AUTO] = "True" if on else "False"
+        self.doc.commit("circuit", geometry=False)
+
+    def _schem_center(self) -> tuple[float, float]:
+        from .circuit_editor import snap
+        v = self.circuit.view
+        r = v.mapToScene(v.viewport().rect().center())
+        return snap(r.x()), snap(r.y())
+
+    def _edit_circuit_sweep(self) -> None:
+        if not self.des.setups:
+            self._add_circuit_setup()
+        s = self.des.setups[0]
+        if not s.sweeps:
+            self.add_sweep(s.name)
+            return
+        self._project_activated(("sweep", s.name, s.sweeps[0].name))
+
     def _connect(self) -> None:
         d = self.doc
         d.message.connect(self.msgs.add)
         d.titleChanged.connect(self._update_title)
         d.changed.connect(self._on_doc_changed)
+        self._note_open_region(False)            # the air box of the opened design: a later change is reported
         d.changed.connect(lambda *_: self._autosave_tick() if self.doc.dirty else None)
         d.selectionChanged.connect(self._on_selection)
         self.view.picked.connect(lambda picks, add: self.doc.select(picks, add))
@@ -890,17 +1108,40 @@ class MainWindow(QMainWindow):
     def _update_title(self) -> None:
         p = self.doc.project
         name = Path(p.path).name if p.path else p.name
-        self.setWindowTitle(f"Hertzon - {name}{'*' if self.doc.dirty else ''} - {self.doc.design_name} - 3D Modeler")
+        page = "Schematic" if self._is_circuit() else "3D Modeler"
+        self.setWindowTitle(f"Hertzon - {name}{'*' if self.doc.dirty else ''} - {self.doc.design_name} - {page}")
         self.unit_label.setText(f"  {self.des.units}  ")
         self.view.length_unit = (self.des.units, LENGTH_UNITS.get(self.des.units, 1e-3))
 
+    def _is_circuit(self) -> bool:
+        return getattr(self.des, "kind", "3d") == "circuit"
+
+    def _sync_design_page(self) -> None:
+        """Tab 0 shows the schematic of a circuit design and the 3D modeler of a 3D design."""
+        circ = self._is_circuit()
+        page = self.circuit if circ else self.main_stack.widget(0)
+        if self.main_stack.currentWidget() is not page:
+            self.main_stack.setCurrentWidget(page)
+        self.tabs.setTabText(0, "Schematic" if circ else "3D Modeler")
+        if self._ribbon_circuit_action.isVisible() != circ:
+            self._ribbon_circuit_action.setVisible(circ)
+            self._ribbon_3d_action.setVisible(not circ)
+        if circ:
+            from ..model.circuit import AUTO
+            self._auto_junctions.setChecked(self.des.settings.get(AUTO, "True") != "False")
+            from ..model.circuit import LINE_MODEL
+            self._full_wave.setChecked(self.des.settings.get(LINE_MODEL, "Closed form") == "Full wave")
+            self.circuit.rebuild()
+
     def _on_doc_changed(self, what: str) -> None:
+        self._sync_design_page()
         self._update_title()
         self._update_sel_buttons()                 # a sheet may have become a solid (Thicken, Sweep)
         self._sync_overlays()
         self._follow_helper_plots()
         if what in ("variables", "all", "model", "results"):
             self._follow_variation()
+        self._note_open_region(what in ("analysis", "settings", "boundaries", "excitations"))
         if what in ("attributes",):
             self.view.restyle_all()
             self.model_tree.rebuild()
@@ -910,6 +1151,24 @@ class MainWindow(QMainWindow):
                 self.view.show_assignments([self.des.assignment(tgt[1])])
             except KeyError:
                 pass
+
+    def _note_open_region(self, say: bool = True) -> None:
+        """Say when a sweep change resized the automatic open region (switched on, or a lower start): the
+        model changed, the setup is shown outdated and the next analysis adapts the mesh again."""
+        from ..solver.keys import open_region_frequency
+        seen = self.__dict__.setdefault("_open_region_f", {})
+        for st in self.des.setups:
+            try:
+                f = open_region_frequency(self.doc.project, self.des, st)
+            except Exception:  # noqa: BLE001
+                continue
+            key = (id(self.doc.project), self.des.name, st.name)
+            if say and key in seen and seen[key] != f:
+                where = (f"the lowest sweep frequency, {f / 1e9:.4g} GHz" if f is not None
+                         else "the solution frequency")
+                self.msgs.add("warning", f"{st.name}: the air box (automatic open region) was adapted to {where}; "
+                                         f"analyze {st.name} again (the adaptive mesh is computed anew)")
+            seen[key] = f
 
     def _update_sel_buttons(self) -> None:
         on = bool(self.doc.selection)
@@ -1301,6 +1560,9 @@ class MainWindow(QMainWindow):
                            "pan": "Pan: drag with the left mouse, Escape ends"}.get(mode, "Ready"))
 
     def _escape(self) -> None:
+        if self._is_circuit():                     # schematic: Escape always ends drawing and placing
+            self.circuit.cancel()
+            return
         if self.view.nav_mode:
             self.view.set_nav_mode("")
             return
@@ -1324,7 +1586,7 @@ class MainWindow(QMainWindow):
         if box is None:
             return
         s = self.settings
-        addr = str(s.value("remote/address", "") or "")
+        addr = self._remote_label()
         box.blockSignals(True)
         box.clear()
         box.addItem("This computer", "local")
@@ -1337,7 +1599,8 @@ class MainWindow(QMainWindow):
         box.addItem("Remote computer ..." if not addr else "Other remote computer ...", "setup-remote")
         box.addItem("Cloud ...", "setup-cloud")
         r = self.solver.remote
-        now = "local" if r is None else ("cloud" if hasattr(r, "ensure") else "remote")
+        from ..remote.cloud import CloudHost
+        now = "local" if r is None else ("cloud" if isinstance(r, CloudHost) else "remote")
         box.setCurrentIndex(max(0, box.findData(now)))
         box.blockSignals(False)
 
@@ -1351,9 +1614,34 @@ class MainWindow(QMainWindow):
         self.settings.setValue("cloud/enabled", what == "cloud")
         self.apply_hpc_settings()
         r = self.solver.remote
+        from ..remote.cloud import CloudHost
         self.msgs.add("info", "Analyses run on this computer" if r is None else f"Analyses run on {r.address}"
                       + (" (the server is created with the first analysis and deleted when idle)"
-                         if hasattr(r, "ensure") else ""))
+                         if isinstance(r, CloudHost) else ""))
+
+    def _remote_label(self) -> str:
+        """The remote computer of Tools > Options > Remote ('' if none): its address, or user@host for SSH."""
+        s = self.settings
+        if str(s.value("remote/mode", "service") or "service") == "ssh":
+            return str(s.value("remote/ssh_target", "") or "").strip()
+        return str(s.value("remote/address", "") or "").strip()
+
+    def ssh_session(self):
+        """The SSH session of Tools > Options > Remote (kept while its settings do not change, so the tunnel
+        is reused)."""
+        from ..remote.ssh import DEFAULT_COMMAND, SSHSession
+        s = self.settings
+        key = (str(s.value("remote/ssh_target", "") or "").strip(), str(s.value("remote/ssh_key", "") or "").strip(),
+               str(s.value("remote/ssh_start", "python") or "python"),
+               str(s.value("remote/ssh_command", DEFAULT_COMMAND) or DEFAULT_COMMAND).strip())
+        old = getattr(self, "_ssh", None)
+        if old is not None and old[0] == key:
+            return old[1]
+        if old is not None:
+            old[1].close()
+        session = SSHSession(*key)
+        self._ssh = (key, session)
+        return session
 
     def options(self, tab: str = "") -> None:
         from .dialogs import OptionsDialog
@@ -1484,14 +1772,21 @@ class MainWindow(QMainWindow):
             pass
         self.solver.remote = None
         s = self.settings
-        addr = str(s.value("remote/address", "") or "")
+        addr = self._remote_label()
         from ..remote.cloud import providers
         if s.value("cloud/enabled", False, type=bool) and providers.configured(s.value):
             from ..remote.cloud import CloudHost
             self.solver.remote = CloudHost(self.cloud_session())
         elif s.value("remote/enabled", False, type=bool) and addr:
-            from ..remote.client import RemoteHost
-            self.solver.remote = RemoteHost(addr, str(s.value("remote/token", "") or ""))
+            from ..remote.client import RemoteError, RemoteHost
+            if str(s.value("remote/mode", "service") or "service") == "ssh":
+                from ..remote.ssh import SSHHost
+                try:
+                    self.solver.remote = SSHHost(self.ssh_session())
+                except RemoteError as ex:           # an invalid user@host
+                    self.msgs.add("error", str(ex))
+            else:
+                self.solver.remote = RemoteHost(addr, str(s.value("remote/token", "") or ""))
         self._fill_solve_on()
 
     def cloud_session(self):
@@ -1590,11 +1885,48 @@ class MainWindow(QMainWindow):
         self._update_title()
 
     def file_new(self) -> None:
+        """File > New: the start page asks what to simulate (3D FEM or Circuit, solution type)."""
         if self.maybe_save():
-            p = Project()
-            for d in p.designs:
-                d.units = self.settings.value("modeler/default_units", d.units)
-            self.set_project(p)
+            self.start_page()
+
+    def _empty_project(self, units: str | None = None, name: str = "") -> Project:
+        p = Project()
+        if name:
+            p.name = name
+        for d in p.designs:
+            d.units = units or self.settings.value("modeler/default_units", d.units)
+        return p
+
+    def start_page(self) -> None:
+        """The start page of File > New and of the program start. Cancel keeps the current project; at the
+        start that is the empty project Hertzon opens with."""
+        from .start_page import StartPageDialog
+        dlg = StartPageDialog(self, "new", self.settings, recent=self.settings.value("recent", [], type=list),
+                              examples=example_projects(),
+                              default_units=self.settings.value("modeler/default_units", "mm"))
+        if dlg.exec() != QDialog.Accepted or dlg.choice is None:
+            return
+        c = dlg.choice
+        if c.action in ("open", "example"):
+            self.file_open(c.path, as_copy=c.action == "example")
+            return
+        p = self._empty_project(c.units, c.name)
+        if c.action == "create":
+            p.designs[0].kind = c.kind
+            p.designs[0].settings["SolutionType"] = c.solution_type
+            if c.kind == "circuit":
+                p.designs[0].setups.append(circuit_setup())
+        self.set_project(p)
+        if c.action == "template":
+            before = list(p.designs)
+            (self.antenna_patch if c.template == "patch" else self.filter_hairpin)()
+            if len(p.designs) > 1 and not before[0].objects:
+                # the template replaces the empty first design of the new project
+                p.designs.remove(before[0])
+                self.doc.undo_stack.clear()
+                self.doc.commit("all", geometry=False)
+                self.doc.dirty = False
+                self._update_title()
 
     def file_open(self, path: str | None = None, as_copy: bool = False) -> None:
         """Open a project; as_copy opens it untitled (examples), so saving asks for a new file."""
@@ -1916,6 +2248,8 @@ class MainWindow(QMainWindow):
             if self.solver.busy:
                 self.solver.abort()
             self._delete_cloud_server()
+            if getattr(self, "_ssh", None) is not None:
+                self._ssh[1].close()            # the SSH tunnel; the service there keeps running
             self._drop_autosave()
             self.ai_link.stop()
             ev.accept()
@@ -2094,12 +2428,38 @@ class MainWindow(QMainWindow):
         if dlg.exec() != QDialog.Accepted:
             return
         st, mats = dlg.result()
-        if st == self.des.stackup and not mats:
+        if st == self.des.stackup and not mats and dlg.substrate is None:
             return
+        from ..model import stackup as S
         self.doc.checkpoint()
         self.doc.project.materials.extend(mats)
-        self.des.stackup = st
-        self.doc.commit("stackup", geometry=False)
+        # stk_ variables, board coordinate systems and (when asked for or made before) the substrate
+        S.apply_to_design(self.doc.project, self.des, st, dlg.substrate)
+        self.doc.commit("stackup")
+
+    def import_pcb(self, paths=None) -> None:
+        """File > Import PCB: copper, vias, holes and substrate from Gerber, Excellon and job files."""
+        from .pcb_import_dialog import PcbImportDialog
+        dlg = PcbImportDialog(self, self.doc, paths)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        pl, mats = dlg.result()
+        from ..pcbimport import board as B
+        self.doc.checkpoint()
+        self.doc.project.materials.extend(mats)
+        try:
+            rep = B.build(self.doc.project, self.des, pl)
+        except Exception as e:  # noqa: BLE001
+            self.doc.discard_last()
+            QMessageBox.critical(self, "Import PCB", f"The board cannot be made:\n{e}")
+            return
+        self.doc.commit("pcb import")
+        self.msgs.add("info", "PCB import: " + "; ".join(rep.lines[:3]))
+        for w in rep.warnings:
+            self.msgs.add("warning", f"PCB import: {w}")
+        if rep.not_loaded:
+            self.msgs.add("warning", "PCB import, not loaded (not simulated): " + "; ".join(rep.not_loaded))
+        QMessageBox.information(self, "Import PCB", rep.text())
 
     def export_gerber(self) -> None:
         """File > Export > Gerber: copper layers (Gerber X2), board outline and Excellon drill files."""
@@ -2767,6 +3127,9 @@ class MainWindow(QMainWindow):
             self._duplicate(objs, [[Command("Mirror", dict(dlg.values))]])
 
     def copy_objects(self) -> None:
+        if self._is_circuit():
+            self.circuit.copy_selected()
+            return
         objs = self.doc.selected_objects()
         self.clipboard = []
         for n in objs:
@@ -2781,6 +3144,9 @@ class MainWindow(QMainWindow):
             self.msgs.add("info", f"Copied {', '.join(objs)}")
 
     def paste_objects(self) -> None:
+        if self._is_circuit():
+            self.circuit.paste()
+            return
         if not self.clipboard:
             return
         self.doc.checkpoint()
@@ -2808,11 +3174,15 @@ class MainWindow(QMainWindow):
         self.doc.select([Pick(n) for n in new])
 
     def delete_selection(self) -> None:
-        if self.view.draw is not None:
-            return
         focus = QApplication.focusWidget()
         if focus is self.project_tree or (focus and self.project_tree.isAncestorOf(focus)):
             self._delete_project_items()
+            return
+        if self._is_circuit():
+            if not isinstance(focus, QLineEdit):
+                self.circuit.delete_selected()
+            return
+        if self.view.draw is not None:
             return
         objs = self.doc.selected_objects()
         if not objs:
@@ -3717,12 +4087,12 @@ class MainWindow(QMainWindow):
 
     def _install_update(self, release: dict) -> None:
         """Download the installer (with progress, cancelable, checksum checked), ask to save open changes,
-        start the installer and close Hertzon so that the installer can replace the program files."""
-        import os
+        close Hertzon and start the installer once this process has exited, so that no file of the program
+        or of .venv is still in use when the installer replaces them."""
         import threading
         from PySide6.QtCore import QObject, Signal
         from PySide6.QtWidgets import QApplication, QProgressDialog
-        from .update_check import download, download_dir, installer_asset
+        from .update_check import download, download_dir, installer_asset, start_installer_after_exit
         a = installer_asset(release)
         if self.solver.busy and QMessageBox.question(
                 self, "Install Update", "A solve is running. Installing the update stops it. Continue?",
@@ -3773,11 +4143,11 @@ class MainWindow(QMainWindow):
             return
         self.doc.dirty = False  # answered above; closing must not ask again
         try:
-            os.startfile(str(path))  # noqa: S606 - the installer that was just downloaded and checked
+            start_installer_after_exit(path)
         except OSError as e:
             QMessageBox.warning(self, "Install Update", f"The installer could not be started:\n{e}\n\n{path}")
             return
-        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes for the installer.")
+        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes, then the installer starts.")
         self.close()
         QApplication.quit()
 
@@ -3822,6 +4192,9 @@ class MainWindow(QMainWindow):
 
     def analyze_sweep(self, setup: str, sweep: str) -> None:
         """right click on a sweep > Analyze (reuses the adaptive solution)."""
+        if self._is_circuit():
+            self.analyze([setup])
+            return
         from .trees import solution_state
         if solution_state(self.doc, setup) not in ("done", "outdated"):
             QMessageBox.information(self, "Analyze Sweep", "Analyze the setup first; the sweep reuses its adaptive mesh.")
@@ -3875,6 +4248,9 @@ class MainWindow(QMainWindow):
         if not setups:
             QMessageBox.information(self, "Analyze", "No enabled solution setup.")
             return
+        if self._is_circuit():
+            self.analyze_circuit(setups)
+            return
         if not self.preflight():
             return
         if not self.doc.project.path or self.doc.dirty:
@@ -3883,6 +4259,89 @@ class MainWindow(QMainWindow):
         for s in setups:
             self.solver.submit(Job(self.doc.project.path, self.des.name, s, mesh_only=mesh_only))
         self.project_tree.rebuild()
+
+    def _solve_cross_sections(self) -> bool:
+        """Full-wave line model: the cross-sections not in the cache are solved first, with a progress dialog
+        (each one a short port mode solve in its own solver process). False: failed or cancelled."""
+        from ..solver import circuit as SC
+        from ..solver import xsection as XS
+        if not SC.full_wave(self.des):
+            return True
+        try:
+            xs = list(SC.cross_sections(self.doc.project, self.des).values())
+            fm = SC.max_frequency(self.doc.project, self.des)
+        except SC.CircuitError as e:
+            QMessageBox.warning(self, "Analyze", str(e))
+            return False
+        todo = XS.missing(xs, fm, self.doc.project.path) if xs and fm > 0 else []
+        if not todo:
+            return True
+        import threading
+        import time
+        from PySide6.QtWidgets import QApplication, QProgressDialog
+        from .solve import solver_python
+        dlg = QProgressDialog(f"Full-wave line model: solving {len(todo)} cross-section(s)", "", 0, len(todo), self)
+        dlg.setWindowTitle("Analyze")
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        dlg.setWindowModality(Qt.WindowModal)
+        state = {"done": 0, "text": "", "error": None, "end": False}
+
+        def work():
+            try:
+                XS.solve(todo, fm, self.doc.project.path, python=solver_python(),
+                         progress=lambda d, n, t: state.update(done=d, text=t))
+            except Exception as e:  # noqa: BLE001
+                state["error"] = e
+            state["end"] = True
+        th = threading.Thread(target=work, daemon=True)
+        th.start()
+        t0 = time.time()
+        while not state["end"]:
+            dlg.setValue(state["done"])
+            if state["text"]:
+                dlg.setLabelText(f"Full-wave line model: {state['done']} of {len(todo)} solved\n{state['text']}")
+            QApplication.processEvents()
+            th.join(0.05)
+        dlg.close()
+        if state["error"] is not None:
+            self.msgs.add("error", f"{self.des.name}: full-wave line model: {state['error']}")
+            QMessageBox.warning(self, "Analyze", f"Full-wave line model: {state['error']}")
+            return False
+        self.msgs.add("info", f"{self.des.name}: {len(todo)} line cross-section(s) solved in {time.time() - t0:.1f} s")
+        return True
+
+    def _add_circuit_setup(self) -> None:
+        self.doc.checkpoint()
+        self.des.setups.append(circuit_setup())
+        self.doc.commit("analysis", geometry=False)
+
+    def analyze_circuit(self, setups: list[str]) -> None:
+        """A circuit is solved at once (a linear network): the results are written like those of a 3D design."""
+        from ..solver.circuit import CircuitError, run_setup
+        if not self.doc.project.path or self.doc.dirty:
+            if not self.file_save():
+                return
+        import time
+        if not self._solve_cross_sections():
+            return
+        for s in setups:
+            t = time.time()
+            try:
+                _, warns = run_setup(self.doc.project, self.des, self.des.setup(s))
+            except CircuitError as e:
+                self.msgs.add("error", f"{self.des.name} {s}: {e}")
+                QMessageBox.warning(self, "Analyze", str(e))
+                break
+            except Exception as e:  # noqa: BLE001
+                self.msgs.add("error", f"{self.des.name} {s}: {e}")
+                QMessageBox.warning(self, "Analyze", f"{s}: {e}")
+                break
+            for w in warns:
+                self.msgs.add("warning", f"{self.des.name}: {w}")
+            self.msgs.add("info", f"{self.des.name} {s}: circuit solved in {time.time() - t:.2f} s")
+        self.project_tree.rebuild()
+        self._refresh_reports()
 
     # ---- Optimization (Optimization > Add Optimization) ---------------------------------------
     def _optimization(self, name: str):
@@ -4077,6 +4536,12 @@ class MainWindow(QMainWindow):
             return
         folder = evaluation_dir(self.doc.project.path, self.des.name, name, row["eval"])
         if result_dir(self.doc, setup) != folder:
+            from ..solver.keys import open_region_frequency
+            if op.solution.partition(":")[2].strip() == "LastAdaptive" and \
+                    open_region_frequency(self.doc.project, self.des, self.des.setup(setup)) is not None:
+                self.msgs.add("info", f"{name} optimized {setup} alone, with the air box of the solution "
+                                      f"frequency; the switched-on sweeps of {setup} need a larger air box: "
+                                      f"analyze {setup} again for them (new adaptive mesh)")
             return                    # the nominal solution is current, or the evaluation's one is gone
         fields = bool(list(folder.glob("solution_*.npz")) or list(folder.glob("fields_*.npz")))
         F._cache.clear()
@@ -4226,14 +4691,29 @@ class MainWindow(QMainWindow):
         ff = bool(d.spheres) and (ports or pw)
         return {"modal": ports and stype == "Modal", "terminal": ports and stype == "Terminal",
                 "farfield": ff, "antenna": bool(d.spheres) and ports, "rcs": bool(d.spheres) and pw,
-                "near": bool(d.setups) and stype != "Eigenmode", "fields": bool(d.setups)}
+                "near": bool(d.setups) and stype != "Eigenmode", "fields": bool(d.setups),
+                "eigen": bool(d.setups) and (stype == "Eigenmode" or any(s.eigen for s in d.setups))}
 
     def _fill_report_menu(self, m) -> None:
         """Results > Create ... Report, only the categories this design can produce."""
         for act in [a for a in m.actions() if a.property("report_item")]:
             m.removeAction(act)
-        av = self.report_availability()
         items = []
+        if self._is_circuit():          # a schematic has network data only: S, Y, Z of its ports
+            for label, kind in (("Rectangular Plot", "Rectangular"), ("Smith Chart", "Smith Chart"),
+                                ("Data Table", "Data Table")):
+                a = QAction(f"Create {label}", m)
+                a.triggered.connect(lambda _=False, k=kind: self.create_report(k))
+                items.append(a)
+            if not any(c.type == "PORT" for c in self.des.components):
+                for a in items:
+                    a.setEnabled(False)
+                a = QAction("No reports available: place a port in the schematic", m)
+                a.setEnabled(False)
+                items.append(a)
+            av = {}
+        else:
+            av = self.report_availability()
 
         def sub(title, entries):
             sm = QMenu(title, m)
@@ -4243,26 +4723,28 @@ class MainWindow(QMainWindow):
         plots = [("Rectangular Plot", lambda: self.create_report("Rectangular")),
                  ("Smith Chart", lambda: self.create_report("Smith Chart")),
                  ("Data Table", lambda: self.create_report("Data Table"))]
-        if av["modal"]:
+        if av.get("eigen"):
+            sub("Create Eigenmode Parameters Report", [("Data Table", lambda: self.create_report("Eigenmode Table"))])
+        if av.get("modal"):
             sub("Create Modal Solution Data Report", plots)
-        if av["terminal"]:
+        if av.get("terminal"):
             sub("Create Terminal Solution Data Report", plots)
-        if av["fields"]:
+        if av.get("fields"):
             sub("Create Fields Report", [("Rectangular Plot", lambda: self.field_report()),
                                          ("Data Table", lambda: self.field_report(kind="Data Table"))])
-        if av["farfield"]:
+        if av.get("farfield"):
             sub("Create Far Fields Report", [("Radiation Pattern", lambda: self.create_report("Radiation Pattern")),
                                              ("Rectangular Plot", lambda: self.create_report(
                                                  "Radiation Pattern", props={"plot": "Rectangular"})),
                                              ("3D Polar Plot", lambda: self.create_report("3D Polar Plot"))])
-        if av["antenna"]:
+        if av.get("antenna"):
             sub("Create Antenna Parameters Report", [
                 ("Rectangular Plot", lambda: self.create_report("Antenna Parameters")),
                 ("Data Table", lambda: self.create_report("Antenna Parameters Table"))])
-        if av["rcs"]:
+        if av.get("rcs"):
             sub("Create Monostatic RCS Report", [("Rectangular Plot", lambda: self.create_report("Monostatic RCS")),
                                                  ("Data Table", lambda: self.create_report("Monostatic RCS Table"))])
-        if av["near"]:
+        if av.get("near"):
             sub("Create Near Fields Report", [("Line", lambda: self.create_report("Near Field Line"))])
         if not items:
             a = QAction("No reports available: assign ports or an incident wave (far fields need an "
@@ -4286,7 +4768,8 @@ class MainWindow(QMainWindow):
         sol = next((s for s in sols if not s.endswith("LastAdaptive") and "AdaptivePasses" not in s),
                    sols[0] if sols else
                    (f"{self.des.setups[0].name} : LastAdaptive" if self.des.setups else ""))
-        n = len(self.des.ports())
+        n = len(self.des.ports()) if not self._is_circuit() else \
+            sum(1 for c in self.des.components if c.type == "PORT")
         if kind in ("Monostatic RCS", "Monostatic RCS Table"):
             from .reports import rcs_solution_list
             rsols = rcs_solution_list(self.doc)
@@ -4310,6 +4793,12 @@ class MainWindow(QMainWindow):
             traces = ["dB(PeakGain)", "dB(PeakRealizedGain)", "dB(PeakDirectivity)"] if kind == "Antenna Parameters" \
                 else ["dB(PeakDirectivity)", "dB(PeakGain)", "dB(PeakRealizedGain)", "RadiationEfficiency",
                       "RadiatedPower", "AcceptedPower", "dB(FrontToBackRatio)", "dB(AxialRatioAtMax)"]
+        elif kind == "Eigenmode Table":
+            from .reports import eigen_solution_list
+            esols = eigen_solution_list(self.doc)
+            eig = next((s.name for s in self.des.setups if s.eigen), self.des.setups[0].name if self.des.setups else "")
+            sol = esols[0] if esols else f"{eig} : LastAdaptive"
+            traces = ["Freq", "Q"]
         elif kind == "Near Field Line":
             traces = ["mag(NearETotal)"]
             sol = next((s for s in sols if s.endswith("LastAdaptive")), sol)
@@ -4319,7 +4808,7 @@ class MainWindow(QMainWindow):
                   "Radiation Pattern": "Radiation Pattern", "3D Polar Plot": "3D Polar Plot",
                   "Near Field Line": "Near Field", "Monostatic RCS": "Monostatic RCS",
                   "Monostatic RCS Table": "Monostatic RCS Table", "Antenna Parameters": "Antenna Parameters Plot",
-                  "Antenna Parameters Table": "Antenna Parameters Table"}[kind]
+                  "Antenna Parameters Table": "Antenna Parameters Table", "Eigenmode Table": "Eigenmode Table"}[kind]
         if kind == "Radiation Pattern" and (props or {}).get("plot") == "Rectangular":
             prefix = "Far Field Plot"
         names = {r.name for r in self.des.reports}
@@ -4328,11 +4817,12 @@ class MainWindow(QMainWindow):
             i += 1
         r = Report(f"{prefix} {i}", kind, sol, with_traces if with_traces is not None else traces)
         r.props.update(props or {})
-        if kind in ("Rectangular", "Smith Chart", "Data Table") and not sols and self.doc.project.path:
+        from .reports import FAMILY_KINDS
+        if kind in FAMILY_KINDS and not sols and self.doc.project.path:
             # nominal design not solved: show the variations of a solved parametric setup (families)
             from .reports import family_solution_list
             for ps in self.des.parametrics:
-                fs = family_solution_list(self.doc, ps.name)
+                fs = family_solution_list(self.doc, ps.name, kind)
                 if fs:
                     r.solution = next((s for s in fs if not s.endswith("LastAdaptive") and "AdaptivePasses" not in s),
                                       fs[0])
@@ -5003,6 +5493,13 @@ class MainWindow(QMainWindow):
         self.doc.commit("all", geometry=False)
         self.show_field_plot(f"Mesh{i}")
 
+    def plot_mesh_auto_open(self) -> None:
+        """Plot Mesh on the air region of Auto Open: built by the solver, it is no model object to pick."""
+        if self.des.settings.get("AutoOpen", "Off") == "Off":
+            QMessageBox.information(self, "Plot Mesh", "Auto Open is off in this design.")
+            return
+        self.plot_mesh([F.AUTO_OPEN_REGION])
+
     def _mesh_dialog(self, fp) -> bool:
         from PySide6.QtWidgets import QFormLayout, QDialogButtonBox
         dlg = QDialog(self)
@@ -5084,7 +5581,7 @@ class MainWindow(QMainWindow):
             if edit_assignment(self, self.doc, fam, a):
                 self.doc.undo_stack.append(snapshot)
                 self.doc.commit("boundaries", geometry=False)
-        elif kind == "setup":
+        elif kind == "setup" and not self._is_circuit():      # a circuit setup is only its sweeps
             snapshot = self.doc.project.to_dict()
             if edit_setup(self, self.doc, self.des.setup(data[1])):
                 self.doc.undo_stack.append(snapshot)
@@ -5122,7 +5619,7 @@ class MainWindow(QMainWindow):
             self.edit_variables(True)
         elif kind == "autoopen":
             self.solution_type()
-        elif kind == "model":
+        elif kind in ("model", "schematic"):
             self.tabs.setCurrentIndex(0)
 
     def _project_context(self, data, pos) -> None:
@@ -5144,6 +5641,9 @@ class MainWindow(QMainWindow):
             m.addAction("Rename...", self.rename_design)
             m.addAction("Copy Design", self.copy_design)
             m.addAction("Delete Design", self.delete_design)
+        elif kind == "autoopen":
+            m.addAction("Auto Open / Solution Type...", self.solution_type)
+            m.addAction("Plot Mesh", self.plot_mesh_auto_open)
         elif kind == "group":
             g = data[1]
             if g == "Boundaries":
@@ -5163,6 +5663,12 @@ class MainWindow(QMainWindow):
                 sub = m.addMenu("Assign Mesh Operation")
                 for k in schema.MESH_OPS:
                     sub.addAction(k, lambda _=False, k=k: self.assign("mesh", k))
+            elif g == "Analysis" and self._is_circuit():
+                if not self.des.setups:
+                    m.addAction("Add Analysis", self._add_circuit_setup)
+                else:
+                    m.addAction("Add Frequency Sweep...", lambda: self.add_sweep(self.des.setups[0].name))
+                m.addAction("Analyze All", self.analyze_all)
             elif g == "Analysis":
                 m.addAction("Add Solution Setup...", self.add_setup)
                 m.addAction("Add Eigenmode Setup...", lambda: self.add_setup(True))
@@ -5219,6 +5725,10 @@ class MainWindow(QMainWindow):
                 m.addSeparator()
             if a.kind in ("Wave Port", "Lumped Port"):
                 m.addAction("Differential Pairs...", self.differential_pairs)
+            m.addAction("Delete", self._delete_project_items)
+        elif kind == "setup" and self._is_circuit():
+            m.addAction("Add Frequency Sweep...", lambda: self.add_sweep(data[1]))
+            m.addAction("Analyze", lambda: self.analyze([data[1]]))
             m.addAction("Delete", self._delete_project_items)
         elif kind == "setup":
             m.addAction("Properties...", lambda: self._project_activated(data))
@@ -5481,15 +5991,30 @@ class MainWindow(QMainWindow):
         self.doc.commit("all", geometry=False)
 
     def insert_design(self) -> None:
-        self.doc.checkpoint()
+        """Project > Insert Design: the same choice as the start page (3D FEM or Circuit, solution type)."""
+        from .start_page import StartPageDialog
         names = {d.name for d in self.doc.project.designs}
         i = 1
         while f"Design{i}" in names:
             i += 1
-        self.doc.project.designs.append(Design(name=f"Design{i}", units=self.settings.value("modeler/default_units", "mm")))
+        dlg = StartPageDialog(self, "insert", self.settings, default_name=f"Design{i}",
+                              default_units=self.settings.value("modeler/default_units", "mm"))
+        if dlg.exec() != QDialog.Accepted or dlg.choice is None:
+            return
+        c = dlg.choice
+        name = c.name or f"Design{i}"
+        if name in names:
+            QMessageBox.warning(self, "Insert Design", f"A design named {name} exists already.")
+            return
+        d = Design(name=name, units=c.units, kind=c.kind)
+        d.settings["SolutionType"] = c.solution_type
+        if c.kind == "circuit":
+            d.setups.append(circuit_setup())
+        self.doc.checkpoint()
+        self.doc.project.designs.append(d)
         self.doc.commit("all", geometry=False)
         self._close_reports()
-        self.doc.set_design(f"Design{i}")
+        self.doc.set_design(name)
 
     def filter_hairpin(self) -> None:
         """Tools > Filter Design > Tapped Hairpin: inserts the parametrized filter as a new design."""
@@ -5500,6 +6025,98 @@ class MainWindow(QMainWindow):
         """Tools > Antenna Design > Rectangular Patch: inserts the parametrized patch as a new design."""
         from .antenna_tool import PatchAntennaDialog
         self._insert_generated(PatchAntennaDialog(self, self.doc.project), "patch antenna")
+
+    def _circuit_import_designs(self) -> None:
+        """Data > 3D Design > From Project File: the 3D designs of another project file as blocks."""
+        paths, _ = QFileDialog.getOpenFileNames(self, "3D Designs from a Project File", "", "Hertzon project (*.hzn)")
+        if paths:
+            self.circuit.import_project_files(paths, *[int(v) for v in self._schem_center()])
+
+    def circuit_to_layout(self) -> None:
+        """Circuit > Simulation > Create 3D Layout: the schematic as a new 3D design."""
+        from ..model.circuit_layout import LayoutError, layout_design
+        circ = self.des
+        names = {x.name for x in self.doc.project.designs}
+        base = f"{circ.name}_Layout"
+        name, i = base, 1
+        while name in names:
+            i += 1
+            name = f"{base}{i}"
+        self.doc.checkpoint()
+        try:
+            d, warnings = layout_design(self.doc.project, circ, name)
+        except Exception as e:  # noqa: BLE001 (LayoutError and expression errors in the part values)
+            msg = str(e) if isinstance(e, LayoutError) else f"{type(e).__name__}: {e}"
+            QMessageBox.warning(self, "Create 3D Layout", f"No layout could be made: {msg}")
+            return
+        self.doc.project.designs.append(d)
+        self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(d.name)
+        self.view.fit_all()
+        self.msgs.add("info", f"Created the 3D layout {d.name} of {circ.name} with Setup1 : Sweep")
+        for w in warnings:
+            self.msgs.add("warning", f"{d.name}: {w}")
+
+    def _layouts(self) -> list[str]:
+        """The 3D layouts made from the current schematic, the newest last."""
+        from ..model.circuit_layout import LINK
+        return [d.name for d in self.doc.project.designs if d.kind == "3d" and d.settings.get(LINK) == self.des.name]
+
+    def circuit_to_existing_layout(self, layout_name: str | None) -> None:
+        """Rebuild a 3D layout of this schematic in place (its setups and reports stay) and show it
+        (None: the newest layout of the current schematic)."""
+        from ..model.circuit_layout import LayoutError, update_layout
+        if layout_name is None:
+            names = self._layouts()
+            if not names:
+                QMessageBox.information(self, "Update 3D Layout", "This schematic has no 3D layout yet. Make "
+                                        "one with Create 3D Layout.")
+                return
+            layout_name = names[-1]
+        circ = self.des.name
+        self.doc.checkpoint()
+        try:
+            warns = update_layout(self.doc.project, self.doc.project.design(layout_name))
+        except Exception as e:  # noqa: BLE001 (LayoutError and expression errors in the part values)
+            msg = str(e) if isinstance(e, LayoutError) else f"{type(e).__name__}: {e}"
+            QMessageBox.warning(self, "Update 3D Layout", msg)
+            self.doc.discard_last()
+            return
+        self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(layout_name)
+        self.view.fit_all()
+        for w in warns:
+            self.msgs.add("warning", f"{layout_name}: {w}")
+        self.msgs.add("info", f"{layout_name} rebuilt from {circ}; its solutions are out of date")
+
+    def layout_to_circuit(self, layout_name: str | None) -> None:
+        """Copies the dimensions of a 3D layout back into the schematic it was made from (None: the newest
+        layout of the current schematic)."""
+        from ..model.circuit_layout import LayoutError, update_schematic
+        if layout_name is None:
+            names = self._layouts()
+            if not names:
+                QMessageBox.information(self, "Update from Layout", "This schematic has no 3D layout yet. Make "
+                                        "one with Create 3D Layout.")
+                return
+            layout_name = names[-1]
+        self.doc.checkpoint()
+        try:
+            circ, changes = update_schematic(self.doc.project, self.doc.project.design(layout_name))
+        except LayoutError as e:
+            QMessageBox.warning(self, "Update from Layout", str(e))
+            return
+        self.doc.commit("all", geometry=False)
+        if changes:
+            self.msgs.add("info", f"{circ.name} updated from {layout_name}: " + ", ".join(changes))
+        else:
+            self.msgs.add("info", f"{circ.name} has the dimensions of {layout_name} already")
+            QMessageBox.information(self, "Update from Layout",
+                                    f"{circ.name} has the dimensions of {layout_name} already. Change the "
+                                    f"dimensions in {layout_name} first: its design variables (named after the "
+                                    "parts, e.g. MS1_L) or the sizes of the traces.")
 
     def _insert_generated(self, dlg, what: str) -> None:
         if dlg.exec() != QDialog.Accepted or dlg.design is None:

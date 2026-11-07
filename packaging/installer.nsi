@@ -11,6 +11,7 @@ SetCompressor /SOLID lzma
 RequestExecutionLevel user
 
 !include "MUI2.nsh"
+!include "x64.nsh"
 
 !define APP "Hertzon"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Hertzon"
@@ -81,6 +82,19 @@ Section "!$(SecApp)" SEC_APP
     SectionIn RO
     SetOutPath "$INSTDIR"
     !insertmacro WaitClosed
+    ; the MCP server of an AI app, the remote service and solver processes run from this folder without a
+    ; window and keep files in use (hzmesh.dll, packages in .venv): stopped here, otherwise the update could
+    ; only replace those files after a restart of the computer
+    IfFileExists "$INSTDIR\.venv\*.*" 0 nobackground
+    ; the installer is a 32-bit program: without this it starts the 32-bit PowerShell, which cannot see the
+    ; modules loaded in a 64-bit Python and so does not find the processes that use .venv
+    ${DisableX64FSRedirection}
+    InitPluginsDir
+    ; (a path relative to this script: makensis works in its folder)
+    File "/oname=$PLUGINSDIR\stop_background.ps1" "stop_background.ps1"
+    nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop_background.ps1" -Root "$INSTDIR"'
+    Pop $0
+    nobackground:
     ; an update replaces the program files completely; the Python environment (.venv) stays
     RMDir /r "$INSTDIR\hertzon"
     File /r "${STAGE}\*.*"
@@ -123,6 +137,7 @@ SectionEnd
 
 Section "$(SecEnv)" SEC_ENV
     DetailPrint "$(EnvRunning)"
+    ${DisableX64FSRedirection}   ; the 64-bit PowerShell (see above)
     ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1"' $0
     IfFileExists "$INSTDIR\.venv\hertzon_installed.txt" +2 0
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(EnvFailed)" /SD IDOK
@@ -148,6 +163,7 @@ Section "Uninstall"
     Delete "$INSTDIR\Hertzon.exe"
     Delete "$INSTDIR\setup.ps1"
     Delete "$INSTDIR\setup.log"
+    Delete "$INSTDIR\setup.prev.log"
     Delete "$INSTDIR\run.ps1"
     Delete "$INSTDIR\pyproject.toml"
     Delete "$INSTDIR\README.md"

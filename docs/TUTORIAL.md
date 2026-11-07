@@ -144,8 +144,9 @@ middle, from 8 to 12 GHz. The finished project is `examples/WaveguidePost.hzn`.
 
 ### 1.1 New design and variables
 
-1. **File > New**. The project starts with one empty design.
-2. **Simulation > Solution Type...**: choose **Modal** and leave **Auto open region** at **Off**.
+1. **File > New**. The start page asks what to simulate: choose **3D FEM**, solution type **Modal**, units
+   **mm**, and click **Create**. The project starts with one empty design.
+2. **Simulation > Solution Type...**: check **Modal** and leave **Auto open region** at **Off**.
    A waveguide is a closed problem: every outer face that is not a port is a perfect conductor.
 3. **Project > Design Properties...**: add the variables
 
@@ -544,7 +545,11 @@ The assistant works step by step with the same building blocks you used above, a
 | Boundaries and ports | `assign`, `modify_assignment` (boundaries, wave/lumped ports, plane waves, mesh operations) |
 | Analysis | `set_setup`, `set_sweep`, `set_far_field_sphere`, `validate`, `run_simulation`, `get_status`, `abort_simulation` |
 | Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `render_image` (a picture of the model), `set_report`, `set_field_plot`, `set_equation` (Fields Calculator) |
-| Parametric and optimization | `set_parametric`, `set_optimization`, run and read with `run_simulation`, `get_status`, `get_results` |
+| Parametric and optimization | `set_parametric`, `set_optimization` (Conjugate Gradient, Latin Hypercube + Nelder-Mead or Derivative Trust Region), run and read with `run_simulation`, `get_status`, `get_results`; `apply_optimization` takes the best result over into the design |
+| Derivative tuning | `compute_tuning` (tuning model of up to 6 variables on the solved mesh), `get_tuning` (S-parameters at other variable values without solving) |
+| Design assistants | `create_patch_antenna` (Tools > Antenna Design), `create_hairpin_filter` (Tools > Filter Design): complete designs with setup, sweep and optimization |
+| Circuits | `create_circuit`, `get_circuit`, `edit_circuit` (parts, wires, 3D design and Touchstone blocks), `run_simulation` / `get_results` / `render_image` on the schematic, `circuit_layout` (3D layout, update, back to the schematic), `import_3d_designs` |
+| Files and boards | `export` (Touchstone, STEP, Gerber, EMerge script), `import_pcb` (Gerber, Excellon, job files), `set_stackup`, `manage_design` (copy, delete), `list_examples`, `open_example` |
 | Scripting | `run_python` for anything else, with the Hertzon model API |
 
 Simulation results can be wrong, whether you or an assistant set the model up. Check them as described in
