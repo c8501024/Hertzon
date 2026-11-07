@@ -5,6 +5,14 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.3.3 (2026-11-07)
+
+### Fixed
+- **Update stayed on an empty setup window**: at the start of an update the setup waited silently for Hertzon
+  processes to end, with slow process queries without a time limit. It now says at once what it checks, lists
+  the Hertzon processes from the installation folder, announces that they will be closed (with a note on
+  unsaved work if a Hertzon window is open) and closes them after Enter.
+
 ### Added
 - **Documentation for circuits and PCB import**: [docs/CIRCUIT.md](docs/CIRCUIT.md) describes circuit designs
   (parts, junctions, line calculator, full-wave line model, 3D designs as blocks, 3D layout and back). The
