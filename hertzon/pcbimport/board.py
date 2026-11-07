@@ -23,6 +23,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import shapely
 from shapely import affinity
 from shapely.geometry import Polygon, box
@@ -314,13 +315,130 @@ def _loop(coords, u: float, z: str | None = None) -> str:
     return ";".join(f"{_fmt(x / u)},{_fmt(y / u)},{z}" for x, y in pts)
 
 
-def _prepare(polys: list[Polygon], ox: float, oy: float) -> list[Polygon]:
+TOUCH = 1e-6                 # m: parts of a copper shape closer than this touch for the kernel
+REPAIR_MAX = 64e-6           # m: largest disc that joins touching rings before the shape is reported
+
+
+def _segments(p: Polygon):
+    """All edges of all rings of p as (x0, y0, x1, y1), the ring of each and its vertex counts."""
+    rings = [p.exterior, *p.interiors]
+    P, ring = [], []
+    for r, R in enumerate(rings):
+        c = np.asarray(R.coords)[:-1]
+        P.append(np.c_[c, np.roll(c, -1, axis=0)])
+        ring.append(np.full(len(c), r))
+    return np.concatenate(P), np.concatenate(ring)
+
+
+def pinches(p: Polygon, tol: float = TOUCH) -> list[tuple[float, float]]:
+    """Places where p touches itself for the kernel: a corner of a ring closer than tol to an edge that does
+    not end in it (of the same ring or another one). The kernel merges such points, its curve loops then do
+    not close ("Curve loop is not closed") or a hole runs into the outside, although p is a valid polygon."""
+    seg, ring = _segments(p)
+    n = len(seg)
+    if n < 4:
+        return []
+    starts = np.r_[0, np.flatnonzero(np.diff(ring)) + 1]
+    first = starts[ring]                                      # first edge of the ring of each edge
+    size = np.bincount(ring)[ring]
+    idx = np.arange(n)
+    prev = first + (idx - first - 1) % size                   # the edge that ends in corner i
+    nxt = first + (idx - first + 1) % size
+    lines = shapely.linestrings(seg.reshape(-1, 2, 2))
+    pts = shapely.points(seg[:, :2])
+    i, j = shapely.STRtree(lines).query(pts, predicate="dwithin", distance=tol)
+    # the edges at corner i and their neighbours (a short edge brings corner i near the next one)
+    keep = (j != i) & (j != prev[i]) & (j != nxt[i]) & (j != prev[prev[i]])
+    out = []
+    for a, b in zip(i[keep], j[keep]):
+        q = shapely.shortest_line(pts[a], lines[b]).coords
+        out.append(((q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2))
+    return out
+
+
+def _clean(p: Polygon) -> Polygon:
+    """Repeated points and points on a straight line dropped, rings oriented (outside counter-clockwise)."""
+    return orient(p.simplify(0, preserve_topology=True), 1.0)
+
+
+def _disc(x: tuple[float, float], r: float) -> Polygon:
+    """Small 12-gon turned off the axes (its corners do not land exactly on the usual 0/45/90° edges)."""
+    t = np.radians(7.0) + np.arange(12) * np.pi / 6
+    return Polygon(np.c_[x[0] + r * np.cos(t), x[1] + r * np.sin(t)])
+
+
+def normalize(p: Polygon, tol: float = TOUCH) -> tuple[list[Polygon], str]:
+    """Copper shape the kernel can build.
+
+    Every shape is cleaned (repeated and collinear points dropped, rings oriented). An invalid shape is made
+    valid. Where rings touch or nearly touch (parts that meet in a point, a hole on the outline or on another
+    hole, a slit narrower than a few µm), gaps narrower than 2·tol are closed (buffer out and back in) and a
+    small copper disc is added at each touch that is left, so parts that meet in a point stay one connected
+    conductor and holes get a clear distance from the rest. Returns the polygons and what was done ('' if
+    nothing)."""
+    notes = []
+    parts = [p]
+    if not p.is_valid:
+        notes.append("made valid")
+        parts = [q for q in G.polygons_of(shapely.make_valid(p)) if q.area > 0]
+        if len(parts) > 1:
+            # pieces that touch in points are joined; pieces apart from each other stay separate
+            parts = G.polygons_of(shapely.union_all(
+                parts + [_disc(x, 4 * tol) for x in _touch_points(parts, tol)]))
+    out = []
+    for q in parts:
+        r, note = _untouch(_clean(q), tol)
+        out += r
+        notes += [note] if note else []
+    return out, ", ".join(dict.fromkeys(notes))
+
+
+def _untouch(p: Polygon, tol: float) -> tuple[list[Polygon], str]:
+    if not pinches(p, tol):
+        return [p], ""
+    note = "touching rings repaired"
+    q = p.buffer(2 * tol, join_style="mitre").buffer(-2 * tol, join_style="mitre")
+    qs = [x for x in G.polygons_of(q) if x.area > 0]
+    if len(qs) == 1 and qs[0].is_valid:
+        p = _clean(qs[0])
+    e = 4 * tol                      # the disc has its own corners: well clear of the edges near it
+    while True:
+        where = pinches(p, tol)
+        if not where:
+            return [p], note
+        if e > REPAIR_MAX:
+            return [p], f"still touches itself at {len(where)} points"
+        q = shapely.union_all([p] + [_disc(x, e) for x in where])
+        qs = [x for x in G.polygons_of(q) if x.area > 0]
+        if len(qs) == 1 and qs[0].is_valid:
+            p = _clean(qs[0])
+        e *= 2
+
+
+def _touch_points(parts: list[Polygon], tol: float) -> list[tuple[float, float]]:
+    out = []
+    for k, a in enumerate(parts):
+        for b in parts[k + 1:]:
+            if a.distance(b) <= tol:
+                q = shapely.shortest_line(a.boundary, b.boundary).coords
+                out.append(((q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2))
+    return out
+
+
+def _prepare(polys: list[Polygon], ox: float, oy: float, notes: list[tuple[Polygon, str]] | None = None
+             ) -> list[Polygon]:
     out = []
     for p in polys:
         p = affinity.translate(p, -ox, -oy).simplify(SIMPLIFY, preserve_topology=True)
         for q in G.polygons_of(p):
-            if q.area > 0:
-                out.append(orient(q, 1.0))
+            if q.area <= 0:
+                continue
+            qs, note = normalize(q)
+            for r in qs:
+                if r.area > 0:
+                    out.append(r)
+                    if notes is not None and note:
+                        notes.append((r, note))
     return out
 
 
@@ -330,6 +448,15 @@ class Report:
     lines: list[str] = field(default_factory=list)
     not_loaded: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    shapes: dict[str, tuple[str, float]] = field(default_factory=dict)   # copper object: layer, area (mm²)
+
+    def check_built(self, errors: dict) -> list[str]:
+        """Warnings for copper shapes the kernel could not build (errors: object -> message); also added
+        to the warnings of the report. A missing shape is missing copper, which is easy to overlook."""
+        out = [f"{n} on {self.shapes[n][0]} ({self.shapes[n][1]:.4g} mm²) could not be built: {errors[n]}. "
+               "This copper is MISSING from the model." for n in sorted(errors) if n in self.shapes]
+        self.warnings += [w for w in out if w not in self.warnings]
+        return out
 
     def text(self) -> str:
         out = ["PCB import", ""] + self.lines
@@ -404,7 +531,8 @@ def build(project, des, pl: Plan) -> Report:
         polys = f.image.polygons()
         if clip is not None:
             polys = [q for p in polys for q in G.polygons_of(p.intersection(clip))]
-        polys = _prepare(polys, ox, oy)
+        fixed: list[tuple[Polygon, str]] = []
+        polys = _prepare(polys, ox, oy, fixed)
         group = f"{GROUP_PREFIX}{L.name}"
         solid = L.representation == S.SOLID
         z = f"{S.VAR_PREFIX}{s}_z-{S.VAR_PREFIX}{s}_zs" if solid else "0"
@@ -426,6 +554,11 @@ def build(project, des, pl: Plan) -> Report:
             else:
                 o.color = "#d8a040"
             objs.append(o.name)
+            note = next((t for q, t in fixed if q is p), "")
+            rep.shapes[o.name] = (L.name, p.area * 1e6)
+            if note:
+                (rep.warnings if "still" in note else rep.lines).append(
+                    f"{o.name} on {L.name} ({p.area * 1e6:.4g} mm², {len(p.interiors)} holes): {note}.")
         copper_objs[k] = objs
         if objs and not solid:
             props = schema.defaults(schema.BOUNDARIES["Finite Conductivity"])

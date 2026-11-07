@@ -363,9 +363,7 @@ class VariablesDialog(QDialog):
                 b.setToolTip("Set by Modeler > PCB Stackup; change the layer there")
             self.table.setItem(r, 1, b)
             try:
-                val, has_unit = ev._eval(k)
-                txt = f"{val * 1e3:.6g}mm" if has_unit and abs(val) < 1 else f"{val:.6g}"
-                c = QTableWidgetItem(txt)
+                c = QTableWidgetItem(ev.display(k))
             except Exception as e:  # noqa: BLE001
                 c = QTableWidgetItem(str(e))
                 c.setForeground(QBrush(QColor("#c0392b")))
@@ -719,12 +717,13 @@ class ValidationDialog(QDialog):
     ICON = {"ok": "✔", "warning": "⚠", "error": "✖"}
     COLOR = {"ok": "#1e8449", "warning": "#b9770e", "error": "#c0392b"}
 
-    def __init__(self, doc, parent=None, overlaps=None, resolve=None):
+    def __init__(self, doc, parent=None, overlaps=None, resolve=None, sheets=None):
         """overlaps: classified overlapping solids (model.validate.Overlap) from the exact geometry check;
-        resolve(list of Overlap) subtracts the winner of each from the loser."""
+        resolve(list of Overlap) subtracts the winner of each from the loser; sheets: where the sheets lie in
+        the solids (kernel.occ.sheet_placement)."""
         super().__init__(parent)
         self.setWindowTitle(f"Validation Check: {doc.project.name} - {doc.design.name}")
-        checks = validate(doc.project, doc.design, doc.tess, doc.errors, overlaps)
+        checks = validate(doc.project, doc.design, doc.tess, doc.errors, overlaps, sheets)
         fixable = {ov.message: ov for ov in overlaps or [] if not ov.contained}
         self.ok = not any(c.level == "error" for c in checks)
         lay = QHBoxLayout(self)
@@ -1056,6 +1055,17 @@ class OptionsDialog(QDialog):
                                      "without network nothing happens. Help > Check for Updates checks on request.")
         self.update_check.setChecked(s.value(UPDATE_SETTING, True, type=bool))
         f.addRow("", self.update_check)
+        from .file_folders import DEFAULT_DIR
+        self.project_dir = QLineEdit(s.value(DEFAULT_DIR, "") or "")
+        self.project_dir.setPlaceholderText("empty: the folder of the last project")
+        self.project_dir.setToolTip("File > Open starts in this folder after Hertzon is started. Later it starts\n"
+                                    "in the folder of the project opened or saved last.")
+        browse = QPushButton("Browse ...")
+        browse.clicked.connect(self._browse_project_dir)
+        row = QHBoxLayout()
+        row.addWidget(self.project_dir, 1)
+        row.addWidget(browse)
+        f.addRow("Default project folder", row)
         tabs.addTab(gen, "General")
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -1509,6 +1519,18 @@ class OptionsDialog(QDialog):
         self._remote_info = None
         self._hpc_remote_state()
 
+    def _store_project_dir(self, s) -> None:
+        from .file_folders import DEFAULT_DIR
+        s.setValue(DEFAULT_DIR, self.project_dir.text().strip())
+
+    def _browse_project_dir(self) -> None:
+        from pathlib import Path
+        from PySide6.QtWidgets import QFileDialog
+        start = self.project_dir.text().strip() or str(Path.home())
+        d = QFileDialog.getExistingDirectory(self, "Default project folder", start)
+        if d:
+            self.project_dir.setText(d)
+
     def _ssh_browse_key(self) -> None:
         from pathlib import Path
         from PySide6.QtWidgets import QFileDialog
@@ -1658,6 +1680,7 @@ class OptionsDialog(QDialog):
         w.a_emlog.setChecked(self.emlog.isChecked())
         from .update_check import SETTING as UPDATE_SETTING
         s.setValue(UPDATE_SETTING, self.update_check.isChecked())
+        self._store_project_dir(s)
         w.apply_hpc_settings()
 
 
@@ -1728,3 +1751,269 @@ class EditSourcesDialog(QDialog):
     def values(self) -> tuple[dict, str]:
         return ({n: {"mag": self.mag[n].value(), "phase": self.ph[n].value()} for n in self.names},
                 self.ftype.currentText())
+
+
+class EquationCurveDialog(QDialog):
+    """Equation Based Curve: presets, coordinate system, the three functions of the parameter t, its range
+    and the number of points, with a live preview of the curve and the error (with the t where it happens)
+    while typing. Same interface as ObjectPropertiesDialog (cmd_values, attr_values)."""
+
+    def __init__(self, doc, obj: GeoObject, parent=None):
+        super().__init__(parent)
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QCheckBox, QComboBox, QSpinBox, QWidget
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+        from matplotlib.figure import Figure
+        from ..model.equation_presets import EQUATION_PRESETS
+        self.setWindowTitle(f"Equation Based Curve: {obj.name}")
+        self.doc = doc
+        self.obj = obj
+        self.cmd_values = dict(obj.history[0].props)
+        lay = QVBoxLayout(self)
+        tabs = QTabWidget()
+        page = QWidget()
+        row = QHBoxLayout(page)
+        form = QFormLayout()
+        self.preset = QComboBox()
+        self.preset.addItem("(choose a preset...)")
+        for name, _ in EQUATION_PRESETS:
+            self.preset.addItem(name)
+        self.preset.activated.connect(self._apply_preset)
+        form.addRow("Preset:", self.preset)
+        self.mode = QComboBox()
+        self.mode.addItems(["Cartesian", "Cylindrical", "Y = f(X)"])
+        form.addRow("Coordinates:", self.mode)
+        self.f_edits, self.f_labels = [], []
+        for _ in range(3):
+            e, lb = QLineEdit(), QLabel()
+            self.f_edits.append(e)
+            self.f_labels.append(lb)
+            form.addRow(lb, e)
+        self.t0, self.t1 = QLineEdit(), QLineEdit()
+        form.addRow("t start:", self.t0)
+        form.addRow("t end:", self.t1)
+        self.npts = QSpinBox()
+        self.npts.setRange(2, 100000)
+        form.addRow("Number of points:", self.npts)
+        self.ctype = QComboBox()
+        self.ctype.addItems(["Spline", "Polyline"])
+        form.addRow("Curve type:", self.ctype)
+        self.closed, self.covered = QCheckBox("Closed"), QCheckBox("Covered (sheet)")
+        cb = QHBoxLayout()
+        cb.addWidget(self.closed)
+        cb.addWidget(self.covered)
+        form.addRow("", cb)
+        self.ref_btn = QPushButton("Constants && Functions...")
+        self.ref_btn.setToolTip("Constants, functions, units and variables you can use in a value.\n"
+                                "Double-click one to insert it at the cursor of the last edited field.")
+        self.ref_btn.clicked.connect(self._show_reference)
+        self.ref_dlg = None
+        self._target = self.f_edits[0]
+        form.addRow("", self.ref_btn)
+        hint = QLabel("t is the parameter (_t works too). Design variables and units work; plain numbers are model "
+                      "units, angles in radians unless written with deg.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #666;")
+        form.addRow(hint)
+        self.info = QLabel()
+        self.info.setWordWrap(True)
+        form.addRow(self.info)
+        left = QWidget()
+        left.setLayout(form)
+        left.setMinimumWidth(330)
+        row.addWidget(left)
+        self.fig = Figure(figsize=(4, 4), tight_layout=True)
+        self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas.setMinimumSize(320, 320)
+        row.addWidget(self.canvas, 1)
+        tabs.addTab(page, "Curve")
+        self.attr_values = {"Name": obj.name, "Material": obj.material, "SolveInside": str(obj.solve_inside),
+                            "Model": str(obj.model), "Color": obj.color, "Transparency": str(obj.transparency),
+                            "DisplayWireframe": str(obj.wireframe), "Orientation": obj.orientation}
+        self.attr = PropertyGrid(show_evaluated=False)
+        self.attr.set(object_attributes(doc, obj.name), self.attr_values, None,
+                      materials=[m.name for m in doc.project.all_materials()])
+        tabs.addTab(self.attr, "Attribute")
+        lay.addWidget(tabs)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self._ok = bb.button(QDialogButtonBox.Ok)
+        QApplication.instance().focusChanged.connect(self._remember_target)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(250)
+        self._timer.timeout.connect(self._update)
+        self._load(self.cmd_values)
+        for w in self.f_edits + [self.t0, self.t1]:
+            w.textChanged.connect(self._changed)
+        self.npts.valueChanged.connect(self._changed)
+        for c in (self.mode, self.ctype):
+            c.currentTextChanged.connect(self._changed)
+        for c in (self.closed, self.covered):
+            c.toggled.connect(self._changed)
+        self.resize(860, 580)
+        self._update()
+
+    # ---- values ----------------------------------------------------------------------------------------
+    def _load(self, v: dict) -> None:
+        self.mode.setCurrentText(v.get("CoordinateSystem", "Cartesian") or "Cartesian")
+        for e, k in zip(self.f_edits, ("XtFunction", "YtFunction", "ZtFunction")):
+            e.setText(v.get(k, ""))
+        self.t0.setText(v.get("tStart", "0"))
+        self.t1.setText(v.get("tEnd", "1"))
+        try:
+            self.npts.setValue(int(float(v.get("NumOfPointsOnCurve", "60") or 60)))
+        except ValueError:
+            self.npts.setValue(60)
+        self.ctype.setCurrentText(v.get("CurveType", "Spline") or "Spline")
+        self.closed.setChecked(v.get("Closed") == "True")
+        self.covered.setChecked(v.get("Covered") == "True")
+
+    def values(self) -> dict:
+        v = dict(self.cmd_values)
+        v.update(CoordinateSystem=self.mode.currentText(), XtFunction=self.f_edits[0].text().strip(),
+                 YtFunction=self.f_edits[1].text().strip(), ZtFunction=self.f_edits[2].text().strip(),
+                 tStart=self.t0.text().strip() or "0", tEnd=self.t1.text().strip() or "0",
+                 NumOfPointsOnCurve=str(self.npts.value()), CurveType=self.ctype.currentText(),
+                 Closed=str(self.closed.isChecked()), Covered=str(self.closed.isChecked() and self.covered.isChecked()))
+        return v
+
+    # ---- constants & functions (same window as in Design Properties) ------------------------------------
+    def _remember_target(self, _old, new) -> None:
+        if new in self.f_edits or new in (self.t0, self.t1):
+            self._target = new
+
+    def _show_reference(self) -> None:
+        if self.ref_dlg is not None:
+            self.ref_dlg.close()
+        v = dict(self.doc.project.variables)
+        v.update(self.doc.design.variables)
+        self.ref_dlg = ExpressionReferenceDialog(v, self.doc.design.units, self)
+        self.ref_dlg.inserted.connect(self._insert_text)
+        self.ref_dlg.show()
+
+    def _insert_text(self, snippet: str) -> None:
+        """Insert a constant / function / unit / variable at the cursor of the last edited field."""
+        e = self._target if self._target is not None and self._target.isEnabled() else self.f_edits[1]
+        if e.hasSelectedText():
+            start, length = e.selectionStart(), len(e.selectedText())
+        else:
+            start, length = e.cursorPosition(), 0
+        new, cursor = insert_into(e.text(), start, length, snippet)
+        e.setText(new)
+        e.setCursorPosition(cursor)
+        self._target = e
+        if self.ref_dlg is not None:
+            name = {self.t0: "t start", self.t1: "t end"}.get(e) or self.f_labels[self.f_edits.index(e)].text().rstrip(":")
+            self.ref_dlg.set_status(f"Inserted '{snippet}' into {name}.")
+        self.activateWindow()
+        e.setFocus()
+
+    def done(self, r: int) -> None:
+        if self.ref_dlg is not None:
+            self.ref_dlg.close()
+        try:
+            QApplication.instance().focusChanged.disconnect(self._remember_target)
+        except (RuntimeError, TypeError):
+            pass
+        super().done(r)
+
+    def _apply_preset(self, i: int) -> None:
+        from ..model.equation_presets import EQUATION_PRESETS
+        if i <= 0:
+            return
+        v = {"CurveType": "Spline", "Covered": "False", **EQUATION_PRESETS[i - 1][1]}
+        self._load(v)
+        self._update()
+
+    def _changed(self, *_args) -> None:
+        self._timer.start()
+
+    # ---- preview ---------------------------------------------------------------------------------------
+    def _update(self) -> None:
+        import numpy as np
+        from ..kernel.occ import GeometryError, equation_curve_points
+        from ..model.equation_presets import FIELD_LABELS
+        mode = self.mode.currentText()
+        for (txt, on), lb, e in zip(FIELD_LABELS[mode], self.f_labels, self.f_edits):
+            lb.setText(txt + ":")
+            e.setEnabled(on)
+        self.covered.setEnabled(self.closed.isChecked())
+        for e in self.f_edits + [self.t0, self.t1]:
+            e.setStyleSheet("")
+        ev = self.doc.evaluator()
+        try:
+            P = equation_curve_points(self.values(), ev)
+        except Exception as err:  # noqa: BLE001
+            msg = str(err)
+            self._mark_error(msg, ev)
+            self.info.setText(f"<span style='color:#c0392b'>{msg}</span>")
+            self._ok.setEnabled(False)
+            self.fig.clear()
+            self.canvas.draw_idle()
+            return
+        self._ok.setEnabled(True)
+        u = ev.unit_scale
+        unit = ev.model_unit
+        L = float(np.linalg.norm(np.diff(P, axis=0), axis=1).sum()) / u
+        a, b = P[0] / u, P[-1] / u
+        tiny = 1e-9 * max(1.0, float(np.abs(P).max()) / u)
+        f = lambda q: ", ".join(f"{0.0 if abs(x) < tiny else x:.4g}" for x in q)  # noqa: E731
+        self.info.setText(f"Start ({f(a)}) {unit}<br>End ({f(b)}) {unit}<br>Length {L:.4g} {unit}, "
+                          f"{len(P)} points")
+        self._plot(P / u, unit)
+
+    def _mark_error(self, msg: str, ev) -> None:
+        """Red background on the field that fails."""
+        from ..model.expr import Evaluator
+        bad = "background: #f8d7da;"
+        for e in (self.t0, self.t1):
+            if ev.check(e.text() or "0"):
+                e.setStyleSheet(bad)
+        v = {**ev.variables, "_t": "0.5", "t": ev.variables.get("t", "0.5")}
+        e2 = Evaluator(v, ev.model_unit)
+        for e in self.f_edits:
+            if e.isEnabled() and (e2.check(e.text() or "0") or (" t = " in msg and self._fails_at(e, msg, ev))):
+                e.setStyleSheet(bad)
+
+    @staticmethod
+    def _fails_at(edit, msg: str, ev) -> bool:
+        import re
+        from ..model.expr import Evaluator
+        m = re.search(r"\bt = ([-+0-9.eE]+)", msg)
+        if not m:
+            return False
+        v = {**ev.variables, "_t": m.group(1)}
+        v.setdefault("t", m.group(1))
+        return Evaluator(v, ev.model_unit).check(edit.text() or "0") is not None
+
+    def _plot(self, P, unit: str) -> None:
+        import numpy as np
+        self.fig.clear()
+        flat = np.ptp(P[:, 2]) <= 1e-9 * max(1.0, float(np.abs(P).max()))
+        if flat:
+            ax = self.fig.add_subplot(111)
+            ax.plot(P[:, 0], P[:, 1], "-", color="#2b5fa8", lw=1.8)
+            ax.plot(*P[0, :2], "o", color="#2e8b57", ms=5)
+            ax.plot(*P[-1, :2], "s", color="#c0392b", ms=5)
+            ax.set_aspect("equal", adjustable="datalim")
+            ax.set_xlabel(f"X ({unit})")
+            ax.set_ylabel(f"Y ({unit})")
+            ax.grid(True, alpha=0.3)
+        else:
+            ax = self.fig.add_subplot(111, projection="3d")
+            ax.plot(P[:, 0], P[:, 1], P[:, 2], "-", color="#2b5fa8", lw=1.8)
+            ax.scatter(*P[0], color="#2e8b57", s=20)
+            ax.scatter(*P[-1], color="#c0392b", marker="s", s=20)
+            ax.set_box_aspect([max(float(np.ptp(P[:, i])), 1e-9) for i in range(3)])
+            ax.set_xlabel(f"X ({unit})")
+            ax.set_ylabel(f"Y ({unit})")
+            ax.set_zlabel(f"Z ({unit})")
+        self.canvas.draw_idle()
+
+    def accept(self) -> None:
+        self.cmd_values = self.values()
+        self.attr_values = dict(self.attr_values)
+        super().accept()

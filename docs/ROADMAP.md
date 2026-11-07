@@ -1,6 +1,6 @@
 # Hertzon roadmap
 
-Hertzon today is a frequency-domain 3D FEM simulator built on [EMerge](https://github.com/FennisRobert/EMerge),
+Hertzon today is a frequency-domain 3D FEM simulator (FEM solver core: [EMerge](https://github.com/FennisRobert/EMerge)),
 with adaptive meshing (EMerge's AURA by default, Hertzon's local Delaunay mesher hzmesh, re-mesh),
 curved elements, fast and interpolating sweeps, far field and RCS, optimization, parametric sweeps and an
 MCP server. This roadmap describes how it

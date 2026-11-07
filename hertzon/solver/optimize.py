@@ -365,6 +365,8 @@ class Optimizer:
             self.history[-1].update(predicted=pred_cost, radius=radius)
             taken, radius, rho = TR.update(radius, cost - new if np.isfinite(new) else -np.inf, predicted,
                                            TR.at_edge(dp, blo, bhi))
+            if not taken:
+                radius = TR.shrink_below(radius, dp, model.m.ranges)
             log(f"Round {it + 1}: solved cost {new:.6g}, predicted {pred_cost:.6g} (actual / predicted "
                 f"improvement {rho:.2f}): step {'taken' if taken else 'rejected'}, region now {radius:.0%}")
             if taken:

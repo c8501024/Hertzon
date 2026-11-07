@@ -36,12 +36,23 @@ def test_scene_stamp_changes_only_with_the_scene():
 
 
 def test_auto_update_renders_only_after_a_change():
+    """The timer draws only when the scene differs from what the last finished render drew. Observers on the
+    render's start (scale bar, triad) change the scene during every render; that must not count as a change
+    (0.3.3 still redrew five times a second because of it)."""
     _app()
     from pyvistaqt import QtInteractor
     from hertzon.gui.viewer import render_on_change
     p = QtInteractor()
     calls = []
-    p._auto_render = lambda: calls.append(1)             # what pyvistaqt's timer would call
+    rw = p.render_window
+    bar = p.add_mesh(__import__("pyvista").Sphere())
+
+    def fake_render():                                   # what a render does: start observers, then the end
+        calls.append(1)
+        bar.prop.opacity = 0.5 if len(calls) % 2 else 0.6     # an observer that touches the scene each render
+        rw.InvokeEvent("EndEvent")
+
+    p._auto_render = fake_render
     p.render_timer.timeout.disconnect()
     p.render_timer.timeout.connect(p._auto_render)
     render_on_change(p)
@@ -49,9 +60,9 @@ def test_auto_update_renders_only_after_a_change():
         p.render_timer.timeout.emit()
     assert len(calls) == 1                               # the first tick draws, idle ticks do not
     p.camera.azimuth = 10
-    p.render_timer.timeout.emit()
-    p.render_timer.timeout.emit()
-    assert len(calls) == 2
+    for _ in range(5):
+        p.render_timer.timeout.emit()
+    assert len(calls) == 2                               # a change draws once
     p.close()
 
 

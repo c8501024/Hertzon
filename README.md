@@ -20,10 +20,10 @@ An open-source 3D full-wave electromagnetic simulator (FEM, frequency domain) fo
 filters, waveguides, PCB structures and radar cross section**, with a **classic engineering workflow**:
 draw the model, assign boundaries and excitations, add an analysis setup with
 **adaptive meshing**, add frequency sweeps, analyze, then look at S-parameters, fields
-and radiation patterns. The finite-element solver underneath is
-[EMerge](https://github.com/FennisRobert/EMerge) (2nd-order Nédélec FEM, gmsh/OpenCASCADE geometry).
+and radiation patterns. Circuit designs with lumped parts and transmission lines turn into 3D layouts
+and back.
 
-Hertzon is by **Dominik Mair**, built on EMerge, the FEM solver by **Robert Fennis**.
+Hertzon is by **Dominik Mair**. Its FEM solver core, EMerge, is by **Robert Fennis**.
 
 > 📘 **New to Hertzon? Start with the [step-by-step tutorial](docs/TUTORIAL.md):** a waveguide with wave
 > ports, a coaxial cable, a half-wave dipole and the RCS of a sphere, each from the empty window to the
@@ -31,16 +31,18 @@ Hertzon is by **Dominik Mair**, built on EMerge, the FEM solver by **Robert Fenn
 > board imported from **Gerber files**, plus how to let an AI assistant (Claude Code, Codex, VS Code) build
 > and run simulations for you through Hertzon's **MCP server**.
 
-> **Built on EMerge.** The finite-element core of Hertzon is [EMerge](https://github.com/FennisRobert/EMerge),
+> **Solver core: EMerge.** The finite-element solver core of Hertzon is [EMerge](https://github.com/FennisRobert/EMerge),
 > the open-source FEM solver by **Robert Fennis**: the Nédélec formulation, element matrices, ports, boundary
 > conditions, the solver interface, the error estimate and the AURA mesh refinement are his work, and so is
 > the SPARTA direct solver that Hertzon offers as an option. Thanks to Robert for making EMerge available
 > under the GPL.
 >
-> Hertzon adds the graphical workflow on top: the adaptive pass loop with its convergence criteria, a
-> second local refinement method (hzmesh, local Delaunay), fast and interpolating sweeps with parallel sweep
-> points, far-field and RCS post-processing (also of half and quarter models with symmetry planes),
-> optimization, parametric sweeps, and derivative tuning with mesh morphing.
+> Around this core, Hertzon brings its own parts: the graphical workflow, a circuit simulator with
+> schematics that turn into 3D layouts and back, PCB import from Gerber and Excellon files with the stackup,
+> the adaptive pass loop with its convergence criteria, a second local refinement method (hzmesh, local
+> Delaunay), fast and interpolating sweeps with parallel sweep points, far-field and RCS post-processing
+> (also of half and quarter models with symmetry planes), optimizers, parametric sweeps, derivative tuning
+> with mesh morphing, solving on remote and cloud machines, and the MCP server.
 >
 > Some solver features were developed in Hertzon and contributed to EMerge: the curved (isoparametric)
 > elements on curved surfaces, hzAURA (AURA with cavity re-meshing, so refined curved surfaces stay exact),
@@ -183,7 +185,9 @@ See [docs/MESHER.md](docs/MESHER.md) for how the adaptive mesh refinement works:
 default), Hertzon's local Delaunay mesher hzmesh, curved elements and benchmark results.
 
 See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for solve times on a 32-core workstation: a patch antenna
-with 613k unknowns, swept over a 3:1 band with 101 points, in 203 s (1375 s on one core).
+with 319k unknowns, 8 adaptive passes and a 101-point sweep over a 3:1 band in 81 s (370 s on one core).
+The projects and the raw results of every run are in
+[examples/benchmark/scaling](examples/benchmark/scaling).
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next: a solver interface for several
 solvers, openEMS (FDTD), electrostatics and magnetostatics, circuit co-simulation and photonics.
@@ -216,7 +220,9 @@ reports and field plots ready: after **Analyze All** (F5) double-click a report,
 | `examples/Showcase_AllFeatures.hzn` | Test project that uses nearly every feature in eight designs: patch array (all report types, reports against a design variable, field overlays, Fields Calculator, output variables with S, Y, Z and VSWR, conjugate-gradient and Derivative Trust Region optimizations with goals on antenna parameters, parametric sweeps, setups with every matrix solver family, all sweep types, all mesh operations, coordinate systems), half-model iris filter (Symmetry, de-embedding, renormalization, ports-only setup), eigenmode cavity, a geometry zoo with every create command and operation under a plane wave (RCS), a terminal coax monopole with PML, a periodic unit cell (Floquet port, scan angles), a terminal differential pair (two terminals per wave port, reference conductor, mixed-mode S-parameters) and an over-moded waveguide (two-mode wave ports with TE10 and TE01, mode conversion). Built by `python examples/make_showcase.py` |
 
 `examples/benchmark/` holds the validation and timing cases (patch antenna, waveguide post against a reference,
-sphere RCS against the Mie series, scaling from small to large models) with their scripts.
+sphere RCS against the Mie series, scaling from small to large models) with their scripts; the timings are in
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md), the mesher comparison in
+[examples/benchmark/mesher](examples/benchmark/mesher/README.md).
 `python examples/make_examples.py` builds the first versions of five of them (waveguide, microstrip, patch,
 hairpin, differential pair) from code; the shipped files were finished in Hertzon.
 
@@ -351,8 +357,8 @@ To add someone, comment on an issue or pull request, for example
 If you use Hertzon in a publication, please cite it. GitHub shows a ready-made reference under
 **Cite this repository** on the repository page (from `CITATION.cff`), as APA or BibTeX. Every release
 is archived on Zenodo with its own DOI; the badge at the top links to the latest one. Please also cite
-[EMerge](https://github.com/FennisRobert/EMerge) by Robert Fennis, the solver Hertzon is
-built on: DOI [10.5281/zenodo.17025518](https://doi.org/10.5281/zenodo.17025518).
+[EMerge](https://github.com/FennisRobert/EMerge) by Robert Fennis, the FEM solver core of
+Hertzon: DOI [10.5281/zenodo.17025518](https://doi.org/10.5281/zenodo.17025518).
 
 ## License
 

@@ -902,10 +902,13 @@ class SolutionDataDialog(QDialog):
             if d is None:
                 return
             n = d["S"].shape[1]
-            path, _ = QFileDialog.getSaveFileName(self, "Export Touchstone",
-                                                  f"{self.doc.design.name}_{sol.currentText()}.s{n}p",
-                                                  f"Touchstone (*.s{n}p)")
+            from . import file_folders
+            settings = getattr(self.parent(), "settings", None)
+            start = file_folders.in_dir(file_folders.touchstone_dir(self.doc.project.path, settings),
+                                        f"{self.doc.design.name}_{sol.currentText()}.s{n}p")
+            path, _ = QFileDialog.getSaveFileName(self, "Export Touchstone", start, f"Touchstone (*.s{n}p)")
             if path:
+                file_folders.remember_touchstone(path, settings)
                 self.st.write_touchstone(sol.currentText(), d["freq"], d["S"], d["z0"], path)
 
         def export_csv():

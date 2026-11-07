@@ -89,3 +89,17 @@ def update(radius: float, actual: float, predicted: float, edge: bool) -> tuple[
     elif rho >= GROW and edge:
         radius = min(MAX_RADIUS, 2.0 * radius)
     return taken, radius, float(rho)
+
+
+def step_fraction(dp: np.ndarray, ranges: np.ndarray) -> float:
+    """The step dp as a fraction of the tuning ranges: the largest |dp_i| over the range on its side (the
+    radius at which the step just reaches the edge of the region)."""
+    ranges = np.asarray(ranges, float)
+    side = np.where(np.asarray(dp) < 0, -ranges[:, 0], ranges[:, 1])
+    return float(np.max(np.abs(dp) / np.maximum(side, 1e-300))) if len(dp) else 0.0
+
+
+def shrink_below(radius: float, dp: np.ndarray, ranges: np.ndarray) -> float:
+    """Radius after a rejected step: at most half the step, so that the next round does not find the same
+    rejected step again inside the smaller region (which would solve the same design a second time)."""
+    return min(radius, 0.5 * step_fraction(dp, ranges))

@@ -97,9 +97,12 @@ def t_import_pcb(args):
     missing = [p for p in paths if not Path(p).exists()]
     if missing:
         raise ToolError(f"Not found: {missing}")
+    seg = int(args.get("arc_segments") or B.G.DEFAULT_SEGMENTS)
+    if not 8 <= seg <= 720:
+        raise ToolError("arc_segments is 8 to 720 (straight segments per full circle)")
     try:
-        files, job, jn = B.load(paths)
-        pl = B.plan(files, job, jn, stackup=ctx.des.stackup)
+        files, job, jn = B.load(paths, segments=seg)
+        pl = B.plan(files, job, jn, stackup=ctx.des.stackup, segments=seg)
         if args.get("crop_mm"):
             x0, y0, x1, y1 = (float(v) * 1e-3 for v in args["crop_mm"])
             pl.crop = (pl.origin[0] + x0, pl.origin[1] + y0, pl.origin[0] + x1, pl.origin[1] + y1)
@@ -107,6 +110,14 @@ def t_import_pcb(args):
     except Exception as e:  # noqa: BLE001
         raise ToolError(f"The board cannot be made: {e}") from None
     errors = commit(ctx, "pcb import")
+    if ctx.gui is None and rep.shapes:
+        # no window built it: build the copper here, a shape the kernel cannot make is missing copper
+        from .tools import tessellate
+        try:
+            _, errors = tessellate(ctx.proj, ctx.des, list(rep.shapes), timeout=args.get("timeout_s"))
+        except ToolError as e:
+            rep.warnings.append(f"The copper could not be checked: {e}")
+    rep.check_built(errors)
     return {"report": rep.lines, "warnings": rep.warnings, "not_loaded": rep.not_loaded, "notes": pl.notes,
             "files": [{"name": f.name, "kind": f.kind, **({"layer": f.layer} if f.layer else {}),
                        **({"error": f.error} if f.error else {})} for f in files],
@@ -235,9 +246,13 @@ TOOLS = [
     Tool("import_pcb", "Import a PCB from Gerber, Excellon and job files (files, folders or zip archives): the "
          "stackup (from the job file, the design's stackup or a usual stack), the substrate in the board shape, "
          "copper on its layers, plated vias and holes. crop_mm [x0, y0, x1, y1] from the board's lower left "
-         "imports only a part.",
+         "imports only a part. arc_segments: straight segments per full circle for arcs, round pads and outlines "
+         "(default 48; fewer make a lighter model).",
          _schema({"files": {"type": "array", "items": {"type": "string"}},
-                  "crop_mm": {"type": "array", "items": {"type": "number"}}}, ["files"]), t_import_pcb),
+                  "crop_mm": {"type": "array", "items": {"type": "number"}},
+                  "arc_segments": {"type": "integer"},
+                  "timeout_s": {"type": "number", "description": "time limit of the copper check build (s)"}},
+                 ["files"]), t_import_pcb),
     Tool("set_stackup", "PCB stackup of the design: a usual stack (copper_layers, thickness, material of the "
          "dielectrics) or explicit layers top to bottom [{name, kind copper|dielectric, thickness, material, "
          "permittivity, loss_tangent, representation Sheet|Solid}]. Makes the stk_ variables and a coordinate "

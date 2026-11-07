@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from types import SimpleNamespace
+import pytest
 
 from hertzon.model import expr
 from hertzon.gui.expr_reference import insert_into
@@ -62,3 +63,22 @@ def test_variables_dialog_inserts_constant_at_cursor():
     assert shown == ["c0"] and ref._groups["Functions"].isHidden()
     ref.close()
     dlg.close()
+
+
+def test_ratio_of_lengths_has_no_unit():
+    """Design Properties: c = a/b of two lengths is a plain number, whichever is larger (a user report:
+    a = 2mm, b = 6mm showed c as 333.333mm)."""
+    from hertzon.model.expr import Evaluator
+    for a, b, c in (("6mm", "2mm", "3"), ("2mm", "6mm", "0.333333")):
+        ev = Evaluator({"a": a, "b": b, "c": "a/b", "w": "a/2", "A": "a*b", "f": "2.4GHz", "lam": "c0/f",
+                        "fr": "c0/(2*b)", "n": "4", "L": "2m"})
+        assert ev.display("c") == c
+        assert ev.dimension("c") == {"length": 0, "freq": 0}
+        assert ev.length("c") == pytest.approx(float(c) * 1e-3, rel=1e-5)   # a plain number: model units
+        assert ev.display("w") == f"{float(a[:-2]) / 2:g}mm"
+        assert ev.display("A") == "12mm^2"
+        assert ev.display("f") == "2.4GHz"
+        assert ev.display("lam") == "124.914mm" and ev.length("lam") == pytest.approx(0.124914, rel=1e-5)
+        assert ev.display("fr").endswith("GHz")
+        assert ev.display("n") == "4" and ev.display("L") == "2000mm"
+    assert Evaluator({"z": "1mm-1mm"}).dimension("z") is None          # zero: dimension unknown

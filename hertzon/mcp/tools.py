@@ -372,10 +372,19 @@ def summary(ctx: Ctx) -> dict:
 # ------------------------------------------------------------------------------------------------
 # geometry (built in this process with gmsh)
 # ------------------------------------------------------------------------------------------------
-def tessellate(proj: Project, des: Design, names: list[str] | None = None) -> tuple[dict, dict]:
-    """Display tessellation of the live objects: ({name: Tess}, {name: error})."""
-    import gmsh
+def tessellate(proj: Project, des: Design, names: list[str] | None = None, timeout: float | None = None,
+               detail: str = "full") -> tuple[dict, dict]:
+    """Display tessellation of the live objects: ({name: Tess}, {name: error}).
+
+    Objects not in the cache are built in a child process (geomworker) with a time limit, progress reports
+    and cancellation, so a build that hangs in the kernel never blocks the server. detail='fast' leaves out
+    subtractions whose tools stay in the model (drill holes in a board that hold the via cylinders): the
+    picture is the same from outside, the build much faster. It is never the default."""
     from ..kernel import occ as K
+    from . import geomworker as W
+    from .protocol import cancelled, progress
+    if detail == "fast":
+        proj, des = _without_kept_subtractions(proj, des)
     ev = des.evaluator(proj)
     live_objs = des.live_objects()
     if names is not None:
@@ -391,21 +400,39 @@ def tessellate(proj: Project, des: Design, names: list[str] | None = None) -> tu
         else:
             todo.append(n)
     if todo:
-        K.ensure_gmsh("hertzon_mcp")
-        gmsh.model.remove()
-        gmsh.model.add("hertzon_mcp")
         # regions need the bounding box of all model objects
         build = None if regions and names is None else todo
-        ctx = K.build_design(des, ev, names=build)
-        tess = K.tessellate(ctx, "coarse") if ctx.built else {}
+        limit = W.default_timeout() if timeout is None else float(timeout)
+        try:
+            tess, errs = W.build(proj.to_dict(), proj.path, des.name, build, limit,
+                                 on_progress=progress, should_stop=cancelled)
+        except W.BuildTimeout as e:
+            raise ToolError(
+                f"Building the geometry took longer than {limit:g} s and was stopped"
+                + (f" (last step: {e})" if str(e) else "") + ". The server is still available. Give timeout_s "
+                "for a longer limit (or set HERTZON_MCP_BUILD_TIMEOUT), build fewer objects (objects=[...]), or "
+                "use detail='fast' for a picture without the drill holes of the board.") from None
+        except W.BuildCancelled:
+            raise ToolError("The geometry build was cancelled.") from None
+        except RuntimeError as e:
+            raise ToolError(f"The geometry could not be built: {e}") from None
         for n in todo:
-            if n in ctx.errors:
-                errors[n] = ctx.errors[n]
+            if n in errs:
+                errors[n] = errs[n]
             elif n in tess:
                 out[n] = tess[n]
                 if n not in regions:
                     S.tess[keys[n]] = tess[n]
     return out, errors
+
+
+def _without_kept_subtractions(proj: Project, des: Design) -> tuple[Project, Design]:
+    """A copy of the project in which subtractions that keep their tools are left out."""
+    c = proj.clone()
+    d = c.design(des.name)
+    for o in d.objects:
+        o.history = [h for h in o.history if not (h.kind == "Subtract" and h.props.get("KeepOriginals") == "True")]
+    return c, d
 
 
 def _face_list(t, scale: float, limit: int) -> list[dict]:
@@ -440,8 +467,8 @@ def _vertex_list(t, scale: float, limit: int) -> list[dict]:
 
 
 def geometry_report(proj: Project, des: Design, names: list[str] | None, max_faces: int = 60,
-                    edges: bool = False) -> dict:
-    tess, errors = tessellate(proj, des, names)
+                    edges: bool = False, timeout: float | None = None) -> dict:
+    tess, errors = tessellate(proj, des, names, timeout)
     sc = _unit(des)
     objs = {}
     for n, t in tess.items():
@@ -942,7 +969,7 @@ def t_get_geometry(args):
     if names:
         _check_objects(ctx.des, names)
     return geometry_report(ctx.proj, ctx.des, names, int(args.get("max_faces", 60)),
-                           bool(args.get("include_edges")))
+                           bool(args.get("include_edges")), args.get("timeout_s"))
 
 
 # ------------------------------------------------------------------------------------------------
@@ -1466,8 +1493,18 @@ def t_set_optimization(args):
 def t_validate(args):
     from ..model.validate import validate
     ctx = load(args)
-    tess, errors = tessellate(ctx.proj, ctx.des)
-    checks = validate(ctx.proj, ctx.des, tess, errors)
+    tess, errors = tessellate(ctx.proj, ctx.des, timeout=args.get("timeout_s"))
+    sheets = None
+    if not errors:
+        from . import geomworker as W
+        from .protocol import cancelled
+        limit = W.default_timeout() if args.get("timeout_s") is None else float(args["timeout_s"])
+        try:
+            sheets = W.build(ctx.proj.to_dict(), ctx.proj.path, ctx.des.name, None, limit, should_stop=cancelled,
+                             kind="sheets")
+        except (W.BuildTimeout, W.BuildCancelled, RuntimeError):
+            sheets = None
+    checks = validate(ctx.proj, ctx.des, tess, errors, sheets=sheets)
     out = [{"category": c.category, "level": c.level, "message": c.message} for c in checks]
     return {"ok": not any(c.level == "error" for c in checks), "checks": out}
 
@@ -2034,7 +2071,10 @@ def t_render_image(args):
         from .tools_more import render_schematic
         return render_schematic(ctx.proj, d, int(args.get("width", 1000)), int(args.get("height", 700)))
     import pyvista as pv
-    tess, errors = tessellate(ctx.proj, d)
+    detail = args.get("detail") or "full"
+    if detail not in ("full", "fast"):
+        raise ToolError("detail is 'full' or 'fast'")
+    tess, errors = tessellate(ctx.proj, d, timeout=args.get("timeout_s"), detail=detail)
     sc = _unit(d)
     w, h = int(args.get("width", 1000)), int(args.get("height", 700))
     pl = pv.Plotter(off_screen=True, window_size=(w, h))
@@ -2095,6 +2135,8 @@ def t_render_image(args):
     buf = BytesIO()
     PILImage.fromarray(img).save(buf, format="PNG")
     note = f"{d.name}, view {view}, units {d.units}"
+    if detail == "fast":
+        note += "; detail fast: subtractions that keep their tools (drill holes) are left out"
     if errors:
         note += f"; geometry errors: {errors}"
     return [Image(buf.getvalue(), note)]
@@ -2138,6 +2180,9 @@ def _schema(props: dict, required: list[str] | None = None, project: bool = True
     p = ({"project": P, "design": D} if project else {}) | props
     return {"type": "object", "properties": p, "required": required or []}
 
+
+TIMEOUT = {"type": "number", "description": "time limit of the geometry build in seconds (default 300 or "
+                                 "HERTZON_MCP_BUILD_TIMEOUT); the build is stopped after it, the server stays usable"}
 
 TOOLS = [
     Tool("get_context", "Which Hertzon windows have the live link on and which project this session uses.",
@@ -2214,7 +2259,8 @@ TOOLS = [
          _schema({"objects": {"type": "array", "items": {"type": "string"}},
                   "max_faces": {"type": "integer"},
                   "include_edges": {"type": "boolean", "description": "also list edges (start, end, mid, length) "
-                                    "and vertices with the indices of Fillet/Chamfer Edges and Vertices"}}),
+                                    "and vertices with the indices of Fillet/Chamfer Edges and Vertices"},
+                  "timeout_s": TIMEOUT}),
          t_get_geometry, True),
     Tool("assign", "Assign a boundary (Perfect E, Finite Conductivity, Radiation, PML, Symmetry ...), an "
          "excitation (Wave Port, Lumped Port, Incident Plane Wave ...) or a mesh operation to objects or faces.",
@@ -2291,7 +2337,7 @@ TOOLS = [
                   "variables": {"type": "array", "items": {"type": "object"}},
                   "goals": {"type": "array", "items": {"type": "object"}}, "props": OBJ}), t_set_optimization),
     Tool("validate", "Run the validation check (geometry, materials, boundaries, ports, setup).",
-         _schema({}), t_validate, True),
+         _schema({"timeout_s": TIMEOUT}), t_validate, True),
     Tool("run_simulation", "Analyze a setup (adaptive passes, sweeps, far fields). Runs in the Hertzon window "
          "when linked, otherwise as a background process. Returns at once; follow with get_status.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string", "description": "only this sweep, "
@@ -2328,7 +2374,11 @@ TOOLS = [
                   "label_what": {"type": "string", "enum": ["faces", "edges", "vertices"]},
                   "show_assignments": {"type": "boolean"},
                   "azimuth": {"type": "number"}, "elevation": {"type": "number"},
-                  "width": {"type": "integer"}, "height": {"type": "integer"}}), t_render_image, True),
+                  "width": {"type": "integer"}, "height": {"type": "integer"},
+                  "detail": {"type": "string", "enum": ["full", "fast"], "description": "full (default): the model "
+                             "as built; fast: subtractions that keep their tools (drill holes of a board, filled by "
+                             "the via cylinders) are left out, much faster for large boards"},
+                  "timeout_s": TIMEOUT}), t_render_image, True),
     Tool("run_python", "Edit the design with Python for repetitive work (arrays, parametric layouts). Names: "
          "project, design, add_object(kind, name=None, material='vacuum', **props), operation(obj, kind, "
          "**props), Command, Assignment, FaceRef, Setup, Sweep, schema, np, math. Changes are committed "

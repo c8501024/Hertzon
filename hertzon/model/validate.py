@@ -74,6 +74,27 @@ def classify_overlaps(project: Project, design: Design, overlaps) -> list[Overla
     return out
 
 
+def sheet_messages(design: Design, placement) -> list[str]:
+    """Messages for sheets that run through the inside of conductors (kernel.occ.sheet_placement), one per
+    sheet, naming the conductors. A sheet through a dielectric (an inner copper layer), on a face of a solid or
+    ending inside a dielectric (a trace on an inner layer, a port) is normal and not reported."""
+    through: dict[str, list[str]] = {}
+    for s, v, how in placement or []:
+        if how == "along-conductor":
+            through.setdefault(s, []).append(v)
+
+    def names(v):
+        v = sorted(set(v))
+        return ", ".join(f"'{x}'" for x in v[:6]) + (f" and {len(v) - 6} more" if len(v) > 6 else "")
+    out = []
+    for s, v in through.items():
+        out.append(f"Sheet '{s}' runs along the inside of the conductor {names(v)} and splits it: the part inside the "
+                   "conductor has no meaning and can break the mesh (singular matrix, inconsistent mesh). Cut "
+                   "the conductor out of the sheet (Subtract with Keep originals) or move the sheet onto the "
+                   "conductor's faces")
+    return out
+
+
 def _check_touchstone(project: Project, a, add) -> None:
     from pathlib import Path
     from .touchstone import ComponentImpedance
@@ -90,7 +111,7 @@ def _check_touchstone(project: Project, a, add) -> None:
 
 
 def validate(project: Project, design: Design, tess: dict | None = None, errors: dict | None = None,
-             overlaps: list[Overlap] | None = None) -> list[Check]:
+             overlaps: list[Overlap] | None = None, sheets: list | None = None) -> list[Check]:
     out: list[Check] = []
     ev = design.evaluator(project)
     add = lambda c, l, m: out.append(Check(c, l, m))  # noqa: E731
@@ -138,6 +159,8 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                     add("3D Model", "warning", f"Objects '{a}' and '{b}' may intersect; partial overlaps of "
                                                "different materials are only allowed for a metal in a dielectric "
                                                "(material override)")
+    for m in sheet_messages(design, sheets):
+        add("3D Model", "warning", m)
     if not any(c.level == "error" for c in out if c.category == "3D Model"):
         add("3D Model", "ok", f"{len(live)} objects")
 
