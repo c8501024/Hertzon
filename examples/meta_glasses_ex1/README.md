@@ -49,9 +49,9 @@ time on one 64-core workstation, ~95k model output tokens.
 
 ## Limitations
 
-- Beyond the benchmark (which is defined in free space and fully met): for practical use the antenna has to
-  be judged on a person with a head or body phantom. The agent did not add one on its own, and that on-body
-  check has not been done yet. The prompt was only "find the benchmark and get started", with no hint about
+- Limitation of the benchmark itself: it is defined in free space, and the design meets it as defined. Without
+  a head model the result is less realistic for an antenna worn next to the head. The agent did not add one on
+  its own, and an on-body check has not been done yet. The prompt was only "find the benchmark and get started", with no hint about
   body proximity.
 - Future work: phantom models at several levels of accuracy in Hertzon, usable through MCP, and choosing
   antenna types that suit on-body use.
