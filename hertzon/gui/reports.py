@@ -829,6 +829,8 @@ class ReportWindow(QWidget):
         elif report.kind == "3D Polar Plot":
             from pyvistaqt import QtInteractor
             self.p3 = QtInteractor(right)
+            from .viewer import render_on_change
+            render_on_change(self.p3)
             self.p3.set_background("white")
             rl.addWidget(self.p3.interactor)
             self.fig = None
