@@ -5,6 +5,8 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.3.2 (2026-11-07)
+
 ### Fixed
 - **CPU load while idle**: the 3D view (and 3D polar reports) redrew an unchanged scene five times a second,
   which kept the CPU at a few percent with an empty project. It now redraws only when something changed.
