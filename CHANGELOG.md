@@ -11,6 +11,10 @@ the GitHub release notes.
   functions may use design variables and units (plain numbers are model units), so the curve follows
   parametric sweeps and optimizations. A smooth spline or straight lines through the points; a closed curve
   can be covered into a sheet (e.g. spiral or exponentially tapered outlines).
+- **Equation Based Curve dialog**: its own window with presets (circle, arc, ellipse, helix, Archimedean
+  spiral, exponential taper, sine meander), Cartesian, Cylindrical (r, phi, z) and Y = f(X) coordinates, and a
+  live preview with start, end, length and number of points while typing. An error names the value of t where
+  it happens and marks the field. The parameter can be written t or _t.
 
 ### Added
 - **Hairpin filter with the Derivative Trust Region**: Tools > Filter Design (tapped hairpin) and the hairpin

@@ -95,11 +95,15 @@ GEOMETRY: dict[str, list[Prop]] = {
                      P("Turns", "expr", "3"), P("RightHanded", "bool", "True", label="Right handed"),
                      P("Width", "length", "0", label="Trace width (0 = line)")],
     "CreateEquationCurve": [
-        P("XtFunction", "text", "10*cos(_t)", label="X(_t)",
-          help="X coordinate as an expression of the parameter _t; design variables and units are allowed "
-               "(a plain number is in model units)"),
-        P("YtFunction", "text", "10*sin(_t)", label="Y(_t)", help="Y coordinate as an expression of _t"),
-        P("ZtFunction", "text", "_t", label="Z(_t)", help="Z coordinate as an expression of _t"),
+        P("CoordinateSystem", "choice", "Cartesian", choices=("Cartesian", "Cylindrical", "Y = f(X)"),
+          label="Coordinates", help="Cartesian: X(_t), Y(_t), Z(_t). Cylindrical: r(_t), phi(_t), z(_t) "
+                                     "(phi in radians or with deg). Y = f(X): the parameter is X, give Y and Z"),
+        P("XtFunction", "text", "10*cos(_t)", label="X(_t) | r(_t)",
+          help="First coordinate as an expression of the parameter _t (or t); design variables and units are "
+               "allowed (a plain number is in model units). Not used for Y = f(X)"),
+        P("YtFunction", "text", "10*sin(_t)", label="Y(_t) | phi(_t) | Y(_t=X)",
+          help="Second coordinate as an expression of _t"),
+        P("ZtFunction", "text", "_t", label="Z(_t) | z(_t)", help="Third coordinate as an expression of _t"),
         P("tStart", "expr", "0", label="_t start"), P("tEnd", "expr", "4*pi", label="_t end"),
         P("NumOfPointsOnCurve", "int", "60", label="Number of points",
           help="Points at equal steps of _t from start to end; the curve passes through all of them"),

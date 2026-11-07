@@ -386,27 +386,50 @@ class BuildContext:
     stack: list[str] = field(default_factory=list)
 
 
+EQUATION_MODES = ("Cartesian", "Cylindrical", "Y = f(X)")
+
+
 def equation_curve_points(p: dict, ev: Evaluator) -> np.ndarray:
-    """Points of an equation based curve: X(_t), Y(_t), Z(_t) at NumOfPointsOnCurve equal steps of _t from
-    tStart to tEnd (metres). The functions may use design variables and units; plain numbers are model units."""
+    """Points of an equation based curve at NumOfPointsOnCurve equal steps of the parameter from tStart to
+    tEnd (metres). The parameter is called _t (or t, unless a design variable has that name).
+    Cartesian: X(_t), Y(_t), Z(_t). Cylindrical: r(_t), phi(_t), z(_t) in the three function fields (phi in
+    radians, or with deg). Y = f(X): the parameter is X itself (model units), Y and Z are functions of it.
+    The functions may use design variables and units; plain numbers are model units."""
     t0, t1 = ev.value(p.get("tStart", "0")), ev.value(p.get("tEnd", "1"))
     n = ev.integer(p.get("NumOfPointsOnCurve", "60") or "60")
     if n < 2:
         raise GeometryError("The equation curve needs at least two points")
     if not t1 != t0:
-        raise GeometryError("_t start and _t end must differ")
+        raise GeometryError("The start and end of the parameter must differ")
+    mode = p.get("CoordinateSystem", "Cartesian") or "Cartesian"
+    if mode not in EQUATION_MODES:
+        raise GeometryError(f"Unknown coordinate system '{mode}' of the equation curve")
     funcs = [str(p.get(f"{c}tFunction", "0") or "0") for c in "XYZ"]
     out = []
     for t in np.linspace(t0, t1, n):
-        e = Evaluator({**ev.variables, "_t": repr(float(t))}, ev.model_unit)
+        v = {**ev.variables, "_t": repr(float(t))}
+        v.setdefault("t", repr(float(t)))
+        e = Evaluator(v, ev.model_unit)
         try:
-            out.append([e.length(f) for f in funcs])
+            if mode == "Cylindrical":
+                r, z = e.length(funcs[0]), e.length(funcs[2])
+                phi = e.angle(funcs[1]) if _has_unit(funcs[1]) else e.value(funcs[1])   # plain: radians
+                out.append([r * math.cos(phi), r * math.sin(phi), z])
+            elif mode == "Y = f(X)":
+                out.append([float(t) * e.unit_scale, e.length(funcs[1]), e.length(funcs[2])])
+            else:
+                out.append([e.length(f) for f in funcs])
         except ExprError as err:
             raise GeometryError(f"Equation curve at _t = {t:.6g}: {err}") from err
     P3 = np.asarray(out, float)
     if not np.all(np.isfinite(P3)):
         raise GeometryError("The equation curve has points that are not finite numbers")
     return P3
+
+
+def _has_unit(text: str) -> bool:
+    from ..model.expr import _strip_units
+    return _strip_units(text)[1]
 
 
 def _create(cmd: Command, ctx: BuildContext) -> list[tuple[int, int]]:
