@@ -54,9 +54,10 @@ the GitHub release notes.
   variables that would fit, instead of the solver process being killed half way.
 
 ### Fixed
-- **Sheets through conductors are named**: a sheet that runs through the inside of a conductor solid (for
-  example a via fence of Perfect E sheets with pec cylinders on it) is now a warning of the Validation Check and
-  of MCP `validate`, and the solver log lists it before meshing. When meshing or solving fails (singular
+- **Sheets that split conductors are named**: a sheet that runs along the inside of a conductor solid (for
+  example a via fence of Perfect E sheets that splits the pec cylinders on it) is now a warning of the
+  Validation Check and of MCP `validate`, and the solver log lists it before meshing. Sheets across a conductor
+  (an inner copper plane through a via) are normal and not reported. When meshing or solving fails (singular
   matrix, inconsistent mesh, an index error), the error message names these sheets as the probable cause.
 - **CPU load while idle (again)**: 0.3.2 still redrew the empty 3D view five times a second. The scale bar and
   the axes triad adjust themselves at the start of every redraw, and that counted as a change of the scene for

@@ -1525,9 +1525,10 @@ def solid_overlaps(design: Design, ev: Evaluator, names: list[str]) -> list[tupl
 
 def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple[str, str, str]]:
     """Where the model sheets lie in the model solids: (sheet, solid, how) with how
-    'through-conductor' (a part of the sheet runs through the inside of a conductor solid, conductor(name) ->
-    bool), 'through' (through the inside of another solid: an inner layer, normal) or 'ends-inside' (an edge
-    of the sheet ends inside the solid, it is not on one of its faces). Built in a scratch model."""
+    'along-conductor' (the sheet runs along the inside of a conductor solid and splits it, conductor(name) ->
+    bool), 'across-conductor' (it crosses a conductor: an inner copper plane through a via, normal), 'through'
+    (through the inside of another solid: an inner layer, normal) or 'ends-inside' (an edge of the sheet ends
+    inside the solid, it is not on one of its faces). Built in a scratch model."""
     if not gmsh.isInitialized():
         ensure_gmsh()
     cur = gmsh.model.getCurrent()
@@ -1569,6 +1570,7 @@ def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple
                     r = []
                 r = [x for x in r if x not in sdt and x not in vdt]
                 occ.synchronize()
+                cut = 0.0
                 for d, t in r:
                     if d != 2:
                         continue
@@ -1576,8 +1578,13 @@ def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple
                     uv = gmsh.model.getParametrization(2, t, list(c))
                     n = np.asarray(gmsh.model.getNormal(t, list(uv)), float)
                     if np.linalg.norm(n) and inside(vdt, c + eps * n) and inside(vdt, c - eps * n):
-                        how = "through-conductor" if conductor is not None and conductor(v) else "through"
-                        break
+                        how = "through"
+                        cut += occ.getMass(2, t)
+                if how and conductor is not None and conductor(v):
+                    # a sheet across a conductor (an inner copper plane through a via) is normal; one along
+                    # it (a fence sheet that splits the vias on it) cuts more than its smallest cross-section
+                    ext = sorted(b[k + 3] - b[k] for k in range(3))
+                    how = "along-conductor" if cut > 1.5 * ext[0] * ext[1] else "across-conductor"
                 if r:
                     occ.remove(r, recursive=True)
                     occ.synchronize()

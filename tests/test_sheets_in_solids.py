@@ -83,13 +83,13 @@ def test_sheets_through_conductors_are_named():
     from hertzon.model.validate import validate
     p, d, _ = _board("fence")
     pl = _placement(p, d)
-    through = {(s, v) for s, v, how in pl if how == "through-conductor"}
+    through = {(s, v) for s, v, how in pl if how == "along-conductor"}
     assert ("FenceL", "Via1") in through and ("FenceB", "Via15") in through
     assert not any(s == "Trace" or v.startswith("Via") and s == "Gnd" for s, v, how in pl if how != "through")
     # an inner sheet in a dielectric is normal, the port sheet between two conductors too
     msgs = [c.message for c in validate(p, d, sheets=pl) if c.level == "warning"]
     for s in ("FenceL", "FenceR", "FenceB"):
-        assert any(m.startswith(f"Sheet '{s}' runs through the inside of the conductor") for m in msgs), msgs
+        assert any(m.startswith(f"Sheet '{s}' runs along the inside of the conductor") for m in msgs), msgs
     assert not any("PortSheet" in m for m in msgs)
     p, d, _ = _board("clip")
     assert not [m for m in (c.message for c in validate(p, d, sheets=_placement(p, d))) if "Sheet '" in m]
@@ -152,4 +152,26 @@ def test_mcp_validate_names_a_sheet_through_a_conductor(tmp_path, monkeypatch):
         return json.loads(r["result"]["content"][0]["text"])
     call("open_project", path=str(tmp_path / "fence.hzn"))
     checks = call("validate")["checks"]
-    assert any(c["level"] == "warning" and "Sheet 'FenceL' runs through" in c["message"] for c in checks), checks
+    assert any(c["level"] == "warning" and "Sheet 'FenceL' runs along" in c["message"] for c in checks), checks
+
+
+def test_normal_models_are_not_reported(tmp_path):
+    """Inner copper planes of an imported board crossed by its vias, and the walls of a via fence on the faces
+    of the substrate (no cylinders): nothing to report."""
+    from hertzon.model.validate import sheet_messages
+    from hertzon.pcbimport import board as B
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_mcp_build_worker import _board as _gerbers
+    files, job, jn = B.load([_gerbers(tmp_path / "rf")])
+    p = Project()
+    d = p.designs[0]
+    d.units = "mm"
+    B.build(p, d, B.plan(files, job, jn))
+    pl = _placement(p, d)
+    assert any(how == "across-conductor" for _, _, how in pl)
+    assert sheet_messages(d, pl) == []
+    p, d, _ = _board("clip")
+    d.add_object("CreateRectangle", "WallL", Position="0,0,0", Axis="X", YSize="28", ZSize="1.6")
+    d.add_object("CreateRectangle", "WallB", Position="0,0,0", Axis="Y", XSize="40", ZSize="1.6")
+    d.add_object("CreateBox", "Clip", Position="10,5,-3.7", XSize="20", YSize="7", ZSize="0.2").material = "pec"
+    assert sheet_messages(d, _placement(p, d)) == []
