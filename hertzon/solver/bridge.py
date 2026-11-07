@@ -202,7 +202,10 @@ class Bridge:
             try:
                 self._run_in(m)
             except Exception as e:  # noqa: BLE001
-                hints = getattr(self, "sheet_hints", [])
+                # the sheet check builds the whole model once more: only after a failure, not before every run
+                if not hasattr(self, "sheet_hints"):
+                    self.check_sheets()
+                hints = self.sheet_hints
                 if hints:
                     raise RuntimeError(f"{type(e).__name__}: {e}\nPossible cause in the model:\n- "
                                        + "\n- ".join(hints)) from e
@@ -252,7 +255,6 @@ class Bridge:
         os.environ["RAYON_NUM_THREADS"] = str(threads)
         info(f"Using {threads} core(s)")
         self.probe()
-        self.check_sheets()
         self.build_model()
         self.step("Geometry", t)
         t = time.time()
@@ -445,8 +447,10 @@ class Bridge:
         K._occ().synchronize()
 
     def check_sheets(self) -> None:
-        """Sheets through conductors or ending inside solids: logged as warnings, and named in the error
-        message when meshing or solving fails (they are the usual cause of an inconsistent mesh)."""
+        """Sheets through conductors or ending inside solids, named in the error message when meshing or solving
+        fails (they are the usual cause of an inconsistent mesh). Run only then: it builds the whole model again
+        in a scratch model and intersects every sheet with every solid, which made every start slower. The
+        Validation Check shows the same warnings before a run."""
         from ..model.validate import sheet_messages
         try:
             cond = lambda n: is_conductor(self.project.material(self.design.obj(n).material))  # noqa: E731

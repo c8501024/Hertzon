@@ -99,7 +99,7 @@ def test_sheets_through_conductors_are_named():
 def test_via_fence_of_sheets_and_cylinders_in_the_substrate_solves(tmp_path, solver):
     p, d, st = _board("fence", solver)
     b, store = _solve(tmp_path, p, d, st)
-    assert any("FenceL" in h for h in b.sheet_hints)
+    assert not hasattr(b, "sheet_hints")         # the sheet check runs only after a failure
     S = store.sparams("LastAdaptive")["S"]
     assert S.shape[1:] == (1, 1) and abs(S[0, 0, 0]) <= 1.0 + 1e-6
 
@@ -121,7 +121,7 @@ def test_a_failed_solve_names_the_sheets(tmp_path, monkeypatch):
         raise ValueError("index 106 is out of bounds for axis 0 with size 106")
     monkeypatch.setattr(B.Bridge, "solve", broken)
     monkeypatch.setattr(em, "Simulation", lambda *a, **k: _Ctx())
-    monkeypatch.setattr(B.Bridge, "prepare", lambda self, m: self.check_sheets())
+    monkeypatch.setattr(B.Bridge, "prepare", lambda self, m: None)
     with pytest.raises(RuntimeError) as e:
         b.run()
     text = str(e.value)

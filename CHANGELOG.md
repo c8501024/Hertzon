@@ -3,6 +3,18 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Simulations start as fast as before 0.3.4**: the check for sheets that run through conductors no longer
+  runs before every simulation. It built the whole model a second time and cut every sheet with every solid
+  (on a board with 85 vias 26 s against 2 s for the model itself), before each run and each optimization
+  step. It now runs only when meshing or solving fails, to name the sheets in the error message; the
+  Validation Check shows the same warnings as before.
+- **MCP**: the geometry process for render_image, validate, get_geometry and run_simulation starts with the
+  server and loads gmsh and Hertzon right away, so the first call no longer waits for it
+  (HERTZON_NO_PRELOAD=1 turns it off).
+
 ## 0.3.4 (2026-11-07)
 
 ### Added

@@ -37,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
             pass
     from .protocol import Server
     from .tools import TOOLS, INSTRUCTIONS
+    from .geomworker import warm
+    warm()
     Server("hertzon", _version(), INSTRUCTIONS, TOOLS).serve()
     return 0
 

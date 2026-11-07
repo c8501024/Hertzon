@@ -82,6 +82,24 @@ def stop_worker() -> None:
         _WORKER = None
 
 
+def warm() -> None:
+    """Start the child in the background when the server starts, so that the first render_image, validate or
+    run_simulation does not wait for a new Python to load gmsh and Hertzon (tens of seconds on Windows with
+    cold DLLs). HERTZON_NO_PRELOAD=1 turns it off."""
+    if os.environ.get("HERTZON_NO_PRELOAD") == "1":
+        return
+
+    def start():
+        global _WORKER
+        with _LOCK:
+            if _WORKER is None or not _WORKER.alive():
+                try:
+                    _WORKER = _Worker()
+                except Exception:  # noqa: BLE001
+                    _WORKER = None
+    threading.Thread(target=start, daemon=True).start()
+
+
 def build(project_dict: dict, path: str | None, design: str, names: list[str] | None, timeout: float,
           on_progress=None, should_stop=None, kind: str = "tess"):
     """Build and tessellate the named live objects (all: None) of a design in the child process. Raises
@@ -149,6 +167,14 @@ def main() -> int:
 
     def send(tag: str, body: str) -> None:
         out.write(f"{tag} {body}\n".encode("utf-8"))
+
+    # load the heavy modules now, while the server waits for its first call, not when the first job comes
+    try:
+        from ..kernel import occ as K
+        from ..model import design as _design  # noqa: F401
+        K.ensure_gmsh("hertzon_mcp")
+    except Exception as e:  # noqa: BLE001
+        print(f"[hertzon geometry] preload failed: {e}", file=sys.stderr, flush=True)
 
     for line in sys.stdin.buffer:
         tag, _, body = line.decode("ascii", "replace").strip().partition(" ")
