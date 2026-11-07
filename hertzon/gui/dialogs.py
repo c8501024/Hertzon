@@ -1054,6 +1054,17 @@ class OptionsDialog(QDialog):
                                      "without network nothing happens. Help > Check for Updates checks on request.")
         self.update_check.setChecked(s.value(UPDATE_SETTING, True, type=bool))
         f.addRow("", self.update_check)
+        from .file_folders import DEFAULT_DIR
+        self.project_dir = QLineEdit(s.value(DEFAULT_DIR, "") or "")
+        self.project_dir.setPlaceholderText("empty: the folder of the last project")
+        self.project_dir.setToolTip("File > Open starts in this folder after Hertzon is started. Later it starts\n"
+                                    "in the folder of the project opened or saved last.")
+        browse = QPushButton("Browse ...")
+        browse.clicked.connect(self._browse_project_dir)
+        row = QHBoxLayout()
+        row.addWidget(self.project_dir, 1)
+        row.addWidget(browse)
+        f.addRow("Default project folder", row)
         tabs.addTab(gen, "General")
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -1507,6 +1518,18 @@ class OptionsDialog(QDialog):
         self._remote_info = None
         self._hpc_remote_state()
 
+    def _store_project_dir(self, s) -> None:
+        from .file_folders import DEFAULT_DIR
+        s.setValue(DEFAULT_DIR, self.project_dir.text().strip())
+
+    def _browse_project_dir(self) -> None:
+        from pathlib import Path
+        from PySide6.QtWidgets import QFileDialog
+        start = self.project_dir.text().strip() or str(Path.home())
+        d = QFileDialog.getExistingDirectory(self, "Default project folder", start)
+        if d:
+            self.project_dir.setText(d)
+
     def _ssh_browse_key(self) -> None:
         from pathlib import Path
         from PySide6.QtWidgets import QFileDialog
@@ -1656,6 +1679,7 @@ class OptionsDialog(QDialog):
         w.a_emlog.setChecked(self.emlog.isChecked())
         from .update_check import SETTING as UPDATE_SETTING
         s.setValue(UPDATE_SETTING, self.update_check.isChecked())
+        self._store_project_dir(s)
         w.apply_hpc_settings()
 
 

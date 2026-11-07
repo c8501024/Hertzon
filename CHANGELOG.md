@@ -29,6 +29,13 @@ the GitHub release notes.
   microstrip formulas), the tap from the external Q of a tapped half-wave resonator. For the 2.3 to 2.6 GHz
   example this gives g = 0.38 mm and yP = −5.56 mm; the optimization from the middle of the ranges had ended
   at g = 0.37 mm and yP = −5.37 mm. An option keeps the middle of the ranges (the filterbench start).
+- **File dialogs remember their folders**: File > Open no longer starts in the install folder. After the start
+  it opens the *Default project folder* (new in Tools > Options > General), later the folder of the project
+  opened or saved last. Save As starts in the folder of the current project, an untitled project in the
+  folder saved to last. The Touchstone export starts in the folder of the open project file, without one in
+  the folder of the last Touchstone export.
+- **File > Close** (Ctrl+W): closes the project after asking to save changes; an empty untitled project
+  remains.
 
 ### Changed
 - **Derivative tuning needs much less memory**: every morphed mesh state keeps only what its boundary terms
