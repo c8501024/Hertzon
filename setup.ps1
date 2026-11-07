@@ -120,45 +120,32 @@ function Wait-HertzonGone([int]$seconds) {
     }
 }
 
-# the package installation failed while Hertzon processes run from this folder: they are the likely cause
-# (files of .venv in use). Background processes are stopped, an open Hertzon window has to be closed.
-function Clear-HertzonProcesses {
+# Hertzon processes from this folder keep files of .venv in use (pip cannot replace them). Before the
+# installation the setup says which ones run and that they will be closed; after Enter they are stopped.
+# The release check (CI) runs unattended and does not ask.
+function Stop-HertzonProcesses {
     $procs = @(Get-HertzonProcesses)
-    if (-not $procs) { return $false }
+    if (-not $procs) { return }
     Write-Host ''
-    Write-Host 'These Hertzon processes from this folder keep files of the Python environment in use:' -ForegroundColor Yellow
+    Write-Host 'ATTENTION: all Hertzon processes from this folder will be closed for the update:' -ForegroundColor Yellow
     Show-HertzonProcesses $procs
-    $bg = @($procs | Where-Object { -not (Test-HertzonWindow $_) })
-    if ($bg) {
-        Write-Host 'Stopping the background processes (MCP server, remote service, solver) ...'
-        $bg | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+    if (@($procs | Where-Object { Test-HertzonWindow $_ })) {
+        Write-Host 'A Hertzon window is open: save your work there first, unsaved changes are lost.' -ForegroundColor Yellow
     }
-    while ($true) {
-        $win = @(Get-HertzonProcesses | Where-Object { Test-HertzonWindow $_ })
-        if (-not $win) { break }
-        if ($env:CI) { $win | Stop-Process -Force -ErrorAction SilentlyContinue; break }
-        $a = Read-Host 'A Hertzon window is still open. Close it, then press Enter (S = stop it without saving)'
-        if ($a -match '^[sS]') { $win | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
-        else { Wait-HertzonGone 10 }
-    }
-    # an AI app may already have started its MCP server again: stopped once more right before the retry
+    if (-not $env:CI) { $null = Read-Host 'Press Enter to close them' }
+    Write-Host 'Closing the Hertzon processes ...'
     @(Get-HertzonProcesses) | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 1
-    return $true
+    # until Windows has released their files
+    $end = (Get-Date).AddSeconds(10)
+    while (@(Get-HertzonProcesses) -and (Get-Date) -lt $end) { Start-Sleep -Seconds 1 }
 }
 
 try {
     $venvPy = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
     Write-Host 'Checking for running Hertzon processes ...'
-    Wait-HertzonGone 30
-    $procs = @(Get-HertzonProcesses)
-    if ($procs) {
-        # usually harmless: most updates do not replace a file these processes use; only if the installation
-        # fails are they stopped and the installation repeated (see Clear-HertzonProcesses)
-        Write-Host 'Hertzon processes are running from this folder (MCP server of an AI app, remote service, ...):' -ForegroundColor Yellow
-        Show-HertzonProcesses $procs
-    }
+    # a Hertzon that is closing (an update started from Hertzon) needs a moment
+    Wait-HertzonGone 10
+    Stop-HertzonProcesses
     if (-not (Test-Path -LiteralPath $venvPy)) {
         $py = Find-Python
         if (-not $py) {
@@ -174,8 +161,11 @@ try {
     Write-Host 'Installing Hertzon and its packages (EMerge, Qt, VTK) ...'
     & $venvPy -m pip install --upgrade pip
     & $venvPy -m pip install -e ".[test]"
-    if ($LASTEXITCODE -ne 0 -and (Clear-HertzonProcesses)) {
-        Write-Host 'Installing the packages again ...'
+    if ($LASTEXITCODE -ne 0 -and @(Get-HertzonProcesses)) {
+        # an AI app may have started its MCP server again during the installation
+        Write-Host 'Hertzon processes were started again during the installation; closing them and installing again ...'
+        @(Get-HertzonProcesses) | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
         & $venvPy -m pip install -e ".[test]"
     }
     if ($LASTEXITCODE -ne 0) { throw 'Package installation failed (see messages above).' }
