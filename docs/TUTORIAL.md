@@ -552,7 +552,7 @@ The assistant works step by step with the same building blocks you used above, a
 | Geometry | `add_object`, `import_geometry`, `modify_object`, `add_operation` (subtract, unite, ...), `delete`, `get_geometry` (faces with index, centre, normal; edges and vertices for Fillet/Chamfer), `set_coordinate_system` |
 | Boundaries and ports | `assign`, `modify_assignment` (boundaries, wave/lumped ports, plane waves, mesh operations) |
 | Analysis | `set_setup`, `set_sweep`, `set_far_field_sphere`, `validate`, `run_simulation`, `get_status`, `abort_simulation` |
-| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `render_image` (a picture of the model), `set_report`, `set_field_plot`, `set_equation` (Fields Calculator) |
+| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `render_image` (a picture of the model), `set_report` (`open=true` shows it in the window), `set_field_plot`, `set_equation` (Fields Calculator) |
 | Parametric and optimization | `set_parametric`, `set_optimization` (Conjugate Gradient, Latin Hypercube + Nelder-Mead or Derivative Trust Region), run and read with `run_simulation`, `get_status`, `get_results`; `apply_optimization` takes the best result over into the design |
 | Derivative tuning | `compute_tuning` (tuning model of up to 6 variables on the solved mesh), `get_tuning` (S-parameters at other variable values without solving) |
 | Design assistants | `create_patch_antenna` (Tools > Antenna Design), `create_hairpin_filter` (Tools > Filter Design): complete designs with setup, sweep and optimization |
