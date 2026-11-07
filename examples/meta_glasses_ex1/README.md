@@ -47,6 +47,14 @@ time on one 64-core workstation, ~95k model output tokens.
 | `results/` | Hertzon S11, HFSS S11 and efficiency, plots |
 | `tools/match.py`, `tools/s1p.py` | Lossy matching-network search used while screening designs |
 
+## Limitations
+
+- Free space only, as the benchmark goal states. The agent did not on its own add a human head or body
+  phantom, which is needed to judge the antenna as it would work on a person. That step still has to be done
+  and has not been done yet.
+- Only the top layer was used; the bottom layer, vias and loaded ground connections were not explored.
+- Meta publishes no reference efficiency for its own design, so the result cannot yet be ranked.
+
 ## Reproduce
 
 - Hertzon: open the `.hzn` and run Setup1 (about 4 min on 64 cores). Total efficiency = radiated power /

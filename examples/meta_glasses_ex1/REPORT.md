@@ -152,6 +152,7 @@ The result is confirmed by two independent solvers (Section 5a). The remaining c
 - **Lumped parts.** The final design uses none, so vendor S-parameters do not affect it. The matching-network results in Section 4 used generic Q values, not catalog data.
 - **Design space.** Only the top layer and rectangular strips were used. The bottom layer, vias and inductively loaded ground connections allowed by the benchmark were not explored and may lift the 5.17 GHz band edge.
 - **Comparability.** Meta does not publish a reference efficiency for its human design, so the result cannot yet be ranked.
+- **No human body model.** The design was optimized and verified in free space only, as the benchmark goal states. The agent did not on its own add a human head or body phantom, which is needed to judge the antenna as it would work on a person (detuning and absorption near the head). Meta's own CST project shows they use a silicone head model for this. That check still has to be done and has not been done yet.
 
 ## 8 Conclusion
 
