@@ -6,6 +6,13 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Equation Based Curve** (Draw > Equation Based Curve..., and in the 1D group of the Draw ribbon): a curve
+  from X(_t), Y(_t), Z(_t) with _t running from a start to an end value in a given number of points. The
+  functions may use design variables and units (plain numbers are model units), so the curve follows
+  parametric sweeps and optimizations. A smooth spline or straight lines through the points; a closed curve
+  can be covered into a sheet (e.g. spiral or exponentially tapered outlines).
+
+### Added
 - **Hairpin filter with the Derivative Trust Region**: Tools > Filter Design (tapped hairpin) and the hairpin
   example add a second optimization, *HairpinDTR*, with the same goals as the conjugate gradient one. It
   varies L, g and yP (centre frequency, coupling, match); w, b and M can be included. All six variables

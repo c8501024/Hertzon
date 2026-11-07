@@ -1083,6 +1083,21 @@ def _spiral(p):
     p.drawPolyline(_poly(*pts))
 
 
+def _eqcurve(p):
+    import math
+    p.setPen(_pen(GREY, 1.5))
+    p.drawLine(QPointF(4, 32), QPointF(60, 32))
+    p.setPen(_pen(DBLUE, 3))
+    pts = [(4 + 56 * i / 60, 32 - 22 * math.sin(i / 60 * 2 * math.pi) * (0.4 + 0.6 * i / 60)) for i in range(61)]
+    p.drawPolyline(_poly(*pts))
+    f = p.font()
+    f.setPixelSize(16)
+    f.setItalic(True)
+    p.setFont(f)
+    p.setPen(_pen(DBLUE, 1))
+    p.drawText(QRectF(34, 2, 28, 20), Qt.AlignRight | Qt.AlignTop, "f(t)")
+
+
 def _bondwire(p):
     p.setPen(_pen(GREY, 2))
     p.setBrush(LGREY)
@@ -1210,7 +1225,7 @@ _DRAW = {
     "cs_rel": _cs_rel, "cs_face": _cs_face, "cs_global": _cs_global, "cs_obj": lambda p: _cs_obj(p),
     "show_sel": _hf_show, "hide_sel": _hf_hide,
     "show_all": lambda p: _hf_show(p, 2), "hide_all": lambda p: _eye_mark(p, False, True),
-    "show_only": lambda p: _hf_show(p, 1, QColor("#b48ad0")), "overlay_vis": _hf_overlay, "polyline_dlg": _polyline_dlg, "helix": _helix, "spiral": _spiral, "bondwire": _bondwire, "section": _section,
+    "show_only": lambda p: _hf_show(p, 1, QColor("#b48ad0")), "overlay_vis": _hf_overlay, "polyline_dlg": _polyline_dlg, "helix": _helix, "spiral": _spiral, "eqcurve": _eqcurve, "bondwire": _bondwire, "section": _section,
     "sweep_axis": _sweep_axis, "sweep_path": _sweep_path, "chamfer": _chamfer, "ruler": _ruler, "orbit": _orbit,
     "cut": _cut,
     "box": _box, "cylinder": _cylinder, "sphere": _sphere, "cone": _cone, "torus": _torus,

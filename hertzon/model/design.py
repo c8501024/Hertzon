@@ -67,6 +67,8 @@ class GeoObject:
             d = 2 if (c.props.get("Closed") == "True" and c.props.get("Covered") == "True") else 1
         elif c.kind == "CreateBondwire":
             d = 3
+        elif c.kind == "CreateEquationCurve":
+            d = 2 if (c.props.get("Closed") == "True" and c.props.get("Covered") == "True") else 1
         elif c.kind == "CreateHelix":
             d = 3 if _nonzero(c.props.get("WireRadius", "0")) else 1
         elif c.kind == "CreateSpiral":
@@ -319,6 +321,7 @@ class Design:
                         "CreateRectangle": "Rectangle", "CreateCircle": "Circle", "CreateEllipse": "Ellipse",
                         "CreateRegularPolygon": "Polygon", "CreatePolyline": "Polyline",
                         "CreateHelix": "Helix", "CreateSpiral": "Spiral", "CreateBondwire": "Bondwire",
+                        "CreateEquationCurve": "EquationCurve",
                         "CreateRegion": "Region", "Import": "Imported"}.get(kind, "Object")
         nm = self.unique_name(base if name else base + "1")
         o = GeoObject(nm, [Command.new(kind, **props)], material=material, color=default_color(material))
