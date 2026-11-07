@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.4 (2026-11-07)
 
 ### Added
 - **Equation Based Curve** (Draw > Equation Based Curve..., and in the 1D group of the Draw ribbon): a curve
@@ -17,8 +17,6 @@ the GitHub release notes.
   it happens and marks the field. The parameter is t; _t (as in other tools) works too.
 - The Equation Based Curve dialog has the same **Constants & Functions...** button as Design Properties: a
   double-click inserts a constant, function, unit or variable at the cursor of the last edited field.
-
-### Added
 - **Hairpin filter with the Derivative Trust Region**: Tools > Filter Design (tapped hairpin) and the hairpin
   example add a second optimization, *HairpinDTR*, with the same goals as the conjugate gradient one. It
   varies L, g and yP (centre frequency, coupling, match); w, b and M can be included. All six variables
@@ -59,7 +57,7 @@ the GitHub release notes.
   Validation Check and of MCP `validate`, and the solver log lists it before meshing. Sheets across a conductor
   (an inner copper plane through a via) are normal and not reported. When meshing or solving fails (singular
   matrix, inconsistent mesh, an index error), the error message names these sheets as the probable cause.
-- **CPU load while idle (again)**: 0.3.2 still redrew the empty 3D view five times a second. The scale bar and
+- **CPU load while idle (again)**: 0.3.2 and 0.3.3 still redrew the empty 3D view five times a second. The scale bar and
   the axes triad adjust themselves at the start of every redraw, and that counted as a change of the scene for
   the next check. The check now compares with the scene as it was drawn, so an idle view is no longer redrawn
   (measured: 0 redraws in 20 s instead of about 100).
