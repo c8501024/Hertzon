@@ -145,3 +145,33 @@ def test_main_window_dialogs_start_in_the_remembered_folders(tmp_path, monkeypat
     finally:
         w.doc.dirty = False
         w.close()
+
+
+def test_file_close_leaves_an_empty_untitled_project(tmp_path, monkeypatch):
+    """File > Close: asks to save changes (Cancel keeps the project), then an empty untitled project."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from hertzon.gui import main_window as mw
+    from hertzon.model.design import Design
+    w = mw.MainWindow()
+    try:
+        w.settings = QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat)
+        assert w.a_close.text() == "&Close" and w.a_close in w.menuBar().actions()[0].menu().actions()
+        w.doc.project.designs.append(Design(name="Extra"))
+        w.doc.project.path = str(tmp_path / "p.hzn")
+        w.doc.dirty = True
+        monkeypatch.setattr(mw.QMessageBox, "question", lambda *a, **k: mw.QMessageBox.Cancel)
+        assert not w.file_close()
+        assert w.doc.project.path == str(tmp_path / "p.hzn")    # Cancel: nothing closed
+        monkeypatch.setattr(mw.QMessageBox, "question", lambda *a, **k: mw.QMessageBox.Discard)
+        assert w.file_close()
+        p = w.doc.project
+        assert p.path is None and not w.doc.dirty
+        assert "Extra" not in [d.name for d in p.designs] and "p.hzn" not in w.windowTitle()
+    finally:
+        w.doc.dirty = False
+        w.close()

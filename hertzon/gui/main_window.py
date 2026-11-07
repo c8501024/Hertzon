@@ -222,6 +222,8 @@ class MainWindow(QMainWindow):
         self.a_open = A("&Open...", self.file_open, "Ctrl+O")
         self.a_save = A("&Save", self.file_save, "Ctrl+S")
         self.a_saveas = A("Save &As...", self.file_save_as, "Ctrl+Shift+S")
+        self.a_close = A("&Close", self.file_close, "Ctrl+W",
+                         tip="Close the project (asks to save changes); an empty untitled project remains")
         self.a_import = A("&Import Geometry (STEP/IGES/BREP)...", self.import_geometry)
         self.a_exit = A("E&xit", self.close)
         self.a_undo = A("&Undo", self.doc.undo, "Ctrl+Z")
@@ -268,7 +270,7 @@ class MainWindow(QMainWindow):
         from .theme import brand
         brand(self)
         m = mb.addMenu("&File")
-        for a in (self.a_new, self.a_open, self.a_save, self.a_saveas):
+        for a in (self.a_new, self.a_open, self.a_save, self.a_saveas, self.a_close):
             m.addAction(a)
         self.example_menu = m.addMenu("Open Example")
         self._fill_examples()
@@ -1888,6 +1890,15 @@ class MainWindow(QMainWindow):
         """File > New: the start page asks what to simulate (3D FEM or Circuit, solution type)."""
         if self.maybe_save():
             self.start_page()
+
+    def file_close(self) -> bool:
+        """File > Close: asks to save changes, then an empty untitled project in the units of the options."""
+        if not self.maybe_save():
+            return False
+        self._drop_autosave()
+        self.set_project(self._empty_project())
+        self.project_tree.rebuild()
+        return True
 
     def _empty_project(self, units: str | None = None, name: str = "") -> Project:
         p = Project()

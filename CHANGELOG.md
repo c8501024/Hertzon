@@ -27,6 +27,8 @@ the GitHub release notes.
   opened or saved last. Save As starts in the folder of the current project, an untitled project in the
   folder saved to last. The Touchstone export starts in the folder of the open project file, without one in
   the folder of the last Touchstone export.
+- **File > Close** (Ctrl+W): closes the project after asking to save changes; an empty untitled project
+  remains.
 
 ### Changed
 - **Derivative tuning needs much less memory**: every morphed mesh state keeps only what its boundary terms
