@@ -359,6 +359,7 @@ class MainWindow(QMainWindow):
                 arc.addAction("Center Point", lambda: self.start_draw("CreatePolyline:arccenter"))
         m.addAction("Helix...", lambda: self.create_by_dialog("CreateHelix"))
         m.addAction("Spiral...", lambda: self.create_by_dialog("CreateSpiral"))
+        m.addAction("Equation Based Curve...", lambda: self.create_by_dialog("CreateEquationCurve"))
         m.addSeparator()
         m.addAction("Create Primitive by Dialog...", lambda: self.create_by_dialog())
         sw = m.addMenu("Sweep")
@@ -646,6 +647,7 @@ class MainWindow(QMainWindow):
         g.small("Polyline", "polyline", draw("CreatePolyline"))
         g.small("3 Point Arc", "arc3", draw("CreatePolyline:arc3"))
         g.small("Center Point Arc", "arc_center", draw("CreatePolyline:arccenter"))
+        g.small("Equation Based Curve", "eqcurve", lambda: self.create_by_dialog("CreateEquationCurve"))
         g.small("By Dialog", "polyline_dlg", lambda: self.create_by_dialog())
         g = pg.group("Region")
         g.icon_only = True

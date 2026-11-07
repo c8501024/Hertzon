@@ -386,6 +386,29 @@ class BuildContext:
     stack: list[str] = field(default_factory=list)
 
 
+def equation_curve_points(p: dict, ev: Evaluator) -> np.ndarray:
+    """Points of an equation based curve: X(_t), Y(_t), Z(_t) at NumOfPointsOnCurve equal steps of _t from
+    tStart to tEnd (metres). The functions may use design variables and units; plain numbers are model units."""
+    t0, t1 = ev.value(p.get("tStart", "0")), ev.value(p.get("tEnd", "1"))
+    n = ev.integer(p.get("NumOfPointsOnCurve", "60") or "60")
+    if n < 2:
+        raise GeometryError("The equation curve needs at least two points")
+    if not t1 != t0:
+        raise GeometryError("_t start and _t end must differ")
+    funcs = [str(p.get(f"{c}tFunction", "0") or "0") for c in "XYZ"]
+    out = []
+    for t in np.linspace(t0, t1, n):
+        e = Evaluator({**ev.variables, "_t": repr(float(t))}, ev.model_unit)
+        try:
+            out.append([e.length(f) for f in funcs])
+        except ExprError as err:
+            raise GeometryError(f"Equation curve at _t = {t:.6g}: {err}") from err
+    P3 = np.asarray(out, float)
+    if not np.all(np.isfinite(P3)):
+        raise GeometryError("The equation curve has points that are not finite numbers")
+    return P3
+
+
 def _create(cmd: Command, ctx: BuildContext) -> list[tuple[int, int]]:
     ev, p, o = ctx.ev, cmd.props, _occ()
     k = cmd.kind
@@ -646,6 +669,22 @@ def _create(cmd: Command, ctx: BuildContext) -> list[tuple[int, int]]:
         if wr <= 0:
             return [(1, wire)]
         return _pipe(wire, P3, wr)
+    if k == "CreateEquationCurve":
+        P3 = equation_curve_points(p, ev)
+        closed = p.get("Closed", "False") == "True"
+        if np.linalg.norm(P3[-1] - P3[0]) <= 1e-9 * max(1.0, float(np.abs(P3).max())):
+            P3, closed = P3[:-1], True          # the curve comes back to its start: closed on its own
+        if len(P3) < 2:
+            raise GeometryError("The equation curve needs at least two distinct points")
+        tags = [o.addPoint(*q) for q in P3]
+        if p.get("CurveType", "Spline") == "Polyline" or len(P3) == 2:
+            ends = tags + tags[:1] if closed else tags
+            curves = [o.addLine(a, b) for a, b in zip(ends, ends[1:])]
+        else:
+            curves = [o.addSpline(tags + tags[:1] if closed else tags)]
+        if closed and p.get("Covered", "False") == "True":
+            return [(2, o.addPlaneSurface([o.addCurveLoop(curves)]))]
+        return [(1, c_) for c_ in curves]
     if k == "CreateSpiral":
         c = np.asarray(ev.point(p["CenterPosition"]), float)
         r0 = ev.length(p["InnerRadius"])
