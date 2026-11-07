@@ -17,6 +17,10 @@ the GitHub release notes.
 - **MCP import_geometry** reads the STEP, IGES, BREP or STL file in the geometry process, with a time limit
   (timeout_s), progress and cancel like render_image. A large file no longer holds the whole server without
   an answer.
+- **STEP and IGES imports are read from a cache**: the file is translated once and kept as BREP
+  (~/.hertzon/cad_cache). Every later build reads the cache, whether in the window, over MCP, or for each
+  simulation and optimization step. On an assembly with 800 bodies that took 0.4 s instead of 13 s. A changed
+  file is translated again.
 
 ## 0.3.4 (2026-11-07)
 
