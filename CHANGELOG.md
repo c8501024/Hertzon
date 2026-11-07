@@ -5,6 +5,12 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.3.0 (2026-11-07)
+
+The new user interface: a start page that asks what to simulate, circuit designs (linear networks) next to the
+3D designs with a schematic editor, 3D layouts built from a schematic (3D designs included as blocks), PCB import
+from Gerber and Excellon files with the stackup driving the geometry, and AI assistants (MCP) that reach all of it.
+
 ### Added
 - **AI assistants (MCP) reach the newer features**: the patch antenna and hairpin filter assistants
   (`create_patch_antenna`, `create_hairpin_filter`), the choice of optimizer in `set_optimization` (Conjugate
@@ -158,6 +164,14 @@ the GitHub release notes.
   mode shows Q as infinite instead of a huge number of either sign).
 
 ### Fixed
+- **Mesh error after an optimization** ("The stored adaptive mesh does not fit the initial mesh"): the
+  optimizer solved its evaluations with other sweeps switched on than the design, so the air box of Auto Open
+  had another size and the mesh taken over by *Apply to Design* no longer fit. Evaluations now keep the sweeps
+  of the design, and a stored mesh that does not fit restarts the adaptive passes with a warning instead of
+  stopping the run. Switching on or lowering a sweep that enlarges the air box marks the setup outdated and
+  says so. The patch antenna tool creates its sweep switched off.
+- **Seam in the translucent 3D radiation pattern**: with anti-aliasing (SSAA) on, a sharp meridian line showed
+  where front and back of the pattern swap order. Translucent surfaces are now blended order-independently.
 - **First analysis after a restart or an update no longer waits about a minute at "Starting solver"**: on
   Windows the first solver process read EMerge and its libraries from disk while the virus scanner checked
   them ("import emerge" took about 50 s on a laptop, about 1 s afterwards). Since 0.2.6 the setup no longer
