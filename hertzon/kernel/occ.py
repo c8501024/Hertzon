@@ -391,8 +391,8 @@ EQUATION_MODES = ("Cartesian", "Cylindrical", "Y = f(X)")
 
 def equation_curve_points(p: dict, ev: Evaluator) -> np.ndarray:
     """Points of an equation based curve at NumOfPointsOnCurve equal steps of the parameter from tStart to
-    tEnd (metres). The parameter is called _t (or t, unless a design variable has that name).
-    Cartesian: X(_t), Y(_t), Z(_t). Cylindrical: r(_t), phi(_t), z(_t) in the three function fields (phi in
+    tEnd (metres). The parameter is called t (also _t, which always works, even when a design variable is named t).
+    Cartesian: X(t), Y(t), Z(t). Cylindrical: r(t), phi(t), z(t) in the three function fields (phi in
     radians, or with deg). Y = f(X): the parameter is X itself (model units), Y and Z are functions of it.
     The functions may use design variables and units; plain numbers are model units."""
     t0, t1 = ev.value(p.get("tStart", "0")), ev.value(p.get("tEnd", "1"))
@@ -420,7 +420,7 @@ def equation_curve_points(p: dict, ev: Evaluator) -> np.ndarray:
             else:
                 out.append([e.length(f) for f in funcs])
         except ExprError as err:
-            raise GeometryError(f"Equation curve at _t = {t:.6g}: {err}") from err
+            raise GeometryError(f"Equation curve at t = {t:.6g}: {err}") from err
     P3 = np.asarray(out, float)
     if not np.all(np.isfinite(P3)):
         raise GeometryError("The equation curve has points that are not finite numbers")

@@ -53,7 +53,7 @@ def test_closed_covered_curve_is_a_sheet(ctype):
 def test_bad_function_names_the_parameter_value():
     d, o, ctx = _build(XtFunction="1/(_t-1)", YtFunction="0", ZtFunction="0", tStart="0", tEnd="2",
                        NumOfPointsOnCurve="3")
-    assert ctx.errors and "_t = 1" in str(ctx.errors)
+    assert ctx.errors and "at t = 1" in str(ctx.errors)
 
 
 def _ev(**variables):
@@ -90,7 +90,7 @@ def test_design_variable_named_t_is_not_overridden():
 
 
 def test_error_names_the_parameter_value():
-    with pytest.raises(K.GeometryError, match=r"_t = 10"):
+    with pytest.raises(K.GeometryError, match=r" t = 10"):
         K.equation_curve_points({"XtFunction": "1/(t-10)", "YtFunction": "0", "ZtFunction": "0", "tStart": "0",
                                  "tEnd": "20", "NumOfPointsOnCurve": "21"}, _ev())
 
@@ -128,7 +128,7 @@ def test_dialog_preview_presets_and_error(monkeypatch):
     dlg.t1.setText("20")
     dlg.npts.setValue(21)
     dlg._update()
-    assert not dlg._ok.isEnabled() and "_t = 10" in dlg.info.text()
+    assert not dlg._ok.isEnabled() and "at t = 10" in dlg.info.text()
     assert dlg.f_edits[1].styleSheet() and not dlg.f_edits[0].styleSheet()
     dlg.f_edits[1].setText("t")
     dlg._update()

@@ -1809,7 +1809,7 @@ class EquationCurveDialog(QDialog):
         self.ref_dlg = None
         self._target = self.f_edits[0]
         form.addRow("", self.ref_btn)
-        hint = QLabel("t (or _t) is the parameter. Design variables and units work; plain numbers are model "
+        hint = QLabel("t is the parameter (_t works too). Design variables and units work; plain numbers are model "
                       "units, angles in radians unless written with deg.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #666;")
@@ -1974,14 +1974,14 @@ class EquationCurveDialog(QDialog):
         v = {**ev.variables, "_t": "0.5", "t": ev.variables.get("t", "0.5")}
         e2 = Evaluator(v, ev.model_unit)
         for e in self.f_edits:
-            if e.isEnabled() and (e2.check(e.text() or "0") or ("_t =" in msg and self._fails_at(e, msg, ev))):
+            if e.isEnabled() and (e2.check(e.text() or "0") or (" t = " in msg and self._fails_at(e, msg, ev))):
                 e.setStyleSheet(bad)
 
     @staticmethod
     def _fails_at(edit, msg: str, ev) -> bool:
         import re
         from ..model.expr import Evaluator
-        m = re.search(r"_t = ([-+0-9.eE]+)", msg)
+        m = re.search(r"\bt = ([-+0-9.eE]+)", msg)
         if not m:
             return False
         v = {**ev.variables, "_t": m.group(1)}
