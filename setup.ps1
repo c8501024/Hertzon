@@ -34,18 +34,29 @@ function Find-Python {
 }
 
 # Hertzon processes that run from this folder (the window, the remote server 'hertzon.remote serve', the
-# MCP server started by an AI app, solver workers) keep files of .venv open; pip then fails to update them
+# MCP server started by an AI app, solver workers) keep files of .venv open; pip then fails to update them.
+# One WMI query for all processes, with a time limit: a query per process made the setup window stay empty
+# for minutes on a computer with many processes, and a hanging WMI service must not stop the setup.
+function Get-ProcessTable {
+    $t = @{}
+    try {
+        foreach ($w in @(Get-CimInstance Win32_Process -OperationTimeoutSec 20 -ErrorAction Stop)) { $t[[int]$w.ProcessId] = $w }
+    } catch {}
+    return $t
+}
+
 function Get-HertzonProcesses {
     $root = (Resolve-Path -LiteralPath $PSScriptRoot).Path.TrimEnd('\') + '\'
+    $table = Get-ProcessTable
     # this script and the processes that started it (Hertzon.exe runs it on the first start) do not count
     $own = @{}
     $id = $PID
     while ($id -and -not $own.ContainsKey($id)) {
         $own[$id] = $true
-        $id = (Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue).ParentProcessId
+        $id = if ($table.ContainsKey([int]$id)) { [int]$table[[int]$id].ParentProcessId } else { 0 }
     }
     Get-Process -ErrorAction SilentlyContinue | Where-Object {
-        -not $own.ContainsKey($_.Id) -and (Test-UsesFolder $_ $root)
+        -not $own.ContainsKey($_.Id) -and (Test-UsesFolder $_ $root $table)
     }
 }
 
@@ -53,14 +64,14 @@ function Get-HertzonProcesses {
 # only a small redirector that starts the base Python (outside this folder) as a child process with the
 # packages of .venv. Stopping the redirector alone leaves that child running with the files of .venv in use,
 # until the computer is restarted.
-function Test-UsesFolder($p, [string]$root) {
+function Test-UsesFolder($p, [string]$root, $table) {
     if ($p.Path -and $p.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
     if ($p.ProcessName -notmatch '^pythonw?(\d|\.|$)') { return $false }
     # its parent is the redirector .venv\Scripts\python.exe (or another process from this folder)
-    $parent = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).ParentProcessId
-    if ($parent) {
-        $pp = (Get-CimInstance Win32_Process -Filter "ProcessId = $parent" -ErrorAction SilentlyContinue).ExecutablePath
-        if ($pp -and $pp.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    $w = $table[[int]$p.Id]
+    if ($w -and $w.ParentProcessId) {
+        $pw = $table[[int]$w.ParentProcessId]
+        if ($pw -and $pw.ExecutablePath -and $pw.ExecutablePath.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
     }
     try {
         foreach ($m in $p.Modules) {
@@ -71,7 +82,7 @@ function Test-UsesFolder($p, [string]$root) {
 }
 
 function Get-CommandLine($p) {
-    (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
+    try { (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -OperationTimeoutSec 10 -ErrorAction Stop).CommandLine } catch { $null }
 }
 
 function Show-HertzonProcesses($procs) {
@@ -91,12 +102,21 @@ function Test-HertzonWindow($p) {
 }
 
 # a Hertzon that is closing (an update started from Hertzon) or solver processes that are being aborted
-# need a moment: wait for them quietly instead of asking at once
+# need a moment: wait for them instead of asking at once, and say so (the window stayed empty before)
 function Wait-HertzonGone([int]$seconds) {
     $end = (Get-Date).AddSeconds($seconds)
-    while ((Get-Date) -lt $end) {
-        if (-not @(Get-HertzonProcesses)) { return }
-        Start-Sleep -Milliseconds 500
+    $shown = @{}
+    while ($true) {
+        $procs = @(Get-HertzonProcesses)
+        if (-not $procs) { return }
+        $new = @($procs | Where-Object { -not $shown.ContainsKey($_.Id) })
+        if ($new) {
+            Write-Host 'Waiting for these Hertzon processes to end:'
+            Show-HertzonProcesses $new
+            foreach ($p in $new) { $shown[$p.Id] = $true }
+        }
+        if ((Get-Date) -ge $end) { return }
+        Start-Sleep -Seconds 1
     }
 }
 
@@ -130,6 +150,7 @@ function Clear-HertzonProcesses {
 
 try {
     $venvPy = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+    Write-Host 'Checking for running Hertzon processes ...'
     Wait-HertzonGone 30
     $procs = @(Get-HertzonProcesses)
     if ($procs) {
