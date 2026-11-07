@@ -47,6 +47,17 @@ time on one 64-core workstation, ~95k model output tokens.
 | `results/` | Hertzon S11, HFSS S11 and efficiency, plots |
 | `tools/match.py`, `tools/s1p.py` | Lossy matching-network search used while screening designs |
 
+## Limitations
+
+- Limitation of the benchmark itself: it is defined in free space, and the design meets it as defined. Without
+  a head model the result is less realistic for an antenna worn next to the head. The agent did not add one on
+  its own, and an on-body check has not been done yet. The prompt was only "find the benchmark and get started", with no hint about
+  body proximity.
+- Future work: phantom models at several levels of accuracy in Hertzon, usable through MCP, and choosing
+  antenna types that suit on-body use.
+- Only the top layer was used; the bottom layer, vias and loaded ground connections were not explored.
+- Meta publishes no reference efficiency for its own design, so the result cannot yet be ranked.
+
 ## Reproduce
 
 - Hertzon: open the `.hzn` and run Setup1 (about 4 min on 64 cores). Total efficiency = radiated power /

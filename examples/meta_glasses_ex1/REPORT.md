@@ -152,6 +152,12 @@ The result is confirmed by two independent solvers (Section 5a). The remaining c
 - **Lumped parts.** The final design uses none, so vendor S-parameters do not affect it. The matching-network results in Section 4 used generic Q values, not catalog data.
 - **Design space.** Only the top layer and rectangular strips were used. The bottom layer, vias and inductively loaded ground connections allowed by the benchmark were not explored and may lift the 5.17 GHz band edge.
 - **Comparability.** Meta does not publish a reference efficiency for its human design, so the result cannot yet be ranked.
+- **No human body model.** This is a limitation of the benchmark itself. The benchmark is defined in free space, and the design meets it as defined, so leaving out a head model was correct for this task. It makes the result less realistic, though: a glasses antenna works next to the head, where tissue detunes it and absorbs power. Meta's CST edit history shows they used a silicone head model internally, but it is not part of the shared benchmark. The agent did not add one on its own, and an on-body check has not been done yet.
+
+The missing body model also reflects the task as given: the prompt was only "find the benchmark and get started", with no hint about body proximity, so the agent stayed with the free-space goal of the benchmark. Future work:
+
+- **Phantom models in the solver.** Hertzon should ship human phantom models at several levels of accuracy (homogeneous head, layered head, detailed head and hand), exposed through the MCP interface, so an agent can switch from free space to on-body evaluation without building the phantom itself.
+- **Antenna types for on-body use.** Some antenna types are better suited near the body than others, for example types with less near-field coupling into tissue. An on-body study should let the agent choose the topology with that criterion, not only free-space efficiency.
 
 ## 8 Conclusion
 
