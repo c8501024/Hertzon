@@ -5,6 +5,13 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- **CPU load while idle**: the 3D view (and 3D polar reports) redrew an unchanged scene five times a second,
+  which kept the CPU at a few percent with an empty project. It now redraws only when something changed.
+- **Project Manager, part library and schematic could not be widened**: the long hint line of the circuit
+  editor set a minimum width of about 1250 px for the whole central area, so the docks on the left (and the
+  part library next to the schematic) stopped at a limit. The hint now wraps and the panels move freely again.
+
 ## 0.3.1 (2026-11-07)
 
 ### Fixed
