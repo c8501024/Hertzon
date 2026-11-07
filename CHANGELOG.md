@@ -6,6 +6,18 @@ the GitHub release notes.
 ## Unreleased
 
 ### Fixed
+- **PCB import dropped a valid copper shape ("Curve loop is not closed")**: a copper area whose outline came
+  closer to itself than the geometry kernel's tolerance (a net tie joining antenna and ground plane in one
+  shape, a hole on the outline, holes that touch) could not be built, and the whole shape, for example the top
+  ground plane, was missing with only a geometry error. Every copper shape is now cleaned on import (repeated
+  and collinear points, ring orientation), made valid where needed, and touching rings are repaired with a
+  copper bridge of a few µm, so parts that meet in a point stay one conductor. A shape that still cannot be
+  built is a warning of the import with its layer and area.
+- **MCP: render_image, get_geometry and validate could block the server**: the geometry is now built in a
+  separate process with a time limit (`timeout_s`, default 300 s or `HERTZON_MCP_BUILD_TIMEOUT`), progress
+  notifications and cancellation. When the limit is reached the build is stopped with a clear message, and
+  the server stays usable; pings are answered during a build. `render_image(detail="fast")` leaves out the
+  drill holes of a board (the via cylinders fill them), and `import_pcb` takes `arc_segments`.
 - **Ratios of lengths in Design Properties**: a variable such as `c = a/b` with two lengths showed a unit
   when the result was below 1 (a = 2mm, b = 6mm gave "333.333mm"). The units of an expression are now
   followed through the calculation: a ratio of lengths is a plain number (0.333333) and, used as a length,
