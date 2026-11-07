@@ -27,8 +27,9 @@ Hertzon is by **Dominik Mair**, built on EMerge, the FEM solver by **Robert Fenn
 
 > 📘 **New to Hertzon? Start with the [step-by-step tutorial](docs/TUTORIAL.md):** a waveguide with wave
 > ports, a coaxial cable, a half-wave dipole and the RCS of a sphere, each from the empty window to the
-> result, your own result quantities with equations, plus how to let an AI assistant (Claude Code, Codex, VS Code) build and run simulations for you
-> through Hertzon's **MCP server**.
+> result, your own result quantities with equations, a stub filter as a **circuit** with its 3D layout, a
+> board imported from **Gerber files**, plus how to let an AI assistant (Claude Code, Codex, VS Code) build
+> and run simulations for you through Hertzon's **MCP server**.
 
 > **Built on EMerge.** The finite-element core of Hertzon is [EMerge](https://github.com/FennisRobert/EMerge),
 > the open-source FEM solver by **Robert Fennis**: the Nédélec formulation, element matrices, ports, boundary
@@ -100,15 +101,17 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
 
 ## The workflow
 
-1. **File > New** or **Project > Insert Design** asks for the design type (3D FEM or Circuit) and the
-   solution type: Modal, Terminal or Eigenmode (Simulation > Solution Type changes it later),
-   with **Auto Open** (radiation or PML chosen automatically) or **Auto Open - Filter**
-   (air box with fixed margin and a radiation boundary, for filters and other closed-ish circuits).
-   A **Circuit** design opens a schematic instead: R, L, C, ideal lines, Touchstone files and 3D designs of the
-   project (drag them from the Project Manager into the schematic) as S-parameter blocks.
+1. **File > New** opens the start page: choose **3D FEM** or **Circuit**, the solution type (Modal, Terminal
+   or Eigenmode; Simulation > Solution Type changes it later), the units and the project name, or open a
+   recent project, an example or a template. **Project > Insert Design** shows the same choice, so a project
+   holds 3D and circuit designs side by side. A 3D design uses **Auto Open** (radiation or PML chosen
+   automatically) or **Auto Open - Filter** (air box with fixed margin and a radiation boundary, for filters
+   and other closed-ish circuits).
+   A **Circuit** design opens a schematic editor instead (see [Circuits](#circuits) below).
 2. **Draw** boxes, cylinders, spheres, cones, tori, polyhedra, rectangles, circles, ellipses,
    polygons, polylines and arcs (3 point, center point), region. Click on the grid (snaps to grid and vertices) or type coordinates
-   in the status bar; every parameter accepts expressions with **variables** and units. Relative, face and
+   in the status bar; every parameter accepts expressions with **variables** and units (**Constants &
+   Functions...** in Design Properties lists every constant, function, unit and variable a value may use). Relative, face and
    object coordinate systems set the working plane; grid and axes stay at its origin.
    **Modeler > Boolean** unite / subtract / intersect / split, arrange, duplicate, thicken, sweep, import STEP;
    **Fillet** and **Chamfer** on the edges of solids or the corner vertices of sheets.
@@ -150,6 +153,26 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    follow live in the reports from one solve ([how it works](docs/TUNING.md),
    [tutorial](docs/TUTORIAL.md#10-tune-a-patch-antenna-with-sliders)).
 
+## Circuits
+
+A **Circuit** design is a schematic of a linear network next to the 3D designs, with its own ribbon and a part
+library with search ([docs/CIRCUIT.md](docs/CIRCUIT.md), [tutorial](docs/TUTORIAL.md#11-a-stub-filter-as-a-circuit-and-its-3d-layout)):
+
+* **Parts**: power ports, ground, net labels; R, L, C, series and parallel RLC, attenuator, DC block and feed;
+  microstrip lines and stubs, coupled microstrip, coplanar line, stripline, coaxial line, **Via to Ground**
+  (vias with their mutual inductance) and ideal lines on a substrate part; Touchstone files.
+* **Junctions**: tee, cross, corner, mitered bend, step and gap of microstrip lines, found **automatically**
+  where lines meet; a **line calculator** gives W and L from Z0 and electrical length.
+* **Full-wave line model**: microstrip and coplanar lines from a mode solve of their cross-section instead of
+  the closed-form formulas, cached per cross-section.
+* **3D designs as blocks**: drag a solved 3D design from the Project Manager (or a `.hzn` file) into the
+  schematic; its S-parameters are used in the circuit.
+* **3D layout**: *Create 3D Layout* turns the schematic into a 3D design (substrate, traces, junctions, vias,
+  lumped parts, ports and the 3D blocks with their geometry), every dimension a design variable;
+  *Update 3D Layout* and *Update Schematic* keep the two in step in both directions.
+* **Copy and paste** (Ctrl+C / Ctrl+V) across circuit designs; the reports, Smith chart, Touchstone export and
+  Solution Data work as in a 3D design.
+
 See [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md) for an overview of what is implemented and
 what is still missing.
 
@@ -188,6 +211,7 @@ reports and field plots ready: after **Analyze All** (F5) double-click a report,
 | `examples/DifferentialPair.hzn` | 100 Ω edge-coupled microstrip pair on RO4350B with the **terminal solution**: one wave port per end with a terminal per trace (even and odd mode each absorbed with its own propagation constant), **differential pairs** and the mixed-mode S-parameters `S(Diff1,Diff1)`, `S(Comm1,Diff1)`, sweep 1-12 GHz ([tutorial](docs/TUTORIAL.md#9-a-differential-pair-with-the-terminal-solution)) |
 | `examples/FSS_UnitCell.hzn` | Frequency selective surface: a cross dipole on RO3003 as the **periodic unit cell** of an infinite array (Primary / Secondary boundaries, scan angle `scan_theta`), **Floquet ports** below and above with TE00 and TM00, transmission and reflection 6-18 GHz |
 | `examples/GerberTestBoard.hzn` | Two-layer board with copper shapes, cut-outs, a via (grouped with its pad) and holes: the test case of **File > Export > Gerber** ([docs](docs/GERBER_EXPORT.md)) |
+| `examples/StubFilter.hzn` | **Circuit design**: a 2.45 GHz band-stop filter of two open microstrip stubs on RO4350B with automatic tee junctions, analyzed in a moment, and its **3D layout** created from the schematic (every dimension a variable), solved full-wave and tuned ([tutorial](docs/TUTORIAL.md#11-a-stub-filter-as-a-circuit-and-its-3d-layout), [docs](docs/CIRCUIT.md)) |
 | `examples/SphereRCS.hzn` | RCS of a 100 mm PEC sphere at 1 GHz, plane wave, **Auto Open**, bistatic and monostatic RCS reports, checked against the Mie series ([tutorial](docs/TUTORIAL.md#4-radar-cross-section-of-a-sphere)) |
 | `examples/Showcase_AllFeatures.hzn` | Test project that uses nearly every feature in eight designs: patch array (all report types, reports against a design variable, field overlays, Fields Calculator, output variables with S, Y, Z and VSWR, conjugate-gradient and Derivative Trust Region optimizations with goals on antenna parameters, parametric sweeps, setups with every matrix solver family, all sweep types, all mesh operations, coordinate systems), half-model iris filter (Symmetry, de-embedding, renormalization, ports-only setup), eigenmode cavity, a geometry zoo with every create command and operation under a plane wave (RCS), a terminal coax monopole with PML, a periodic unit cell (Floquet port, scan angles), a terminal differential pair (two terminals per wave port, reference conductor, mixed-mode S-parameters) and an over-moded waveguide (two-mode wave ports with TE10 and TE01, mode conversion). Built by `python examples/make_showcase.py` |
 
@@ -196,7 +220,14 @@ sphere RCS against the Mie series, scaling from small to large models) with thei
 `python examples/make_examples.py` builds the first versions of five of them (waveguide, microstrip, patch,
 hairpin, differential pair) from code; the shipped files were finished in Hertzon.
 
-## Manufacturing data (Gerber)
+## PCB import and manufacturing data (Gerber)
+
+**File > Import PCB...** reads the manufacturing files of a board (Gerber X2 and RS-274X, Excellon drill
+files, the `.gbrjob` job file, zip archives or folders; the usual KiCad, Altium and Eagle file names are
+recognised) and builds the simulation model: the stackup with its `stk_` variables, the substrate in the board
+shape, the copper of every layer, the vias and holes. Only what is simulated is loaded, and the import report
+names everything left out. See [docs/PCB_IMPORT.md](docs/PCB_IMPORT.md) and the
+[tutorial](docs/TUTORIAL.md#12-import-a-board-from-gerber-files).
 
 **File > Export > Gerber...** writes Gerber X2 files per copper layer, the board outline and Excellon drill
 files (plated / non-plated) from the real CAD geometry: choose the board plane (any coordinate system),
@@ -240,7 +271,11 @@ simulations: "build a 2.45 GHz patch on FR4 with a lumped port, solve it and giv
 The server offers tools to create projects, set variables and design settings, draw and import
 geometry, list faces (index, centre, normal), assign boundaries, ports and mesh operations, define
 setups, sweeps and far-field spheres, validate, run, follow the adaptive passes, read S-parameters,
-gain or RCS, and render a picture of the model.
+gain or RCS, and render a picture of the model. It also reaches the newer features: the patch antenna and
+hairpin filter assistants, all three optimizers with *Apply to Design*, derivative tuning, circuit designs
+(schematic, analysis, 3D layout and back, 3D designs from other projects), exports (Touchstone, STEP, Gerber,
+EMerge script), PCB import and the stackup, and the examples. The full list is in the
+[tutorial](docs/TUTORIAL.md#53-what-the-assistant-can-do).
 
 ## Design principles
 
