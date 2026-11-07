@@ -6432,8 +6432,8 @@ class MainWindow(QMainWindow):
     def about(self) -> None:
         QMessageBox.about(self, "About Hertzon",
                           f"<b>Hertzon {__version__}</b><br>Open-source 3D full-wave FEM workflow with adaptive meshing."
-                          "<br>By Dominik Mair, built on <a href='https://github.com/FennisRobert/EMerge'>EMerge</a>, "
-                          "the FEM solver by Robert Fennis (GPL v2+), which provides the finite-element core.<br>Geometry: gmsh/OpenCASCADE, display: VTK/PyVista.<br><br>"
+                          "<br>By Dominik Mair. FEM solver core: <a href='https://github.com/FennisRobert/EMerge'>EMerge</a> "
+                          "by Robert Fennis (GPL v2+).<br>Geometry: gmsh/OpenCASCADE, display: VTK/PyVista.<br><br>"
                           "Licensed under the GNU GPL v2 or later. Provided without any warranty: check simulation "
                           "results yourself before relying on them.")
 
