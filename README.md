@@ -160,7 +160,9 @@ See [docs/MESHER.md](docs/MESHER.md) for how the adaptive mesh refinement works:
 default), Hertzon's local Delaunay mesher hzmesh, curved elements and benchmark results.
 
 See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for solve times on a 32-core workstation: a patch antenna
-with 613k unknowns, swept over a 3:1 band with 101 points, in 203 s (1375 s on one core).
+with 319k unknowns, 8 adaptive passes and a 101-point sweep over a 3:1 band in 81 s (370 s on one core).
+The projects and the raw results of every run are in
+[examples/benchmark/scaling](examples/benchmark/scaling).
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next: a solver interface for several
 solvers, openEMS (FDTD), electrostatics and magnetostatics, circuit co-simulation and photonics.
@@ -192,7 +194,9 @@ reports and field plots ready: after **Analyze All** (F5) double-click a report,
 | `examples/Showcase_AllFeatures.hzn` | Test project that uses nearly every feature in eight designs: patch array (all report types, reports against a design variable, field overlays, Fields Calculator, output variables with S, Y, Z and VSWR, conjugate-gradient and Derivative Trust Region optimizations with goals on antenna parameters, parametric sweeps, setups with every matrix solver family, all sweep types, all mesh operations, coordinate systems), half-model iris filter (Symmetry, de-embedding, renormalization, ports-only setup), eigenmode cavity, a geometry zoo with every create command and operation under a plane wave (RCS), a terminal coax monopole with PML, a periodic unit cell (Floquet port, scan angles), a terminal differential pair (two terminals per wave port, reference conductor, mixed-mode S-parameters) and an over-moded waveguide (two-mode wave ports with TE10 and TE01, mode conversion). Built by `python examples/make_showcase.py` |
 
 `examples/benchmark/` holds the validation and timing cases (patch antenna, waveguide post against a reference,
-sphere RCS against the Mie series, scaling from small to large models) with their scripts.
+sphere RCS against the Mie series, scaling from small to large models) with their scripts; the timings are in
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md), the mesher comparison in
+[examples/benchmark/mesher](examples/benchmark/mesher/README.md).
 `python examples/make_examples.py` builds the first versions of five of them (waveguide, microstrip, patch,
 hairpin, differential pair) from code; the shipped files were finished in Hertzon.
 
