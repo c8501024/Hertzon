@@ -12,6 +12,12 @@ the GitHub release notes.
   back (new example `examples/StubFilter.hzn`), and a board imported from Gerber files. README, feature
   overview, roadmap and website describe the start page, circuits, PCB import, the Constants & Functions list
   and the newer MCP tools; the tutorial screenshots show the current user interface.
+- **AI demos on the website**: the landing page replays three real MCP sessions: Meta's AI-glasses antenna
+  benchmark (from `examples/meta_glasses_ex1`), a patch antenna made with the design tool and its optimizer,
+  and a dipole drawn from scratch (screen recordings of the Hertzon window), each ending with the time it took
+  and the result. A short outlook describes the plan for optimizers on any structure.
+- **MCP `set_report(open=true)`** opens the report as a tab in the Hertzon window, so the assistant can show
+  the S-parameters or the 3D pattern it has just set up.
 
 ## 0.3.2 (2026-11-07)
 

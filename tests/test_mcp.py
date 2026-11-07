@@ -153,6 +153,8 @@ def test_equations_reports_plots_and_studies(server, tmp_path):
     # reports and field plots
     r = call(server, "set_report", traces=["dB(S(1,1))", "RL"])
     assert r["name"] == "XY Plot 1" and r["solution"] == "Setup1 : Sweep"
+    o = call(server, "set_report", name="XY Plot 1", open=True)      # no window: nothing to open, a note instead
+    assert "opened" not in o and "note" in o
     f = call(server, "set_report", fields=True, kind="Data Table", traces=["P_in"], port=1)
     assert f["name"] == "Fields Table 1" and f["props"]["fields"] == "1"
     fp = call(server, "set_field_plot", quantity="Mag_E", objects=["Sub"], attributes={"dB": True})

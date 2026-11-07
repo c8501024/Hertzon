@@ -1285,8 +1285,15 @@ def t_set_report(args):
             raise ToolError(f"A report '{args['new_name']}' exists")
         r.name = args["new_name"]
     commit(ctx, f"report {r.name}")
-    return {"name": r.name, "created": created, "kind": r.kind, "solution": r.solution, "traces": r.traces,
-            "props": r.props, "note": "Open the report in the Hertzon window to see it (it is evaluated there)."}
+    out = {"name": r.name, "created": created, "kind": r.kind, "solution": r.solution, "traces": r.traces,
+           "props": r.props}
+    if args.get("open") and ctx.gui is not None:
+        ctx.gui.call("open_report", design=ctx.des.name, name=r.name)
+        out["opened"] = True
+    else:
+        out["note"] = ("open=true shows it in the Hertzon window" if ctx.gui is not None else
+                       "Open the report in the Hertzon window to see it (it is evaluated there).")
+    return out
 
 
 def t_set_field_plot(args):
@@ -2247,12 +2254,14 @@ TOOLS = [
                   "import_file": {"type": "string"}, "export_file": {"type": "string"}}), t_set_equation),
     Tool("set_report", "Create or change a report (kind Rectangular, Smith Chart, Data Table, Radiation Pattern, "
          "3D Polar Plot, Antenna Parameters, Monostatic RCS ...) with traces like dB(S(2,1)) or an equation; "
-         "fields=true makes a Fields report of value equations over frequency. Shown in the window.",
+         "fields=true makes a Fields report of value equations over frequency. open=true opens it in the window.",
          _schema({"name": {"type": "string"}, "kind": {"type": "string", "enum": list(REPORT_KINDS)},
                   "solution": {"type": "string", "description": "'Setup1 : Sweep' or 'Setup1 : LastAdaptive'"},
                   "traces": {"type": "array", "items": {"type": "string"}}, "fields": {"type": "boolean"},
                   "port": {"type": "integer", "description": "excited port of a Fields report"},
-                  "props": OBJ, "new_name": {"type": "string"}}), t_set_report),
+                  "props": OBJ, "new_name": {"type": "string"},
+                  "open": {"type": "boolean", "description": "open the report as a tab in the Hertzon window"}}),
+         t_set_report),
     Tool("set_field_plot", "Create or change a field plot (Mag_E, Vector_E, Mag_H, Mag_Jsurf, Vector_J ... or a "
          "field equation) on objects, faces or a cut plane; drawn in the window.",
          _schema({"name": {"type": "string"}, "quantity": {"type": "string"},

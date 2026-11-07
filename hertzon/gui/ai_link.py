@@ -191,6 +191,15 @@ class AiLink(QObject):
             w.solver.submit(job)
             w.project_tree.rebuild()
             return {"key": job.key}
+        if cmd == "open_report":
+            # MCP set_report(open=true): the report as a tab of the window
+            des = a.get("design") or doc.design_name
+            if des != doc.design_name:
+                doc.set_design(des)
+            if not any(r.name == a["name"] for r in doc.design.reports):
+                raise RuntimeError(f"no report named {a['name']!r}")
+            w.open_report(a["name"])
+            return {"opened": a["name"]}
         if cmd == "queue":
             sv = w.solver
             return {"running": sv.job.key if sv.busy and sv.job else None, "queued": [j.key for j in sv.queue]}
