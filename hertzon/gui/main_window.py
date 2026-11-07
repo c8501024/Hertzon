@@ -1933,7 +1933,9 @@ class MainWindow(QMainWindow):
         if not self.maybe_save():
             return
         if not path:
-            path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", FILE_FILTER)
+            from . import file_folders
+            path, _ = QFileDialog.getOpenFileName(self, "Open Project", file_folders.open_dir(self.settings),
+                                                  FILE_FILTER)
         if not path:
             return
         auto = Path(path + ".auto")
@@ -1990,6 +1992,9 @@ class MainWindow(QMainWindow):
             try:
                 proj = Project.load(load_from)
                 proj.path = None if as_copy else path
+                if not as_copy:              # examples live in the install folder: not remembered
+                    from . import file_folders
+                    file_folders.remember_project(path, self.settings)
             except Exception as e:  # noqa: BLE001
                 QMessageBox.critical(self, "Open", f"Cannot open {path}:\n{e}")
                 return
@@ -2206,12 +2211,10 @@ class MainWindow(QMainWindow):
             self.msgs.add("info", f"Script saved: {path}")
 
     def file_save_as(self) -> bool:
-        start = f"{self.doc.project.name}.hzn"
-        if not self.doc.project.path:      # untitled or an example copy: not into the working (install) folder
-            from PySide6.QtCore import QStandardPaths
-            docs = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
-            if docs:
-                start = str(Path(docs) / start)
+        from . import file_folders
+        # the folder of the project, else the folder last saved to; never the working (install) folder
+        start = file_folders.in_dir(file_folders.save_dir(self.doc.project.path, self.settings),
+                                    f"{self.doc.project.name}.hzn")
         path, _ = QFileDialog.getSaveFileName(self, "Save Project As", start, "Hertzon project (*.hzn)")
         if not path:
             return False
@@ -2219,6 +2222,7 @@ class MainWindow(QMainWindow):
             path += ".hzn"
         self.doc.project.name = Path(path).stem
         self.doc.project.save(path)
+        file_folders.remember_project(path, self.settings, saved=True)
         self.doc.dirty = False
         self._add_recent(path)
         self._update_title()
@@ -2483,9 +2487,12 @@ class MainWindow(QMainWindow):
             self.msgs.add("warning", f"{sol}: only the ports were solved, there are no S-parameters to export")
             return
         n = data["S"].shape[1]
-        path, _ = QFileDialog.getSaveFileName(self, "Export Touchstone", f"{self.des.name}_{s}.s{n}p",
-                                              f"Touchstone (*.s{n}p)")
+        from . import file_folders
+        start = file_folders.in_dir(file_folders.touchstone_dir(self.doc.project.path, self.settings),
+                                    f"{self.des.name}_{s}.s{n}p")
+        path, _ = QFileDialog.getSaveFileName(self, "Export Touchstone", start, f"Touchstone (*.s{n}p)")
         if path:
+            file_folders.remember_touchstone(path, self.settings)
             st.write_touchstone(s, data["freq"], data["S"], data["z0"], path)
             self.msgs.add("info", f"Exported {path}")
 
@@ -6029,7 +6036,9 @@ class MainWindow(QMainWindow):
 
     def _circuit_import_designs(self) -> None:
         """Data > 3D Design > From Project File: the 3D designs of another project file as blocks."""
-        paths, _ = QFileDialog.getOpenFileNames(self, "3D Designs from a Project File", "", "Hertzon project (*.hzn)")
+        from . import file_folders
+        paths, _ = QFileDialog.getOpenFileNames(self, "3D Designs from a Project File",
+                                                file_folders.open_dir(self.settings), "Hertzon project (*.hzn)")
         if paths:
             self.circuit.import_project_files(paths, *[int(v) for v in self._schem_center()])
 
