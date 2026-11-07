@@ -1650,3 +1650,18 @@ def test_cover_united_lines_with_arcs():
     gmsh.clear()
     K.ensure_gmsh("test_cover_arcs")
     assert "closed loop" in K.build_design(d, d.evaluator(p)).errors["a"]
+    # a second closed loop inside becomes a hole, whichever way it was drawn
+    for hole in ("1,1,0;2,1,0;2,2,0;1,2,0", "1,1,0;1,2,0;2,2,0;2,1,0"):
+        p = Project()
+        d = p.designs[0]
+        d.add_object("CreatePolyline", name="a", Points="0,0,0;4,0,0;4,4,0;0,4,0", Closed="True")
+        d.add_object("CreatePolyline", name="h", Points=hole, Closed="True")
+        d.obj("h").consumed_by = "a"
+        d.obj("a").history.append(Command.new("Unite", Tools="h"))
+        d.obj("a").history.append(Command("Cover", {}))
+        K.ensure_gmsh("test_cover_arcs")
+        gmsh.clear()
+        K.ensure_gmsh("test_cover_arcs")
+        ctx = K.build_design(d, d.evaluator(p))
+        assert not ctx.errors
+        assert sum(gmsh.model.occ.getMass(*x) for x in ctx.built["a"]) == pytest.approx(15e-6, rel=1e-9)

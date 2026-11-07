@@ -68,7 +68,7 @@ def _curve_loops(curves: list[int]) -> list[list[int]]:
     """Order the curves of a line object into closed chains, the largest (outer boundary) first.
 
     A united line object keeps its curves in the order of the boolean result, not along the outline; the
-    curve loop needs them end to end. Several closed chains become the outer boundary and holes."""
+    curve loop needs them end to end. Further closed chains are holes of the largest one."""
     def ends(c):
         bnd = gmsh.model.getBoundary([(1, c)], combined=False, oriented=False)
         pts = [np.asarray(gmsh.model.getValue(0, abs(t), []), float) for _, t in bnd]
@@ -981,9 +981,11 @@ def _apply(cmd: Command, dt: list[tuple[int, int]], ctx: BuildContext, owner: st
             if dim != 1:
                 return dt
             o.synchronize()
-            loops = [o.addCurveLoop(c) for c in _curve_loops([t for d, t in dt if d == 1])]
+            faces = [(2, o.addPlaneSurface([o.addCurveLoop(c)])) for c in _curve_loops([t for d, t in dt if d == 1])]
+            if len(faces) > 1:   # inner chains are holes (cut, so their drawing direction does not matter)
+                faces, _ = o.cut(faces[:1], faces[1:])
             o.synchronize()
-            return [(2, o.addPlaneSurface(loops))]
+            return faces
         if k == "ThickenSheet":
             if dim != 2:
                 raise GeometryError("Thicken sheet needs a sheet object")

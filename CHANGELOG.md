@@ -9,7 +9,7 @@ the GitHub release notes.
 - **Cover Lines after uniting lines with several arcs**: united lines whose curves did not come out of the
   boolean in outline order (for example two arcs and two straight lines) failed with "Curve loop is not
   closed"; the curves are now chained end to end before the sheet is built. Lines that really do not close
-  say so.
+  say so. A second closed loop inside the outline becomes a hole, whichever way it was drawn.
 
 ## 0.3.0 (2026-11-07)
 
