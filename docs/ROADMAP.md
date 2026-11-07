@@ -143,18 +143,27 @@ A circuit design type in the project, next to the 3D designs, with its own schem
 designs are placed on the schematic as linked blocks with pins and stay linked: when the 3D design is
 solved again, the circuit follows.
 
-- [ ] **3.1 Circuit design and schematic editor (L).** New design type in the project tree; schematic
+**Status (0.3.0):** the linear part is in Hertzon: circuit designs with a schematic editor, the part
+library with microstrip, coplanar, stripline and coaxial lines, junctions and vias, 3D designs and Touchstone
+files as blocks, the linear S-parameter analysis with its own network solver, the schematic to 3D layout and
+back, and MCP tools for circuits ([CIRCUIT.md](CIRCUIT.md)). Ticked items below are done; the notes say what
+is still open.
+
+- [x] **3.1 Circuit design and schematic editor (L).** New design type in the project tree; schematic
   with wires, pins, ports, ground and variables; undo and redo; the same properties panel as in the 3D
   designs. *Needs 0.1.*
-- [ ] **3.2 Component library (M).** R, L, C, ideal and lossy transmission lines, microstrip,
+- [x] **3.2 Component library (M).** R, L, C, ideal and lossy transmission lines, microstrip,
   stripline and coax models, S-parameter blocks from Touchstone files, sources and probes.
-  *Needs 3.1.*
+  *Needs 3.1.* Done without sources and probes; microstrip junctions, coplanar lines, vias and a full-wave
+  line model came on top.
 - [ ] **3.3 Dynamic link (M).** A 3D design placed as a block with one pin per port or terminal. It
   follows the 3D solution and its variables, so parametric sweeps and optimization run across both.
-  *Needs 3.1, 0.4; terminal pins need 1.1.*
-- [ ] **3.4 Linear frequency-domain analysis (M).** S, Y and Z of the whole schematic over
+  *Needs 3.1, 0.4; terminal pins need 1.1.* Partly done: a 3D design is a block with its solved
+  S-parameters (also from another project file) and is built into the 3D layout with its geometry; its
+  variables do not reach the circuit yet.
+- [x] **3.4 Linear frequency-domain analysis (M).** S, Y and Z of the whole schematic over
   frequency, sweeps, tuning with sliders, reports as in the 3D designs. Network algebra with
-  scikit-rf. *Needs 3.1, 0.2.*
+  scikit-rf. *Needs 3.1, 0.2.* Done with Hertzon's own nodal solver; tuning with sliders is still open.
 - [ ] **3.5 Push excitations (M).** Port voltages and currents from the schematic go back to the 3D
   design, which then shows fields and far field of the loaded structure. Edit Sources (magnitude and
   phase per port) in the 3D design as the simple form. *Needs 3.3, 3.4.*
@@ -163,7 +172,8 @@ solved again, the circuit follows.
 - [ ] **3.7 Harmonic balance (L).** Nonlinear components such as diodes and transistor models through
   Qucsator, for amplifiers and mixers. *Needs 3.6.*
 - [ ] **3.8 Netlist exchange (S–M).** SPICE netlist and Touchstone import and export, MCP tools for
-  circuit designs. *Needs 3.1.*
+  circuit designs. *Needs 3.1.* Touchstone import and export and the MCP tools are done; SPICE netlists are
+  open.
 
 ## Step 4: Electrostatics, magnetostatics and DC conduction
 
@@ -286,5 +296,5 @@ Open points:
    S<sub>21</sub> with EMerge. This shows how large 2.1 and 2.2 really are.
 3. GetDP spike: compute the capacitance of a microstrip line electrostatically and compare it with the
    line theory from hfsynpy.
-4. Circuit design (step 3) once openEMS is in, starting with the schematic editor and the dynamic
-   link.
+4. Circuit design (step 3): the schematic editor and the linear analysis are in (0.3.0); next come the
+   dynamic link of the design variables (3.3) and pushing excitations into the 3D design (3.5).
