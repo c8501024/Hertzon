@@ -1523,6 +1523,86 @@ def solid_overlaps(design: Design, ev: Evaluator, names: list[str]) -> list[tupl
             pass
 
 
+def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple[str, str, str]]:
+    """Where the model sheets lie in the model solids: (sheet, solid, how) with how
+    'along-conductor' (the sheet runs along the inside of a conductor solid and splits it, conductor(name) ->
+    bool), 'across-conductor' (it crosses a conductor: an inner copper plane through a via, normal), 'through'
+    (through the inside of another solid: an inner layer, normal) or 'ends-inside' (an edge of the sheet ends
+    inside the solid, it is not on one of its faces). Built in a scratch model."""
+    if not gmsh.isInitialized():
+        ensure_gmsh()
+    cur = gmsh.model.getCurrent()
+    gmsh.model.add("hertzon_sheets")
+    try:
+        ctx = build_design(design, ev)
+        occ = _occ()
+        live = {o.name: o for o in design.live_objects() if o.model}
+        sheets = {n: [d for d in dt if d[0] == 2] for n, dt in ctx.built.items() if n in live
+                  and max(d for d, _ in dt) == 2}
+        solids = {n: [d for d in dt if d[0] == 3] for n, dt in ctx.built.items() if n in live
+                  and max(d for d, _ in dt) == 3 and live[n].history[0].kind != "CreateRegion"}
+        sheets = {n: dt for n, dt in sheets.items() if dt}
+        solids = {n: dt for n, dt in solids.items() if dt}
+        occ.synchronize()
+        allb = _bbox([d for dt in list(sheets.values()) + list(solids.values()) for d in dt])
+        size = max(allb[3] - allb[0], allb[4] - allb[1], allb[5] - allb[2], 1e-12)
+        eps = max(1e-4 * size, 1e-6)        # well above the kernel tolerance (1e-7)
+        box = {n: _bbox(dt) for n, dt in {**sheets, **solids}.items()}
+
+        def inside(vol: list, p) -> bool:
+            return any(gmsh.model.isInside(3, t, list(p)) for _, t in vol)
+
+        out = []
+        for s, sdt in sheets.items():
+            edges = gmsh.model.getBoundary(sdt, combined=True, oriented=False, recursive=False)
+            mids = []
+            for _, c in edges:
+                lo, hi = gmsh.model.getParametrizationBounds(1, abs(c))
+                mids.append(np.asarray(gmsh.model.getValue(1, abs(c), [(lo[0] + hi[0]) / 2]), float))
+            for v, vdt in solids.items():
+                a, b = box[s], box[v]
+                if not all(a[k] <= b[k + 3] + eps and b[k] <= a[k + 3] + eps for k in range(3)):
+                    continue
+                how = ""
+                try:      # on a copy: the kernel may hand back the sheet itself when it lies fully inside
+                    r, _ = occ.intersect(occ.copy(sdt), vdt, removeObject=True, removeTool=False)
+                except Exception:  # noqa: BLE001
+                    r = []
+                r = [x for x in r if x not in sdt and x not in vdt]
+                occ.synchronize()
+                cut = 0.0
+                for d, t in r:
+                    if d != 2:
+                        continue
+                    c = np.asarray(occ.getCenterOfMass(2, t), float)
+                    uv = gmsh.model.getParametrization(2, t, list(c))
+                    n = np.asarray(gmsh.model.getNormal(t, list(uv)), float)
+                    if np.linalg.norm(n) and inside(vdt, c + eps * n) and inside(vdt, c - eps * n):
+                        how = "through"
+                        cut += occ.getMass(2, t)
+                if how and conductor is not None and conductor(v):
+                    # a sheet across a conductor (an inner copper plane through a via) is normal; one along
+                    # it (a fence sheet that splits the vias on it) cuts more than its smallest cross-section
+                    ext = sorted(b[k + 3] - b[k] for k in range(3))
+                    how = "along-conductor" if cut > 1.5 * ext[0] * ext[1] else "across-conductor"
+                if r:
+                    occ.remove(r, recursive=True)
+                    occ.synchronize()
+                if how:
+                    out.append((s, v, how))
+                steps = [eps * np.array(e) for e in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1),
+                                                     (0, 0, -1))]
+                if any(all(inside(vdt, m + e) for e in steps) for m in mids):
+                    out.append((s, v, "ends-inside"))
+        return out
+    finally:
+        gmsh.model.remove()
+        try:
+            gmsh.model.setCurrent(cur)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 # ------------------------------------------------------------------------------------------------
 # Topology enumeration (stable order = gmsh boundary order)
 # ------------------------------------------------------------------------------------------------

@@ -83,7 +83,7 @@ def stop_worker() -> None:
 
 
 def build(project_dict: dict, path: str | None, design: str, names: list[str] | None, timeout: float,
-          on_progress=None, should_stop=None) -> tuple[dict, dict]:
+          on_progress=None, should_stop=None, kind: str = "tess"):
     """Build and tessellate the named live objects (all: None) of a design in the child process. Raises
     BuildTimeout or BuildCancelled after stopping the child; the next call starts a new one."""
     global _WORKER
@@ -91,7 +91,8 @@ def build(project_dict: dict, path: str | None, design: str, names: list[str] | 
         if _WORKER is None or not _WORKER.alive():
             _WORKER = _Worker()
         w = _WORKER
-        job = pickle.dumps({"project": project_dict, "path": path, "design": design, "names": names})
+        job = pickle.dumps({"project": project_dict, "path": path, "design": design, "names": names,
+                            "kind": kind})
         t0 = time.monotonic()
         last = ""
         try:
@@ -159,6 +160,9 @@ def main() -> int:
             proj = project_from_dict(job["project"])
             proj.path = job["path"]
             des = proj.design(job["design"])
+            if job.get("kind") == "sheets":
+                send("R", pickle.dumps(sheets_here(proj, des)).hex())
+                continue
             result = tessellate_here(
                 proj, des, job["names"],
                 lambda i, n, msg: send("P", json.dumps({"done": i, "total": n, "message": msg})))
@@ -166,6 +170,14 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             send("R", pickle.dumps({"error": f"{type(e).__name__}: {e}"}).hex())
     return 0
+
+
+def sheets_here(proj, des) -> list:
+    """Where the sheets lie in the solids (kernel.occ.sheet_placement)."""
+    from ..kernel import occ as K
+    from ..model.materials import is_conductor
+    K.ensure_gmsh("hertzon_mcp")
+    return K.sheet_placement(des, des.evaluator(proj), lambda n: is_conductor(proj.material(des.obj(n).material)))
 
 
 def tessellate_here(proj, des, names, progress=None) -> tuple[dict, dict]:

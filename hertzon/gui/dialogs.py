@@ -717,12 +717,13 @@ class ValidationDialog(QDialog):
     ICON = {"ok": "✔", "warning": "⚠", "error": "✖"}
     COLOR = {"ok": "#1e8449", "warning": "#b9770e", "error": "#c0392b"}
 
-    def __init__(self, doc, parent=None, overlaps=None, resolve=None):
+    def __init__(self, doc, parent=None, overlaps=None, resolve=None, sheets=None):
         """overlaps: classified overlapping solids (model.validate.Overlap) from the exact geometry check;
-        resolve(list of Overlap) subtracts the winner of each from the loser."""
+        resolve(list of Overlap) subtracts the winner of each from the loser; sheets: where the sheets lie in
+        the solids (kernel.occ.sheet_placement)."""
         super().__init__(parent)
         self.setWindowTitle(f"Validation Check: {doc.project.name} - {doc.design.name}")
-        checks = validate(doc.project, doc.design, doc.tess, doc.errors, overlaps)
+        checks = validate(doc.project, doc.design, doc.tess, doc.errors, overlaps, sheets)
         fixable = {ov.message: ov for ov in overlaps or [] if not ov.contained}
         self.ok = not any(c.level == "error" for c in checks)
         lay = QHBoxLayout(self)
