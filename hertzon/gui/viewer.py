@@ -35,6 +35,52 @@ def _rgb(color: str):
     return tuple(int(color[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
 
+def scene_stamp(plotter) -> tuple:
+    """A stamp that changes whenever the picture of the plotter can change: the renderers, their cameras and
+    lights, and every prop with its property, mapper and input data (VTK modification times)."""
+    stamp = []
+    for ren in plotter.renderers:
+        cam = ren.GetActiveCamera()
+        stamp += [ren.GetMTime(), cam.GetMTime() if cam is not None else 0]
+        lights = ren.GetLights()
+        lights.InitTraversal()
+        for _ in range(lights.GetNumberOfItems()):
+            stamp.append(lights.GetNextItem().GetMTime())
+        props = ren.GetViewProps()
+        props.InitTraversal()
+        for _ in range(props.GetNumberOfItems()):
+            prop = props.GetNextProp()
+            stamp.append(prop.GetRedrawMTime() if hasattr(prop, "GetRedrawMTime") else prop.GetMTime())
+            stamp.append(prop.GetVisibility())
+    return tuple(stamp)
+
+
+def render_on_change(plotter) -> None:
+    """Keep the auto-update timer of a pyvistaqt plotter (it catches changes made without a render call) but
+    render only when the scene changed since the last render. Rendering an unchanged scene five times a second
+    kept the CPU busy while Hertzon was idle (several percent with anti-aliasing and sorted translucency)."""
+    timer = getattr(plotter, "render_timer", None)
+    if timer is None or not timer.isActive():
+        return
+    try:
+        timer.timeout.disconnect(plotter._auto_render)
+    except (RuntimeError, TypeError, AttributeError):
+        return
+    state = {"last": None}
+
+    def tick():
+        try:
+            now = scene_stamp(plotter)
+        except Exception:  # noqa: BLE001  (half-closed plotter: let pyvistaqt decide)
+            plotter._auto_render()
+            return
+        if now != state["last"]:
+            plotter._auto_render()
+            state["last"] = scene_stamp(plotter)   # the render itself may touch modification times
+
+    timer.timeout.connect(tick)
+
+
 def sorted_translucency(plotter) -> bool:
     """Blend translucent surfaces depth-correctly under SSAA.
 
@@ -383,6 +429,7 @@ class ModelerView(QWidget):
         p.set_background("#dfe3e8", top="#f1f3f6")
         p.enable_anti_aliasing("ssaa") if hasattr(p, "enable_anti_aliasing") else None
         sorted_translucency(p)
+        render_on_change(p)
         try:
             p.iren.clear_key_event_callbacks()
         except Exception:  # noqa: BLE001

@@ -737,6 +737,9 @@ class CircuitEditor(QWidget):
         lay.setSpacing(0)
         self.hint = QLabel()
         self.hint.setStyleSheet(f"color: {MUTED}; padding: 3px 8px;")
+        # a long hint wraps instead of setting the width of the schematic (and so of the whole central area,
+        # which would stop the Project Manager and the part library from being widened)
+        self.hint.setWordWrap(True)
         self.view = SchematicView(self)
         self.library = PartLibrary(self)
         split = QSplitter()
