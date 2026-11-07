@@ -292,14 +292,8 @@
   };
   Player.prototype.finish = function (d, instant) {
     var self = this, q = this.q;
-    if (instant) {
-      d.steps.forEach(function (s) {
-        (s.show || []).forEach(function (id) { self.view.show(id); });
-        (s.hide || []).forEach(function (id) { self.view.hide(id); });
-        if (s.note != null) q(".aid-note").textContent = s.note;
-      });
-      var last = d.steps.filter(function (s) { return s.runs != null; }).pop();
-      if (last) this.setStatus(last.runs, last.score, d);
+    if (instant) {                      // reduced motion: the end state with the whole log at once
+      d.steps.forEach(function (s) { self.step(s, d, true); });
     }
     q(".aid-clock").textContent = d.total;
     var c = d.card, card = q(".aid-card");
