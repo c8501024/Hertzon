@@ -363,9 +363,7 @@ class VariablesDialog(QDialog):
                 b.setToolTip("Set by Modeler > PCB Stackup; change the layer there")
             self.table.setItem(r, 1, b)
             try:
-                val, has_unit = ev._eval(k)
-                txt = f"{val * 1e3:.6g}mm" if has_unit and abs(val) < 1 else f"{val:.6g}"
-                c = QTableWidgetItem(txt)
+                c = QTableWidgetItem(ev.display(k))
             except Exception as e:  # noqa: BLE001
                 c = QTableWidgetItem(str(e))
                 c.setForeground(QBrush(QColor("#c0392b")))
