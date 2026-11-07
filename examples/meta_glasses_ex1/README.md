@@ -51,7 +51,10 @@ time on one 64-core workstation, ~95k model output tokens.
 
 - Free space only, as the benchmark goal states. The agent did not on its own add a human head or body
   phantom, which is needed to judge the antenna as it would work on a person. That step still has to be done
-  and has not been done yet.
+  and has not been done yet. The prompt was only "find the benchmark and get started", with no hint about
+  body proximity.
+- Future work: phantom models at several levels of accuracy in Hertzon, usable through MCP, and choosing
+  antenna types that suit on-body use.
 - Only the top layer was used; the bottom layer, vias and loaded ground connections were not explored.
 - Meta publishes no reference efficiency for its own design, so the result cannot yet be ranked.
 

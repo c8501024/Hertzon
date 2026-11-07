@@ -154,6 +154,11 @@ The result is confirmed by two independent solvers (Section 5a). The remaining c
 - **Comparability.** Meta does not publish a reference efficiency for its human design, so the result cannot yet be ranked.
 - **No human body model.** The design was optimized and verified in free space only, as the benchmark goal states. The agent did not on its own add a human head or body phantom, which is needed to judge the antenna as it would work on a person (detuning and absorption near the head). Meta's own CST project shows they use a silicone head model for this. That check still has to be done and has not been done yet.
 
+The missing body model also reflects the task as given: the prompt was only "find the benchmark and get started", with no hint about body proximity, so the agent stayed with the free-space goal of the benchmark. Future work:
+
+- **Phantom models in the solver.** Hertzon should ship human phantom models at several levels of accuracy (homogeneous head, layered head, detailed head and hand), exposed through the MCP interface, so an agent can switch from free space to on-body evaluation without building the phantom itself.
+- **Antenna types for on-body use.** Some antenna types are better suited near the body than others, for example types with less near-field coupling into tissue. An on-body study should let the agent choose the topology with that criterion, not only free-space efficiency.
+
 ## 8 Conclusion
 
 An LLM agent driving an open FEM solver produced a matching-free design for Meta's Example 1 with about 81 % average total efficiency in both Wi-Fi 6E bands within 2 h 25 min and 50 simulations. What made this possible is the MCP interface between the language model and the solver: every modelling, solving and post-processing step was a tool call the agent could plan, check and repeat, so no antenna-specific AI model, training data or human hand-off was needed. On the antenna side, the decisive step was a topology change, from an IFA to a coupled-fed shorted strip with the feed near the middle of the arm, rather than component-level matching. Model, scripts and data are in this folder (`Meta_Ex1_CoupledFedStrip.hzn`, `Meta_Ex1_CoupledFedStrip.step`, `hfss/`, `results/`, `tools/`).
