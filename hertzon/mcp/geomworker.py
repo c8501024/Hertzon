@@ -104,17 +104,27 @@ def build(project_dict: dict, path: str | None, design: str, names: list[str] | 
           on_progress=None, should_stop=None, kind: str = "tess"):
     """Build and tessellate the named live objects (all: None) of a design in the child process. Raises
     BuildTimeout or BuildCancelled after stopping the child; the next call starts a new one."""
+    return _run({"project": project_dict, "path": path, "design": design, "names": names, "kind": kind},
+                timeout, on_progress, should_stop)
+
+
+def probe(file: str, unit_scale: float, timeout: float, on_progress=None, should_stop=None) -> list:
+    """The bodies [(dim, tag)] of a CAD or STL file, read in the child process: a large STEP file that the
+    kernel reads for half an hour no longer holds the server (time limit, cancel, pings answered)."""
+    return _run({"kind": "probe", "file": file, "unit": unit_scale}, timeout, on_progress, should_stop)
+
+
+def _run(job: dict, timeout: float, on_progress=None, should_stop=None):
     global _WORKER
     with _LOCK:
         if _WORKER is None or not _WORKER.alive():
             _WORKER = _Worker()
         w = _WORKER
-        job = pickle.dumps({"project": project_dict, "path": path, "design": design, "names": names,
-                            "kind": kind})
+        data = pickle.dumps(job)
         t0 = time.monotonic()
         last = ""
         try:
-            w.p.stdin.write(b"J " + job.hex().encode("ascii") + b"\n")
+            w.p.stdin.write(b"J " + data.hex().encode("ascii") + b"\n")
             w.p.stdin.flush()
             while True:
                 left = timeout - (time.monotonic() - t0)
@@ -182,6 +192,10 @@ def main() -> int:
             continue
         try:
             job = pickle.loads(bytes.fromhex(body))
+            if job.get("kind") == "probe":
+                send("P", json.dumps({"done": 0, "total": 1, "message": f"reading {job['file']}"}))
+                send("R", pickle.dumps(probe_here(job["file"], job["unit"])).hex())
+                continue
             from ..model.design import project_from_dict
             proj = project_from_dict(job["project"])
             proj.path = job["path"]
@@ -196,6 +210,21 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             send("R", pickle.dumps({"error": f"{type(e).__name__}: {e}"}).hex())
     return 0
+
+
+def probe_here(file: str, unit_scale: float) -> list:
+    """The bodies of a CAD or STL file, read into a scratch model."""
+    import gmsh
+    from ..kernel import occ as K
+    K.ensure_gmsh("hertzon_mcp_probe")
+    gmsh.model.remove()
+    gmsh.model.add("hertzon_mcp_probe")
+    if file.lower().endswith(".stl"):
+        bodies = K.import_stl(file, unit_scale, count_only=True)
+    else:
+        bodies = K.import_cad(file, unit_scale)
+    gmsh.model.occ.synchronize()
+    return [(int(d), int(t)) for d, t in bodies]
 
 
 def sheets_here(proj, des) -> list:

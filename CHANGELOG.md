@@ -14,6 +14,9 @@ the GitHub release notes.
 - **MCP**: the geometry process for render_image, validate, get_geometry and run_simulation starts with the
   server and loads gmsh and Hertzon right away, so the first call no longer waits for it
   (HERTZON_NO_PRELOAD=1 turns it off).
+- **MCP import_geometry** reads the STEP, IGES, BREP or STL file in the geometry process, with a time limit
+  (timeout_s), progress and cancel like render_image. A large file no longer holds the whole server without
+  an answer.
 
 ## 0.3.4 (2026-11-07)
 
