@@ -5,6 +5,13 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- **Ratios of lengths in Design Properties**: a variable such as `c = a/b` with two lengths showed a unit
+  when the result was below 1 (a = 2mm, b = 6mm gave "333.333mm"). The units of an expression are now
+  followed through the calculation: a ratio of lengths is a plain number (0.333333) and, used as a length,
+  counts in model units like any plain number; lengths show in mm (areas in mm^2), frequencies with their
+  unit, and `c0/f` is a length.
+
 ## 0.3.3 (2026-11-07)
 
 ### Fixed
