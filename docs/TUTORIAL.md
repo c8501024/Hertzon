@@ -1,6 +1,6 @@
 # Hertzon tutorial: from an empty window to S-parameters, gain and RCS
 
-This guide walks through seven complete simulations step by step:
+This guide walks through nine complete simulations step by step:
 
 * [1. A waveguide with wave ports](#1-waveguide-with-wave-ports) (WR-90 with an inductive post, field on a
   cut plane, animation as GIF)
@@ -14,6 +14,10 @@ This guide walks through seven complete simulations step by step:
   for two traces, mixed-mode S-parameters)
 * [10. Tune a patch antenna with sliders](#10-tune-a-patch-antenna-with-sliders) (derivative tuning: patch
   length and inset with sliders, S11, pattern and gain follow live; S11 and gain over the patch length)
+* [11. A stub filter as a circuit](#11-a-stub-filter-as-a-circuit-and-its-3d-layout) (circuit design, line
+  calculator, automatic junctions, copy and paste; the 3D layout, solved, tuned and copied back)
+* [12. A board from Gerber files](#12-import-a-board-from-gerber-files) (Import PCB: copper layers, drill
+  files, outline and the stackup)
 
 and shows how to let an AI assistant do the same work for you through
 [Hertzon's MCP server](#5-let-an-ai-assistant-build-and-run-it-mcp), how to
@@ -31,7 +35,8 @@ plots ready: **Analyze All** (F5), then double-click a report or a field plot in
 > Details in [section 5](#5-let-an-ai-assistant-build-and-run-it-mcp).
 
 Every step below uses menu names as they appear in Hertzon. Most commands are on the ribbon too
-(tabs **Draw**, **Model**, **Simulation**, **Results**), and every one is in the menu bar.
+(tabs **Desktop**, **View**, **Draw**, **Model**, **Simulation**, **Lumped Elements**, **Results**; a circuit
+design has its own tabs), and every one is in the menu bar.
 
 ## 0. The basics in two minutes
 
@@ -84,7 +89,10 @@ does not fit, the object stays unchanged and a message says why.
 
 **Variables.** Every number accepts expressions with units, such as `a/2`, `lambda0/4` or `2.5mm+t`. Define
 variables in **Project > Design Properties...** and change them later: the model, ports and integration
-lines follow.
+lines follow. **Constants & Functions...** in the same dialog lists what a value may use: the constants
+(`pi`, `c0`, `e0`, `u0`), the functions (`sin`, `sqrt`, `if`, ...), the units and the other variables, with
+a search field. Double-click an entry (or **Insert**) to put it at the cursor of the selected value; a
+function goes around selected text.
 
 **Solving.** **Simulation > Validation Check** lists problems before you start. **Simulation > Analyze All**
 (F5) solves every enabled setup. Each adaptive pass appears in the Progress window, and **Results >
@@ -144,8 +152,9 @@ middle, from 8 to 12 GHz. The finished project is `examples/WaveguidePost.hzn`.
 
 ### 1.1 New design and variables
 
-1. **File > New**. The project starts with one empty design.
-2. **Simulation > Solution Type...**: choose **Modal** and leave **Auto open region** at **Off**.
+1. **File > New**. The start page asks what to simulate: choose **3D FEM**, solution type **Modal**, units
+   **mm**, and click **Create**. The project starts with one empty design.
+2. **Simulation > Solution Type...**: check **Modal** and leave **Auto open region** at **Off**.
    A waveguide is a closed problem: every outer face that is not a port is a perfect conductor.
 3. **Project > Design Properties...**: add the variables
 
@@ -543,8 +552,12 @@ The assistant works step by step with the same building blocks you used above, a
 | Geometry | `add_object`, `import_geometry`, `modify_object`, `add_operation` (subtract, unite, ...), `delete`, `get_geometry` (faces with index, centre, normal; edges and vertices for Fillet/Chamfer), `set_coordinate_system` |
 | Boundaries and ports | `assign`, `modify_assignment` (boundaries, wave/lumped ports, plane waves, mesh operations) |
 | Analysis | `set_setup`, `set_sweep`, `set_far_field_sphere`, `validate`, `run_simulation`, `get_status`, `abort_simulation` |
-| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `render_image` (a picture of the model), `set_report`, `set_field_plot`, `set_equation` (Fields Calculator) |
-| Parametric and optimization | `set_parametric`, `set_optimization`, run and read with `run_simulation`, `get_status`, `get_results` |
+| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `render_image` (a picture of the model), `set_report` (`open=true` shows it in the window), `set_field_plot`, `set_equation` (Fields Calculator) |
+| Parametric and optimization | `set_parametric`, `set_optimization` (Conjugate Gradient, Latin Hypercube + Nelder-Mead or Derivative Trust Region), run and read with `run_simulation`, `get_status`, `get_results`; `apply_optimization` takes the best result over into the design |
+| Derivative tuning | `compute_tuning` (tuning model of up to 6 variables on the solved mesh), `get_tuning` (S-parameters at other variable values without solving) |
+| Design assistants | `create_patch_antenna` (Tools > Antenna Design), `create_hairpin_filter` (Tools > Filter Design): complete designs with setup, sweep and optimization |
+| Circuits | `create_circuit`, `get_circuit`, `edit_circuit` (parts, wires, 3D design and Touchstone blocks), `run_simulation` / `get_results` / `render_image` on the schematic, `circuit_layout` (3D layout, update, back to the schematic), `import_3d_designs` |
+| Files and boards | `export` (Touchstone, STEP, Gerber, EMerge script), `import_pcb` (Gerber, Excellon, job files), `set_stackup`, `manage_design` (copy, delete), `list_examples`, `open_example` |
 | Scripting | `run_python` for anything else, with the Hertzon model API |
 
 Simulation results can be wrong, whether you or an assistant set the model up. Check them as described in
@@ -870,9 +883,157 @@ tuned. See [TUNING.md](TUNING.md) for the details and the limits.
 
 ---
 
+## 11. A stub filter as a circuit and its 3D layout
+
+**Goal:** a band-stop filter for 2.45 GHz from two open quarter-wave stubs on a 50 Ω microstrip line,
+designed as a **circuit** in a fraction of a second, then turned into a **3D layout**, solved full-wave,
+tuned there and copied back into the schematic. The finished project is `examples/StubFilter.hzn`.
+Everything a circuit design offers is described in [CIRCUIT.md](CIRCUIT.md).
+
+### 11.1 A circuit design
+
+1. **File > New**. On the start page choose **Circuit**, keep **Linear Network**, enter the project name
+   `StubFilter` and click **Create**. **Project > Rename Design...** names the design `StubFilter` too, so the
+   layout below is called `StubFilter_Layout`. A schematic opens in place of the 3D modeler, with its own ribbon
+   (Desktop, Schematic, Lumped Elements, Transmission Lines, Data, Simulation, Results) and the part library
+   with a search field next to it.
+
+   ![The start page](tutorial/start_page.png)
+   *The start page of **File > New**: 3D FEM or Circuit, the solution type, the units and the name; on the right
+   the recent projects, the examples and the templates. **Project > Insert Design** shows the same choice.*
+
+2. Drag a **Substrate** (Transmission Lines) into the schematic. Its defaults are a 0.508 mm board with
+   εr 3.66, tan δ 0.0037 and 35 µm copper; keep them. Every line names its substrate in *Subst* (`Sub1`).
+
+### 11.2 Draw the schematic
+
+Parts are placed by dragging them from the library, or with a double-click on the library entry (or a
+ribbon button) and a click in the schematic. While a part hangs at the mouse, **R** rotates and **M**
+mirrors it; **Esc** returns to Select.
+
+1. Place a **Microstrip Line** `MS1`. Double-click it: in the **Line calculator** of its dialog enter
+   Z0 `50ohm`, electrical length `90deg` at `2.45GHz` and press **Calculate W and L**: W = 1.079 mm,
+   L = 18.23 mm. Keep W and set L to `10mm` (a feed line). *Now* shows Z0 = 50.0 Ω and εeff of the line
+   while you type.
+2. Place a **Microstrip Open Stub** `MSO1` to the right of `MS1`, pointing down. In its line calculator use
+   the same values: W = 1.079 mm and L = **18.02 mm**. For an open stub the calculator subtracts the
+   length by which the fringing field at the open end lengthens it.
+3. Place `MS2` (W 1.079 mm, L 18.23 mm, the quarter wave between the stubs), a second stub `MSO2` and
+   `MS3` (W 1.079 mm, L 10 mm). Faster: select `MSO1`, **Ctrl+C**, move the mouse to the new place and
+   **Ctrl+V**: the copy is named `MSO2` and keeps its values and substrate.
+4. Place a **Power Port** at each end (Schematic tab). They are numbered 1 and 2, with 50 Ω.
+5. Press **W** and draw the wires: click on a pin, click the corners, a click on another pin or on a wire ends
+   the wire. Draw one wire from `MS1` to `MS2` and end it on the pin of `MSO1` on the way, the same for
+   `MSO2`. Dragging a part later keeps its wires attached.
+
+Where three microstrip lines meet, a diamond appears: **Automatic** junctions (Transmission Lines >
+Discontinuities, on by default) model the meeting point as a microstrip **tee** with the widths of the
+lines. Its tooltip names the model.
+
+![The schematic of the stub filter](tutorial/circuit_schematic.png)
+*The stub filter: two open stubs a quarter wave apart, an automatic tee (diamond) where each stub meets the
+line, and the part library on the left.*
+
+### 11.3 Sweep, analyze, plot
+
+1. **Simulation > Sweep** opens the sweep in the Properties panel: **Distribution** *Linear Count* from `1GHz`
+   to `4GHz`, **Count** `301`.
+2. **Simulation > Analyze** (F5). The network is solved at once.
+3. **Results > Rectangular Plot**: `dB(S(1,1))` and `dB(S(2,1))`.
+
+The notch is at **2.47 GHz**, 20 MHz above the design: the tee junctions shift the reference planes of the
+stubs. Set L of both stubs to `18.2mm` (double-click each, or edit it in the **Properties** panel) and analyze
+again: the notch is at 2.45 GHz, and S21 stays below −20 dB from 2.12 to 2.76 GHz.
+
+![S-parameters of the circuit](tutorial/circuit_sparams.png)
+*S11 and S21 of the circuit from 1 to 4 GHz with 18.2 mm stubs: the stop band around 2.45 GHz.*
+
+**Full-wave line model.** Transmission Lines > Line Model > **Full Wave** takes the propagation constant and
+impedance of each microstrip cross-section from a mode solve instead of the closed-form formulas. The first
+analysis solves each cross-section (about 10 s each on a desktop) and caches it; here the notch stays at
+2.45 GHz, so the line formulas are not where the difference to 3D below comes from.
+
+### 11.4 The 3D layout
+
+1. **Simulation > Create 3D Layout**. Hertzon builds the 3D design `StubFilter_Layout`: the substrate with
+   its ground plane, the traces end to end as in the schematic (the stubs point in -y as they do in the
+   schematic), the tee junctions and the two power ports as **Lumped Ports** on the board edge. Every
+   dimension is a design variable named after its part (`MS1_W`, `MS2_L`, `MSO1_L`, `Sub1_H`, ...), and the
+   setup has the sweep of the circuit (interpolating).
+2. **Simulation > Analyze All** (F5). On a 4-core computer the adaptive passes converge after 7 passes with
+   about 20 000 tetrahedra, and the interpolating sweep needs 17 solutions; together about a minute.
+3. **Results > Create Modal Solution Data Report > Rectangular Plot** (or right-click *Results*):
+   `dB(S(1,1))` and `dB(S(2,1))`, the same report as for the circuit.
+
+![The 3D layout](tutorial/layout_3d.png)
+*The 3D layout built from the schematic: the feed line with the two stubs, the board and the ground plane.*
+
+![S-parameters of the 3D layout](tutorial/layout_sparams.png)
+*The full-wave solution of the layout: the notch is at 2.41 GHz, S21 below −20 dB from 2.07 to 2.74 GHz.*
+
+The full-wave notch is 40 MHz (1.6 %) lower than in the circuit: the open ends and the tees radiate and
+couple a little more than their closed-form models say. This is what the 3D layout is for.
+
+### 11.5 Tune in 3D and copy back
+
+1. In `StubFilter_Layout` open **Project > Design Properties...** and set `MSO1_L` and `MSO2_L` to `18mm`.
+2. **Analyze All**: the notch of the 3D layout is now at **2.45 GHz** (S21 below −20 dB from 2.09 to 2.77 GHz).
+3. Go back to the circuit design and click **Simulation > Update Schematic**. The Message Manager lists the
+   changes (`MSO1.L: 18.2mm → 18mm`, ...), and the schematic has the dimensions of the 3D layout.
+
+The way back works for every dimension: a trace width changed directly on the object of the layout comes
+back too. In the other direction, **Update 3D Layout** rebuilds the layout after you added, removed or
+exchanged parts in the schematic; its setups and reports stay.
+
+**More in a circuit:** drag a solved 3D design from the Project Manager into the schematic to use it as an
+S-parameter block, or drag a `.hzn` file in to copy the 3D designs of another project (Data > 3D Design >
+From Project File). *Create 3D Layout* then builds those blocks in with their geometry, turned so that the
+lines attach at their ports. **Via to Ground** shorts a line through N vias (their inductance and coupling
+included), and **Coplanar Line**, **Coupled Microstrip**, the junction parts and the lumped R, L and C complete
+the library. See [CIRCUIT.md](CIRCUIT.md).
+
+---
+
+## 12. Import a board from Gerber files
+
+**Goal:** a simulation model from the manufacturing files of a board: substrate in the board shape, the
+copper of each layer, vias and holes, all on a stackup whose variables drive the geometry. This section reads
+back the files written in [section 6](#6-gerber-export-of-a-printed-circuit-board); files from KiCad, Altium or
+Eagle work the same way. The reference of the import is [PCB_IMPORT.md](PCB_IMPORT.md).
+
+1. Write the files of `examples/GerberTestBoard.hzn` as in section 6 into a folder.
+2. **File > New**, **3D FEM**, units **mm**, **Create**.
+3. **File > Import PCB (Gerber, Excellon)...** (also **Import PCB** on the ribbon). Press **Add folder...** and
+   choose the folder. A zip archive or single files work too.
+4. The table says what each file is and how it was found (*Found by*: X2 attribute, job file, file name). Here
+   the two copper layers and the outline come from their X2 attributes, the two drill files are Excellon, and
+   the export report is *Other (not loaded)*. Change an entry with its drop-down list if a file was
+   recognised wrongly.
+5. **Stackup:** without a job file (`.gbrjob`) Hertzon assumes a usual 2-layer board of 1.6 mm and says so.
+   **Edit stackup...** opens the stackup editor: set the core thickness, εr and tan δ of your board and choose
+   for each copper layer whether it is a sheet with finite conductivity (thin conductor) or solid copper.
+6. The preview shows the selected file; **Shift + drag** limits the import to a part of the board. *What will be
+   made* lists the result before anything is built.
+7. Press **Import**.
+
+![Import PCB dialog](tutorial/pcb_import.png)
+*Import PCB with the files of the test board: two copper layers, the outline and two drill files, the stackup
+assumed (no job file), and the list of what will be made.*
+
+The design now holds the substrate `Sub_Core_1_2` in the board shape (the slot, the mounting hole and the via
+cut out), 8 copper shapes on `L1 Top` and the ground plane on `L2 Bottom` (groups *PCB L1 Top*, *PCB L2
+Bottom*), the via as a copper cylinder (*PCB Vias*) and the boundaries `Cu_L1_Top` and `Cu_L2_Bottom`.
+The stackup writes the variables `stk_Core_1_2_t`, `stk_L1_Top_zs`, `stk_total` and so on, read-only in
+Design Properties: change a thickness in **Modeler > PCB Stackup...** and every object moves with it.
+
+What is not simulated (solder mask, silkscreen, paste) is not loaded, and the import report names it. Import
+again to replace the earlier import. Then add ports, a region and a setup as in the sections above.
+
+---
+
 ## Where to go next
 
-* `examples/` has fifteen finished projects, from a microstrip line to a Rotman lens, all with hzAURA
+* `examples/` has seventeen finished projects, from a microstrip line to a Rotman lens and a circuit with its 3D layout, all with hzAURA
   and curved elements; most open with their reports and field plots. See the table in the
   [README](../README.md#examples).
 * **Tools > Antenna Design > Rectangular Patch...** and **Tools > Filter Design > Tapped Hairpin...** create

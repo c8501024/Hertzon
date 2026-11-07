@@ -1,8 +1,10 @@
 """Fast unit tests (no FEM solve). Run: python -m pytest tests"""
 import json
+import math
 import sys
 from pathlib import Path
 
+import gmsh
 import numpy as np
 import pytest
 
@@ -1587,3 +1589,79 @@ def test_straight_wire_is_round(quality):
     n = np.cross(b - a, c - a)
     m = (a + b + c) / 3
     assert np.all(n[:, 0] * m[:, 0] + n[:, 1] * m[:, 1] > 0)
+
+
+def test_solver_preload(monkeypatch):
+    """The window starts python -m hertzon.solver.preload, which loads the solver's libraries (the first
+    Analyze after a restart or an update then does not wait for them); HERTZON_NO_PRELOAD=1 switches it off."""
+    import subprocess
+    from hertzon.gui import app
+    from hertzon.solver import preload
+    started = []
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: started.append((args, kw)))
+    monkeypatch.setenv("HERTZON_NO_PRELOAD", "1")
+    app._preload_solver()
+    assert started == []
+    monkeypatch.delenv("HERTZON_NO_PRELOAD")
+    app._preload_solver()
+    (args, kw), = started
+    assert args[1:] == ["-m", "hertzon.solver.preload"] and kw["stdout"] == subprocess.DEVNULL
+    assert str(Path(app.__file__).resolve().parents[2]) in kw["env"]["PYTHONPATH"]
+    monkeypatch.undo()           # EMerge runs subprocesses while it is imported
+    preload.preload()
+    import sys
+    assert "emerge" in sys.modules
+
+
+def test_cover_united_lines_with_arcs():
+    """Lines united in any order cover to one sheet, also when several of them are arcs (the united curves come
+    out in the order of the boolean, not along the outline; the curve loop needs them end to end)."""
+    import itertools
+    segs = {"b": ("0,0,0;4,0,0", "Line"), "r": ("4,0,0;5,1,0;4,2,0", "Arc"),
+            "t": ("4,2,0;0,2,0", "Line"), "l": ("0,2,0;-1,1,0;0,0,0", "Arc")}
+    for order in itertools.permutations("brtl"):
+        p = Project()
+        d = p.designs[0]
+        for n in order:
+            d.add_object("CreatePolyline", name=n, Points=segs[n][0], SegmentTypes=segs[n][1])
+        first, *rest = order
+        for n in rest:
+            d.obj(n).consumed_by = first
+        d.obj(first).history.append(Command.new("Unite", Tools=",".join(rest)))
+        d.obj(first).history.append(Command("Cover", {}))
+        K.ensure_gmsh("test_cover_arcs")
+        gmsh.clear()
+        K.ensure_gmsh("test_cover_arcs")
+        ctx = K.build_design(d, d.evaluator(p))
+        assert not ctx.errors, (order, ctx.errors)
+        (dim, tag), = ctx.built[first]
+        assert dim == 2
+        # stadium: 4 x 2 mm rectangle and two half discs of radius 1 mm
+        assert gmsh.model.occ.getMass(2, tag) == pytest.approx((8 + math.pi) * 1e-6, rel=1e-6), order
+    # lines that do not close give a clear message
+    p = Project()
+    d = p.designs[0]
+    d.add_object("CreatePolyline", name="a", Points="0,0,0;4,0,0")
+    d.add_object("CreatePolyline", name="c", Points="4,0,0;5,1,0;4,2,0", SegmentTypes="Arc")
+    d.obj("c").consumed_by = "a"
+    d.obj("a").history.append(Command.new("Unite", Tools="c"))
+    d.obj("a").history.append(Command("Cover", {}))
+    K.ensure_gmsh("test_cover_arcs")
+    gmsh.clear()
+    K.ensure_gmsh("test_cover_arcs")
+    assert "closed loop" in K.build_design(d, d.evaluator(p)).errors["a"]
+    # a second closed loop inside becomes a hole, whichever way it was drawn
+    for hole in ("1,1,0;2,1,0;2,2,0;1,2,0", "1,1,0;1,2,0;2,2,0;2,1,0"):
+        p = Project()
+        d = p.designs[0]
+        d.add_object("CreatePolyline", name="a", Points="0,0,0;4,0,0;4,4,0;0,4,0", Closed="True")
+        d.add_object("CreatePolyline", name="h", Points=hole, Closed="True")
+        d.obj("h").consumed_by = "a"
+        d.obj("a").history.append(Command.new("Unite", Tools="h"))
+        d.obj("a").history.append(Command("Cover", {}))
+        K.ensure_gmsh("test_cover_arcs")
+        gmsh.clear()
+        K.ensure_gmsh("test_cover_arcs")
+        ctx = K.build_design(d, d.evaluator(p))
+        assert not ctx.errors
+        assert sum(gmsh.model.occ.getMass(*x) for x in ctx.built["a"]) == pytest.approx(15e-6, rel=1e-9)

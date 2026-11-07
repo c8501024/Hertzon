@@ -106,6 +106,27 @@ def _load_in_thread(work) -> None:
     threading.Thread(target=work, name="hertzon-preload", daemon=True).start()
 
 
+def _preload_solver() -> None:
+    """Start python -m hertzon.solver.preload: it loads EMerge and its libraries once, so the first Analyze after
+    a restart or an update does not wait (about 50 s on a Windows laptop) for them to be read and checked by
+    the virus scanner. HERTZON_NO_PRELOAD=1 switches it off."""
+    import os
+    import subprocess
+    from pathlib import Path
+    if os.environ.get("HERTZON_NO_PRELOAD") == "1":
+        return
+    try:
+        from .solve import solver_python
+        env = dict(os.environ)
+        root = str(Path(__file__).resolve().parents[2])
+        env["PYTHONPATH"] = root + os.pathsep + env.get("PYTHONPATH", "")
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen([solver_python(), "-m", "hertzon.solver.preload"], env=env, creationflags=flags,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _web_engine_setup() -> None:
     """The formula editor of the Fields Calculator is a web view in the main window, next to the 3D view.
     Qt WebEngine has to be loaded before the application object exists. The main window can draw with one
@@ -162,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     app.processEvents()
     win.view.warm_up()        # the first hover or click in the 3D view then does not wait for the graphics driver
     _load_in_thread(_material_library)
+    _preload_solver()
     if sp is not None:
         sp.finish(win)
     if files:
@@ -171,6 +193,13 @@ def main(argv: list[str] | None = None) -> int:
         win.file_open(files[0])
     if "--ai-link" in argv:          # started by the MCP server for an AI assistant
         win.ai_link.start(auto_register=False)
+    elif not files:
+        # the start page (3D FEM or Circuit), unless switched off with its "Show at startup" box; not when an
+        # AI assistant started Hertzon, which would wait behind the dialog
+        from PySide6.QtCore import QTimer
+        from .start_page import SHOW_AT_STARTUP
+        if win.settings.value(SHOW_AT_STARTUP, True, type=bool):
+            QTimer.singleShot(0, win.start_page)
     return app.exec()
 
 

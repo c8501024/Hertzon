@@ -42,6 +42,7 @@ HELP: dict[str, str] = {
     "Faces": "Face indices of the object, comma separated.",
     "Closed": "Connect the last point with the first one.",
     "Covered": "Fill a closed polyline with a sheet.",
+    "Holes": "Holes in a covered polyline sheet: loops of points separated by |.",
     "PaddingType": "Region padding: percentage of the model size or absolute offset per direction.",
     "+X": "Region padding in +X.", "-X": "Region padding in -X", "+Y": "Region padding in +Y.",
     "-Y": "Region padding in -Y.", "+Z": "Region padding in +Z.", "-Z": "Region padding in -Z.",
@@ -143,6 +144,9 @@ HELP: dict[str, str] = {
     "MaximumDeltaS": "Convergence target: maximum change of any S-parameter magnitude between two passes.",
     "UseMatrixConvergence": "Use separate magnitude and phase targets instead of Delta S.",
     "MaxDeltaMag": "Maximum change of |S| between passes.",
+    "UsePowerBalance": "Antennas: also require Prad + Ploss = Pacc (power balance) and a stable radiation efficiency.",
+    "MaxPowerBalance": "Maximum |Prad + Ploss - Pacc| / Pin of a pass (0.01 = 1 % of the incident power).",
+    "MaxDeltaEfficiency": "Maximum change of the radiation efficiency Prad / (Prad + Ploss) between passes.",
     "MaxDeltaPhase": "Maximum change of the S-parameter phase between passes (degrees).",
     "LambdaRefinement": "Initial mesh refinement so that elements are smaller than a fraction of the wavelength.",
     "LambdaTarget": "Initial element size as a fraction of the wavelength (default: 0.1 / 0.3333 / 0.6667 "
@@ -166,7 +170,7 @@ HELP: dict[str, str] = {
     "GrowthRate": "Mesh grading away from refined regions.",
     "EnforceRefinementPercent": "Adjust the refinement until the target percentage is reached.",
     "CurvedElements": "Tetrahedra at curved metal and material surfaces (cylinders, spheres, splines) get curved edges that follow the true geometry instead of flat facets. Removes the faceting error, so round posts, rods and dielectric resonators converge with far fewer elements. Applies to PEC, finite-conductivity metal, symmetry and material surfaces, also where they meet a radiation boundary or a lumped port. Curved surfaces connected to a wave port stay flat, so the line behind the port matches the port mode; radiation, impedance, lumped and thin-conductor faces themselves stay flat. Faceted primitives (NumberOfSegments/NumberOfVertices > 0) are flat by definition. Switch off only to compare with the plain flat-faceted mesh.",
-    "RefinementMethod": "hzAURA (EMerge), the default: EMerge's local refinement, the worst elements are bisected along their longest edge and the new elements are improved by flips and smoothing; where a new node on a curved surface cannot be moved onto it that way, the elements around it are re-meshed (Delaunay cavity) so the surface stays exact; old nodes never move (nested meshes, no gmsh run per pass). Local (Delaunay): local, the mesh is refined in place by local Delaunay point insertion around the worst elements; everything else stays exactly the same (nested meshes, no re-meshing noise, no gmsh run per pass). Remesh (slow): re-mesh the whole model each pass with gmsh. Remesh (stable, experimental): re-mesh, but every region keeps its current element size and only the worst elements are halved (nearly nested meshes, smoother convergence; test option).",
+    "RefinementMethod": "hzAURA (EMerge), the default: EMerge's AURA local refinement with Hertzon's cavity re-meshing, the worst elements are bisected along their longest edge and the new elements are improved by flips and smoothing; where a new node on a curved surface cannot be moved onto it that way, the elements around it are re-meshed (Delaunay cavity) so the surface stays exact; old nodes never move (nested meshes, no gmsh run per pass). Local (Delaunay): local, the mesh is refined in place by local Delaunay point insertion around the worst elements; everything else stays exactly the same (nested meshes, no re-meshing noise, no gmsh run per pass). Remesh (slow): re-mesh the whole model each pass with gmsh. Remesh (stable, experimental): re-mesh, but every region keeps its current element size and only the worst elements are halved (nearly nested meshes, smoother convergence; test option).",
     "SaveFields": "Store fields for field plots (needs disk space). In a sweep (Discrete or Fast): the fields at "
                   "every frequency, needed for far fields, gain patterns and antenna parameters over frequency; "
                   "an Interpolating sweep has S-parameters only.",
@@ -200,7 +204,7 @@ HELP: dict[str, str] = {
     "AutoOpen": "Automatically add an air region with a radiation boundary around the model.",
     "AutoOpenBoundary": "Boundary type of the automatic open region. With an incident plane wave the radiation boundary is "
                         "always used (the incident wave enters through it).",
-    "AutoOpenPadding": "Distance of the open region from the model.",
+    "AutoOpenPadding": "Distance of the open region from the model. Empty: a third of the wavelength (a quarter with PML) at the lowest frequency of the setup, its switched-on sweeps included. Switching on or changing a sweep that lowers this frequency enlarges the region automatically; the setup is then outdated and analyzed again.",
     "FilterAirMargin": "Air margin around filters for the open region.",
     "MaterialOverride": "Where solids overlap, a metal overrides a dielectric and an object completely inside "
                         "another overrides it. Any other partial overlap of different materials is an error. "

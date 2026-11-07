@@ -64,6 +64,43 @@ def _polygon_surface(pts: list[tuple[float, float, float]]) -> list[tuple[int, i
     return [(2, o.addPlaneSurface([loop]))]
 
 
+def _curve_loops(curves: list[int]) -> list[list[int]]:
+    """Order the curves of a line object into closed chains, the largest (outer boundary) first.
+
+    A united line object keeps its curves in the order of the boolean result, not along the outline; the
+    curve loop needs them end to end. Further closed chains are holes of the largest one."""
+    def ends(c):
+        bnd = gmsh.model.getBoundary([(1, c)], combined=False, oriented=False)
+        pts = [np.asarray(gmsh.model.getValue(0, abs(t), []), float) for _, t in bnd]
+        return (pts[0], pts[-1]) if pts else None
+    info = {c: ends(c) for c in curves}
+    size = max((float(np.abs(q).max()) for e in info.values() if e for q in e), default=1.0)
+    tol = 1e-7 * max(size, 1e-30)
+    same = lambda a, b: float(np.linalg.norm(a - b)) <= tol   # noqa: E731
+    left, chains = list(curves), []
+    while left:
+        c = left.pop(0)
+        chain = [c]
+        if info[c] is not None and not same(*info[c]):
+            start, end = info[c]
+            while not same(start, end):
+                nxt = next((k for k in left if info[k] is not None and (same(info[k][0], end) or same(info[k][1], end))), None)
+                if nxt is None:
+                    raise GeometryError("The lines do not form a closed loop")
+                left.remove(nxt)
+                chain.append(nxt)
+                end = info[nxt][1] if same(info[nxt][0], end) else info[nxt][0]
+        chains.append(chain)
+
+    def extent(chain):
+        lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
+        for c in chain:
+            lo = np.minimum(lo, gmsh.model.getBoundingBox(1, c)[:3])
+            hi = np.maximum(hi, gmsh.model.getBoundingBox(1, c)[3:])
+        return float(np.linalg.norm(hi - lo))
+    return sorted(chains, key=extent, reverse=True)
+
+
 def _segment_types(spec: str, n: int) -> list[tuple[str, int, list[str]]]:
     """'Line,Arc,Spline:4,AngularArc:90:XY' -> [(kind, number of points incl. shared start, extra arguments)].
 
@@ -517,8 +554,25 @@ def _create(cmd: Command, ctx: BuildContext) -> list[tuple[int, int]]:
         if closed and not ends_on_start:
             segs.append(o.addLine(ptags[-1], ptags[0]))
         if closed and p.get("Covered") == "True":
-            loop = o.addCurveLoop(segs)
-            return [(2, o.addPlaneSurface([loop]))]
+            loops = [o.addCurveLoop(segs)]
+
+            def newell(q):   # normal of a planar loop (its direction gives the orientation)
+                q = np.asarray(q, float)
+                return np.cross(q, np.roll(q, -1, axis=0)).sum(axis=0)
+            n_out = newell(pts)
+            for text in (p.get("Holes") or "").split("|"):
+                hp = ev.points(text) if text.strip() else []
+                if len(hp) >= 3 and np.allclose(hp[-1], hp[0]):
+                    hp = hp[:-1]
+                if len(hp) < 3:
+                    if text.strip():
+                        raise GeometryError("A hole of a polyline needs at least three points")
+                    continue
+                if float(np.dot(newell(hp), n_out)) < 0:   # OCC takes the holes with the outer orientation
+                    hp = hp[::-1]
+                ht = [o.addPoint(*q) for q in hp]
+                loops.append(o.addCurveLoop([o.addLine(a, b) for a, b in zip(ht, ht[1:] + ht[:1])]))
+            return [(2, o.addPlaneSurface(loops))]
         return [(1, s) for s in segs]
     if k == "CreateBondwire":
         # bondwire, JEDEC 4-point profile: up by H1, over at the top, down to the end pad
@@ -926,9 +980,12 @@ def _apply(cmd: Command, dt: list[tuple[int, int]], ctx: BuildContext, owner: st
         if k == "Cover":
             if dim != 1:
                 return dt
-            loop = o.addCurveLoop([t for d, t in dt if d == 1])
             o.synchronize()
-            return [(2, o.addPlaneSurface([loop]))]
+            faces = [(2, o.addPlaneSurface([o.addCurveLoop(c)])) for c in _curve_loops([t for d, t in dt if d == 1])]
+            if len(faces) > 1:   # inner chains are holes (cut, so their drawing direction does not matter)
+                faces, _ = o.cut(faces[:1], faces[1:])
+            o.synchronize()
+            return faces
         if k == "ThickenSheet":
             if dim != 2:
                 raise GeometryError("Thicken sheet needs a sheet object")

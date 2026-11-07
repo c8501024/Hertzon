@@ -9,8 +9,9 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 
 | Function | In Hertzon | Status | Notes |
 |---|---|---|---|
-| Project with several designs | Project Manager: Project > Design | ✔ | Insert / copy / rename / delete design |
-| Project and design variables (`$var`, `var`) | Project Variables, Design Properties | ✔ | Expressions with units (`2*w+1mm`, `c0/f`), functions `sin cos sqrt …` |
+| Start page | File > New, at program start | ✔ | 3D FEM (Modal / Terminal / Eigenmode) or Circuit (Linear Network), units, project name; recent projects, examples, templates; *Show at startup*. Low-frequency, transient and harmonic balance shown greyed out (not yet) |
+| Project with several designs | Project Manager: Project > Design | ✔ | Insert / copy / rename / delete design; 3D and circuit designs mixed |
+| Project and design variables (`$var`, `var`) | Project Variables, Design Properties | ✔ | Expressions with units (`2*w+1mm`, `c0/f`), functions `sin cos sqrt …`; *Constants & Functions...* lists and inserts constants, functions, units and variables |
 | Solution Type Modal / Terminal / Eigenmode | Simulation > Solution Type | ◐ | Terminal: terminals of lumped ports and of wave ports (one per signal conductor, reference conductor automatic or named), terminal S-parameters at 50 ohm or the renormalization impedance, differential pairs, Zo and Gamma, port field display, solve ports only, wave ports with several signal conductors (each mode absorbed with its own propagation constant) |
 | Auto Open region | Solution Type dialog: Auto Open | ✔ | Radiation or PML picked automatically (PML when the design radiates: far-field sphere, plane wave or "Radiating structure") |
 | — | **Auto Open - Filter** | ✔ | Air box with a fixed margin and radiation boundary on all outer faces (filter workflow) |
@@ -35,7 +36,8 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Thicken sheet, Sweep along vector / around axis / along path, Cover lines | Draw / Modeler | ✔ | |
 | Fillet, Chamfer | Modeler > Fillet / Chamfer | ◐ | Edges of solids; on flat sheets fillet and chamfer work on the selected vertices |
 | Import STEP / IGES / BREP, Export STEP | File / Modeler | ✔ | |
-| PCB stackup: layers, thicknesses, materials, checks with suggestions, Gerber job file (.gbrjob) | Modeler > PCB Stackup | ◐ | Editor with cross-section and top view with rulers; stk_ variables, board coordinate systems and substrate boxes from the stackup; the Gerber/KiCad import follows |
+| PCB stackup: layers, thicknesses, materials, checks with suggestions, Gerber job file (.gbrjob) | Modeler > PCB Stackup | ✔ | Editor with cross-section and top view with rulers; stk_ variables, board coordinate systems and substrate from the stackup |
+| Import PCB: Gerber (X2 and older RS-274X), Excellon, job file, zip | File > Import PCB ([details](PCB_IMPORT.md)) | ◐ | Copper on the stackup layers (sheet or solid), vias incl. blind/buried, holes, slots, board outline, import area; KiCad .kicad_pcb directly follows |
 | History tree with editable commands, suppress | Model tree + Properties | ✔ | Every command parameter accepts expressions |
 | Object attributes: material, solve inside, model, color, transparency, wireframe | Properties > Attribute | ✔ | |
 | Selection modes Object (O), Face (F), Edge (E), Vertex (V), select by name, Ctrl+A | ✔ | ✔ | |
@@ -109,6 +111,25 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Linear Step / Linear Count / Log Scale / Single Points | ✔ |
 | Save fields (all frequencies) | ✔ Discrete and Fast: field plots, far fields, gain patterns and antenna parameters at every sweep frequency; Interpolating stores S-parameters only |
 
+## Circuit designs
+
+Details in [CIRCUIT.md](CIRCUIT.md).
+
+| Function | In Hertzon | Status | Notes |
+|---|---|---|---|
+| Schematic editor | Circuit design: ribbon, part library with search, Properties panel | ✔ | Drag or click to place, R / M rotate and mirror, wires follow moved parts, net labels, Ctrl+C / Ctrl+V across circuit designs, undo |
+| Lumped parts | Lumped Elements tab | ✔ | R, L, C, series / parallel RLC, attenuator, DC block, DC feed |
+| Transmission lines | Transmission Lines tab | ✔ | Microstrip line and stubs (open, shorted with via), coupled microstrip, coplanar (optionally backed), stripline, coax, ideal TEM lines and stubs, all with expressions |
+| Microstrip junctions | Transmission Lines > Discontinuities | ✔ | Tee, cross, corner, mitered bend, step, gap; *Automatic* finds them where lines meet (default on) |
+| Via to Ground | Transmission Lines > Other | ✔ | N vias at pitch P, partial and mutual inductance, skin-effect resistance |
+| Full-wave line model | Transmission Lines > Line Model > Full Wave | ✔ | Cross-section mode solve at 8 frequencies, cached; microstrip and coplanar lines |
+| Line calculator | Dialog of a line | ✔ | Z0 and electrical length → W and L, live Z0 / εeff / E |
+| Touchstone blocks | Data > Touchstone | ✔ | N-port against ground |
+| 3D designs as blocks | Drag from the Project Manager, Data > 3D Design | ✔ | Solved S-parameters with a picture; *From Project File* or a dragged `.hzn` copies 3D designs with results from another project |
+| Linear analysis | Simulation > Analyze | ✔ | S-parameters over the sweep, reports, Smith chart, data table, Touchstone export |
+| Schematic → 3D layout and back | Simulation > 3D Layout | ◐ | Create / Update 3D Layout, Update Schematic; 3D blocks built in with their geometry (vertical edge ports, same substrate height); coplanar lines as centre strip only; Touchstone, attenuator, coax, DC feed have no layout |
+| Transient, harmonic balance, push excitations to 3D | | ✖ | [ROADMAP.md](ROADMAP.md#step-3-circuit-design) |
+
 ## Results and post-processing
 
 | Function | In Hertzon | Status |
@@ -117,7 +138,8 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Rectangular plot, Smith chart, Data table, markers | ✔ (rename a report from the project tree) |
 | Expressions `dB(S(1,1))`, `VSWR`, `GroupDelay`, `Z`, `Y`, `Zo`, `Gamma`, mixed-mode `S(Diff1,Comm1)`, `ang_deg`, `re`, `im` | ✔ (also as named equations, e.g. `RL = -dB(S(1,1))`, category Equations) |
 | Units on report axes, data tables, CSV export and colour bars | ✔ |
-| Radiation: Infinite Sphere, 2D pattern cuts, 3D polar plot, Gain / Directivity / Realized gain, Eθ/Eφ, markers, beamwidth and side lobes | ✔ (half and quarter models with Symmetry boundaries are mirrored) |
+| Radiation: Infinite Sphere, 2D pattern cuts, 3D polar plot, Gain / Directivity / Realized gain, Eθ/Eφ, markers, beamwidth and side lobes | ✔ (half and quarter models with Symmetry boundaries are mirrored); *Families* of a parametric setup in pattern, antenna parameter and 3D polar reports |
+| Loss power, radiation efficiency Prad / (Prad + Ploss), power balance | ✔ Antenna Parameters, report quantities `LossPower`, `PowerBalance`; optional power balance convergence in the setup |
 | Field overlays on faces, objects and cut planes: Mag, Complex Mag and Vector of E, H, Jsurf and J (volume current sigma E), phase animation | ✔ (with nothing selected, the faces or objects are picked in the 3D view) |
 | Volume field plots (scalar field through a solid as coloured dots) | ✔ Plot on "(selection, inside solids)" |
 | Export Touchstone, CSV, images | ✔ (CSV and Copy Data hold the curves as drawn, in the units of the axes) |

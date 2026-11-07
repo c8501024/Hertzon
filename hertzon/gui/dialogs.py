@@ -110,7 +110,8 @@ def edit_setup(parent, doc, s: Setup) -> bool:
     props = schema.EIGEN_SETUP if s.eigen else schema.SETUP
     des = doc.design
     pw = not des.ports() and any(e.kind == "Incident Plane Wave" and e.enabled for e in des.excitations)
-    drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase"} if pw
+    drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
+                 "MaxPowerBalance", "MaxDeltaEfficiency"} if pw
             else {"MaximumDeltaEnergy"})
     props = [p for p in props if p.name not in drop]
     dlg = NamedPropsDialog("Driven Solution Setup" if not s.eigen else "Eigenmode Solution Setup", s.name, props,
@@ -362,9 +363,7 @@ class VariablesDialog(QDialog):
                 b.setToolTip("Set by Modeler > PCB Stackup; change the layer there")
             self.table.setItem(r, 1, b)
             try:
-                val, has_unit = ev._eval(k)
-                txt = f"{val * 1e3:.6g}mm" if has_unit and abs(val) < 1 else f"{val:.6g}"
-                c = QTableWidgetItem(txt)
+                c = QTableWidgetItem(ev.display(k))
             except Exception as e:  # noqa: BLE001
                 c = QTableWidgetItem(str(e))
                 c.setForeground(QBrush(QColor("#c0392b")))

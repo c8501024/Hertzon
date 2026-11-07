@@ -93,13 +93,14 @@ class ExprError(ValueError):
     pass
 
 
-def _strip_units(text: str) -> tuple[str, bool]:
+def _strip_units(text: str, scale: dict[str, float] | None = None) -> tuple[str, bool]:
     found = False
 
     def repl(m: re.Match) -> str:
         nonlocal found
         found = True
-        return f"({m.group(1)}*{ALL_UNITS[m.group(2)]!r})"
+        f = ALL_UNITS[m.group(2)] * (scale or {}).get(m.group(2), 1.0)
+        return f"({m.group(1)}*{f!r})"
 
     return _NUM_UNIT.sub(repl, text), found
 
@@ -108,9 +109,15 @@ class Evaluator:
     """Evaluates expressions against variables. Variables are evaluated lazily
     and may reference each other. Results are SI values."""
 
-    def __init__(self, variables: dict[str, str] | None = None, model_unit: str = "mm"):
+    # the units whose dimension is followed (see dimension()); a factor per kind, irrational so that
+    # different exponents never give the same result
+    _DIM_KINDS = (("length", LENGTH_UNITS, math.sqrt(2.0)), ("freq", FREQ_UNITS, math.sqrt(3.0)))
+
+    def __init__(self, variables: dict[str, str] | None = None, model_unit: str = "mm",
+                 _scale: dict[str, float] | None = None):
         self.variables = dict(variables or {})
         self.model_unit = model_unit
+        self._scale = _scale            # unit -> extra factor, only for finding the dimension
         self._cache: dict[str, tuple[float, bool]] = {}
         self._stack: list[str] = []
 
@@ -140,7 +147,7 @@ class Evaluator:
         text = str(text).strip()
         if not text:
             raise ExprError("Empty expression")
-        code, has_unit = _strip_units(text)
+        code, has_unit = _strip_units(text, self._scale)
         try:
             tree = ast.parse(code.replace("^", "**"), mode="eval")
         except SyntaxError as e:
@@ -154,7 +161,11 @@ class Evaluator:
                 names[node.id] = v
                 has_unit = has_unit or u
         try:
-            val = eval(compile(tree, "<expr>", "eval"), {"__builtins__": {}}, {**_FUNCS, **_CONSTS, **names})
+            consts = _CONSTS
+            if self._scale:             # the speed of light is a length times a frequency
+                c0 = _CONSTS["c0"] * self._scale.get("m", 1.0) * self._scale.get("Hz", 1.0)
+                consts = {**_CONSTS, "c0": c0}
+            val = eval(compile(tree, "<expr>", "eval"), {"__builtins__": {}}, {**_FUNCS, **consts, **names})
         except ZeroDivisionError as e:
             raise ExprError(f"Division by zero in '{text}'") from e
         except Exception as e:  # noqa: BLE001
@@ -169,9 +180,58 @@ class Evaluator:
         """Raw SI value (no model-unit scaling)."""
         return self._eval(text)[0]
 
-    def length(self, text: str) -> float:
-        """Length in metres. Unitless values are in model units."""
+    def dimension(self, text: str) -> dict[str, int] | None:
+        """The powers of length and frequency the value of an expression carries, e.g. {"length": 1,
+        "freq": 0} for ``w/2 + 1mm`` and all 0 for the ratio ``a/b`` of two lengths. Found by evaluating
+        again with the units of one kind scaled: the value then scales with the power of that kind.
+        None when that is not a whole power (mixed units, such as ``1mm + 1GHz``) or cannot be told
+        (a zero value)."""
+        v0 = self._eval(text)[0]
+        if v0 == 0 or not math.isfinite(v0):
+            return None
+        out = {}
+        for kind, units, f in self._DIM_KINDS:
+            other = Evaluator(self.variables, self.model_unit, {u: f for u in units})
+            try:
+                v1 = other._eval(text)[0]
+            except ExprError:
+                return None
+            if v1 == 0 or not math.isfinite(v1) or (v1 > 0) != (v0 > 0):
+                return None
+            p = math.log(v1 / v0) / math.log(f)
+            if abs(p - round(p)) > 1e-6:
+                return None
+            out[kind] = int(round(p))
+        return out
+
+    def is_ratio(self, text: str) -> bool:
+        """True for an expression with units that cancel, such as ``a/b`` with two lengths."""
+        if not self._eval(text)[1]:
+            return False
+        d = self.dimension(text)
+        return d is not None and not any(d.values())
+
+    def display(self, text: str) -> str:
+        """The value of an expression as the Design Properties show it: lengths in mm, frequencies with
+        their unit and ratios of units (``a/b`` of two lengths) without a unit."""
         v, u = self._eval(text)
+        if not u:
+            return f"{v:.6g}"
+        d = self.dimension(text)
+        if d is None:
+            return f"{v * 1e3:.6g}mm" if abs(v) < 1 else f"{v:.6g}"    # mixed units: as before
+        n, fq = d["length"], d["freq"]
+        if n and not fq:
+            return f"{v / 1e-3 ** n:.6g}mm" + (f"^{n}" if n != 1 else "")
+        if fq == 1 and not n:
+            return fmt_freq(v)
+        return f"{v:.6g}"
+
+    def length(self, text: str) -> float:
+        """Length in metres. Unitless values, and ratios whose units cancel, are in model units."""
+        v, u = self._eval(text)
+        if u and self.is_ratio(text):
+            u = False
         return v if u else v * self.unit_scale
 
     def freq(self, text: str) -> float:

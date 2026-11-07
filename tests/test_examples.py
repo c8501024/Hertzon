@@ -86,6 +86,19 @@ def test_examples_have_cut_plane_field_plots():
         assert fp.plane and not fp.faces and not fp.objects
 
 
+def _gps_mirrored(d) -> None:
+    """GPS L1 was mirrored at the XZ plane to be RHCP after the RHCP/LHCP sense was corrected (#220)."""
+    d.variables["fy"] = "-2.0mm"
+    h = {o.name: o.history[0].props for o in d.objects}
+    h["Patch"]["Points"] = "-L/2+c,L/2,h;L/2,L/2,h;L/2,-L/2+c,h;L/2-c,-L/2,h;-L/2,-L/2,h;-L/2,L/2-c,h"
+    h["Stub"]["Position"] = "gs/2-ds-wf/2,fy-(ls+rv+0.2mm),-hf"
+    h["StubVia"]["CenterPosition"] = "gs/2-ds,fy-ls,-hf"
+
+
+# deliberate model changes of an example since its legacy copy was saved
+_CHANGED = {"GPS_L1_RHCP": _gps_mirrored}
+
+
 @pytest.mark.parametrize("name", ["Dipole", "Microstrip", "PlaneWave", "GPS_L1_RHCP"])
 def test_projects_of_format_1_still_open(name):
     """Copies of the examples as saved by 0.2.2 and earlier (format 1, Windows line ends in part): they load with
@@ -105,6 +118,7 @@ def test_projects_of_format_1_still_open(name):
                 assert "Width" not in o.history[0].props and "Height" not in o.history[0].props
     new = Project.load(EX / f"{name}.hzn")
     for d in old.designs:
+        _CHANGED.get(name, lambda d: None)(d)
         n = new.design(d.name)
         assert d.variables == n.variables
         assert [(o.name, [(c.kind, c.props) for c in o.history]) for o in d.objects if o.name != "Rectangle1"] == \
@@ -149,3 +163,18 @@ def test_showcase_builds_and_passes_the_validation_check():
     h = p.design("H_TwoModeWaveguide")
     assert {e.props["NumberOfModes"] for e in h.excitations} == {"2"}
     assert any(s.props.get("PortsOnly") == "True" for d in p.designs for s in d.setups)
+
+
+def test_stub_filter_circuit_notch_of_the_tutorial():
+    """Tutorial section 11: the circuit of examples/StubFilter.hzn has its notch at 2.45 GHz and the layout
+    was created from it with the same stub length."""
+    import numpy as np
+    from hertzon.solver.circuit import analyze
+    from hertzon.model.design import project_from_dict
+    p = project_from_dict(json.loads((EX / "StubFilter.hzn").read_text(encoding="utf-8")))
+    d, lay = p.design("StubFilter"), p.design("StubFilter_Layout")
+    assert d.kind == "circuit" and lay.settings["LayoutOf"] == "StubFilter"
+    assert lay.variables["MSO1_L"] == lay.variables["MSO2_L"] == "18.2mm"
+    fr = np.linspace(2.4e9, 2.5e9, 101)
+    s21 = abs(analyze(p, d, fr).S[:, 1, 0])
+    assert fr[np.argmin(s21)] == pytest.approx(2.45e9, abs=2e6)

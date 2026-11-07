@@ -75,6 +75,32 @@ Conventions
 - Fillet and Chamfer take edge indices (Edges) of solids, or vertex indices (Vertices) of sheets:
   get_geometry(include_edges=true) lists them; render_image(label_faces_of=..., label_what="edges") shows them.
 - Coordinate systems: set_coordinate_system makes one the working CS; new objects are created in it.
+
+Design assistants, optimizers and tuning
+- create_patch_antenna and create_hairpin_filter make complete parametrized designs (geometry, ports,
+  setup, sweep, optimization) from a specification; start there for patches and hairpin filters.
+- Optimizers (set_optimization optimizer=...): "Conjugate Gradient" (gradient by finite differences, many
+  solves, robust near a good start), "Latin Hypercube + Nelder-Mead" (sample of the ranges, then simplex
+  chains: far from the start, several resonances, antennas), "Derivative Trust Region" (one solve per round
+  plus the derivative tuning model on the morphed mesh; very few solves near the goal, at most 6 variables,
+  the topology must not change). apply_optimization takes the best result over into the design.
+- Derivative tuning: after a solve, compute_tuning(variables=[...]) and get_tuning(values={...}) give the
+  S-parameters at other variable values without solving (within the tuning range).
+
+Circuits
+- create_circuit makes a schematic design; edit_circuit adds parts (get_circuit include_library lists the
+  types, props and pin offsets), connects pins (connect from 'Port1:1' to 'MS1:1') or attaches a part's pin
+  onto another pin. Grid units are 10 per step; y grows downwards. Power Ports (PORT: one pin, against ground)
+  set S(i,j); GND grounds a pin; microstrip parts name a substrate part (SUBST, Subst=Sub1).
+- run_simulation and get_results work on circuit designs as on 3D designs (solved at once).
+- 3D design blocks (type EM, props Design) use the S-parameters of a solved 3D design; import_3d_designs
+  copies 3D designs from another file. circuit_layout(action='create') turns the schematic, blocks
+  included, into a 3D design; 'to_schematic' copies tuned layout dimensions back.
+
+Files and boards
+- export: Touchstone, STEP, Gerber (with drills) or a stand-alone EMerge script. import_pcb reads Gerber,
+  Excellon and job files into the design; set_stackup defines the PCB layer stack (stk_ variables, one
+  coordinate system per copper layer). list_examples / open_example start from a shipped example.
 """
 
 
@@ -85,6 +111,7 @@ class _Session:
     default_path: str | None = None
     procs: dict[str, subprocess.Popen] = {}
     tess: dict[str, tuple] = {}            # object key -> Tess (built in this process)
+    designs: dict[str, str] = {}           # project path -> design worked on last (file mode)
 
 
 S = _Session()
@@ -199,13 +226,15 @@ def load(args: dict, design_required: bool = True) -> Ctx:
         if not Path(path).exists():
             raise ToolError(f"Project file not found: {path}")
         proj = Project.load(path)
-        dname = args.get("design") or proj.designs[0].name
+        last = S.designs.get(_abspath(path))
+        dname = args.get("design") or (last if any(x.name == last for x in proj.designs) else proj.designs[0].name)
     try:
         des = proj.design(dname)
     except KeyError:
         raise ToolError(f"Design '{dname}' not found; designs: {[d.name for d in proj.designs]}") from None
     if proj.path:
         S.default_path = proj.path
+        S.designs[_abspath(proj.path)] = des.name     # file mode: the design worked on last is the default
     return Ctx(proj, des, gui)
 
 
@@ -309,7 +338,9 @@ def summary(ctx: Ctx) -> dict:
     p, d = ctx.proj, ctx.des
     return {
         "project": p.path, "name": p.name, "live_window": ctx.gui is not None,
-        "designs": [x.name for x in p.designs], "design": d.name, "units": d.units,
+        "designs": [x.name for x in p.designs], "design": d.name,
+        **({"kind": "circuit", "note": "a circuit design: get_circuit shows its schematic"}
+           if getattr(d, "kind", "3d") == "circuit" else {}), "units": d.units,
         "settings": d.settings, "project_variables": p.variables, "variables": d.variables,
         "objects": [_obj_summary(o) for o in d.objects],
         "boundaries": [_assign_summary(a) for a in d.boundaries],
@@ -319,6 +350,8 @@ def summary(ctx: Ctx) -> dict:
                     "sweeps": [{"name": w.name, "props": w.props} for w in s.sweeps]} for s in d.setups],
         "far_field_spheres": [{"name": s.name, "props": s.props} for s in d.spheres],
         "project_materials": [m.name for m in p.materials],
+        **({"stackup": {"source": d.stackup.source, "layers": [f"{L.name} ({L.kind}, {L.thickness})"
+                                                             for L in d.stackup.layers]}} if d.stackup else {}),
         **({"coordinate_systems": [{"name": c.name, "kind": c.kind, "reference": c.reference, "props": c.props}
                                    for c in d.coord_systems], "working_cs": d.working_cs} if d.coord_systems else {}),
         **(_equations_summary(d) if d.field_exprs or d.field_funcs else {}),
@@ -339,10 +372,19 @@ def summary(ctx: Ctx) -> dict:
 # ------------------------------------------------------------------------------------------------
 # geometry (built in this process with gmsh)
 # ------------------------------------------------------------------------------------------------
-def tessellate(proj: Project, des: Design, names: list[str] | None = None) -> tuple[dict, dict]:
-    """Display tessellation of the live objects: ({name: Tess}, {name: error})."""
-    import gmsh
+def tessellate(proj: Project, des: Design, names: list[str] | None = None, timeout: float | None = None,
+               detail: str = "full") -> tuple[dict, dict]:
+    """Display tessellation of the live objects: ({name: Tess}, {name: error}).
+
+    Objects not in the cache are built in a child process (geomworker) with a time limit, progress reports
+    and cancellation, so a build that hangs in the kernel never blocks the server. detail='fast' leaves out
+    subtractions whose tools stay in the model (drill holes in a board that hold the via cylinders): the
+    picture is the same from outside, the build much faster. It is never the default."""
     from ..kernel import occ as K
+    from . import geomworker as W
+    from .protocol import cancelled, progress
+    if detail == "fast":
+        proj, des = _without_kept_subtractions(proj, des)
     ev = des.evaluator(proj)
     live_objs = des.live_objects()
     if names is not None:
@@ -358,21 +400,39 @@ def tessellate(proj: Project, des: Design, names: list[str] | None = None) -> tu
         else:
             todo.append(n)
     if todo:
-        K.ensure_gmsh("hertzon_mcp")
-        gmsh.model.remove()
-        gmsh.model.add("hertzon_mcp")
         # regions need the bounding box of all model objects
         build = None if regions and names is None else todo
-        ctx = K.build_design(des, ev, names=build)
-        tess = K.tessellate(ctx, "coarse") if ctx.built else {}
+        limit = W.default_timeout() if timeout is None else float(timeout)
+        try:
+            tess, errs = W.build(proj.to_dict(), proj.path, des.name, build, limit,
+                                 on_progress=progress, should_stop=cancelled)
+        except W.BuildTimeout as e:
+            raise ToolError(
+                f"Building the geometry took longer than {limit:g} s and was stopped"
+                + (f" (last step: {e})" if str(e) else "") + ". The server is still available. Give timeout_s "
+                "for a longer limit (or set HERTZON_MCP_BUILD_TIMEOUT), build fewer objects (objects=[...]), or "
+                "use detail='fast' for a picture without the drill holes of the board.") from None
+        except W.BuildCancelled:
+            raise ToolError("The geometry build was cancelled.") from None
+        except RuntimeError as e:
+            raise ToolError(f"The geometry could not be built: {e}") from None
         for n in todo:
-            if n in ctx.errors:
-                errors[n] = ctx.errors[n]
+            if n in errs:
+                errors[n] = errs[n]
             elif n in tess:
                 out[n] = tess[n]
                 if n not in regions:
                     S.tess[keys[n]] = tess[n]
     return out, errors
+
+
+def _without_kept_subtractions(proj: Project, des: Design) -> tuple[Project, Design]:
+    """A copy of the project in which subtractions that keep their tools are left out."""
+    c = proj.clone()
+    d = c.design(des.name)
+    for o in d.objects:
+        o.history = [h for h in o.history if not (h.kind == "Subtract" and h.props.get("KeepOriginals") == "True")]
+    return c, d
 
 
 def _face_list(t, scale: float, limit: int) -> list[dict]:
@@ -407,8 +467,8 @@ def _vertex_list(t, scale: float, limit: int) -> list[dict]:
 
 
 def geometry_report(proj: Project, des: Design, names: list[str] | None, max_faces: int = 60,
-                    edges: bool = False) -> dict:
-    tess, errors = tessellate(proj, des, names)
+                    edges: bool = False, timeout: float | None = None) -> dict:
+    tess, errors = tessellate(proj, des, names, timeout)
     sc = _unit(des)
     objs = {}
     for n, t in tess.items():
@@ -909,7 +969,7 @@ def t_get_geometry(args):
     if names:
         _check_objects(ctx.des, names)
     return geometry_report(ctx.proj, ctx.des, names, int(args.get("max_faces", 60)),
-                           bool(args.get("include_edges")))
+                           bool(args.get("include_edges")), args.get("timeout_s"))
 
 
 # ------------------------------------------------------------------------------------------------
@@ -1252,8 +1312,15 @@ def t_set_report(args):
             raise ToolError(f"A report '{args['new_name']}' exists")
         r.name = args["new_name"]
     commit(ctx, f"report {r.name}")
-    return {"name": r.name, "created": created, "kind": r.kind, "solution": r.solution, "traces": r.traces,
-            "props": r.props, "note": "Open the report in the Hertzon window to see it (it is evaluated there)."}
+    out = {"name": r.name, "created": created, "kind": r.kind, "solution": r.solution, "traces": r.traces,
+           "props": r.props}
+    if args.get("open") and ctx.gui is not None:
+        ctx.gui.call("open_report", design=ctx.des.name, name=r.name)
+        out["opened"] = True
+    else:
+        out["note"] = ("open=true shows it in the Hertzon window" if ctx.gui is not None else
+                       "Open the report in the Hertzon window to see it (it is evaluated there).")
+    return out
 
 
 def t_set_field_plot(args):
@@ -1404,7 +1471,15 @@ def t_set_optimization(args):
                 raise ToolError(f"cond must be one of {list(schema.GOAL_CONDITIONS)}")
             g.setdefault("cond", "<=")
             g.setdefault("weight", "1")
-    op.props = _props_in("Optimization", schema.OPTIMIZATION, args.get("props"), op.props)
+    props = dict(args.get("props") or {})
+    if args.get("optimizer"):
+        if args["optimizer"] not in schema.OPTIMIZERS:
+            raise ToolError(f"optimizer must be one of {list(schema.OPTIMIZERS)}")
+        props["Optimizer"] = args["optimizer"]
+    op.props = _props_in("Optimization", schema.OPTIMIZATION, props, op.props)
+    if op.props.get("Optimizer") == "Derivative Trust Region" and \
+            sum(1 for v in op.variables if v.get("include", True)) > 6:
+        raise ToolError("The Derivative Trust Region optimizes at most 6 variables (set include=false on the others)")
     try:
         Variables(d, op, d.evaluator(ctx.proj))
     except Exception as e:  # noqa: BLE001
@@ -1418,7 +1493,7 @@ def t_set_optimization(args):
 def t_validate(args):
     from ..model.validate import validate
     ctx = load(args)
-    tess, errors = tessellate(ctx.proj, ctx.des)
+    tess, errors = tessellate(ctx.proj, ctx.des, timeout=args.get("timeout_s"))
     checks = validate(ctx.proj, ctx.des, tess, errors)
     out = [{"category": c.category, "level": c.level, "message": c.message} for c in checks]
     return {"ok": not any(c.level == "error" for c in checks), "checks": out}
@@ -1521,6 +1596,12 @@ def t_run_simulation(args):
         d.setup(setup)
     except KeyError:
         raise ToolError(f"Setup '{setup}' not found") from None
+    if getattr(d, "kind", "3d") == "circuit":
+        if ctx.gui is not None:
+            r = ctx.gui.call("analyze_circuit", design=d.name, setups=[setup], timeout=900)
+            return {"in_window": True, **(r or {}), "next": "get_results kind=sparameters"}
+        from .tools_more import analyze_circuit_file
+        return {"in_window": False, **analyze_circuit_file(ctx, [setup]), "next": "get_results kind=sparameters"}
     sweep = args.get("sweep") or ""
     mesh_only = bool(args.get("mesh_only"))
     if ctx.gui is not None:
@@ -1635,7 +1716,8 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
     conv = (st.read_json("convergence.json") if st else None) or {}
     if conv.get("passes"):
         res["passes"] = [{k: (round(v, 5) if isinstance(v, float) else v) for k, v in row.items()
-                          if k in ("pass", "tets", "delta_s", "delta_mag", "delta_phase", "passed")}
+                          if k in ("pass", "tets", "delta_s", "delta_mag", "delta_phase", "power_balance",
+                                   "delta_eff", "passed")}
                          for row in conv["passes"]]
         res["converged"] = bool(conv.get("converged"))
         if conv.get("final_tets"):
@@ -1853,6 +1935,28 @@ def _study_results(ctx: Ctx, name: str, kind: str, args) -> dict:
             "note": "Apply the best values with set_design variables when they are good."}
 
 
+def sp_table(f, Sm, args: dict, ev) -> list[dict]:
+    """Rows {freq_GHz, Sij_dB, Sij_deg} of S-parameters (args: params, frequencies or max_points)."""
+    f = np.asarray(f, float)
+    n = Sm.shape[1]
+    params = args.get("params") or [f"S{i + 1}{1}" for i in range(n)]
+    ij = [_parse_param(p, n) for p in params]
+    if args.get("frequencies"):
+        rows = [(x, int(np.argmin(np.abs(f - x)))) for x in (ev.freq(_s(v)) for v in args["frequencies"])]
+    else:
+        m = int(args.get("max_points", 41))
+        rows = [(f[k], k) for k in np.unique(np.linspace(0, len(f) - 1, min(m, len(f))).astype(int))]
+    table = []
+    for _, k in rows:
+        r = {"freq_GHz": _r(f[k] / 1e9)}
+        for p, (i, j) in zip(params, ij):
+            v = Sm[k, i, j]
+            r[p + "_dB"] = _r(_db(v), 4)
+            r[p + "_deg"] = _r(np.degrees(np.angle(v)), 4)
+        table.append(r)
+    return table
+
+
 def t_get_results(args):
     from ..solver.results import ResultStore
     ctx = load(args)
@@ -1909,27 +2013,7 @@ def t_get_results(args):
             raise ToolError(f"No S-parameters for '{sol}'; solutions: {sols}")
         f = np.asarray(data["freq"], float)
         Sm = np.asarray(data["S"])
-        n = Sm.shape[1]
-        params = args.get("params") or [f"S{i + 1}{1}" for i in range(n)]
-        ij = [_parse_param(p, n) for p in params]
-        if args.get("frequencies"):
-            fq = np.array([ev.freq(_s(x)) for x in args["frequencies"]])
-            rows = []
-            for x in fq:
-                k = int(np.argmin(np.abs(f - x)))
-                rows.append((x, k))
-        else:
-            m = int(args.get("max_points", 41))
-            rows = [(f[k], k) for k in np.unique(np.linspace(0, len(f) - 1, min(m, len(f))).astype(int))]
-        table = []
-        for x, k in rows:
-            r = {"freq_GHz": _r(f[k] / 1e9)}
-            for p, (i, j) in zip(params, ij):
-                v = Sm[k, i, j]
-                r[p + "_dB"] = _r(_db(v), 4)
-                r[p + "_deg"] = _r(np.degrees(np.angle(v)), 4)
-            table.append(r)
-        return {"solution": sol, "ports": n, "rows": table}
+        return {"solution": sol, "ports": Sm.shape[1], "rows": sp_table(f, Sm, args, ev)}
     if kind == "convergence":
         return _status(ctx, setup)
     if kind in ("farfield", "rcs"):
@@ -1971,10 +2055,16 @@ def t_get_results(args):
 # tools: picture of the model
 # ------------------------------------------------------------------------------------------------
 def t_render_image(args):
-    import pyvista as pv
     ctx = load(args)
     d = ctx.des
-    tess, errors = tessellate(ctx.proj, d)
+    if getattr(d, "kind", "3d") == "circuit":
+        from .tools_more import render_schematic
+        return render_schematic(ctx.proj, d, int(args.get("width", 1000)), int(args.get("height", 700)))
+    import pyvista as pv
+    detail = args.get("detail") or "full"
+    if detail not in ("full", "fast"):
+        raise ToolError("detail is 'full' or 'fast'")
+    tess, errors = tessellate(ctx.proj, d, timeout=args.get("timeout_s"), detail=detail)
     sc = _unit(d)
     w, h = int(args.get("width", 1000)), int(args.get("height", 700))
     pl = pv.Plotter(off_screen=True, window_size=(w, h))
@@ -2035,6 +2125,8 @@ def t_render_image(args):
     buf = BytesIO()
     PILImage.fromarray(img).save(buf, format="PNG")
     note = f"{d.name}, view {view}, units {d.units}"
+    if detail == "fast":
+        note += "; detail fast: subtractions that keep their tools (drill holes) are left out"
     if errors:
         note += f"; geometry errors: {errors}"
     return [Image(buf.getvalue(), note)]
@@ -2078,6 +2170,9 @@ def _schema(props: dict, required: list[str] | None = None, project: bool = True
     p = ({"project": P, "design": D} if project else {}) | props
     return {"type": "object", "properties": p, "required": required or []}
 
+
+TIMEOUT = {"type": "number", "description": "time limit of the geometry build in seconds (default 300 or "
+                                 "HERTZON_MCP_BUILD_TIMEOUT); the build is stopped after it, the server stays usable"}
 
 TOOLS = [
     Tool("get_context", "Which Hertzon windows have the live link on and which project this session uses.",
@@ -2154,7 +2249,8 @@ TOOLS = [
          _schema({"objects": {"type": "array", "items": {"type": "string"}},
                   "max_faces": {"type": "integer"},
                   "include_edges": {"type": "boolean", "description": "also list edges (start, end, mid, length) "
-                                    "and vertices with the indices of Fillet/Chamfer Edges and Vertices"}}),
+                                    "and vertices with the indices of Fillet/Chamfer Edges and Vertices"},
+                  "timeout_s": TIMEOUT}),
          t_get_geometry, True),
     Tool("assign", "Assign a boundary (Perfect E, Finite Conductivity, Radiation, PML, Symmetry ...), an "
          "excitation (Wave Port, Lumped Port, Incident Plane Wave ...) or a mesh operation to objects or faces.",
@@ -2194,12 +2290,14 @@ TOOLS = [
                   "import_file": {"type": "string"}, "export_file": {"type": "string"}}), t_set_equation),
     Tool("set_report", "Create or change a report (kind Rectangular, Smith Chart, Data Table, Radiation Pattern, "
          "3D Polar Plot, Antenna Parameters, Monostatic RCS ...) with traces like dB(S(2,1)) or an equation; "
-         "fields=true makes a Fields report of value equations over frequency. Shown in the window.",
+         "fields=true makes a Fields report of value equations over frequency. open=true opens it in the window.",
          _schema({"name": {"type": "string"}, "kind": {"type": "string", "enum": list(REPORT_KINDS)},
                   "solution": {"type": "string", "description": "'Setup1 : Sweep' or 'Setup1 : LastAdaptive'"},
                   "traces": {"type": "array", "items": {"type": "string"}}, "fields": {"type": "boolean"},
                   "port": {"type": "integer", "description": "excited port of a Fields report"},
-                  "props": OBJ, "new_name": {"type": "string"}}), t_set_report),
+                  "props": OBJ, "new_name": {"type": "string"},
+                  "open": {"type": "boolean", "description": "open the report as a tab in the Hertzon window"}}),
+         t_set_report),
     Tool("set_field_plot", "Create or change a field plot (Mag_E, Vector_E, Mag_H, Mag_Jsurf, Vector_J ... or a "
          "field equation) on objects, faces or a cut plane; drawn in the window.",
          _schema({"name": {"type": "string"}, "quantity": {"type": "string"},
@@ -2220,12 +2318,16 @@ TOOLS = [
                   "calcs": {"type": "array", "items": {"type": "object"}}, "props": OBJ}), t_set_parametric),
     Tool("set_optimization", "Create or change an optimization: variables [{name, include, min, max}], goals "
          "[{calc like dB(S(1,1)), start, stop (frequencies), cond (<=, >=, =, Ripple <=), value, weight}] on a "
-         "solution, and optimizer props.",
+         "solution ('Setup1 : Sweep', or 'Setup1 : LastAdaptive' for goals at the solution frequency without a "
+         "sweep), the optimizer and its props (get_schema section=optimization): Conjugate Gradient "
+         "(DifferenceStep, InitialStep ...), Latin Hypercube + Nelder-Mead (Samples, Chains, ChainEvaluations ...), "
+         "Derivative Trust Region (TrustRadius, MaxRounds, TuningPoints; at most 6 variables).",
          _schema({"name": {"type": "string"}, "solution": {"type": "string"},
+                  "optimizer": {"type": "string", "enum": list(schema.OPTIMIZERS)},
                   "variables": {"type": "array", "items": {"type": "object"}},
                   "goals": {"type": "array", "items": {"type": "object"}}, "props": OBJ}), t_set_optimization),
     Tool("validate", "Run the validation check (geometry, materials, boundaries, ports, setup).",
-         _schema({}), t_validate, True),
+         _schema({"timeout_s": TIMEOUT}), t_validate, True),
     Tool("run_simulation", "Analyze a setup (adaptive passes, sweeps, far fields). Runs in the Hertzon window "
          "when linked, otherwise as a background process. Returns at once; follow with get_status.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string", "description": "only this sweep, "
@@ -2255,17 +2357,26 @@ TOOLS = [
                   "phi_cuts": {"type": "array", "items": {"type": "number"}}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_get_results, True),
     Tool("render_image", "Picture of the model (PNG): objects in their colours, ports and boundaries on faces, "
-         "optionally the face indices of one object.",
+         "optionally the face indices of one object. For a circuit design: the schematic with pin numbers.",
          _schema({"view": {"type": "string", "enum": ["iso", "top", "bottom", "front", "back", "left", "right"]},
                   "objects": {"type": "array", "items": {"type": "string"}},
                   "label_faces_of": {"type": "string", "description": "object whose indices are drawn"},
                   "label_what": {"type": "string", "enum": ["faces", "edges", "vertices"]},
                   "show_assignments": {"type": "boolean"},
                   "azimuth": {"type": "number"}, "elevation": {"type": "number"},
-                  "width": {"type": "integer"}, "height": {"type": "integer"}}), t_render_image, True),
+                  "width": {"type": "integer"}, "height": {"type": "integer"},
+                  "detail": {"type": "string", "enum": ["full", "fast"], "description": "full (default): the model "
+                             "as built; fast: subtractions that keep their tools (drill holes of a board, filled by "
+                             "the via cylinders) are left out, much faster for large boards"},
+                  "timeout_s": TIMEOUT}), t_render_image, True),
     Tool("run_python", "Edit the design with Python for repetitive work (arrays, parametric layouts). Names: "
          "project, design, add_object(kind, name=None, material='vacuum', **props), operation(obj, kind, "
          "**props), Command, Assignment, FaceRef, Setup, Sweep, schema, np, math. Changes are committed "
          "afterwards; print() output is returned.",
          _schema({"code": {"type": "string"}}, ["code"]), t_run_python),
 ]
+
+from .tools_io import TOOLS as _IO_TOOLS  # noqa: E402
+from .tools_more import TOOLS as _MORE_TOOLS  # noqa: E402
+
+TOOLS += _MORE_TOOLS + _IO_TOOLS

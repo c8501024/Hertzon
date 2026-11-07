@@ -6,6 +6,8 @@ $Host.UI.RawUI.WindowTitle = 'Hertzon setup'
 # everything shown in this window also goes to setup.log next to this script, so a failed setup can be
 # diagnosed after the window is closed (the installer's error message points to it)
 $log = Join-Path $PSScriptRoot 'setup.log'
+# the log of the previous run is kept: a failed run followed by a successful one must not lose the error
+try { if (Test-Path -LiteralPath $log) { Move-Item -LiteralPath $log (Join-Path $PSScriptRoot 'setup.prev.log') -Force } } catch {}
 try { Start-Transcript -LiteralPath $log -Force | Out-Null } catch {}
 
 function Find-Python {
@@ -32,41 +34,118 @@ function Find-Python {
 }
 
 # Hertzon processes that run from this folder (the window, the remote server 'hertzon.remote serve', the
-# MCP server started by an AI app, solver workers) keep files of .venv open; pip then fails to update them
+# MCP server started by an AI app, solver workers) keep files of .venv open; pip then fails to update them.
+# One WMI query for all processes, with a time limit: a query per process made the setup window stay empty
+# for minutes on a computer with many processes, and a hanging WMI service must not stop the setup.
+function Get-ProcessTable {
+    $t = @{}
+    try {
+        foreach ($w in @(Get-CimInstance Win32_Process -OperationTimeoutSec 20 -ErrorAction Stop)) { $t[[int]$w.ProcessId] = $w }
+    } catch {}
+    return $t
+}
+
 function Get-HertzonProcesses {
     $root = (Resolve-Path -LiteralPath $PSScriptRoot).Path.TrimEnd('\') + '\'
+    $table = Get-ProcessTable
     # this script and the processes that started it (Hertzon.exe runs it on the first start) do not count
     $own = @{}
     $id = $PID
     while ($id -and -not $own.ContainsKey($id)) {
         $own[$id] = $true
-        $id = (Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue).ParentProcessId
+        $id = if ($table.ContainsKey([int]$id)) { [int]$table[[int]$id].ParentProcessId } else { 0 }
     }
     Get-Process -ErrorAction SilentlyContinue | Where-Object {
-        -not $own.ContainsKey($_.Id) -and $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)
+        -not $own.ContainsKey($_.Id) -and (Test-UsesFolder $_ $root $table)
     }
 }
 
-function Wait-HertzonClosed {
+# started from this folder, or a Python that has files of this folder loaded: .venv\Scripts\python.exe is
+# only a small redirector that starts the base Python (outside this folder) as a child process with the
+# packages of .venv. Stopping the redirector alone leaves that child running with the files of .venv in use,
+# until the computer is restarted.
+function Test-UsesFolder($p, [string]$root, $table) {
+    if ($p.Path -and $p.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($p.ProcessName -notmatch '^pythonw?(\d|\.|$)') { return $false }
+    # its parent is the redirector .venv\Scripts\python.exe (or another process from this folder)
+    $w = $table[[int]$p.Id]
+    if ($w -and $w.ParentProcessId) {
+        $pw = $table[[int]$w.ParentProcessId]
+        if ($pw -and $pw.ExecutablePath -and $pw.ExecutablePath.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    try {
+        foreach ($m in $p.Modules) {
+            if ($m.FileName -and $m.FileName.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        }
+    } catch {}
+    return $false
+}
+
+function Get-CommandLine($p) {
+    try { (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -OperationTimeoutSec 10 -ErrorAction Stop).CommandLine } catch { $null }
+}
+
+function Show-HertzonProcesses($procs) {
+    foreach ($p in $procs) {
+        $cmd = Get-CommandLine $p
+        Write-Host ("  {0,6}  {1}" -f $p.Id, $(if ($cmd) { $cmd } else { $p.Path }))
+    }
+}
+
+# a Hertzon window (Hertzon.exe, or pythonw -m hertzon): it may hold unsaved work, so it is never stopped
+# without asking; everything else (MCP server, remote service, solver processes, Qt helper processes) has no
+# window of its own and is restarted when it is needed again
+function Test-HertzonWindow($p) {
+    if ($p.ProcessName -ieq 'Hertzon') { return $true }
+    $cmd = Get-CommandLine $p
+    return [bool]($cmd -and $cmd -match '\s-m\s+hertzon(\s|"|$)')
+}
+
+# a Hertzon that is closing (an update started from Hertzon) or solver processes that are being aborted
+# need a moment: wait for them instead of asking at once, and say so (the window stayed empty before)
+function Wait-HertzonGone([int]$seconds) {
+    $end = (Get-Date).AddSeconds($seconds)
+    $shown = @{}
     while ($true) {
         $procs = @(Get-HertzonProcesses)
         if (-not $procs) { return }
-        Write-Host ''
-        Write-Host 'Hertzon is still running from this folder (window, remote server or MCP server of an AI app):' -ForegroundColor Yellow
-        foreach ($p in $procs) {
-            $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
-            Write-Host ("  {0,6}  {1}" -f $p.Id, $(if ($cmd) { $cmd } else { $p.Path }))
+        $new = @($procs | Where-Object { -not $shown.ContainsKey($_.Id) })
+        if ($new) {
+            Write-Host 'Waiting for these Hertzon processes to end:'
+            Show-HertzonProcesses $new
+            foreach ($p in $new) { $shown[$p.Id] = $true }
         }
-        if ($env:CI) { Write-Host 'Continuing anyway (unattended run).'; return }
-        $a = Read-Host 'Close them (for an MCP server: quit the AI app), then press Enter. S = stop them, C = continue anyway'
-        if ($a -match '^[sS]') { $procs | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
-        elseif ($a -match '^[cC]') { return }
+        if ((Get-Date) -ge $end) { return }
+        Start-Sleep -Seconds 1
     }
+}
+
+# Hertzon processes from this folder keep files of .venv in use (pip cannot replace them). Before the
+# installation the setup says which ones run and that they will be closed; after Enter they are stopped.
+# The release check (CI) runs unattended and does not ask.
+function Stop-HertzonProcesses {
+    $procs = @(Get-HertzonProcesses)
+    if (-not $procs) { return }
+    Write-Host ''
+    Write-Host 'ATTENTION: all Hertzon processes from this folder will be closed for the update:' -ForegroundColor Yellow
+    Show-HertzonProcesses $procs
+    if (@($procs | Where-Object { Test-HertzonWindow $_ })) {
+        Write-Host 'A Hertzon window is open: save your work there first, unsaved changes are lost.' -ForegroundColor Yellow
+    }
+    if (-not $env:CI) { $null = Read-Host 'Press Enter to close them' }
+    Write-Host 'Closing the Hertzon processes ...'
+    @(Get-HertzonProcesses) | Stop-Process -Force -ErrorAction SilentlyContinue
+    # until Windows has released their files
+    $end = (Get-Date).AddSeconds(10)
+    while (@(Get-HertzonProcesses) -and (Get-Date) -lt $end) { Start-Sleep -Seconds 1 }
 }
 
 try {
     $venvPy = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-    Wait-HertzonClosed
+    Write-Host 'Checking for running Hertzon processes ...'
+    # a Hertzon that is closing (an update started from Hertzon) needs a moment
+    Wait-HertzonGone 10
+    Stop-HertzonProcesses
     if (-not (Test-Path -LiteralPath $venvPy)) {
         $py = Find-Python
         if (-not $py) {
@@ -82,6 +161,13 @@ try {
     Write-Host 'Installing Hertzon and its packages (EMerge, Qt, VTK) ...'
     & $venvPy -m pip install --upgrade pip
     & $venvPy -m pip install -e ".[test]"
+    if ($LASTEXITCODE -ne 0 -and @(Get-HertzonProcesses)) {
+        # an AI app may have started its MCP server again during the installation
+        Write-Host 'Hertzon processes were started again during the installation; closing them and installing again ...'
+        @(Get-HertzonProcesses) | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        & $venvPy -m pip install -e ".[test]"
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Package installation failed (see messages above).' }
     Write-Host 'Preparing the solver (first-time compilation, can take a few minutes) ...'
     # stdin from a pipe: the setup runs unattended (release check) and must never wait for input

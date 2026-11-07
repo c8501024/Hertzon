@@ -1,4 +1,4 @@
-# Publishes the project website (site/) to GitHub Pages: https://c8501024.github.io/Hertzon/
+# Publishes the project website (site/ plus the documentation from docs/*.md, built by site/build.py) to GitHub Pages: https://c8501024.github.io/Hertzon/
 # Needs Settings > Pages > Source: "GitHub Actions" once. Screenshots and the splash come from the repo,
 # so the site has no copies of its own.
 # The branch overview (c8501024/branch-overview-action) is built into /branches/ on every run.
@@ -9,7 +9,7 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ["site/**", "docs/screenshots/**", "hertzon/gui/splash.jpg", ".github/workflows/pages.yml"]
+    paths: ["site/**", "docs/**", "CHANGELOG.md", "hertzon/gui/splash.jpg", ".github/workflows/pages.yml"]
   workflow_dispatch:
   schedule:
     - cron: "17 * * * *"   # hourly, catches what no event reports (e.g. check results on pull requests)
@@ -33,13 +33,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Assemble site
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build site (landing page and docs/*.md as HTML)
         run: |
-          mkdir -p _site/screenshots
-          cp -r site/. _site/
-          cp docs/screenshots/*.png _site/screenshots/
-          cp hertzon/gui/splash.jpg _site/
-          cp hertzon/gui/*.png _site/ 2>/dev/null || true
+          pip install markdown
+          python site/build.py _site
       - name: Branch overview
         continue-on-error: true   # the website is deployed even if the overview fails
         uses: c8501024/branch-overview-action@v1

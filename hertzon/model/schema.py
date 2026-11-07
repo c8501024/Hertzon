@@ -80,7 +80,10 @@ GEOMETRY: dict[str, list[Prop]] = {
                          help="Comma separated: Line, Arc (3 point arc), Spline:n, AngularArc:angle:plane "
                               "(center point arc); empty = all lines"),
                        P("Closed", "bool", "False"),
-                       P("Covered", "bool", "False", help="Closed and covered polylines become sheets")],
+                       P("Covered", "bool", "False", help="Closed and covered polylines become sheets"),
+                       P("Holes", "text", "", visible_if=("Covered", "True"),
+                         help="Holes in the covered sheet: closed loops of points joined by straight lines, "
+                              "loops separated by '|' (the PCB import writes them)")],
     "CreateHelix": [P("CenterPosition", "point", "0,0,0"), P("Axis", "choice", "Z", choices=AXES),
                     P("Radius", "length", "1"), P("Pitch", "length", "0.5"), P("Turns", "expr", "3"),
                     P("RightHanded", "bool", "True", label="Right handed"),
@@ -294,6 +297,13 @@ SETUP: list[Prop] = [
     P("UseMatrixConvergence", "bool", "False", label="Use matrix convergence"),
     P("MaxDeltaMag", "float", "0.02", label="Max delta |S|", visible_if=("UseMatrixConvergence", "True")),
     P("MaxDeltaPhase", "float", "2", label="Max delta phase S (deg)", visible_if=("UseMatrixConvergence", "True")),
+    P("UsePowerBalance", "bool", "False", label="Use power balance convergence",
+      help="Antennas: a pass also has to conserve power, |Prad + Ploss - Pacc| / Pin below Max power balance, "
+           "and the radiation efficiency may change by at most Max delta efficiency between passes. Prad is "
+           "integrated on the far field surface, Ploss in lossy materials and on finite conductivity, "
+           "impedance and lumped RLC boundaries. Costs a far field surface integral per pass"),
+    P("MaxPowerBalance", "float", "0.01", label="Max power balance", visible_if=("UsePowerBalance", "True")),
+    P("MaxDeltaEfficiency", "float", "0.01", label="Max delta efficiency", visible_if=("UsePowerBalance", "True")),
     # Options
     P("LambdaRefinement", "bool", "True", label="Do lambda refinement", tab="Options",
       help="On: the initial mesh has no element longer than Lambda target x wavelength in "
@@ -448,6 +458,19 @@ INFINITE_SPHERE: list[Prop] = [
 ]
 
 SOLUTION_TYPES = ("Modal", "Terminal", "Eigenmode")
+# Design types of a project (Design.kind) and the solution types the start page lists for each. A type
+# whose flag is False is shown greyed out as "not implemented yet" and cannot be chosen.
+DESIGN_KINDS = {"3d": ("3D FEM", True), "circuit": ("Circuit", True)}
+HIGH_FREQUENCY_TYPES = (("Modal", "Wave and lumped ports, S-parameters by mode", True),
+                        ("Terminal", "Terminal voltages and currents, differential pairs", True),
+                        ("Eigenmode", "Resonant frequencies and Q of cavities", True))
+LOW_FREQUENCY_TYPES = (("Electrostatic", "Capacitance matrix, E field, breakdown margin", False),
+                       ("DC Conduction", "Resistance, current density, voltage drop", False),
+                       ("Magnetostatic", "Inductance matrix, B field, forces", False),
+                       ("Eddy Current", "Skin and proximity losses, coil Q", False))
+CIRCUIT_ANALYSES = (("Linear Network", "S-parameters over frequency; 3D designs as linked blocks", True),
+                    ("Transient", "Time signals, eye diagram, TDR", False),
+                    ("Harmonic Balance", "Amplifiers and mixers with nonlinear models", False))
 AUTO_OPEN_MODES = ("Off", "Auto Open", "Auto Open - Filter")
 
 DESIGN_SETTINGS: list[Prop] = [

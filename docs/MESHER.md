@@ -3,9 +3,11 @@
 Every adaptive pass solves the model, rates the error of each tetrahedron with EMerge's error estimate,
 refines the mesh where the error is largest and solves again, until Delta S (or Delta E for incident
 waves) meets the convergence criterion. Since EMerge 3 and Hertzon's move to EMerge `e03a085`, the
-default refinement is **hzAURA**, EMerge's own local refinement. Hertzon's own local Delaunay mesher
-**hzmesh** and a gmsh re-mesh stay selectable. Curved elements on curved surfaces are EMerge's as well
-(FennisRobert/EMerge#77); Hertzon switches them on with a setup option.
+default refinement is **hzAURA**: EMerge's AURA local refinement with Hertzon's cavity re-meshing on
+curved surfaces (FennisRobert/EMerge#81). Hertzon's own local Delaunay mesher
+**hzmesh** and a gmsh re-mesh stay selectable. The curved elements on curved surfaces were
+developed in Hertzon and contributed to EMerge (FennisRobert/EMerge#77); Hertzon switches them on with a
+setup option.
 
 hzmesh refines the tetrahedral mesh of a model **locally**: every node and every element outside the
 region the error estimate marks stays exactly as it is, and new nodes appear only where the field needs

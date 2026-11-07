@@ -1,0 +1,613 @@
+{
+ "name": "Ex1_PlanarPCB_final",
+ "designs": [
+  {
+   "name": "Ex1",
+   "units": "mm",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Auto Open",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True"
+   },
+   "variables": {
+    "xs": "21.0mm",
+    "xf": "32mm",
+    "wt": "0.5mm",
+    "gp": "0.5mm",
+    "wa": "1.5mm",
+    "ya": "12.3mm",
+    "L1": "15.5mm",
+    "L2": "6mm",
+    "y2": "ya-wa-gc-w2",
+    "w2": "1.2mm",
+    "gc": "0.4mm",
+    "Lb": "2mm"
+   },
+   "objects": [
+    {
+     "name": "KeepOut",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "20.5,7.5,0",
+        "XSize": "25",
+        "YSize": "5",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "KeepOut_Dk3p7",
+     "solve_inside": true,
+     "model": true,
+     "color": "#5fc8e0",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "NotchCut",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "20.5,7.5,0",
+        "XSize": "25",
+        "YSize": "5",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#e6f2ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "PCB",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "PCB",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "0,0,0",
+        "XSize": "120",
+        "YSize": "12.5",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "NotchCut",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "copper",
+     "solve_inside": true,
+     "model": true,
+     "color": "#e8d020",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "xf,7.5mm,1mm",
+        "Axis": "Z",
+        "XSize": "wt",
+        "YSize": "gp",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Gnd",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "xs,7.5mm,1mm",
+        "Axis": "Z",
+        "XSize": "wt",
+        "YSize": "ya-wa-7.5mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "GndArm",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "GndArm",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "xs,ya-wa,1mm",
+        "Axis": "Z",
+        "XSize": "L1",
+        "YSize": "wa",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Gnd",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "xf,7.5mm+gp,1mm",
+        "Axis": "Z",
+        "XSize": "wt",
+        "YSize": "y2-7.5mm-gp",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "FeedArm",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "FeedArm",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "xf-Lb,y2,1mm",
+        "Axis": "Z",
+        "XSize": "L2+Lb",
+        "YSize": "w2",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed",
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [
+    {
+     "name": "AntCu",
+     "kind": "Finite Conductivity",
+     "props": {
+      "UseMaterial": "True",
+      "Material": "copper",
+      "Conductivity": "58000000",
+      "Permeability": "1",
+      "Roughness": "0um",
+      "UseThickness": "False",
+      "Thickness": "35um",
+      "TwoSided": "False"
+     },
+     "faces": [],
+     "objects": [
+      "Gnd",
+      "Feed"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "excitations": [
+    {
+     "name": "P1",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "1",
+      "Impedance": "50ohm",
+      "IntegrationLine": "xf+wt/2,7.5mm,1mm;xf+wt/2,7.5mm+gp,1mm"
+     },
+     "faces": [],
+     "objects": [
+      "Port1"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Multi-Frequencies",
+      "Frequency": "5GHz",
+      "MultiFrequencies": "2.45GHz,6.1GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "PortsOnly": "False",
+      "MaximumPasses": "12",
+      "MaximumDeltaS": "0.01",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "200000",
+      "MinimumPasses": "9",
+      "MinimumConvergedPasses": "2",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "S11",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Interpolating",
+        "Distribution": "Linear Step",
+        "Start": "1.5GHz",
+        "Stop": "8GHz",
+        "Step": "0.025GHz",
+        "Count": "101",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      },
+      {
+       "name": "Eff",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Discrete",
+        "Distribution": "Single Points",
+        "Start": "1GHz",
+        "Stop": "10GHz",
+        "Step": "0.1GHz",
+        "Count": "101",
+        "SamplesPerDecade": "20",
+        "Points": "2.401GHz,2.442GHz,2.483GHz,5.17GHz,5.5GHz,5.85GHz,6.2GHz,6.55GHz,6.85GHz,7.125GHz",
+        "SaveFields": "True",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [
+    {
+     "name": "FF",
+     "props": {
+      "CoordinateSystem": "Global",
+      "PhiStart": "0deg",
+      "PhiStop": "360deg",
+      "PhiStep": "5deg",
+      "ThetaStart": "0deg",
+      "ThetaStop": "180deg",
+      "ThetaStep": "5deg"
+     }
+    }
+   ],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [],
+   "parametrics": [
+    {
+     "name": "PL1",
+     "sweeps": [
+      {
+       "variable": "L1",
+       "type": "Linear step",
+       "start": "15mm",
+       "stop": "19mm",
+       "step": "2mm"
+      }
+     ],
+     "setups": [
+      "Setup1"
+     ],
+     "calcs": [],
+     "props": {
+      "SaveFields": "False",
+      "ParallelVariations": "1"
+     }
+    },
+    {
+     "name": "PHB",
+     "sweeps": [
+      {
+       "variable": "L2",
+       "type": "Linear step",
+       "start": "5mm",
+       "stop": "11mm",
+       "step": "3mm"
+      },
+      {
+       "variable": "Lp",
+       "type": "Linear step",
+       "start": "4mm",
+       "stop": "10mm",
+       "step": "3mm"
+      }
+     ],
+     "setups": [
+      "Setup1"
+     ],
+     "calcs": [],
+     "props": {
+      "SaveFields": "False",
+      "ParallelVariations": "2"
+     }
+    },
+    {
+     "name": "PCF",
+     "sweeps": [
+      {
+       "variable": "L1",
+       "type": "Linear step",
+       "start": "18.5mm",
+       "stop": "23.5mm",
+       "step": "2.5mm"
+      },
+      {
+       "variable": "L2",
+       "type": "Linear step",
+       "start": "6mm",
+       "stop": "14mm",
+       "step": "4mm"
+      }
+     ],
+     "setups": [
+      "Setup1"
+     ],
+     "calcs": [],
+     "props": {
+      "SaveFields": "False",
+      "ParallelVariations": "3"
+     }
+    },
+    {
+     "name": "PCFw",
+     "sweeps": [
+      {
+       "variable": "L1",
+       "type": "Linear step",
+       "start": "18mm",
+       "stop": "22mm",
+       "step": "2mm"
+      },
+      {
+       "variable": "L2",
+       "type": "Linear step",
+       "start": "5mm",
+       "stop": "8mm",
+       "step": "3mm"
+      }
+     ],
+     "setups": [
+      "Setup1"
+     ],
+     "calcs": [],
+     "props": {
+      "SaveFields": "False",
+      "ParallelVariations": "3"
+     }
+    },
+    {
+     "name": "PLb",
+     "sweeps": [
+      {
+       "variable": "Lb",
+       "type": "Linear step",
+       "start": "2mm",
+       "stop": "6mm",
+       "step": "2mm"
+      },
+      {
+       "variable": "L2",
+       "type": "Linear step",
+       "start": "4mm",
+       "stop": "6mm",
+       "step": "2mm"
+      }
+     ],
+     "setups": [
+      "Setup1"
+     ],
+     "calcs": [],
+     "props": {
+      "SaveFields": "False",
+      "ParallelVariations": "3"
+     }
+    },
+    {
+     "name": "PXf",
+     "sweeps": [
+      {
+       "variable": "xf",
+       "type": "Linear step",
+       "start": "32mm",
+       "stop": "35mm",
+       "step": "3mm"
+      },
+      {
+       "variable": "Lb",
+       "type": "Linear step",
+       "start": "2mm",
+       "stop": "5mm",
+       "step": "3mm"
+      },
+      {
+       "variable": "L1",
+       "type": "Linear step",
+       "start": "18mm",
+       "stop": "20mm",
+       "step": "2mm"
+      }
+     ],
+     "setups": [
+      "Setup1"
+     ],
+     "calcs": [],
+     "props": {
+      "SaveFields": "False",
+      "ParallelVariations": "4"
+     }
+    },
+    {
+     "name": "PL1b",
+     "sweeps": [
+      {
+       "variable": "L1",
+       "type": "Linear step",
+       "start": "14.5mm",
+       "stop": "16.5mm",
+       "step": "1mm"
+      }
+     ],
+     "setups": [
+      "Setup1"
+     ],
+     "calcs": [],
+     "props": {
+      "SaveFields": "False",
+      "ParallelVariations": "3"
+     }
+    }
+   ],
+   "working_cs": "Global",
+   "notes": ""
+  }
+ ],
+ "variables": {},
+ "materials": [
+  {
+   "name": "KeepOut_Dk3p7",
+   "permittivity": "3.7",
+   "permeability": "1",
+   "conductivity": "0",
+   "loss_tangent": "0.02",
+   "magnetic_loss_tangent": "0",
+   "color": "#bebebe",
+   "pec": false,
+   "library": "Project",
+   "description": "",
+   "dispersion": "None",
+   "measured_frequency": "1GHz",
+   "eps_static": "4.6",
+   "eps_infinity": "4.2",
+   "relaxation_frequency": "1GHz",
+   "anisotropic": false,
+   "permittivity_tensor": "",
+   "permeability_tensor": "",
+   "loss_tangent_tensor": "",
+   "emsutil_key": ""
+  }
+ ],
+ "format": "hertzon-project",
+ "version": 2
+}

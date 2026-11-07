@@ -54,6 +54,21 @@ the sphere's settings (angles, steps, coordinate system) differ from `sig`, the 
 before you compare files from different runs: values read off a sampled pattern, such as a -3 dB beam width,
 depend on the step.
 
+## losses_\<solution\>.npz: loss power
+
+Written next to `huygens_<solution>.npz` for antennas with ports. The power dissipated in lossy materials
+(conductivity, lossy εr and µr) and on finite conductivity, impedance and lumped RLC boundaries is a Hermitian
+form of the port amplitudes a: Ploss = aᴴ L a. Read it with `hertzon.solver.ffquant.loss_power(store,
+solution, f, {port: amplitude})`. The radiation efficiency is Prad / (Prad + Ploss), the power balance
+(Prad + Ploss − Pacc) / Pin.
+
+| key | content |
+|---|---|
+| `ports` | the port numbers, the order of the rows and columns of L |
+| `ok` | 1 when the losses were computed (0: the efficiency falls back to Prad / Pacc) |
+| `freq_<k>` | frequency in Hz |
+| `Ploss_<k>` | L of frequency k in W for 1 W incident per port; missing when the model has no losses |
+
 ## tuning_\<sweep\>.npz: derivative tuning model
 
 Written by **Compute Derivatives** ([TUNING.md](TUNING.md)); `<sweep>` is the sweep name, or `LastAdaptive`

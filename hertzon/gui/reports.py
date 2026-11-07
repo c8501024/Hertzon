@@ -213,31 +213,34 @@ def adaptive_pass_data(st: ResultStore, sol: str) -> dict | None:
     return out
 
 
+def _ff_solutions(st: ResultStore, setup: str) -> list[str]:
+    """Solutions of one result folder with stored far field surface fields."""
+    return [f"{setup} : {sol}" for sol in st.solutions() if (st.folder / f"huygens_{sol}.npz").exists()]
+
+
+def _antenna_solutions(st: ResultStore, setup: str) -> list[str]:
+    """Solutions of one result folder with far fields (antenna parameters over frequency) and the passes."""
+    out = _ff_solutions(st, setup)
+    rows = [r for v in (st.read_json(ANTENNA_PASSES, {}) or {}).values() for r in v]
+    if rows:
+        fa = rows[-1].get("freq") or [0.0]
+        out += [f"{setup} : AdaptivePasses"] if len(fa) == 1 else \
+            [f"{setup} : AdaptivePasses @ {f / 1e9:.6g}GHz" for f in fa]
+    return out
+
+
 def antenna_solution_list(doc) -> list[str]:
     """Solutions with far fields (antenna parameters over frequency) and the adaptive passes."""
-    out = []
     if not doc.project.path:
-        return out
-    for s in doc.design.setups:
-        st = ResultStore(result_dir(doc, s.name))
-        out += [f"{s.name} : {sol}" for sol in st.solutions() if (st.folder / f"huygens_{sol}.npz").exists()]
-        rows = [r for v in (st.read_json(ANTENNA_PASSES, {}) or {}).values() for r in v]
-        if rows:
-            fa = rows[-1].get("freq") or [0.0]
-            out += [f"{s.name} : AdaptivePasses"] if len(fa) == 1 else \
-                [f"{s.name} : AdaptivePasses @ {f / 1e9:.6g}GHz" for f in fa]
-    return out
+        return []
+    return [x for s in doc.design.setups for x in _antenna_solutions(ResultStore(result_dir(doc, s.name)), s.name)]
 
 
 def ff_solution_list(doc) -> list[str]:
     """Solutions with stored far field surface fields (LastAdaptive and the sweeps that saved fields)."""
-    out = []
     if not doc.project.path:
-        return out
-    for s in doc.design.setups:
-        st = ResultStore(result_dir(doc, s.name))
-        out += [f"{s.name} : {sol}" for sol in st.solutions() if (st.folder / f"huygens_{sol}.npz").exists()]
-    return out
+        return []
+    return [x for s in doc.design.setups for x in _ff_solutions(ResultStore(result_dir(doc, s.name)), s.name)]
 
 
 def sweeps_without_fields(doc) -> list[str]:
@@ -325,10 +328,12 @@ def load_rcs(st, label: str, sphere: str, design) -> dict:
     return monostatic_rcs(st, label or "LastAdaptive", sphere, design)
 
 
-def load_antenna(doc, solution: str, sphere: str) -> dict:
-    """Antenna parameters of a solution: over frequency, or over the adaptive passes."""
+def load_antenna(doc, solution: str, sphere: str, root=None) -> dict:
+    """Antenna parameters of a solution: over frequency, or over the adaptive passes (root: the folder of a
+    parametric variation)."""
+    from ..solver.results import _safe
     setup, _, sol = [x.strip() for x in solution.partition(":")]
-    st = ResultStore(result_dir(doc, setup))
+    st = ResultStore(result_dir(doc, setup) if root is None else root / _safe(setup))
     if not sphere:
         raise RuntimeError("Add a far field setup (Radiation > Insert Far Field Setup).")
     if sol.startswith("AdaptivePasses"):
@@ -347,7 +352,9 @@ def load_antenna(doc, solution: str, sphere: str) -> dict:
     return {"freq": f, "solved": f, "antenna": vals}
 
 
-FAMILY_KINDS = ("Rectangular", "Smith Chart", "Data Table")
+FAMILY_KINDS = ("Rectangular", "Smith Chart", "Data Table", "Antenna Parameters", "Antenna Parameters Table",
+                "Radiation Pattern", "3D Polar Plot")
+FF_KINDS = ("Radiation Pattern", "3D Polar Plot")
 # complex quantities: a plot needs a function (mag, dB, re, im, ...), a bare one would silently be its magnitude
 COMPLEX_CATEGORIES = ("S Parameter", "Y Parameter", "Z Parameter", "Gamma", "Port Zo", "Propagation Constant")
 _BARE_COMPLEX = re.compile(r"^(?:S|Y|Z|Zo|Gamma)\([^()]+\)$")
@@ -366,17 +373,23 @@ XVAR_POINTS = 101                 # points of a plot against a design variable (
 XVAR_POINTS_FF = 41               # ... of antenna parameters (a far field per point)
 
 
-def family_solution_list(doc, name: str) -> list[str]:
-    """Solutions of the solved variations of a parametric setup."""
+def family_solution_list(doc, name: str, kind: str = "Rectangular") -> list[str]:
+    """Solutions of the solved variations of a parametric setup (those a report of this kind can show)."""
     from ..solver.parametric import solved_variations
     from ..solver.results import _safe
     out = []
     for s in doc.design.setups:
         for _, folder in solved_variations(doc.project.path, doc.design_name, name):
             st = ResultStore(folder / _safe(s.name))
-            sols = st.solutions()
+            if kind in ANTENNA_KINDS:
+                sols = _antenna_solutions(st, s.name)
+            elif kind in FF_KINDS:
+                sols = _ff_solutions(st, s.name)
+            else:
+                sols = [f"{s.name} : {x}" for x in st.solutions()]
+                sols += [f"{s.name} : {x}" for x in adaptive_pass_solutions(st)] if sols else []
             if sols:
-                out += [f"{s.name} : {x}" for x in sols] + [f"{s.name} : {x}" for x in adaptive_pass_solutions(st)]
+                out += sols
                 break
     return out
 
@@ -638,6 +651,15 @@ class ReportWindow(QWidget):
             self.cut_val = QLineEdit(report.props.get("cut_value", "0"))
             self.cut.currentTextChanged.connect(lambda *_: self._save_props())
             self.cut_val.editingFinished.connect(self._save_props)
+            self.ff_var = None
+            if report.kind == "3D Polar Plot" and self.families is not None:
+                # Families: the 3D pattern of one variation at a time
+                self.ff_var = QComboBox()
+                self.ff_var.setToolTip("Variation of the parametric setup shown (Families)")
+                self.ff_var.currentTextChanged.connect(self._ff_var_changed)
+                form.addRow("Variation:", self.ff_var)
+            if self._family():
+                self._fill_solutions()
             if report.kind == "Radiation Pattern":   # the 2D cut; the 3D polar plot shows the whole sphere
                 form.addRow("Constant:", self.cut)
                 form.addRow("Value (deg):", self.cut_val)
@@ -671,6 +693,8 @@ class ReportWindow(QWidget):
                 self.sphere.setCurrentText(report.props["sphere"])
             self.sphere.currentTextChanged.connect(self._sphere_changed)
             form.addRow("Far field setup:", self.sphere)
+            if self._family():
+                self._fill_solutions()
         elif report.kind == EIGEN_KIND:
             self.sol.blockSignals(True)
             self.sol.clear()
@@ -805,6 +829,8 @@ class ReportWindow(QWidget):
         elif report.kind == "3D Polar Plot":
             from pyvistaqt import QtInteractor
             self.p3 = QtInteractor(right)
+            from .viewer import render_on_change
+            render_on_change(self.p3)
             self.p3.set_background("white")
             rl.addWidget(self.p3.interactor)
             self.fig = None
@@ -1183,13 +1209,42 @@ class ReportWindow(QWidget):
 
     def _fill_solutions(self) -> None:
         fam = self._family()
-        sols = family_solution_list(self.doc, fam) if fam else solution_list(self.doc)
+        kind = self.report.kind
+        if fam:
+            sols = family_solution_list(self.doc, fam, kind)
+        else:
+            sols = report_solution_list(self.doc, kind) if kind in ANTENNA_KINDS + FF_KINDS else solution_list(self.doc)
         cur = self.report.solution
         self.sol.blockSignals(True)
         self.sol.clear()
         self.sol.addItems(sols or [cur])
         self.sol.setCurrentText(cur)
         self.sol.blockSignals(False)
+
+    def _ff_var_changed(self, label: str) -> None:
+        if getattr(self, "_filling_var", False) or not label:
+            return
+        self.report.props["variation"] = label
+        self.changed.emit()
+        self.refresh()
+
+    def _ff_variations(self) -> list[tuple[str, object]]:
+        """(legend suffix, folder) of the far fields shown: the nominal design, or the chosen variations of
+        the families; a 3D polar plot shows one of them (Variation)."""
+        if not self._family():
+            return [("", None)]
+        vs = self._variations()
+        if self.report.kind != "3D Polar Plot":
+            return vs
+        want = self.report.props.get("variation", "")
+        pick = next((v for v in vs if v[0].strip() == want), vs[0])
+        if getattr(self, "ff_var", None) is not None:
+            self._filling_var = True
+            self.ff_var.clear()
+            self.ff_var.addItems([v[0].strip() for v in vs])
+            self.ff_var.setCurrentText(pick[0].strip())
+            self._filling_var = False
+        return [pick]
 
     def _families_changed(self, name: str) -> None:
         self.report.props["families"] = self._family()
@@ -1684,14 +1739,17 @@ class ReportWindow(QWidget):
             raise RuntimeError("A 3D polar plot has no curves to export; export a Radiation Pattern cut "
                                "or the plot as PNG")
         if kind == "Radiation Pattern":
-            q = self._ff()
+            variations = self._ff_variations()
+            q = self._ff(variations[0][1])
             other = "Theta" if p.get("cut", "Phi") == "Phi" else "Phi"
             curves = []
-            qt = self._ff_tuned(q) if self._tuned() else None      # the tuned cut, as drawn
+            qt = self._ff_tuned(q) if self._tuned() and len(variations) == 1 else None  # the tuned cut, as drawn
             for tr in self.report.traces:
-                if ff_trace(tr)[1] in q:
-                    ang, y = self._ff_cut(q, tr)
-                    curves.append((with_unit(self.doc, tr), np.degrees(ang), y))
+                for suffix, root in variations:
+                    qv = self._ff(root)
+                    if ff_trace(tr)[1] in qv:
+                        ang, y = self._ff_cut(qv, tr)
+                        curves.append((with_unit(self.doc, tr) + suffix, np.degrees(ang), y))
                 if qt is not None and ff_trace(tr)[1] in qt:
                     from .tuning import tuning_state
                     ang, y = self._ff_cut(qt, tr)
@@ -1786,7 +1844,7 @@ class ReportWindow(QWidget):
 
     def _trace_xy(self, tr: str, root=None):
         if self.report.kind == "Radiation Pattern":
-            ang, y = self._ff_cut(self._ff(), tr)
+            ang, y = self._ff_cut(self._ff(root), tr)
             return np.degrees(ang), y
         if self.report.kind.startswith("Monostatic RCS"):
             f, _, _, cols, _ = self._rcs_series()
@@ -1849,7 +1907,7 @@ class ReportWindow(QWidget):
             return cache[key, TUNED]
         if (key, root) not in cache:
             if self.report.kind in ANTENNA_KINDS:
-                cache[key, root] = load_antenna(self.doc, key, self._sphere_name())
+                cache[key, root] = load_antenna(self.doc, key, self._sphere_name(), root)
                 return cache[key, root]
             _, _, data = load_solution(self.doc, key, root)
             if data is None:
@@ -1922,9 +1980,11 @@ class ReportWindow(QWidget):
         if not self.doc.project.path:
             raise RuntimeError("Save and analyze the project first")
         if self.report.kind in ANTENNA_KINDS:
+            from ..solver.results import _safe
             setup, _, sol = [x.strip() for x in self.sol.currentText().partition(":")]
-            st = ResultStore(result_dir(self.doc, setup))
-            return st, sol, self._sol_data(None)
+            root = self._variations()[0][1] if self._family() else None
+            st = ResultStore(result_dir(self.doc, setup) if root is None else root / _safe(setup))
+            return st, sol, self._sol_data(None, root)
         if self._xvar():
             st, sol, _ = load_solution(self.doc, self.sol.currentText(), None)
             return st, sol, self._sol_data(None)
@@ -2316,14 +2376,16 @@ class ReportWindow(QWidget):
             for c, (_, y) in enumerate(cols):
                 self.table.setItem(r, c + 1, QTableWidgetItem(f"{y[r]:.6g}"))
 
-    def _ff(self):
-        """Far field quantities of the report solution at the chosen frequency (cached until refresh)."""
+    def _ff(self, root=None):
+        """Far field quantities of the report solution at the chosen frequency (cached until refresh); root:
+        the folder of a parametric variation (Families)."""
         cache = self.__dict__.setdefault("_cache", {})
-        if "ff" in cache:
-            return cache["ff"]
+        if ("ff", root) in cache:
+            return cache["ff", root]
+        from ..solver.results import _safe
         setup, _, sol = [x.strip() for x in self.sol.currentText().partition(":")]
         label = sol or "LastAdaptive"
-        st = ResultStore(result_dir(self.doc, setup))
+        st = ResultStore(result_dir(self.doc, setup) if root is None else root / _safe(setup))
         sph = self.report.props.get("sphere") or (self.doc.design.spheres[0].name if self.doc.design.spheres else "")
         from ..solver.farfield_post import farfield
         if not sph:
@@ -2340,7 +2402,7 @@ class ReportWindow(QWidget):
         from ..solver.ffquant import excited_quantities
         q = excited_quantities(st, self.doc.design, ff, label, k)
         q["_freq"] = float(ff[f"freq_{k}"][0])
-        cache["ff"] = q
+        cache["ff", root] = q
         return q
 
     def _antenna_tuned(self, key: str, base: dict) -> dict:
@@ -2411,7 +2473,8 @@ class ReportWindow(QWidget):
         return ang, ff_db(func, name, y)
 
     def _draw_ff(self) -> None:
-        q = self._ff()
+        variations = self._ff_variations()
+        q = self._ff(variations[0][1])
         th, ph = q["_theta"], q["_phi"]
         ftxt = f"{q['_freq'] / 1e9:.6g} GHz"
         if self.report.kind == "3D Polar Plot":
@@ -2442,12 +2505,13 @@ class ReportWindow(QWidget):
                 self._p3_drawn = True
             else:
                 self.p3.camera_position = cam
+            vtxt = f" ({variations[0][0].strip()})" if variations[0][0] else ""
             if v is not q[name]:
                 from .tuning import tuning_state
                 self.info.setText(f"Max {tr} = {vv.max():.3f} at {ftxt},{tuning_state(self.doc).label()}  "
                                   f"(solved: {solved.max():.3f})")
             else:
-                self.info.setText(f"Max {tr} = {vv.max():.3f} at {ftxt}" + self._tuned_note_html())
+                self.info.setText(f"Max {tr} = {vv.max():.3f} at {ftxt}{vtxt}" + self._tuned_note_html())
             return
         cut = self.report.props.get("cut", "Phi")
         val = float(self.report.props.get("cut_value", "0") or 0)
@@ -2462,16 +2526,17 @@ class ReportWindow(QWidget):
             if cut == "Phi":                # the Phi cut runs over theta -180..180, as in the rectangular plot
                 ax.xaxis.set_major_formatter(FuncFormatter(_signed_deg))
         curves = []
-        qt = self._ff_tuned(q) if self._tuned() else None
-        for tr in self.report.traces:
+        qt = self._ff_tuned(q) if self._tuned() and len(variations) == 1 else None
+        for tr, suffix, root in [(t, sx, r) for t in self.report.traces for sx, r in variations]:
+            qv = self._ff(root)
             func, name = ff_trace(tr)
-            if name not in q:
+            if name not in qv:
                 continue
-            ang, yy = self._ff_cut(q, tr)
+            ang, yy = self._ff_cut(qv, tr)
             x = np.degrees(ang)
             kw = dict(linestyle="--", alpha=0.55) if qt is not None else {}
-            line, = ax.plot(x if rect else ang, yy, label=tr, **kw)
-            curves.append((tr, x, yy, ax, line.get_color()))
+            line, = ax.plot(x if rect else ang, yy, label=tr + suffix, **kw)
+            curves.append((tr + suffix, x, yy, ax, line.get_color()))
             if qt is not None and name in qt:
                 from .tuning import tuning_state
                 ang, yt = self._ff_cut(qt, tr)

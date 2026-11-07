@@ -191,6 +191,15 @@ class AiLink(QObject):
             w.solver.submit(job)
             w.project_tree.rebuild()
             return {"key": job.key}
+        if cmd == "open_report":
+            # MCP set_report(open=true): the report as a tab of the window
+            des = a.get("design") or doc.design_name
+            if des != doc.design_name:
+                doc.set_design(des)
+            if not any(r.name == a["name"] for r in doc.design.reports):
+                raise RuntimeError(f"no report named {a['name']!r}")
+            w.open_report(a["name"])
+            return {"opened": a["name"]}
         if cmd == "queue":
             sv = w.solver
             return {"running": sv.job.key if sv.busy and sv.job else None, "queued": [j.key for j in sv.queue]}
@@ -203,6 +212,59 @@ class AiLink(QObject):
                 sv.remove(key)
                 return {"removed_from_queue": True}
             return {"aborted": False}
+        if cmd == "tuning":
+            # derivative tuning model of a solved setup (MCP compute_tuning)
+            from .solve import Job
+            from .trees import solution_state
+            des = a.get("design") or doc.design_name
+            if des != doc.design_name:
+                doc.set_design(des)
+            if solution_state(doc, a["setup"]) != "done":
+                raise RuntimeError(f"analyze {a['setup']} first (with the current design)")
+            if not doc.project.path:
+                raise RuntimeError("save the project first")
+            if doc.dirty:
+                w.file_save()
+            job = Job(doc.project.path, des, a["setup"], tuning=a["tuning"])
+            w.solver.submit(job)
+            return {"key": job.key}
+        if cmd == "apply_evaluation":
+            # an optimization result into the design (MCP apply_optimization), as Apply to Design
+            des = a.get("design") or doc.design_name
+            if des != doc.design_name:
+                doc.set_design(des)
+            row = a["row"]
+            w.apply_evaluation(a["optimization"], row, f"evaluation {row.get('eval')} of {a['optimization']} "
+                                                       "(AI assistant)")
+            return {"applied": row.get("variables")}
+        if cmd == "analyze_circuit":
+            # a circuit is solved at once in the window (MCP run_simulation on a circuit design)
+            import time as _time
+            from ..solver.circuit import CircuitError, run_setup
+            des = a.get("design") or doc.design_name
+            if des != doc.design_name:
+                doc.set_design(des)
+            if not doc.project.path:
+                raise RuntimeError("save the project first (save_project with a path)")
+            if doc.dirty:
+                w.file_save()
+            if not w._solve_cross_sections():
+                raise RuntimeError("the cross-sections of the full-wave line model could not be solved")
+            out = {}
+            for s in a.get("setups") or [x.name for x in doc.design.setups]:
+                t = _time.time()
+                try:
+                    _, warns = run_setup(doc.project, doc.design, doc.design.setup(s))
+                except CircuitError as e:
+                    w.msgs.add("error", f"{des} {s}: {e}")
+                    raise RuntimeError(f"{s}: {e}") from None
+                for m in warns:
+                    w.msgs.add("warning", f"{des}: {m}")
+                w.msgs.add("info", f"{des} {s}: circuit solved in {_time.time() - t:.2f} s (AI assistant)")
+                out[s] = {"state": "done", "seconds": round(_time.time() - t, 2), **({"warnings": warns} if warns else {})}
+            w.project_tree.rebuild()
+            w._refresh_reports()
+            return out
         raise RuntimeError(f"unknown command {cmd!r}")
 
 

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import schema
 from .expr import Evaluator
+from .circuit import Component, Wire, from_dict as circuit_from_dict
 from .stackup import Stackup
 from .materials import Material, default_color, library_material, library_materials, normalize_color
 
@@ -145,6 +146,14 @@ class Setup:
     eigen: bool = False
 
 
+def circuit_setup() -> Setup:
+    """The analysis a new circuit design starts with: S-parameters from 1 to 10 GHz at 201 points."""
+    sw = Sweep("Sweep")
+    sw.props.update({"SweepType": "Discrete", "Distribution": "Linear Count", "Start": "1GHz", "Stop": "10GHz",
+                     "Count": "201"})
+    return Setup("Setup1", sweeps=[sw])
+
+
 @dataclass
 class InfiniteSphere:
     name: str
@@ -213,6 +222,7 @@ class ParametricSetup:
 class Design:
     name: str = "Design1"
     units: str = "mm"
+    kind: str = "3d"            # design type: "3d" (3D FEM) or "circuit" (schematic: components and wires)
     settings: dict[str, str] = field(default_factory=lambda: schema.defaults(schema.DESIGN_SETTINGS))
     variables: dict[str, str] = field(default_factory=dict)
     objects: list[GeoObject] = field(default_factory=list)
@@ -231,6 +241,8 @@ class Design:
     working_cs: str = "Global"
     notes: str = ""
     stackup: Stackup | None = None        # PCB layer stack (hertzon.model.stackup), None: no board
+    components: list[Component] = field(default_factory=list)   # circuit designs: schematic (model/circuit.py)
+    wires: list[Wire] = field(default_factory=list)
 
     def cs(self, name: str) -> CoordSys:
         for c in self.coord_systems:
@@ -391,7 +403,7 @@ def _assign(d: dict) -> Assignment:
 
 
 def design_from_dict(d: dict) -> Design:
-    des = Design(name=d.get("name", "Design1"), units=d.get("units", "mm"))
+    des = Design(name=d.get("name", "Design1"), units=d.get("units", "mm"), kind=d.get("kind", "3d"))
     des.settings.update(d.get("settings", {}))
     des.variables = dict(d.get("variables", {}))
     for o in d.get("objects", []):
@@ -456,6 +468,7 @@ def design_from_dict(d: dict) -> Design:
     des.working_cs = d.get("working_cs", "Global")
     des.notes = d.get("notes", "")
     des.stackup = Stackup.from_dict(d["stackup"]) if d.get("stackup") else None
+    des.components, des.wires = circuit_from_dict(d)
     return des
 
 

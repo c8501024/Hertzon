@@ -60,3 +60,95 @@ def test_aura_state_needs_the_same_initial_mesh(tmp_path):
     B._save_amr_state(tmp_path, "k", B._amr(m), 0.6, [{"pass": 1}], [1e9], m)
     with pytest.raises(RuntimeError, match="does not fit the initial mesh"):
         B.restore_amr_mesh(_model(), B.load_amr_state(tmp_path, "k", [1e9]), 1.6)
+
+
+def test_stale_aura_state_leaves_the_model_untouched(tmp_path):
+    m = _model()
+    m._local_mesh = None
+    m._aura_initial = np.asarray(m.mesh.nodes).T.copy() + 1e-3
+    _refine(m, 1)
+    B._save_amr_state(tmp_path, "k", B._amr(m), 0.6, [{"pass": 1}], [1e9], m)
+    m2 = _model()
+    nodes = np.asarray(m2.mesh.nodes).copy()
+    with pytest.raises(B.StaleMesh):
+        B.restore_amr_mesh(m2, B.load_amr_state(tmp_path, "k", [1e9]), 1.6)
+    assert np.array_equal(np.asarray(m2.mesh.nodes), nodes)       # the adaptive passes can start from it
+
+
+def test_a_sweep_that_enlarges_the_open_region_outdates_the_solution():
+    """Switching on or lowering a sweep below the solution frequency enlarges the automatic open region: the
+    model key changes (the setup is shown outdated and adapts again); switching it off again restores it."""
+    import copy
+    from hertzon.model.design import Project
+    from hertzon.solver.keys import model_key
+    p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "PatchAntenna.hzn")
+    d = p.designs[0]
+    st = d.setups[0]
+    ev = d.evaluator(p)
+    k0, f0 = model_key(p, d, st), B.lowest_frequency(d, st, ev)
+    wide = copy.deepcopy(st.sweeps[0])
+    wide.name = "Wide"
+    wide.props.update(Start="0.8GHz", Stop="4GHz", Step="0.1GHz", Enabled="False")
+    st.sweeps.append(wide)
+    assert model_key(p, d, st) == k0 and B.lowest_frequency(d, st, ev) == f0
+    wide.props["Enabled"] = "True"
+    k1 = model_key(p, d, st)
+    assert k1 != k0 and B.lowest_frequency(d, st, ev) == pytest.approx(0.8e9)
+    wide.props["Start"] = "2GHz"                 # above the other sweep: the region is the one of before
+    assert model_key(p, d, st) == k0
+    d.settings["AutoOpenPadding"] = "50mm"       # a given padding: the sweeps do not size the region
+    k2 = model_key(p, d, st)
+    wide.props["Start"] = "0.5GHz"
+    assert model_key(p, d, st) == k2
+
+
+def test_optimization_evaluations_keep_the_sweeps_of_the_design(tmp_path):
+    """The evaluations keep the sweeps switched on or off as in the design (same open region, so Apply to
+    Design takes the adaptive mesh over) and solve only the goal sweep."""
+    import copy
+    from hertzon.model.design import Optimization, Project
+    from hertzon.solver import optimize as O
+    from hertzon.solver.keys import model_key
+    p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "PatchAntenna.hzn")
+    d = p.designs[0]
+    st = d.setups[0]
+    wide = copy.deepcopy(st.sweeps[0])
+    wide.name = "Wide"
+    wide.props.update(Start="0.8GHz", Stop="4GHz", Step="0.1GHz")
+    st.sweeps.append(wide)
+    d.optimetrics.append(Optimization("TR", "Setup1 : Sweep",
+                                      variables=[{"name": "Lp", "include": True, "min": "26mm", "max": "31mm"}],
+                                      goals=[], props={"Optimizer": "Derivative Trust Region"}))
+    p.save(tmp_path / "p.hzn")
+    opt = O.Optimizer(str(tmp_path / "p.hzn"), d.name, "TR", tmp_path / "out")
+    q = opt._project_for({"Lp": "28.5mm"})
+    qd = q.design(d.name)
+    assert [s.props.get("Enabled", "True") for s in qd.setup("Setup1").sweeps] == ["True", "True"]
+    assert model_key(q, qd, qd.setup("Setup1")) == model_key(p, d, st)
+    assert opt._env(1)["HERTZON_GOAL_SWEEP"] == "Sweep"
+
+
+def test_setup_only_optimization_uses_the_open_region_of_the_setup(tmp_path):
+    """Goals on LastAdaptive: the evaluations solve no sweep, so all sweeps are off and the open region is the
+    one of the solution frequency."""
+    import copy
+    from hertzon.model.design import Optimization, Project
+    from hertzon.solver import optimize as O
+    from hertzon.solver.keys import open_region_frequency
+    p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "PatchAntenna.hzn")
+    d = p.designs[0]
+    st = d.setups[0]
+    wide = copy.deepcopy(st.sweeps[0])
+    wide.name = "Wide"
+    wide.props.update(Start="0.8GHz", Stop="4GHz", Step="0.1GHz")
+    st.sweeps.append(wide)
+    d.optimetrics.append(Optimization("TR", "Setup1 : LastAdaptive",
+                                      variables=[{"name": "Lp", "include": True, "min": "26mm", "max": "31mm"}],
+                                      goals=[], props={"Optimizer": "Derivative Trust Region"}))
+    p.save(tmp_path / "p.hzn")
+    opt = O.Optimizer(str(tmp_path / "p.hzn"), d.name, "TR", tmp_path / "out")
+    q = opt._project_for({"Lp": "28.5mm"})
+    qd = q.design(d.name)
+    assert all(s.props["Enabled"] == "False" for s in qd.setup("Setup1").sweeps)
+    assert open_region_frequency(q, qd, qd.setup("Setup1")) is None
+    assert open_region_frequency(p, d, st) is not None

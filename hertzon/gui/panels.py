@@ -123,6 +123,61 @@ class PropertiesPanel(QWidget):
         if command_index is None:
             self.tabs.setCurrentWidget(g)
 
+    def show_component(self, name: str) -> None:
+        """A part of a circuit design: its name and values, edited in place."""
+        from ..model import circuit as CK
+        self.clear()
+        des = self.doc.design
+        comp = next((c for c in des.components if c.name == name), None)
+        if comp is None:
+            return
+        info = CK.TYPES[comp.type]
+        self.target = ("component", name)
+        self.title.setText(f"{name} ({info.label})")
+        hidden = ("Thumbnail", "PortNames", "Ports")
+        subs = tuple(c.name for c in des.components if c.type == "SUBST")
+        length = {"W", "S", "L", "H", "T", "W1", "W2", "W3", "W4", "Di", "Do", "G", "D", "P"}
+        props = [schema.P("Name", "text", name)]
+        for k in [*info.props, *[k for k in comp.props if k not in info.props]]:
+            if k in hidden:
+                continue
+            if k == "Subst":
+                props.append(schema.P(k, "choice", "", label="Substrate", choices=subs or ("",)))
+            elif k == "Backed":
+                props.append(schema.P(k, "choice", "False", label="Ground under the substrate",
+                                      choices=("False", "True")))
+            elif k in ("Net", "Num", "File", "Design", "Solution"):
+                props.append(schema.P(k, "text", ""))
+            else:
+                props.append(schema.P(k, "length" if k in length else "expr", ""))
+        vals = {"Name": name, **{k: v for k, v in comp.props.items() if k not in hidden}}
+
+        def ch(k, v):
+            c = next((o for o in self.doc.design.components if o.name == self.target[1]), None)
+            if c is None:
+                return
+            v = v.strip()
+            if k == "Name":
+                if not v or v == c.name:
+                    return
+                if any(o.name == v for o in self.doc.design.components):
+                    self.doc.message.emit("error", f"A component named {v} exists already")
+                    return
+                self.doc.checkpoint()
+                if c.type == "SUBST":                  # the lines follow a renamed substrate
+                    for o in self.doc.design.components:
+                        if o.props.get("Subst") == c.name:
+                            o.props["Subst"] = v
+                c.name = v
+                self.target = ("component", v)
+            else:
+                if c.props.get(k) == v:
+                    return
+                self.doc.checkpoint()
+                c.props[k] = v
+            self.doc.commit("circuit", geometry=False)
+        self._grid(info.label, props, vals, ch)
+
     def show_assignment(self, family: str, name: str) -> None:
         self.clear()
         try:
@@ -156,7 +211,8 @@ class PropertiesPanel(QWidget):
         des = self.doc.design
         pw = not des.ports() and any(e.kind == "Incident Plane Wave" and e.enabled for e in des.excitations)
         # an incident wave design converges on Delta Energy, a port design on Delta S
-        drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase"} if pw
+        drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
+                 "MaxPowerBalance", "MaxDeltaEfficiency"} if pw
                 else {"MaximumDeltaEnergy"})
         props = [p for p in props if p.name not in drop]
         for tab in dict.fromkeys(p.tab for p in props):
@@ -662,6 +718,9 @@ class SolutionDataDialog(QDialog):
         if pw:  # incident wave: no S-parameters, the pass criterion is Delta Energy
             qmap = {"Delta Energy": "delta_s", "Number of Tetrahedra": "tets", "% Delta Tets": "delta_tets",
                     "Solve Time (s)": "time"}
+        pb = any("power_balance" in p for p in passes)     # Use power balance convergence
+        if pb:
+            qmap.update({"Power Balance": "power_balance", "Delta Efficiency": "delta_eff"})
         lay.addWidget(QLabel(f"Solved Passes: {len(passes)}    {state}    Target Max {dq}: "
                              f"{conv.get('max_delta_s', '')}    Adaptive frequency: "
                              + ", ".join(f"{f / 1e9:.6g} GHz" for f in fa)))
@@ -683,11 +742,16 @@ class SolutionDataDialog(QDialog):
             if not pw:
                 r += [f"{p['delta_mag']:.5f}" if "delta_mag" in p else "N/A",
                       f"{p['delta_phase']:.3f}" if "delta_phase" in p else "N/A"]
+            if pb:
+                r += [f"{p['power_balance']:.5f}" if "power_balance" in p else "N/A",
+                      f"{p['delta_eff']:.4f}" if "delta_eff" in p else "N/A"]
             rows.append(r + ["Yes" if p.get("passed") else ("No" if "passed" in p else "N/A"),
                              f"{p.get('time', 0):.1f} s"])
         cols = ["Pass Number", "# Tetrahedra", "% Delta Tets", "Delta Energy" if pw else "Max Mag. Delta S"]
         if not pw:
             cols += ["Max Delta |S|", "Max Delta Phase (deg)"]
+        if pb:
+            cols += ["Power Balance", "Delta Efficiency"]
         table = self._table(cols + ["Converged", "Solve Time"], rows)
         lay.addWidget(table)
         fig = Figure(figsize=(6, 3), tight_layout=True)
@@ -708,6 +772,10 @@ class SolutionDataDialog(QDialog):
                     ax.legend(fontsize=8)
                 else:
                     ax.plot(x, y, "o-")
+                    tgt = {"power_balance": "max_power_balance", "delta_eff": "max_delta_eff"}.get(key)
+                    if tgt in conv:
+                        ax.axhline(conv[tgt], color="r", ls="--", label="Target")
+                        ax.legend(fontsize=8)
             from matplotlib.ticker import MaxNLocator
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
             ax.set_xlabel("Pass")
