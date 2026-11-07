@@ -68,6 +68,16 @@ def render_on_change(plotter) -> None:
         return
     state = {"last": None}
 
+    def drawn(*_args):
+        # the stamp of what was drawn, taken when the render has finished: observers on the render's start
+        # (scale bar, triad, clipping range) change the scene during the render, and the render itself runs
+        # later than the request (Qt paints on its next pass). A stamp taken at the request would always
+        # differ from the next tick's and draw the unchanged scene again and again.
+        try:
+            state["last"] = scene_stamp(plotter)
+        except Exception:  # noqa: BLE001
+            state["last"] = None
+
     def tick():
         try:
             now = scene_stamp(plotter)
@@ -76,8 +86,12 @@ def render_on_change(plotter) -> None:
             return
         if now != state["last"]:
             plotter._auto_render()
-            state["last"] = scene_stamp(plotter)   # the render itself may touch modification times
 
+    try:
+        plotter.render_window.AddObserver("EndEvent", drawn)
+    except AttributeError:
+        timer.timeout.connect(plotter._auto_render)     # no render window to watch: keep pyvistaqt's timer
+        return
     timer.timeout.connect(tick)
 
 

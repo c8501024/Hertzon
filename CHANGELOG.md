@@ -6,6 +6,10 @@ the GitHub release notes.
 ## Unreleased
 
 ### Fixed
+- **CPU load while idle (again)**: 0.3.2 still redrew the empty 3D view five times a second. The scale bar and
+  the axes triad adjust themselves at the start of every redraw, and that counted as a change of the scene for
+  the next check. The check now compares with the scene as it was drawn, so an idle view is no longer redrawn
+  (measured: 0 redraws in 20 s instead of about 100).
 - **PCB import dropped a valid copper shape ("Curve loop is not closed")**: a copper area whose outline came
   closer to itself than the geometry kernel's tolerance (a net tie joining antenna and ground plane in one
   shape, a hole on the outline, holes that touch) could not be built, and the whole shape, for example the top
