@@ -5,6 +5,12 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- **Cover Lines after uniting lines with several arcs**: united lines whose curves did not come out of the
+  boolean in outline order (for example two arcs and two straight lines) failed with "Curve loop is not
+  closed"; the curves are now chained end to end before the sheet is built. Lines that really do not close
+  say so.
+
 ## 0.3.0 (2026-11-07)
 
 The new user interface: a start page that asks what to simulate, circuit designs (linear networks) next to the

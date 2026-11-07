@@ -64,6 +64,43 @@ def _polygon_surface(pts: list[tuple[float, float, float]]) -> list[tuple[int, i
     return [(2, o.addPlaneSurface([loop]))]
 
 
+def _curve_loops(curves: list[int]) -> list[list[int]]:
+    """Order the curves of a line object into closed chains, the largest (outer boundary) first.
+
+    A united line object keeps its curves in the order of the boolean result, not along the outline; the
+    curve loop needs them end to end. Several closed chains become the outer boundary and holes."""
+    def ends(c):
+        bnd = gmsh.model.getBoundary([(1, c)], combined=False, oriented=False)
+        pts = [np.asarray(gmsh.model.getValue(0, abs(t), []), float) for _, t in bnd]
+        return (pts[0], pts[-1]) if pts else None
+    info = {c: ends(c) for c in curves}
+    size = max((float(np.abs(q).max()) for e in info.values() if e for q in e), default=1.0)
+    tol = 1e-7 * max(size, 1e-30)
+    same = lambda a, b: float(np.linalg.norm(a - b)) <= tol   # noqa: E731
+    left, chains = list(curves), []
+    while left:
+        c = left.pop(0)
+        chain = [c]
+        if info[c] is not None and not same(*info[c]):
+            start, end = info[c]
+            while not same(start, end):
+                nxt = next((k for k in left if info[k] is not None and (same(info[k][0], end) or same(info[k][1], end))), None)
+                if nxt is None:
+                    raise GeometryError("The lines do not form a closed loop")
+                left.remove(nxt)
+                chain.append(nxt)
+                end = info[nxt][1] if same(info[nxt][0], end) else info[nxt][0]
+        chains.append(chain)
+
+    def extent(chain):
+        lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
+        for c in chain:
+            lo = np.minimum(lo, gmsh.model.getBoundingBox(1, c)[:3])
+            hi = np.maximum(hi, gmsh.model.getBoundingBox(1, c)[3:])
+        return float(np.linalg.norm(hi - lo))
+    return sorted(chains, key=extent, reverse=True)
+
+
 def _segment_types(spec: str, n: int) -> list[tuple[str, int, list[str]]]:
     """'Line,Arc,Spline:4,AngularArc:90:XY' -> [(kind, number of points incl. shared start, extra arguments)].
 
@@ -943,9 +980,10 @@ def _apply(cmd: Command, dt: list[tuple[int, int]], ctx: BuildContext, owner: st
         if k == "Cover":
             if dim != 1:
                 return dt
-            loop = o.addCurveLoop([t for d, t in dt if d == 1])
             o.synchronize()
-            return [(2, o.addPlaneSurface([loop]))]
+            loops = [o.addCurveLoop(c) for c in _curve_loops([t for d, t in dt if d == 1])]
+            o.synchronize()
+            return [(2, o.addPlaneSurface(loops))]
         if k == "ThickenSheet":
             if dim != 2:
                 raise GeometryError("Thicken sheet needs a sheet object")

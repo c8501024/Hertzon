@@ -1,8 +1,10 @@
 """Fast unit tests (no FEM solve). Run: python -m pytest tests"""
 import json
+import math
 import sys
 from pathlib import Path
 
+import gmsh
 import numpy as np
 import pytest
 
@@ -1609,3 +1611,42 @@ def test_solver_preload(monkeypatch):
     preload.preload()
     import sys
     assert "emerge" in sys.modules
+
+
+def test_cover_united_lines_with_arcs():
+    """Lines united in any order cover to one sheet, also when several of them are arcs (the united curves come
+    out in the order of the boolean, not along the outline; the curve loop needs them end to end)."""
+    import itertools
+    segs = {"b": ("0,0,0;4,0,0", "Line"), "r": ("4,0,0;5,1,0;4,2,0", "Arc"),
+            "t": ("4,2,0;0,2,0", "Line"), "l": ("0,2,0;-1,1,0;0,0,0", "Arc")}
+    for order in itertools.permutations("brtl"):
+        p = Project()
+        d = p.designs[0]
+        for n in order:
+            d.add_object("CreatePolyline", name=n, Points=segs[n][0], SegmentTypes=segs[n][1])
+        first, *rest = order
+        for n in rest:
+            d.obj(n).consumed_by = first
+        d.obj(first).history.append(Command.new("Unite", Tools=",".join(rest)))
+        d.obj(first).history.append(Command("Cover", {}))
+        K.ensure_gmsh("test_cover_arcs")
+        gmsh.clear()
+        K.ensure_gmsh("test_cover_arcs")
+        ctx = K.build_design(d, d.evaluator(p))
+        assert not ctx.errors, (order, ctx.errors)
+        (dim, tag), = ctx.built[first]
+        assert dim == 2
+        # stadium: 4 x 2 mm rectangle and two half discs of radius 1 mm
+        assert gmsh.model.occ.getMass(2, tag) == pytest.approx((8 + math.pi) * 1e-6, rel=1e-6), order
+    # lines that do not close give a clear message
+    p = Project()
+    d = p.designs[0]
+    d.add_object("CreatePolyline", name="a", Points="0,0,0;4,0,0")
+    d.add_object("CreatePolyline", name="c", Points="4,0,0;5,1,0;4,2,0", SegmentTypes="Arc")
+    d.obj("c").consumed_by = "a"
+    d.obj("a").history.append(Command.new("Unite", Tools="c"))
+    d.obj("a").history.append(Command("Cover", {}))
+    K.ensure_gmsh("test_cover_arcs")
+    gmsh.clear()
+    K.ensure_gmsh("test_cover_arcs")
+    assert "closed loop" in K.build_design(d, d.evaluator(p)).errors["a"]
