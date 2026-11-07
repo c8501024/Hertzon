@@ -386,6 +386,52 @@ class BuildContext:
     stack: list[str] = field(default_factory=list)
 
 
+EQUATION_MODES = ("Cartesian", "Cylindrical", "Y = f(X)")
+
+
+def equation_curve_points(p: dict, ev: Evaluator) -> np.ndarray:
+    """Points of an equation based curve at NumOfPointsOnCurve equal steps of the parameter from tStart to
+    tEnd (metres). The parameter is called t (also _t, which always works, even when a design variable is named t).
+    Cartesian: X(t), Y(t), Z(t). Cylindrical: r(t), phi(t), z(t) in the three function fields (phi in
+    radians, or with deg). Y = f(X): the parameter is X itself (model units), Y and Z are functions of it.
+    The functions may use design variables and units; plain numbers are model units."""
+    t0, t1 = ev.value(p.get("tStart", "0")), ev.value(p.get("tEnd", "1"))
+    n = ev.integer(p.get("NumOfPointsOnCurve", "60") or "60")
+    if n < 2:
+        raise GeometryError("The equation curve needs at least two points")
+    if not t1 != t0:
+        raise GeometryError("The start and end of the parameter must differ")
+    mode = p.get("CoordinateSystem", "Cartesian") or "Cartesian"
+    if mode not in EQUATION_MODES:
+        raise GeometryError(f"Unknown coordinate system '{mode}' of the equation curve")
+    funcs = [str(p.get(f"{c}tFunction", "0") or "0") for c in "XYZ"]
+    out = []
+    for t in np.linspace(t0, t1, n):
+        v = {**ev.variables, "_t": repr(float(t))}
+        v.setdefault("t", repr(float(t)))
+        e = Evaluator(v, ev.model_unit)
+        try:
+            if mode == "Cylindrical":
+                r, z = e.length(funcs[0]), e.length(funcs[2])
+                phi = e.angle(funcs[1]) if _has_unit(funcs[1]) else e.value(funcs[1])   # plain: radians
+                out.append([r * math.cos(phi), r * math.sin(phi), z])
+            elif mode == "Y = f(X)":
+                out.append([float(t) * e.unit_scale, e.length(funcs[1]), e.length(funcs[2])])
+            else:
+                out.append([e.length(f) for f in funcs])
+        except ExprError as err:
+            raise GeometryError(f"Equation curve at t = {t:.6g}: {err}") from err
+    P3 = np.asarray(out, float)
+    if not np.all(np.isfinite(P3)):
+        raise GeometryError("The equation curve has points that are not finite numbers")
+    return P3
+
+
+def _has_unit(text: str) -> bool:
+    from ..model.expr import _strip_units
+    return _strip_units(text)[1]
+
+
 def _create(cmd: Command, ctx: BuildContext) -> list[tuple[int, int]]:
     ev, p, o = ctx.ev, cmd.props, _occ()
     k = cmd.kind
@@ -646,6 +692,22 @@ def _create(cmd: Command, ctx: BuildContext) -> list[tuple[int, int]]:
         if wr <= 0:
             return [(1, wire)]
         return _pipe(wire, P3, wr)
+    if k == "CreateEquationCurve":
+        P3 = equation_curve_points(p, ev)
+        closed = p.get("Closed", "False") == "True"
+        if np.linalg.norm(P3[-1] - P3[0]) <= 1e-9 * max(1.0, float(np.abs(P3).max())):
+            P3, closed = P3[:-1], True          # the curve comes back to its start: closed on its own
+        if len(P3) < 2:
+            raise GeometryError("The equation curve needs at least two distinct points")
+        tags = [o.addPoint(*q) for q in P3]
+        if p.get("CurveType", "Spline") == "Polyline" or len(P3) == 2:
+            ends = tags + tags[:1] if closed else tags
+            curves = [o.addLine(a, b) for a, b in zip(ends, ends[1:])]
+        else:
+            curves = [o.addSpline(tags + tags[:1] if closed else tags)]
+        if closed and p.get("Covered", "False") == "True":
+            return [(2, o.addPlaneSurface([o.addCurveLoop(curves)]))]
+        return [(1, c_) for c_ in curves]
     if k == "CreateSpiral":
         c = np.asarray(ev.point(p["CenterPosition"]), float)
         r0 = ev.length(p["InnerRadius"])

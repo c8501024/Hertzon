@@ -50,6 +50,21 @@ class _Surrogate:
         return self.truth(self.v0 + 1.5 * np.asarray(dp, float))
 
 
+def test_a_rejected_step_lies_outside_the_smaller_region():
+    """After a rejection the region is at most half the step: the model cannot return the same step (on the
+    hairpin filter the halved region still contained it, and the same design was solved twice)."""
+    ranges = np.array([[-2.0, 4.0], [-0.2, 1.0]])
+    dp = np.array([1.2, -0.05])                       # 30 % of the upper L range, 25 % of the lower g range
+    assert np.isclose(TR.step_fraction(dp, ranges), 0.3)
+    taken, radius, _ = TR.update(0.6, -0.1, 0.5, False)
+    assert not taken and radius == 0.3                # halved: the step (30 %) is still inside
+    radius = TR.shrink_below(radius, dp, ranges)
+    assert np.isclose(radius, 0.15)
+    blo, bhi = TR.step_bounds(ranges, radius, np.array([-1e9, -1e9]), np.array([1e9, 1e9]), np.zeros(2))
+    assert not (np.all(dp >= blo - 1e-12) and np.all(dp <= bhi + 1e-12))
+    assert TR.shrink_below(0.05, dp, ranges) == 0.05  # an already smaller region stays
+
+
 def test_trust_region_loop_converges_with_few_solves(tmp_path, monkeypatch):
     from hertzon.model.design import Optimization, Project
     from hertzon.solver import optimize as O

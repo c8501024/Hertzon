@@ -5,11 +5,63 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Equation Based Curve** (Draw > Equation Based Curve..., and in the 1D group of the Draw ribbon): a curve
+  from X(t), Y(t), Z(t) with t running from a start to an end value in a given number of points. The
+  functions may use design variables and units (plain numbers are model units), so the curve follows
+  parametric sweeps and optimizations. A smooth spline or straight lines through the points; a closed curve
+  can be covered into a sheet (e.g. spiral or exponentially tapered outlines).
+- **Equation Based Curve dialog**: its own window with presets (circle, arc, ellipse, helix, Archimedean
+  spiral, exponential taper, sine meander), Cartesian, Cylindrical (r, phi, z) and Y = f(X) coordinates, and a
+  live preview with start, end, length and number of points while typing. An error names the value of t where
+  it happens and marks the field. The parameter is t; _t (as in other tools) works too.
+- The Equation Based Curve dialog has the same **Constants & Functions...** button as Design Properties: a
+  double-click inserts a constant, function, unit or variable at the cursor of the last edited field.
+
+### Added
+- **Hairpin filter with the Derivative Trust Region**: Tools > Filter Design (tapped hairpin) and the hairpin
+  example add a second optimization, *HairpinDTR*, with the same goals as the conjugate gradient one. It
+  varies L, g and yP (centre frequency, coupling, match); w, b and M can be included. All six variables
+  morph without remeshing. On the initial mesh the tuned S-parameters stay within 3e-4 of exact solves for
+  L ±1 mm, within 2e-3 for w, b, yP and the gap ±0.05 mm, and within 0.05 (about 0.5 dB) for the gap
+  ±0.15 mm. A run of HairpinDTR from the example's start values on a 32-core machine lowered the cost from 6.83
+  to 0.64 in 10 rounds (5 h 36 min, about 33 min per round, up to 37 GB of memory). The solves confirmed the
+  model in rounds 1 to 8 (actual / predicted improvement 0.44 to 1.14). After that, the change of the cost
+  from one adaptive mesh to the next (about 5 % for the same design) was as large as the improvement still
+  left, so the last two steps were rejected. The mask was not met with these three variables.
+- **Hairpin start values from the filter synthesis**: Filter Design starts the gap and the tap height from the
+  Chebyshev prototype (couplings k and external Q for the return loss goal + 3 dB) instead of the middle of
+  their ranges. The gap follows from the even and odd mode impedances of the coupled arms (new coupled
+  microstrip formulas), the tap from the external Q of a tapped half-wave resonator. For the 2.3 to 2.6 GHz
+  example this gives g = 0.38 mm and yP = −5.56 mm; the optimization from the middle of the ranges had ended
+  at g = 0.37 mm and yP = −5.37 mm. An option keeps the middle of the ranges (the filterbench start).
+- **File dialogs remember their folders**: File > Open no longer starts in the install folder. After the start
+  it opens the *Default project folder* (new in Tools > Options > General), later the folder of the project
+  opened or saved last. Save As starts in the folder of the current project, an untitled project in the
+  folder saved to last. The Touchstone export starts in the folder of the open project file, without one in
+  the folder of the last Touchstone export.
+- **File > Close** (Ctrl+W): closes the project after asking to save changes; an empty untitled project
+  remains.
+
+### Changed
+- **Derivative tuning needs much less memory**: every morphed mesh state keeps only what its boundary terms
+  need, and the matrix differences are kept in single precision. Hairpin filter, 2 variables: 2.6 GB → 0.16 GB
+  with the same tuned response; 6 variables: 5.3 GB (before: more than 14 GB, the process was killed).
+- **Derivative Trust Region: a rejected step is not solved twice.** After a rejection the region shrinks to at
+  most half of that step, so the next round cannot return the same step. Before, a halved region could still
+  contain it, and the same design was solved again (seen on the hairpin filter).
+- **A tuning model that does not fit into memory stops at once** with the memory it needs and the number of
+  variables that would fit, instead of the solver process being killed half way.
+
 ### Fixed
 - **Sheets through conductors are named**: a sheet that runs through the inside of a conductor solid (for
   example a via fence of Perfect E sheets with pec cylinders on it) is now a warning of the Validation Check and
   of MCP `validate`, and the solver log lists it before meshing. When meshing or solving fails (singular
   matrix, inconsistent mesh, an index error), the error message names these sheets as the probable cause.
+- **CPU load while idle (again)**: 0.3.2 still redrew the empty 3D view five times a second. The scale bar and
+  the axes triad adjust themselves at the start of every redraw, and that counted as a change of the scene for
+  the next check. The check now compares with the scene as it was drawn, so an idle view is no longer redrawn
+  (measured: 0 redraws in 20 s instead of about 100).
 - **PCB import dropped a valid copper shape ("Curve loop is not closed")**: a copper area whose outline came
   closer to itself than the geometry kernel's tolerance (a net tie joining antenna and ground plane in one
   shape, a hole on the outline, holes that touch) could not be built, and the whole shape, for example the top

@@ -33,7 +33,8 @@ def _pair(a: QDoubleSpinBox, b: QDoubleSpinBox, c: QDoubleSpinBox | None = None)
 
 class HairpinFilterDialog(QDialog):
     """Band-pass filter of N directly tapped hairpins (the filterbench geometry), as a parametrized design
-    with setup, sweep and a conjugate gradient optimization of L, w, b, g, yP and M on the filter mask."""
+    with setup, sweep, a conjugate gradient optimization of L, w, b, g, yP and M on the filter mask and a
+    derivative trust region optimization of L, g and yP on the same mask."""
 
     def __init__(self, parent, project):
         super().__init__(parent)
@@ -98,7 +99,7 @@ class HairpinFilterDialog(QDialog):
         f.addRow("Resonator region", self.region)
         left.addWidget(g)
 
-        g = QGroupBox("Hairpins (start in the middle of every range)")
+        g = QGroupBox("Hairpins")
         f = QFormLayout(g)
         self.zr, self.zf = _num(d.z_res, 10, 200, 2, "ohm"), _num(d.z_feed, 10, 200, 2, "ohm")
         self.b, self.b_tol = _num(d.inner, 0.01, 100, 3, "mm"), _num(100 * d.inner_tol, 0, 90, 1, "%")
@@ -112,6 +113,11 @@ class HairpinFilterDialog(QDialog):
         f.addRow("Trace width w tolerance", self.w_tol)
         f.addRow("Inner width b", _pair(self.b, self.b_tol))
         f.addRow("Coupling gap g (min, max)", _pair(self.g_lo, self.g_hi))
+        self.syn = QCheckBox("Gap and tap from the Chebyshev prototype (otherwise the middle of their ranges)")
+        self.syn.setChecked(d.synthesis)
+        self.syn.setToolTip("Couplings and external Q of the prototype for the passband with the return loss goal "
+                            "+ 3 dB; the gap from the coupled line impedances, the tap height from the external Q")
+        f.addRow(self.syn)
         f.addRow("Length L of lambda_g (min, start, max)", _pair(self.l_lo, self.l0, self.l_hi))
         f.addRow("Miter M (min, max)", _pair(self.m_lo, self.m_hi))
         f.addRow("Minimum feature", self.dmin)
@@ -121,7 +127,7 @@ class HairpinFilterDialog(QDialog):
         f = QFormLayout(g)
         self.f_lo, self.f_hi = _num(d.sweep[0], 0.001, 300, 4, "GHz"), _num(d.sweep[1], 0.001, 300, 4, "GHz")
         self.f_step = _num(d.sweep[2], 0.0001, 10, 4, "GHz")
-        self.opt = QCheckBox("Add the optimization (conjugate gradient on the filter mask)")
+        self.opt = QCheckBox("Add the optimizations on the filter mask (conjugate gradient, derivative trust region)")
         self.opt.setChecked(True)
         self.name = QLineEdit("")
         self.name.setPlaceholderText("Hairpin_N3")
@@ -156,6 +162,7 @@ class HairpinFilterDialog(QDialog):
             w.valueChanged.connect(self.timer.start)
         self.sb.textChanged.connect(self.timer.start)
         self.auto.toggled.connect(self.timer.start)
+        self.syn.toggled.connect(self.timer.start)
         self.mat.currentTextChanged.connect(self.timer.start)
         self.n.valueChanged.connect(lambda v: self.name.setPlaceholderText(f"Hairpin_N{v}"))
         self.design = None
@@ -182,6 +189,7 @@ class HairpinFilterDialog(QDialog):
             trace_tol=self.w_tol.value() / 100, length_pct=(self.l_lo.value(), self.l0.value(), self.l_hi.value()),
             miter=(self.m_lo.value(), self.m_hi.value()), min_feature=self.dmin.value(),
             sweep=(self.f_lo.value(), self.f_hi.value(), self.f_step.value()), optimization=self.opt.isChecked(),
+            synthesis=self.syn.isChecked(),
             name=self.name.text().strip(), f_design=self.fd.value())
 
     def _check(self, s: HairpinSpec) -> None:
@@ -251,10 +259,14 @@ class HairpinFilterDialog(QDialog):
         r = nom["ranges"]
         txt = (f"Synthesis: {nom['synthesis']}.  lambda_g = {nom['lambda_g']:.2f} mm at {s.f0:g} GHz.  Start: L = {nom['length']:g} mm "
                f"({100 * nom['length'] / nom['lambda_g']:.1f}% lambda_g), w = {nom['trace']:g} mm, "
-               f"b = {nom['inner']:g} mm, g = {nom['gap']:g} mm, yP = 0 mm, M = {nom['miter']:g}; "
+               f"b = {nom['inner']:g} mm, g = {nom['gap']:g} mm, yP = {nom['yP']:g} mm, M = {nom['miter']:g}; "
                f"feed wf = {nom['feed']:g} mm.  Ranges: L {r['L'][0]:g}..{r['L'][1]:g}, w {r['w'][0]:g}..{r['w'][1]:g}, "
                f"b {r['b'][0]:g}..{r['b'][1]:g}, g {r['g'][0]:g}..{r['g'][1]:g}, yP {r['yP'][0]:g}..{r['yP'][1]:g} mm, "
                f"M {r['M'][0]:g}..{r['M'][1]:g}.")
+        if nom.get("prototype"):
+            pr = nom["prototype"]
+            txt += (f"<br>Chebyshev prototype ({pr['ripple']:.3g} dB ripple): k = "
+                    + ", ".join(f"{k:.4f}" for k in pr["k"]) + f", Qe = {pr['Qe']:.2f}.")
         if nom["warnings"]:
             txt += "<br><span style='color:#b9770e'>" + "<br>".join(nom["warnings"]) + "</span>"
         self.info.setText(txt)

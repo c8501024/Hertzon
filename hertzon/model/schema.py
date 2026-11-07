@@ -94,6 +94,25 @@ GEOMETRY: dict[str, list[Prop]] = {
                      P("InnerRadius", "length", "0.5"), P("Pitch", "length", "0.5", label="Radial pitch per turn"),
                      P("Turns", "expr", "3"), P("RightHanded", "bool", "True", label="Right handed"),
                      P("Width", "length", "0", label="Trace width (0 = line)")],
+    "CreateEquationCurve": [
+        P("CoordinateSystem", "choice", "Cartesian", choices=("Cartesian", "Cylindrical", "Y = f(X)"),
+          label="Coordinates", help="Cartesian: X(t), Y(t), Z(t). Cylindrical: r(t), phi(t), z(t) "
+                                     "(phi in radians or with deg). Y = f(X): the parameter is X, give Y and Z"),
+        P("XtFunction", "text", "10*cos(t)", label="X(t) | r(t)",
+          help="First coordinate as an expression of the parameter _t (or t); design variables and units are "
+               "allowed (a plain number is in model units). Not used for Y = f(X)"),
+        P("YtFunction", "text", "10*sin(t)", label="Y(t) | phi(t) | Y(t=X)",
+          help="Second coordinate as an expression of _t"),
+        P("ZtFunction", "text", "t", label="Z(t) | z(t)", help="Third coordinate as an expression of t"),
+        P("tStart", "expr", "0", label="_t start"), P("tEnd", "expr", "4*pi", label="_t end"),
+        P("NumOfPointsOnCurve", "int", "60", label="Number of points",
+          help="Points at equal steps of t from start to end; the curve passes through all of them"),
+        P("CurveType", "choice", "Spline", choices=("Spline", "Polyline"), label="Curve type",
+          help="Spline: one smooth curve through the points. Polyline: straight lines between them"),
+        P("Closed", "bool", "False", help="Join the end to the start (a curve whose end meets its start is "
+                                          "closed on its own)"),
+        P("Covered", "bool", "False", visible_if=("Closed", "True"),
+          help="A closed, flat curve becomes a sheet")],
     "CreateBondwire": [P("Type", "choice", "JEDEC 4-Point", choices=("JEDEC 4-Point", "JEDEC 5-Point")),
                        P("StartPosition", "point", "0,0,0"), P("EndPosition", "point", "2,0,0"),
                        P("H1", "length", "0.2", label="Height above start (h1)"),
