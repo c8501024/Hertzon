@@ -147,21 +147,43 @@ def download(url: str, dest: Path, digest: str = "", progress=None, cancelled=la
     return dest
 
 
-def installer_waiter(installer: Path, pid: int, timeout_s: int = 120) -> str:
+def _ps_quote(s: str) -> str:
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def installer_waiter(installer: Path, pid: int, timeout_s: int = 120, page: str = RELEASES_PAGE) -> str:
     """PowerShell script that waits until the Hertzon process `pid` has exited (at most `timeout_s`
     seconds) and then starts `installer`. Started by Hertzon itself, the installer would otherwise come up
     while Hertzon is still closing and still holds files of .venv open, and it would run as a child of
-    that process."""
-    path = str(installer).replace("'", "''")
-    return (f"$p = Get-Process -Id {int(pid)} -ErrorAction SilentlyContinue; "
+    that process.
+
+    The script runs without a window, so it writes what it does to update.log next to the installer. When
+    the installer is gone (virus protection may remove a freshly downloaded program) or cannot be started,
+    it says so in a message box with the path and offers the release page; before, Hertzon simply closed
+    and nothing happened."""
+    path = _ps_quote(installer)
+    return (f"$inst = {path}; $log = Join-Path (Split-Path -Parent $inst) 'update.log'; "
+            "function L($m) { try { Add-Content -LiteralPath $log -Value ((Get-Date -Format s) + ' ' + $m) } catch {} }; "
+            f"L ('waiting for Hertzon (process {int(pid)}) to close'); "
+            f"$p = Get-Process -Id {int(pid)} -ErrorAction SilentlyContinue; "
             f"if ($p) {{ $null = $p.WaitForExit({int(timeout_s) * 1000}) }}; "
-            f"Start-Process -FilePath '{path}'")
+            "$err = $null; "
+            "if (-not (Test-Path -LiteralPath $inst)) { "
+            "$err = 'The downloaded installer is no longer there (virus protection may have removed it):' } "
+            "else { try { Start-Process -FilePath $inst -ErrorAction Stop; L ('started ' + $inst) } "
+            "catch { $err = 'The installer could not be started: ' + $_.Exception.Message } }; "
+            "if ($err) { L ($err + ' ' + $inst); "
+            "$msg = $err + [char]10 + $inst + [char]10 + [char]10 + "
+            "'Open the release page to download the installer there?'; "
+            "try { $a = (New-Object -ComObject WScript.Shell).Popup($msg, 0, 'Hertzon Update', 0x34) } "
+            "catch { $a = 6 }; "
+            f"if ($a -eq 6) {{ Start-Process {_ps_quote(page)} }} }}")
 
 
-def start_installer_after_exit(installer: Path, pid: int | None = None) -> None:
+def start_installer_after_exit(installer: Path, pid: int | None = None, page: str = RELEASES_PAGE) -> None:
     """Start `installer` once this process has exited, through a hidden PowerShell that does not belong
     to Hertzon (raises OSError when it cannot be started)."""
-    script = installer_waiter(installer, os.getpid() if pid is None else pid)
+    script = installer_waiter(installer, os.getpid() if pid is None else pid, page=page)
     enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     kw: dict = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
                 "close_fds": True}
@@ -172,7 +194,22 @@ def start_installer_after_exit(installer: Path, pid: int | None = None) -> None:
 
 
 def download_dir() -> Path:
-    return Path(tempfile.gettempdir()) / "Hertzon-Update"
+    """Where the installer is downloaded to: %LOCALAPPDATA%\\Hertzon\\Updates on Windows (cleaning tools and
+    Storage Sense empty the temporary folder), otherwise the temporary folder."""
+    base = os.environ.get("LOCALAPPDATA", "") if sys.platform == "win32" else ""
+    return Path(base) / "Hertzon" / "Updates" if base else Path(tempfile.gettempdir()) / "Hertzon-Update"
+
+
+def still_there(path: Path, size: int, wait_s: float = 1.5) -> bool:
+    """True when the downloaded installer is still in place after `wait_s` seconds with its full size.
+    Virus protection scans a new program when it is written and may remove it at once; Hertzon must not
+    close for an installer that is gone."""
+    import time
+    time.sleep(wait_s)
+    try:
+        return path.is_file() and (size <= 0 or path.stat().st_size == size)
+    except OSError:
+        return False
 
 
 def fetch_releases(timeout: float = TIMEOUT) -> list[dict]:

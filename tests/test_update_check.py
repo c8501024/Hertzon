@@ -161,3 +161,32 @@ def test_installer_waits_for_hertzon_to_exit(tmp_path):
     assert "Get-Process -Id 4321" in s and "WaitForExit(90000)" in s
     assert s.index("WaitForExit") < s.index("Start-Process")
     assert "'" + str(inst).replace("'", "''") + "'" in s     # quotes in the path are escaped
+
+
+def test_waiter_reports_a_missing_installer(tmp_path):
+    # Hertzon closed and nothing happened when virus protection had removed the downloaded installer: the
+    # script checks the file, logs to update.log next to it and shows a message with the release page
+    inst = tmp_path / "Hertzon-Setup-0.3.5.exe"
+    s = U.installer_waiter(inst, 1, page="https://example.org/rel")
+    assert "Test-Path -LiteralPath $inst" in s
+    assert s.index("Test-Path") < s.index("Start-Process -FilePath $inst")
+    assert "-ErrorAction Stop" in s and "Popup(" in s
+    assert "Join-Path (Split-Path -Parent $inst) 'update.log'" in s
+    assert "Start-Process 'https://example.org/rel'" in s
+
+
+def test_still_there(tmp_path):
+    f = tmp_path / "Hertzon-Setup-0.3.5.exe"
+    assert not U.still_there(f, 3, wait_s=0)
+    f.write_bytes(b"abc")
+    assert U.still_there(f, 3, wait_s=0)
+    assert U.still_there(f, 0, wait_s=0)
+    assert not U.still_there(f, 4, wait_s=0)      # cut short
+
+
+def test_download_dir_not_in_temp_on_windows(monkeypatch, tmp_path):
+    monkeypatch.setattr(U.sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert U.download_dir() == tmp_path / "Hertzon" / "Updates"
+    monkeypatch.delenv("LOCALAPPDATA")
+    assert U.download_dir().name == "Hertzon-Update"
