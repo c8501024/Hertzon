@@ -168,8 +168,10 @@ def t_create_hairpin_diplexer(args):
     ctx = load(args, design_required=False)
     mat, er, tand = _substrate(ctx, args.get("material"), DiplexerSpec.material)
     chans = []
-    for key in ("channel_a", "channel_b"):
+    for key in ("channel_a", "channel_b", "channel_c"):
         c = args.get(key) or {}
+        if key == "channel_c" and not c:
+            continue
         if "passband_ghz" not in c:
             raise ToolError(f"{key}: give passband_ghz [start, stop]")
         chans.append(ChannelSpec(n=int(c.get("resonators", 3)), passband=_pair(c["passband_ghz"], "passband_ghz"),
@@ -215,7 +217,7 @@ def t_create_hairpin_diplexer(args):
             if o.props.get("CoarseModel"):
                 o.props["CoarseModel"] = circ.name
         ctx.proj.designs.append(circ)
-    errors = _new_design_ctx(ctx, d, f"hairpin diplexer {d.name}")
+    errors = _new_design_ctx(ctx, d, f"hairpin {'triplexer' if len(chans) == 3 else 'diplexer'} {d.name}")
     return {"design": d.name, **({"circuit_model": circ.name} if circ else {}), "variables": d.variables,
             "sweep_ghz": spec.sweep, **({"junction_lines_mm": nom["j"]} if "j" in nom else {}),
             "ranges_mm": nom["ranges"],
@@ -847,12 +849,15 @@ TOOLS = [
                   "design_frequency_ghz": NUM, "optimization": {"type": "boolean"}, "name": {"type": "string"}},
                  ["passband_ghz"]), t_create_hairpin_filter),
     Tool("create_hairpin_diplexer", "Tools > Filter Design > Hairpin Diplexer: two tapped hairpin filters on a "
-         "T-junction as a new parametrized design (channel A to Port 2, channel B to Port 3, common Port 1; "
-         "variables L_A, g_A, yP_A, j_A ... per channel), with the diplexer as a circuit and the space mapping "
-         "optimization 'DiplexerSM' on both channel masks and the isolation.",
+         "T-junction (or a common resonator) as a new parametrized design, or with channel_c a triplexer on a star "
+         "junction (common Port 1; channel A to Port 2, B to Port 3, C to Port 4; variables L_A, g_A, yP_A, j_A ... "
+         "per channel), with the same design as a circuit and the space mapping optimization 'DiplexerSM' on the "
+         "channel masks and the isolation.",
          _schema({"channel_a": {"type": "object", "description": "passband_ghz [start, stop] (required), resonators, "
                                 "insertion_loss_db, return_loss_db, ripple_db, rejection_db"},
                   "channel_b": {"type": "object", "description": "as channel_a"},
+                  "channel_c": {"type": "object", "description": "as channel_a; makes a triplexer (star junction, "
+                                                                 "channel C to Port 4)"},
                   "isolation_db": NUM,
                   "junction": {"type": "string", "enum": ["tee", "resonator"],
                                "description": "tee (default): T-junction and lines; resonator: a common hairpin "

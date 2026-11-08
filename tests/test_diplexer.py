@@ -98,6 +98,11 @@ def test_diplexer_dialog():
     dlg.refresh()
     assert dlg.design.name == "Diplexer_N3_N3_R" and "HairpinR0" in {o.name for o in dlg.design.objects}
     assert [x.name for x in dlg.extra_designs()] == ["Diplexer_N3_N3_R_Circuit"]
+    dlg.junction.setCurrentIndex(0)
+    dlg.third.setChecked(True)                                    # triplexer
+    dlg.refresh()
+    assert dlg.design.name == "Triplexer_N3_N3_N3" and "Port4" in {o.name for o in dlg.design.objects}
+    dlg.third.setChecked(False)
     dlg.ch[1]["lo"].setValue(2.4)                                 # overlaps channel A
     dlg.refresh()
     assert dlg.design is None
@@ -134,3 +139,35 @@ def test_common_resonator_diplexer():
     assert all(c.variables[k] == d.variables[k] for k in d.variables)
     S = analyze(p, c, np.array([2.35e9])).S
     assert np.all(np.isfinite(S)) and S.shape == (1, 3, 3)
+
+
+def test_triplexer_star_junction():
+    """Three channels: A left (Port 2), B right (Port 3), C turned downwards (Port 4) on a cross junction; the
+    circuit already separates the three bands at the start values; isolation goals for every pair of ports."""
+    from hertzon.solver.circuit import analyze
+    spec = DiplexerSpec(channels=[ChannelSpec(3, (2.0, 2.15)), ChannelSpec(3, (2.6, 2.75)),
+                                  ChannelSpec(3, (2.3, 2.45))])
+    p = diplexer_project(spec)
+    d, c = p.designs
+    assert d.name == "Triplexer_N3_N3_N3" and c.name == "Triplexer_N3_N3_N3_Circuit"
+    ev = d.evaluator(p)
+    K.ensure_gmsh("test_triplexer")
+    ctx = K.build_design(d, ev)
+    assert not ctx.errors
+    assert all(len(ctx.built[n]) == 1 for n in ("HairpinA3", "HairpinC2", "HairpinC3", "Port4"))
+    assert not ctx.built.get("HairpinB1") and not ctx.built.get("HairpinC1")      # united into the junction
+    ol = outlines(d, p)
+    ys = [y for _, y in ol["HairpinC1"]]
+    rows_ab = [y for n in ("HairpinA1", "HairpinA2", "HairpinA3") for _, y in ol[n]]
+    assert max(ys) < min(rows_ab)                                 # C hangs below the rows of A and B
+    calcs = {(g["calc"], g["start"]) for g in d.optimetrics[0].goals}
+    for s in ("dB(S(3,2))", "dB(S(4,2))", "dB(S(4,3))"):
+        assert any(cc == s for cc, _ in calcs)
+    assert "j_C" in [v["name"] for v in d.optimetrics[0].variables if v["include"]]
+    f = np.array([2.075, 2.675, 2.375]) * 1e9
+    S = analyze(p, c, f).S
+    for k in range(3):
+        assert _db(S[k, k + 1, 0]) > -4                            # each channel through to its port
+        assert all(_db(S[k, j + 1, 0]) < -20 for j in range(3) if j != k)
+    with pytest.raises(ValueError, match="two channels"):
+        diplexer_design(DiplexerSpec(channels=spec.channels, junction="resonator"))

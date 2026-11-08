@@ -444,7 +444,7 @@ class DiplexerDialog(QDialog):
         from ..model.diplexer import DiplexerSpec
         super().__init__(parent)
         self.project = project
-        self.setWindowTitle("Filter Design: Hairpin Diplexer")
+        self.setWindowTitle("Filter Design: Hairpin Diplexer / Triplexer")
         d = DiplexerSpec()
         top = QHBoxLayout(self)
         left = QVBoxLayout()
@@ -457,9 +457,14 @@ class DiplexerDialog(QDialog):
         top.addWidget(scroll)
 
         self.ch = []
-        for k, c in enumerate(d.channels):
-            g = QGroupBox(f"Channel {'AB'[k]} (Port {k + 2})")
+        from ..model.diplexer import ChannelSpec
+        for k, c in enumerate(d.channels + [ChannelSpec(3, (2.95, 3.15))]):
+            g = QGroupBox(f"Channel {'ABC'[k]} (Port {k + 2})")
             f = QFormLayout(g)
+            if k == 2:
+                self.third = QCheckBox("Third channel: triplexer (star junction, Port 4 at the bottom edge)")
+                self.third.setChecked(False)
+                f.addRow(self.third)
             n = QSpinBox()
             n.setRange(2, 9)
             n.setValue(c.n)
@@ -472,13 +477,13 @@ class DiplexerDialog(QDialog):
             f.addRow("Return loss >=", w["rl"])
             f.addRow("Ripple <=", w["rip"])
             rej = w["rej"]
-            rej.setToolTip("In the passband of the other channel and in the outer stopband (a third of the bandwidth "
-                           "away from the passband)")
+            rej.setToolTip("In the passbands of the other channels and in the outer stopband (a third of the "
+                           "bandwidth away from the passband)")
             f.addRow("Rejection >=", rej)
             self.ch.append(w)
             left.addWidget(g)
 
-        g = QGroupBox("Diplexer")
+        g = QGroupBox("Junction and isolation")
         f = QFormLayout(g)
         self.junction = QComboBox()
         self.junction.addItems(["T-junction", "Common resonator"])
@@ -486,7 +491,7 @@ class DiplexerDialog(QDialog):
                                  "between the channels, tapped by Port 1 and coupled to both filters (smaller)")
         f.addRow("Junction", self.junction)
         self.iso = _num(d.isolation, 0, 200, 2, "dB")
-        self.iso.setToolTip("|S32| in both passbands")
+        self.iso.setToolTip("Between every two channel ports (|S32|, ...) in both of their passbands")
         self.fl, self.mb = _num(d.feed, 0.1, 100, 2, "mm"), _num(d.margin, 0, 100, 2, "mm")
         f.addRow("Isolation >=", self.iso)
         f.addRow("Feed line to Ports 2, 3", self.fl)
@@ -571,7 +576,7 @@ class DiplexerDialog(QDialog):
         self.timer.timeout.connect(self.refresh)
         for w in self.findChildren(QDoubleSpinBox) + self.findChildren(QSpinBox):
             w.valueChanged.connect(self.timer.start)
-        for c in (self.auto, self.syn):
+        for c in (self.auto, self.syn, self.third):
             c.toggled.connect(self.timer.start)
         self.mat.currentTextChanged.connect(self.timer.start)
         self.junction.currentIndexChanged.connect(self.timer.start)
@@ -584,8 +589,14 @@ class DiplexerDialog(QDialog):
         self.refresh()
 
     def _placeholder(self) -> None:
-        r = "_R" if self.junction.currentIndex() == 1 else ""
-        self.name.setPlaceholderText(f"Diplexer_N{self.ch[0]['n'].value()}_N{self.ch[1]['n'].value()}{r}")
+        ns = "_".join(f"N{w['n'].value()}" for w in self.channels())
+        if self.third.isChecked():
+            self.name.setPlaceholderText(f"Triplexer_{ns}")
+        else:
+            self.name.setPlaceholderText(f"Diplexer_{ns}{'_R' if self.junction.currentIndex() == 1 else ''}")
+
+    def channels(self) -> list[dict]:
+        return self.ch if self.third.isChecked() else self.ch[:2]
 
     def extra_designs(self) -> list:
         """The diplexer as a circuit (coarse model of DiplexerSM), made when the dialog is accepted."""
@@ -599,7 +610,7 @@ class DiplexerDialog(QDialog):
         m = self.mats.get(self.mat.currentText())
         chans = [ChannelSpec(n=w["n"].value(), passband=(w["lo"].value(), w["hi"].value()),
                              insertion_loss=w["il"].value(), return_loss=w["rl"].value(), ripple=w["rip"].value(),
-                             rejection=w["rej"].value()) for w in self.ch]
+                             rejection=w["rej"].value()) for w in self.channels()]
         if self.auto.isChecked() and all(c.passband[1] > c.passband[0] for c in chans):
             sweep = auto_sweep(chans)
             for w, v in ((self.f_lo, sweep[0]), (self.f_hi, sweep[1]), (self.f_step, sweep[2])):
@@ -644,8 +655,11 @@ class DiplexerDialog(QDialog):
         self.bb.button(QDialogButtonBox.Ok).setEnabled(True)
         ev = self.design.evaluator(self.project)
         L = {k: ev.length(k) * 1e3 for k in ("Wl", "Wr", "Wy")}
-        x0, x1, hy = -L["Wl"], L["Wr"], L["Wy"] / 2
-        ax.fill([x0, x1, x1, x0], [-hy, -hy, hy, hy], color="#c9d6a3", zorder=0)
+        x0, x1 = -L["Wl"], L["Wr"]
+        star = "Wu" in self.design.variables
+        y1 = ev.length("Wu") * 1e3 if star else L["Wy"] / 2
+        y0 = y1 - L["Wy"]
+        ax.fill([x0, x1, x1, x0], [y0, y0, y1, y1], color="#c9d6a3", zorder=0)
         for name, pts in dx_outlines(self.design, self.project).items():
             xs, ys = zip(*pts)
             ax.fill(xs, ys, color="#c8892b", ec="#7a5216", lw=0.6, zorder=2)
@@ -655,20 +669,21 @@ class DiplexerDialog(QDialog):
         ya = yb = 0.0
         if s.junction == "resonator":
             ya, yb = ev.length("yt_A") * 1e3, ev.length("yt_B") * 1e3
-        for (x, y), lab in (((0, hy), "1"), ((x0, ya), "2"), ((x1, yb), "3")):
+        marks = [((0, y1), "1"), ((x0, ya), "2"), ((x1, yb), "3")] + ([((0, y0), "4")] if star else [])
+        for (x, y), lab in marks:
             ax.plot([x], [y], "s", color="#c0392b", ms=6, zorder=3)
             ax.annotate(f"Port {lab}", (x, y), xytext=(0, 8), textcoords="offset points", ha="center", fontsize=8,
                         color="#c0392b")
         ax.set_aspect("equal")
         ax.set_xlim(x0 - 1, x1 + 1)
-        ax.set_ylim(-hy - 1, hy + 2)
+        ax.set_ylim(y0 - 1, y1 + 2)
         ax.set_xlabel("x (mm)")
         ax.set_ylabel("y (mm)")
         self.canvas.draw_idle()
         parts = []
         for k, (c, n) in enumerate(zip(s.channels, nom["channels"])):
             gaps = ", ".join(f"{a} = {b:g}" for a, b in sorted(n["gaps"].items()))
-            line = f"Channel {'AB'[k]}: L = {n['length']:g} mm, {gaps} mm, yP = {n['yP']:g} mm"
+            line = f"Channel {'ABC'[k]}: L = {n['length']:g} mm, {gaps} mm, yP = {n['yP']:g} mm"
             if "j" in nom:
                 line += f", junction line j = {nom['j'][k]:g} mm"
             parts.append(line)
