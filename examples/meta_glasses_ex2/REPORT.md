@@ -24,8 +24,8 @@ In the reference solver the design is **slightly below Run 1** at equal weight (
 
 Two reference-solver models (version 2025 R1) of the final design were solved (multi-frequency adaptive at 2.45 and 6.1 GHz, ΔS ≤ 0.01, 3° far-field sphere; about 6 min each):
 
-- **Meta's STEP**: Meta's complete environment, feed parts and port sheet, with only the antenna sheet, the shorting pin and a 30 µm bridge between FPC and feed pin added (`reference/Meta_Ex2_DualBranchIFA_reference.py`).
-- **Hertzon geometry**: the simplified primitives exported from Hertzon, to separate the model from the solver (`reference/Meta_Ex2_DualBranchIFA_reference_hertzon_geometry.py`).
+- **Meta's STEP**: Meta's complete environment, feed parts and port sheet, with only the antenna sheet, the shorting pin and a 30 µm bridge between FPC and feed pin added.
+- **Hertzon geometry**: the simplified primitives exported from Hertzon, to separate the model from the solver.
 
 | Frequency (GHz) | Hertzon total (%) | Hertzon, two-sided sheets (%) | Reference, Meta's STEP (%) | Reference, Hertzon geometry (%) | Accepted: Hertzon / reference STEP (%) |
 | --- | --- | --- | --- | --- | --- |

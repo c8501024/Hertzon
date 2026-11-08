@@ -61,8 +61,6 @@ workstation, 183k model output tokens; reference comparison and dip analysis ano
 | --- | --- |
 | `Meta_Ex2_DualBranchIFA.hzn` | Hertzon project of the final design (Setup1: adaptive at 2.45 + 6.1 GHz, S11 and efficiency sweeps), plus the `Match` circuit design |
 | `Meta_Ex2_DualBranchIFA.step` | Hertzon geometry, solids only, units corrected to metres in the file header |
-| `reference/Meta_Ex2_DualBranchIFA_reference.py` | IronPython script for the reference solver on Meta's STEP (set `STP_FILE`; the STEP is not included here) |
-| `reference/Meta_Ex2_DualBranchIFA_reference_hertzon_geometry.py` | Same model from the Hertzon STEP in this folder |
 | `results/` | Hertzon and the reference solver S11 and efficiency, iteration table, plots and structure images |
 | `tools/` | Band metric, far-field readout, matching search, plots |
 
@@ -81,5 +79,3 @@ workstation, 183k model output tokens; reference comparison and dip analysis ano
 
 - Hertzon: open the `.hzn` and run Setup1 (about 9 min on 64 cores). Total efficiency = radiated power /
   incident power of the Eff sweep.
-- Reference solver: Tools > Run Script > `reference/Meta_Ex2_DualBranchIFA_reference.py` (about 6 min), after setting `STP_FILE`. Results
-  land in `Documents/Meta_Ex2_reference`.
