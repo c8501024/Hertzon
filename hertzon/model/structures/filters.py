@@ -266,6 +266,7 @@ class EdgeCoupledBandpass(Structure):
         return j
 
     def synthesis(self, spec: dict, sub: Substrate) -> Synthesis:
+        from ...solver.tlines import open_end_extension
         f0, n, z0 = spec["f0"], int(spec["n"]), spec["z0"]
         js = self.inverters(n, spec["ripple"], spec["bw"] / 100)
         syn = Synthesis()
@@ -275,8 +276,9 @@ class EdgeCoupledBandpass(Structure):
             ze, zo = z0 * (1 + jz + jz * jz), z0 * (1 - jz + jz * jz)
             zs.append((ze, zo))
             w, s, ee = coupled_lines(sub, ze, zo, f0)
-            # a quarter wavelength of the mean phase constant (the open ends are corrected by the 3D solves)
-            lq = C0 / (f0 * 1e9) / math.sqrt(ee) * 1e3 / 4
+            # a quarter wavelength of the mean phase constant, less the open end extension of the free ends
+            lq = C0 / (f0 * 1e9) / math.sqrt(ee) * 1e3 / 4 - 1e3 * open_end_extension(
+                w * 1e-3, sub.h * 1e-3, sub.t * 1e-6, sub.er)
             pair = f" and {n + 2 - k}" if n + 2 - k != k else ""
             syn.variables.append(Variable(f"W{k}", w, f"section {k}{pair}: width, Z0e/Z0o {ze:.1f}/{zo:.1f} ohm"))
             syn.variables.append(Variable(f"S{k}", s, f"section {k}: gap"))
