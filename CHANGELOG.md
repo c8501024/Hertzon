@@ -12,10 +12,22 @@ the GitHub release notes.
   layout once in 3D and corrects the variables by space mapping, as for the hairpin filter. The layout uses the
   circuit's variables under their names, so nothing has to be mapped; Apply Best Variables sets the circuit and
   the layout. See [Circuit designs](docs/CIRCUIT.md#multi-fidelity-optimize-a-circuit-and-correct-it-with-its-3d-layout).
+- **Hairpin filter assistant: what the specification allows** (Tools › Filter Design › Tapped Hairpin): a
+  *Response* tab shows, live while the values change, the ideal Chebyshev filter of N resonators with the loss of
+  the board (unloaded Q of the resonator line), the same for N − 1 and N + 1, the circuit of the start design and
+  the filter mask. A table lists for every N the rejection in the stopbands, the insertion loss in the passband
+  and where S21 falls below the rejection goal; **Suggest N** picks the smallest N that meets the goals (or says
+  which goal the board cannot meet) and enlarges the region and board where the hairpins need room.
+- **Create and Optimize**: creates the filter with its circuit model and starts the space mapping optimization
+  *HairpinSM* right away (the circuit is optimized in seconds, a few 3D solves correct it).
 
 ### Changed
 - **Space Mapping** fits the circuit to all S-parameters (any number of ports) instead of S11 and S21, and goes
   back with half the step when a 3D solve is worse than the best one.
+- **The circuit of the hairpin filter looks like the filter**: the U of every hairpin, the coupled arms side by
+  side, the feeds at the taps, joined by wires instead of net labels; short lines get named lengths (`lv`, `lxi`,
+  `lo1` ...). The netlist and the S-parameters are unchanged.
+- Schematic: the text of an upright, mirrored part is drawn on its left side.
 
 ## 0.3.9 (2026-11-08)
 

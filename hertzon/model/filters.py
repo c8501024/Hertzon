@@ -140,6 +140,125 @@ def synthesis(spec: "HairpinSpec", trace: float, length: float, s_arm: float, ga
     return {"gap": gap, "gaps": gaps, "yP": yp, "k": ks, "Qe": qe, "g": g, "ripple": ripple}
 
 
+# ---------------------------------------------------------------------------------------------
+# what the specification allows: the Chebyshev filter of N resonators with the unloaded Q of the board
+# ---------------------------------------------------------------------------------------------
+def unloaded_q(spec: HairpinSpec) -> float:
+    """Unloaded Q of a half-wave resonator of the resonator line at the design frequency: Q = beta / (2 alpha)
+    with the conductor and dielectric loss of the microstrip (no radiation: a real hairpin comes out somewhat
+    lower)."""
+    from ..solver.tlines import microstrip
+    h, t, f0 = spec.h * 1e-3, spec.t * 1e-6, spec.f0 * 1e9
+    w = synthesize(spec.z_res, h, spec.er, t, f0, tand=spec.tand, sigma=spec.sigma)
+    _, gamma = microstrip(f0, w, h, t, spec.er, spec.tand, spec.sigma)
+    return gamma.imag / (2 * gamma.real) if gamma.real > 0 else float("inf")
+
+
+def prototype_ripple(return_loss: float) -> float:
+    """Passband ripple (dB) of the Chebyshev prototype the filter is synthesized for: the return loss goal plus
+    RL_MARGIN."""
+    rl = return_loss + RL_MARGIN
+    return -10 * math.log10(1 - 10 ** (-rl / 10))
+
+
+def ideal_response(spec: HairpinSpec, freqs, n: int | None = None, qu: float | None = None):
+    """S21 and S11 (complex, at freqs in GHz) of the ideal Chebyshev band-pass of n coupled resonators for the
+    passband and return loss of the spec, with the unloaded Q qu (None: unloaded_q): the coupling matrix
+    response of Hong & Lancaster (eq. 7.7), A = [q] + p [U] - j [m], p = j (f/f0 - f0/f) / FBW + 1 / (FBW Qu).
+    What the specification allows at best with this board; the hairpins approach it after the optimization."""
+    import numpy as np
+    n = n or spec.n
+    qu = unloaded_q(spec) if qu is None else qu
+    g = chebyshev_g(n, prototype_ripple(spec.return_loss))
+    lo, hi = spec.passband
+    f0 = math.sqrt(lo * hi)
+    fbw = (hi - lo) / f0
+    m = np.zeros((n, n))
+    for i in range(n - 1):
+        m[i, i + 1] = m[i + 1, i] = 1 / math.sqrt(g[i + 1] * g[i + 2])      # normalized couplings k / FBW
+    q1, qn = g[0] * g[1], g[n] * g[n + 1]                                  # normalized external Q (Qe FBW)
+    f = np.asarray(freqs, float)
+    s21, s11 = np.zeros(len(f), complex), np.zeros(len(f), complex)
+    loss = 1 / (fbw * qu) if qu and math.isfinite(qu) else 0.0
+    for k, fk in enumerate(f):
+        p = 1j * (fk / f0 - f0 / fk) / fbw + loss
+        A = p * np.eye(n) - 1j * m
+        A[0, 0] += 1 / q1
+        A[-1, -1] += 1 / qn
+        inv = np.linalg.inv(A)
+        s21[k] = 2 / math.sqrt(q1 * qn) * inv[-1, 0]
+        s11[k] = 1 - 2 / q1 * inv[0, 0]
+    return s21, s11
+
+
+def order_table(spec: HairpinSpec, n_max: int = 9, qu: float | None = None) -> list[dict]:
+    """For N = 2 .. n_max the ideal filter of ideal_response: the worst rejection in the stopbands, the insertion
+    loss in the passband (worst point, with the unloaded Q), the frequencies where S21 falls below the rejection
+    goal on both sides, and whether it meets the goals."""
+    import numpy as np
+    qu = unloaded_q(spec) if qu is None else qu
+    lo, hi = spec.passband
+    bw = hi - lo
+    a, b = spec.sweep[0], spec.sweep[1]
+    a, b = min(a, lo - 3 * bw, *(x for x, _ in spec.stopbands)), max(b, hi + 3 * bw, *(y for _, y in spec.stopbands))
+    f = np.linspace(max(a, 1e-3), b, 1201)
+    pb = np.linspace(lo, hi, 61)
+    rows = []
+    for n in range(2, n_max + 1):
+        s21, _ = ideal_response(spec, f, n, qu)
+        db = 20 * np.log10(np.maximum(np.abs(s21), 1e-12))
+        p21, p11 = ideal_response(spec, pb, n, qu)
+        il = float(-20 * np.log10(np.abs(p21)).min())
+        rl = float(-20 * np.log10(np.maximum(np.abs(p11), 1e-12)).max())
+        rej = min((float(-db[(f >= x) & (f <= y)].max()) for x, y in spec.stopbands if np.any((f >= x) & (f <= y))),
+                  default=float("inf"))
+        below = db < -spec.rejection
+        left = f[(f < lo) & below]
+        right = f[(f > hi) & below]
+        rows.append({"n": n, "rejection": rej, "il": il, "rl": rl,
+                     "edges": (float(left.max()) if left.size else None, float(right.min()) if right.size else None),
+                     "ok": rej >= spec.rejection and il <= spec.insertion_loss})
+    return rows
+
+
+def suggest_n(spec: HairpinSpec, n_max: int = 9, qu: float | None = None) -> tuple[int, str, list[dict]]:
+    """The number of resonators to use, why, and the order_table: the smallest N whose ideal filter meets the
+    rejection and insertion loss goals; where none does (the board loss and the rejection pull apart), the
+    smallest N that meets the rejection (its insertion loss is then above the goal), else the largest N."""
+    rows = order_table(spec, n_max, qu)
+    ok = next((r for r in rows if r["ok"]), None)
+    if ok:
+        return ok["n"], f"N = {ok['n']} is the smallest number of resonators that meets the rejection and the " \
+            "insertion loss goals", rows
+    rej = next((r for r in rows if r["rejection"] >= spec.rejection), None)
+    if rej:
+        return rej["n"], (f"No N meets both goals with this board (unloaded Q): N = {rej['n']} reaches the rejection, "
+                          f"but its insertion loss is about {rej['il']:.1f} dB. Widen the passband or move the "
+                          "stopbands away to need fewer resonators, or relax the insertion loss"), rows
+    return rows[-1]["n"], (f"Even N = {rows[-1]['n']} does not reach the rejection: move the stopbands away from "
+                           "the passband or lower the rejection goal"), rows
+
+
+def fit_region(spec: HairpinSpec, step: float = 0.5) -> tuple[float, float]:
+    """The smallest resonator region (and the board, the same margin around it as in the spec) in which the
+    hairpins of spec.n fit without limiting their length and inner width ranges (mm)."""
+    import dataclasses
+    margin = max(spec.board - spec.region, 2.0)
+    r = 4.0
+    for _ in range(2000):
+        s = dataclasses.replace(spec, region=r, board=r + margin)
+        try:
+            nom = nominal(s)
+        except ValueError:
+            r += step
+            continue
+        if not any(w.startswith(("Length range", "Inner width", "The start length")) for w in nom["warnings"]):
+            row = s.n * (nom["inner"] + 2 * nom["trace"]) + (s.n - 1) * s.gap[1] + 2 * s.min_feature
+            return r, max(r, row) + margin
+        r += step
+    return spec.region, spec.board
+
+
 # range of dL, the length offset of the outer (tapped) resonators, in % of the length: the tap pulls them about
 # 2 % below the inner ones
 DL_PCT = 3.0
@@ -402,6 +521,36 @@ def outlines(design: Design, project: Project | None = None) -> dict[str, list[t
 _MIN_LINE = "1um"
 
 
+# schematic of the circuit: distance of the two arms of a hairpin and of the two lines of a coupled pair
+_HP_W, _HP_PAIR = 280, 20
+
+
+def _join(comps: list, where: dict[str, list]) -> list:
+    """Wires between the pins of each net (straight, or with one corner); a net label on each pin where a wire
+    would touch another pin."""
+    from .circuit import Component as C, Wire, _on_segment, pins
+    every = [p for c in comps for p in pins(c)]
+    wires = []
+    for net, pts in where.items():
+        a = pts[0]
+        for b in pts[1:]:
+            if a == b:
+                continue
+            for route in ([a, b] if a[0] == b[0] or a[1] == b[1] else None,
+                          [a, (b[0], a[1]), b], [a, (a[0], b[1]), b]):
+                if route is None:
+                    continue
+                hit = any(_on_segment(p, s, t) and p not in (a, b)
+                          for s, t in zip(route, route[1:]) for p in every)
+                if not hit:
+                    wires.append(Wire([list(p) for p in route]))
+                    break
+            else:
+                for p in (a, b):
+                    comps.append(C(f"N_{net}_{p[0]}_{p[1]}", "LABEL", p[0], p[1], 0, {"Net": net}))
+    return wires
+
+
 def hairpin_circuit(spec: HairpinSpec, name: str = "") -> Design:
     """The tapped hairpin filter of hairpin_design as a circuit, with the same design variables (L, dL, w, b, g,
     yP, ... and the derived ones), so that values move between the two designs unchanged.
@@ -412,7 +561,8 @@ def hairpin_circuit(spec: HairpinSpec, name: str = "") -> Design:
     bends (MMBEND) joined by a line of the inner width b, the arms reach the bends through a line of the corner
     depth. The coupling of the two arms of one hairpin (at the inner width b) and the coupling beyond the nearest
     neighbour are not modelled: the circuit is a fast approximation (space mapping corrects it with full-wave
-    solves). The nets are joined by net labels."""
+    solves). The schematic is drawn like the filter seen from above (the U of every hairpin, the coupled
+    arms side by side, the feeds at the taps), the parts joined by wires."""
     from .circuit import AUTO, Component as C
     from .design import circuit_setup
     d3, nom = hairpin_design(spec)
@@ -420,64 +570,91 @@ def hairpin_circuit(spec: HairpinSpec, name: str = "") -> Design:
     d = Design(name=name or circuit_name(spec.name or f"Hairpin_N{n}"), kind="circuit")
     d.variables = {k: v for k, v in d3.variables.items()}
     d.variables.update({"si": "s", "sx": "so"})     # arm length of the inner and of the outer (tapped) hairpins
+    # lengths of the short lines (named, so the schematic stays readable): beyond a coupled part where one arm is
+    # longer (outer next to inner hairpin), the line to the bend, the arm of a tapped hairpin above and below the tap
+    d.variables.update({"lxi": f"max({_MIN_LINE}, (sx-si)/2)", "lix": f"max({_MIN_LINE}, (si-sx)/2)",
+                        "lv": f"max({_MIN_LINE}, dep-w)", "lfeed": "Wsub/2-xe"})
     d.settings[AUTO] = "False"                       # the junctions are explicit parts
-    comps: list = [C("Sub1", "SUBST", 0, -120, 0, {"Er": f"{spec.er:g}", "H": "h", "T": "t_cu",
-                                                   "TanD": f"{spec.tand:g}", "Cond": f"{spec.sigma:g}"})]
+    comps: list = [C("Sub1", "SUBST", -40, -260, 0, {"Er": f"{spec.er:g}", "H": "h", "T": "t_cu",
+                                                     "TanD": f"{spec.tand:g}", "Cond": f"{spec.sigma:g}"})]
     sub = {"Subst": "Sub1"}
-    col = [0]
+    where: dict[str, list] = {}                      # net: pin positions, joined by wires below
 
-    def place(ctype, nm, props, nets, rot=0):
-        """A part in the next free cell of the schematic, a net label on each pin."""
-        from .circuit import pins
-        x, y = 200 * (col[0] % 8), 200 * (col[0] // 8)
-        col[0] += 1
-        c = C(nm, ctype, x, y, rot, dict(props))
+    def place(ctype, nm, props, nets, x, y, rot=0, mirror=False, flip=False, left=None):
+        """A part at (x, y) of the schematic; flip mirrors its placement top-bottom (y -> -y), for the hairpins
+        that open to the bottom. left: an upright line with its text on the left (True) or right (False) side,
+        the text side of an upright part follows its mirror flag (the pins stay where they are)."""
+        from .circuit import TYPES, pins
+        if flip:
+            y, rot, mirror = -y, (-rot) % 360, not mirror
+        if left is not None and mirror != left:
+            if all(dx == 0 for dx, _ in TYPES[ctype].pins):     # pins on the axis: mirrored and turned by 180
+                rot = (rot + 180) % 360                          # degrees is the same part flipped sideways
+            mirror = left
+        c = C(nm, ctype, x, y, rot, dict(props), mirror)
         comps.append(c)
-        for (px, py), net in zip(pins(c), nets):
+        for p, net in zip(pins(c), nets):
             if net:
-                comps.append(C(f"N_{nm}_{px}_{py}", "LABEL", px, py, 0, {"Net": net}))
+                where.setdefault(net, []).append(p)
         return c
 
     def arm(i):
         return "sx" if i in (0, n - 1) else "si"
-    # the open end of hairpin i is at the top (+y) for even i, at the bottom for odd i (flipped)
+    # The schematic is drawn as the filter looks from above: hairpin i has its arms at x = xl(i) and xl(i) + _HP_W,
+    # its open ends at the top for even i (bend at the bottom), at the bottom for odd i; the coupled lines of
+    # neighbouring arms stand upright between them, _HP_PAIR apart (the two lines of an MCLIN)
+    def xl(i):
+        return i * (_HP_W + _HP_PAIR)
     for i in range(n - 1):
         a, b = arm(i), arm(i + 1)
         lc = f"min({a},{b})"
-        # line 1: right arm of hairpin i, line 2: left arm of hairpin i+1; pins 1/3 at the top, 2/4 at the bottom
+        # line 1: right arm of hairpin i (left), line 2: left arm of hairpin i+1 (right); pins 1/3 at the top
         place("MCLIN", f"C{i + 1}", {**sub, "W": "w", "S": gap_names(n)[i], "L": lc},
-              [f"H{i}R_t", f"H{i}R_b", f"H{i + 1}L_t", f"H{i + 1}L_b"])
-        for j, side, other in ((i, "R", b), (i + 1, "L", a)):
+              [f"H{i}R_t", f"H{i}R_b", f"H{i + 1}L_t", f"H{i + 1}L_b"], xl(i) + _HP_W + _HP_PAIR // 2, 0, 90, True)
+        for j, side, other, x in ((i, "R", b, xl(i) + _HP_W), (i + 1, "L", a, xl(i + 1))):
             # the longer arm reaches beyond the coupled part by half the difference at both ends
-            ext = f"max({_MIN_LINE}, ({arm(j)}-{other})/2)"
+            ext = {("sx", "si"): "lxi", ("si", "sx"): "lix"}.get((arm(j), other), _MIN_LINE)
             top_open = j % 2 == 0
             for end in ("t", "b"):
                 is_open = (end == "t") == top_open
-                if is_open:
-                    place("MLOC", f"E{j}{side}{end}", {**sub, "W": "w", "L": ext}, [f"H{j}{side}_{end}"])
+                if is_open:          # drawn below the coupled line, flipped for the top end
+                    place("MLOC", f"E{j}{side}{end}", {**sub, "W": "w", "L": ext}, [f"H{j}{side}_{end}"],
+                          x, 80, flip=end == "t", left=side == "R")
                 else:
                     place("MLIN", f"E{j}{side}{end}", {**sub, "W": "w", "L": ext},
-                          [f"H{j}{side}_{end}", f"H{j}{side}_bend"])
-    # the tapped arms of the outer hairpins and the feeds
+                          [f"H{j}{side}_{end}", f"H{j}{side}_bend"], x, 80, 90, flip=end == "t", left=side == "R")
+    # the tapped arms of the outer hairpins and the feeds (drawn for a hairpin open at the top, flipped otherwise)
     for i, side, port in ((0, "L", 1), (n - 1, "R", 2)):
         top_open = i % 2 == 0
+        x = xl(i) + (0 if side == "L" else _HP_W)
+        out = -1 if side == "L" else 1                # the feed leaves to the left (port 1) or right (port 2)
         # tap height from the open end (yt is measured from the arm centre, +y up; a flipped hairpin is mirrored)
         y_tap = "yt" if top_open else "(-yt)"
-        place("MLOC", f"A{i}{side}o", {**sub, "W": "w", "L": f"max({_MIN_LINE}, {arm(i)}/2-{y_tap}-wf/2)"},
-              [f"T{port}_open"])
-        place("MLIN", f"A{i}{side}b", {**sub, "W": "w", "L": f"max({_MIN_LINE}, {arm(i)}/2+{y_tap}-wf/2)"},
-              [f"T{port}_bend", f"H{i}{side}_bend"])
+        d.variables[f"lo{port}"] = f"max({_MIN_LINE}, {arm(i)}/2-{y_tap}-wf/2)"     # tap to the open end
+        d.variables[f"lb{port}"] = f"max({_MIN_LINE}, {arm(i)}/2+{y_tap}-wf/2)"     # tap to the bend
+        place("MLOC", f"A{i}{side}o", {**sub, "W": "w", "L": f"lo{port}"},
+              [f"T{port}_open"], x, -80, 0, True, flip=not top_open, left=side == "R")
+        place("MLIN", f"A{i}{side}b", {**sub, "W": "w", "L": f"lb{port}"},
+              [f"T{port}_bend", f"H{i}{side}_bend"], x, 80, 90, flip=not top_open, left=side == "R")
         place("MTEE", f"T{port}", {**sub, "W1": "w", "W2": "w", "W3": "wf"},
-              [f"T{port}_open", f"T{port}_bend", f"T{port}_feed"])
-        place("MLIN", f"F{port}", {**sub, "W": "wf", "L": "Wsub/2-xe"}, [f"P{port}", f"T{port}_feed"])
-        place("PORT", f"Port{port}", {"Num": str(port), "Z0": f"{spec.z_feed:g}ohm"}, [f"P{port}"])
+              [f"T{port}_open", f"T{port}_bend", f"T{port}_feed"], x, 0, 90, side == "R", flip=not top_open)
+        place("MLIN", f"F{port}", {**sub, "W": "wf", "L": "lfeed"}, [f"P{port}", f"T{port}_feed"],
+              x + out * 180, 0, 0 if side == "L" else 180)
+        place("PORT", f"Port{port}", {"Num": str(port), "Z0": f"{spec.z_feed:g}ohm"}, [f"P{port}"],
+              x + out * 220, 40, left=side == "L")
     # the bends: arm end - line of the corner depth - mitered bend - line b - mitered bend - line - arm end
     for i in range(n):
-        place("MLIN", f"V{i}L", {**sub, "W": "w", "L": f"max({_MIN_LINE}, dep-w)"}, [f"H{i}L_bend", f"B{i}_l"])
-        place("MMBEND", f"M{i}L", {**sub, "W": "w"}, [f"B{i}_l", f"B{i}_lh"])
-        place("MLIN", f"U{i}", {**sub, "W": "w", "L": "b"}, [f"B{i}_lh", f"B{i}_rh"])
-        place("MMBEND", f"M{i}R", {**sub, "W": "w"}, [f"B{i}_rh", f"B{i}_r"])
-        place("MLIN", f"V{i}R", {**sub, "W": "w", "L": f"max({_MIN_LINE}, dep-w)"}, [f"B{i}_r", f"H{i}R_bend"])
+        x0, x1, flip = xl(i), xl(i) + _HP_W, i % 2 == 1
+        place("MLIN", f"V{i}L", {**sub, "W": "w", "L": "lv"}, [f"H{i}L_bend", f"B{i}_l"],
+              x0, 160, 90, flip=flip, left=False)
+        # (the bend is symmetric: its pins are taken in the order that keeps it upright, the text off the lines)
+        place("MMBEND", f"M{i}L", {**sub, "W": "w"}, [f"B{i}_lh", f"B{i}_l"], x0, 230, 180, flip=flip)
+        place("MLIN", f"U{i}", {**sub, "W": "w", "L": "b"}, [f"B{i}_lh", f"B{i}_rh"], (x0 + x1) // 2, 230,
+              flip=flip)
+        place("MMBEND", f"M{i}R", {**sub, "W": "w"}, [f"B{i}_rh", f"B{i}_r"], x1, 230, 0, True, flip=flip)
+        place("MLIN", f"V{i}R", {**sub, "W": "w", "L": "lv"}, [f"B{i}_r", f"H{i}R_bend"],
+              x1, 160, 270, flip=flip, left=True)
+    d.wires = _join(comps, where)
     d.components = comps
     st = circuit_setup()
     a, b, step = spec.sweep

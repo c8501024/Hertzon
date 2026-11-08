@@ -6144,7 +6144,11 @@ class MainWindow(QMainWindow):
     def filter_hairpin(self) -> None:
         """Tools > Filter Design > Tapped Hairpin: inserts the parametrized filter as a new design."""
         from .filter_tool import HairpinFilterDialog
-        self._insert_generated(HairpinFilterDialog(self, self.doc.project), "hairpin filter")
+        dlg = HairpinFilterDialog(self, self.doc.project)
+        self._insert_generated(dlg, "hairpin filter")
+        # Create and Optimize: the new design is the current one; its optimization goes into the solve queue
+        if dlg.result() == QDialog.Accepted and dlg.design is not None and dlg.run_optimization:
+            self.analyze_optimization(dlg.run_optimization)
 
     def antenna_patch(self) -> None:
         """Tools > Antenna Design > Rectangular Patch: inserts the parametrized patch as a new design."""
