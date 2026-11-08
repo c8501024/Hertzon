@@ -11,6 +11,8 @@
 
 ![Hertzon](hertzon/gui/splash.jpg)
 
+🎬 **[Watch the 90-second tour](https://c8501024.github.io/Hertzon/#tour)**: what Hertzon does today and what comes next.
+
 > ⚠️ **Hertzon is under active development. It can still contain bugs, which are being fixed step by step.
 > Please verify important results independently and report problems as GitHub issues.**
 
