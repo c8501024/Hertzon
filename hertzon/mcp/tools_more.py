@@ -208,6 +208,16 @@ def t_create_structure(args):
         raise ToolError(str(e)) from None
     known = {m.name for m in ctx.proj.materials}
     ctx.proj.materials.extend(m for m in r.materials if m.name not in known)
+    if len(r.designs) == 1:                    # an antenna: the 3D design holds the optimization
+        d3 = r.designs[0]
+        errors = _new_design_ctx(ctx, d3, f"{st.title} {d3.name}")
+        return {"design_3d": d3.name, "optimization": r.optimization,
+                "variables": [{"name": v.name, "start": v.text(), "min": v.text(v.lo), "max": v.text(v.hi),
+                               "meaning": v.meaning, "optimized": v.include} for v in r.synthesis.variables],
+                "synthesis": r.synthesis.note, "goals": d3.optimetrics[0].goals, "warnings": r.warnings,
+                **({"geometry_errors": errors} if errors else {}),
+                "next": f"run_simulation(design='{d3.name}', optimization='{r.optimization}') tunes the design on the "
+                        "adaptive solution at the frequency (a few 3D solves); then apply_optimization"}
     circ, d3 = r.designs
     ctx.proj.designs.append(d3)                # the circuit is added last: it holds the optimization, shown next
     errors = _new_design_ctx(ctx, circ, f"{st.title} {circ.name}")

@@ -427,7 +427,7 @@ class DesignWizard(QDialog):
         self.spec_box = QGroupBox("Specification")
         self.spec_form = QFormLayout(self.spec_box)
         left.addWidget(self.spec_box)
-        g = QGroupBox("Substrate")
+        g = self.sub_box = QGroupBox("Substrate")
         f = QFormLayout(g)
         self.mat = QComboBox()
         mats = [m for m in self.project.all_materials() if not m.pec and not is_conductor(m)
@@ -571,6 +571,9 @@ class DesignWizard(QDialog):
             self.fields[fld.key] = w
             self.spec_form.addRow(fld.label, w)
         self.spec_box.setTitle(f"Specification: {s.title}")
+        wired = s.kind == "3d"                  # antennas without a substrate (wires in free space)
+        self.sub_box.setVisible(not wired)
+        self.mf.setEnabled(not wired)
         self.setWindowTitle(f"Design Wizard: {s.title}")
         self.refresh()
 
@@ -623,16 +626,24 @@ class DesignWizard(QDialog):
         if r.warnings:
             note += "<br><span style='color:#b9770e'>" + "<br>".join(r.warnings) + "</span>"
         self.note.setText(note)
-        circ, d3 = r.designs
-        op = circ.optimetrics[0]
+        circ = r.designs[0] if len(r.designs) > 1 else None
+        d3 = r.designs[-1]
+        op = next(d for d in r.designs if d.name == r.main).optimetrics[0]
         mf = op.props.get("MultiFidelity") == "True"
-        self.creates.setText(
-            f"<p><b style='color:#1d4f91'>■</b> <b>{circ.name}</b><br><span style='color:{MUTED}'>circuit, "
-            f"{len(syn.variables)} design variables</span></p>"
-            f"<p><b style='color:{GOLD}'>■</b> <b>{d3.name}</b><br><span style='color:{MUTED}'>3D design, "
-            f"same variables, lumped ports</span></p>"
-            f"<p><b style='color:{OK}'>■</b> <b>{op.name}</b><br><span style='color:{MUTED}'>"
-            + ("circuit coarse, 3D fine (space mapping)" if mf else "on the circuit only") + "</span></p>")
+        if circ is None:
+            self.creates.setText(
+                f"<p><b style='color:{GOLD}'>■</b> <b>{d3.name}</b><br><span style='color:{MUTED}'>3D design, "
+                f"{len(syn.variables)} design variables, lumped port</span></p>"
+                f"<p><b style='color:{OK}'>■</b> <b>{op.name}</b><br><span style='color:{MUTED}'>on the adaptive "
+                f"solution at the frequency ({op.props.get('Optimizer', '')})</span></p>")
+        else:
+            self.creates.setText(
+                f"<p><b style='color:#1d4f91'>■</b> <b>{circ.name}</b><br><span style='color:{MUTED}'>circuit, "
+                f"{len(syn.variables)} design variables</span></p>"
+                f"<p><b style='color:{GOLD}'>■</b> <b>{d3.name}</b><br><span style='color:{MUTED}'>3D design, "
+                f"same variables, lumped ports</span></p>"
+                f"<p><b style='color:{OK}'>■</b> <b>{op.name}</b><br><span style='color:{MUTED}'>"
+                + ("circuit coarse, 3D fine (space mapping)" if mf else "on the circuit only") + "</span></p>")
         self.goals.setText("<br>".join(f"<code>{g['calc']}</code> {g['cond']} {g['value']}"
                                        f" <span style='color:{MUTED}'>({g['start']}–{g['stop']})</span>"
                                        for g in op.goals))
@@ -645,8 +656,13 @@ class DesignWizard(QDialog):
         ax.clear()
         p = Project("preview")
         p.materials = list(self.project.materials)
-        p.designs = [circ, d3]
-        board, copper = ST.base.top_view(d3, p)
+        p.designs = [d for d in (circ, d3) if d is not None]
+        if circ is None:
+            board, copper = ST.base.side_view(d3, p)
+            view, xl, yl = "side view", "x (mm)", "z (mm)"
+        else:
+            board, copper = ST.base.top_view(d3, p)
+            view, xl, yl = "top view", "x (mm)", "y (mm)"
         if board:
             xs, ys = zip(*board)
             ax.fill(xs, ys, color="#e9f1fb", ec="#9cc3ee", lw=0.8, zorder=0)
@@ -654,9 +670,9 @@ class DesignWizard(QDialog):
             xs, ys = zip(*rect)
             ax.fill(xs, ys, color=GOLD, ec="#9a6c14", lw=0.4, zorder=2)
         ax.set_aspect("equal")
-        ax.set_xlabel("x (mm)")
-        ax.set_ylabel("y (mm)")
-        ax.set_title("3D design, top view", fontsize=9, color=MUTED)
+        ax.set_xlabel(xl)
+        ax.set_ylabel(yl)
+        ax.set_title(f"3D design, {view}", fontsize=9, color=MUTED)
         self.canvas.draw_idle()
 
     def _create(self, run: bool) -> None:

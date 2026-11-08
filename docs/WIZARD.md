@@ -38,6 +38,8 @@ the next structure.
 
 | Structure | Specification | Variables | Goals |
 |---|---|---|---|
+| Dipole | f, wire radius, port impedance, return loss | arm length `Larm` | S11 at the frequency |
+| Monopole | f, wire radius, ground plane side, port impedance, return loss | wire length `L` | S11 at the frequency |
 | Quarter-wave transformer | f0, port and load impedance, 1 to 4 sections, bandwidth, return loss | width `W1..WN` and length `L1..LN` of each section | S11 in the band |
 | Wilkinson divider | f0, port impedance, bandwidth, return loss, isolation, split tolerance | arm width `Wa` and run `Lb` | S11, S22, S33 and S32 (isolation), S21 and S31 within the tolerance |
 | T-junction divider | f0, power ratio P3/P2, port impedance, bandwidth, return loss, split tolerance | quarter-wave transformers `Wt2`, `Lt2`, `Wt3`, `Lt3` | S11, S21 and S31 within the tolerance of the split |
@@ -81,6 +83,13 @@ and gap come from the coupled-line model of the circuit. It couples backwards: p
 (beside the input), 4 isolated. In microstrip the even and odd modes travel at different speeds, which limits the
 isolation to roughly 15 to 25 dB; coupling much stronger than 12 dB needs gaps below 0.15 mm on 0.508 mm boards.
 
+Antennas have no circuit (nothing in a schematic radiates): the wizard creates the 3D design and an optimization
+on its adaptive solution at the frequency with the Derivative Trust Region, like the patch designer; multi-fidelity
+and the substrate do not apply to the wire antennas. The dipole is two PEC cylinders with a lumped port in the gap,
+its resonant length 0.5 − 0.12/ln(L/d) wavelengths (about 0.475 λ for L/d = 100), its input resistance about
+70 Ω. The monopole is half of it over a square PEC plane, fed by a lumped port between the plane and the wire,
+about 36 Ω.
+
 The quarter-wave transformer is binomial (maximally flat): ln(Z[k+1]/Z[k]) = 2^−N C(N,k) ln(ZL/Z0); port 2 has
 the load impedance. The branchline coupler has series arms Z0·√(1−k²) and shunt arms Z_series/k with
 k = 10^(−C/20); port 1 is the input, 2 through, 3 coupled, 4 isolated. The line lengths are a quarter guided
@@ -94,5 +103,5 @@ optimization="MultiFidelity1")` and `apply_optimization`.
 
 ## What comes next
 
-The plan follows the order of the cards: the first antennas (dipole, monopole, IFA, circular and circularly
-polarized patch), then the rat-race (after a curved line part) and the others.
+The plan follows the order of the cards: the IFA, the circular and the circularly polarized patch, then the
+rat-race (after a curved line part) and the others.

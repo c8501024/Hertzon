@@ -123,6 +123,7 @@ class Structure:
     designer = ""                       # an existing dialog that builds it (Tools menu action), see catalog.py
     coarse = "Circuit"                  # coarse model of the multi-fidelity optimization (shown in the wizard)
     optimizer = "Conjugate Gradient"    # algorithm of the optimization (a sampled start for rugged goals)
+    kind = "circuit"                    # "circuit": circuit + 3D layout; "3d": a 3D design only (antennas)
 
     # ---- specification
     def defaults(self) -> dict[str, float]:
@@ -161,6 +162,10 @@ class Structure:
         f0 = spec["f0"]
         return 0.5 * f0, 1.5 * f0, 201
 
+    def model3d(self, spec: dict, sub: Substrate, syn: Synthesis, name: str) -> Design:
+        """The 3D design of a structure without a circuit (kind "3d"), with its setup and variables."""
+        raise NotImplementedError
+
     def design3d(self, project: Project, circuit: Design, spec: dict, sub: Substrate, name: str
                  ) -> tuple[Design, list[str]]:
         """The 3D design: by default the generic 3D layout of the circuit (straight lines, junctions and ports
@@ -181,6 +186,8 @@ class Structure:
         syn = self.synthesis(spec, sub)
         taken = {d.name for d in project.designs} if project else set()
         base = unique(name or self.default_name(spec), taken)
+        if self.kind == "3d":
+            return self._create3d(spec, sub, syn, base, range_pct)
         circ = self.circuit(spec, sub, syn, unique(f"{base}_Circuit", taken | {base}))
         apply_ranges(syn, sub, range_pct)
         tmp = Project(base)
@@ -205,6 +212,21 @@ class Structure:
         known = {m.name for m in before}
         return Result([circ, d3], circ.name, op.name, syn, list(syn.warnings) + list(warnings),
                       [m for m in tmp.materials if m.name not in known])
+
+    def _create3d(self, spec: dict, sub: Substrate, syn: Synthesis, base: str, range_pct: float) -> Result:
+        """A structure without a circuit: the 3D design and an optimization on its adaptive solution at the design
+        frequency (one solve per evaluation; the start values are close, so the derivative tuning model needs a
+        few). Multi-fidelity does not apply."""
+        d3 = self.model3d(spec, sub, syn, base)
+        d3.name = base
+        apply_ranges(syn, sub, range_pct)
+        op = Optimization("Optimization1", "Setup1 : LastAdaptive",
+                          props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer=self.optimizer))
+        for v in syn.variables:
+            op.variables.append({"name": v.name, "include": v.include, "min": v.text(v.lo), "max": v.text(v.hi)})
+        op.goals = self.goals(spec)
+        d3.optimetrics.append(op)
+        return Result([d3], d3.name, op.name, syn, list(syn.warnings), [])
 
     def default_name(self, spec: dict) -> str:
         f = spec.get("f0")
@@ -281,3 +303,30 @@ def top_view(design: Design, project: Project | None = None) -> tuple[list, list
         else:
             copper.append(rect)
     return board, copper
+
+
+def side_view(design: Design, project: Project | None = None) -> tuple[list, list]:
+    """Side view (x, z in mm) of a wire antenna for the wizard preview: (nothing, conductor rectangles) from the
+    cylinders along z and the planes in the xy plane (drawn a little thick)."""
+    ev = design.evaluator(project)
+    shapes, planes = [], []
+    for o in design.objects:
+        if not o.history:
+            continue
+        h = o.history[0]
+        p = h.props
+        try:
+            if h.kind == "CreateCylinder" and p.get("Axis") == "Z":
+                x, _, z = ev.point(p["CenterPosition"])
+                r, ht = ev.length(p["Radius"]), ev.length(p["Height"])
+                shapes.append((x - r, x + r, min(z, z + ht), max(z, z + ht)))
+            elif h.kind == "CreateRectangle" and p.get("Axis") == "Z":
+                x, _, z = ev.point(p["Position"])
+                planes.append((x, x + ev.length(p["XSize"]), z))
+        except Exception:  # noqa: BLE001, S112  (an expression the preview cannot evaluate: left out)
+            continue
+    zs = [v for s in shapes for v in s[2:]] + [p[2] for p in planes]
+    th = 0.01 * (max(zs) - min(zs)) if len(zs) > 1 else 0.001
+    shapes += [(a, b, z - th, z) for a, b, z in planes]
+    rects = [[(1e3 * a, 1e3 * c), (1e3 * b, 1e3 * c), (1e3 * b, 1e3 * d), (1e3 * a, 1e3 * d)] for a, b, c, d in shapes]
+    return [], rects

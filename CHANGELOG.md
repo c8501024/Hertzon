@@ -13,7 +13,8 @@ the GitHub release notes.
   the **quarter-wave transformer** (1 to 4 binomial sections), the **branchline coupler** (3 dB or unequal), the
   **coupled-line coupler**, the **Wilkinson divider**, the **T-junction divider** (equal or unequal), **stub matching** of a complex load, the **stepped-impedance
   lowpass** (Chebyshev), the **shorted-stub bandpass** (wideband, quarter-wave stubs with vias), the
-  **edge-coupled bandpass** (parallel coupled half-wave resonators) and the **open-stub bandstop**.
+  **edge-coupled bandpass** (parallel coupled half-wave resonators), the **open-stub bandstop** and the first
+  antennas, the **dipole** and the **monopole** (a 3D design tuned on its adaptive solution, no circuit).
   The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
   `list_structures`, `create_structure`. See [Design Wizard](docs/WIZARD.md).
 

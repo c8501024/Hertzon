@@ -118,6 +118,23 @@ def test_coupled_line_coupler_couples_as_asked():
     assert abs(db(s[2, 0]) + 15) < 0.5 and db(s[0, 0]) < -20 and db(s[3, 0]) < -20
 
 
+@pytest.mark.parametrize("key,var", [("dipole", "Larm"), ("monopole", "L")])
+def test_wire_antennas_are_3d_designs_with_a_tuning(key, var):
+    from hertzon.model.structures.antennas import resonant_fraction
+    assert resonant_fraction(100) == pytest.approx(0.474, abs=0.002)
+    p, r = _made(key)
+    (d3,) = r.designs
+    assert d3.kind == "3d" and r.main == d3.name and len(d3.excitations) == 1
+    op = d3.optimetrics[0]
+    assert op.solution == "Setup1 : LastAdaptive" and op.props["Optimizer"] == "Derivative Trust Region"
+    assert [v["name"] for v in op.variables if v["include"]] == [var]
+    assert op.goals[0]["start"] == op.goals[0]["stop"] == "1GHz"
+    lam = 299.792458
+    assert 0.23 * lam < float(d3.variables[var].removesuffix("mm")) < 0.245 * lam
+    board, rects = ST.base.side_view(d3, p)
+    assert len(rects) == 2
+
+
 def test_tee_divider_splits_as_asked():
     from hertzon.model.structures.dividers import TeeDivider
     assert TeeDivider.impedances(50, 1) == pytest.approx((50 * math.sqrt(2), 50 * math.sqrt(2)))
@@ -233,6 +250,8 @@ def test_mcp_list_and_create(server, tmp_path):
     assert out["circuit"] == "Branchline_5.8GHz_Circuit" and out["design_3d"] == "Branchline_5.8GHz"
     err, text = _call(server, "get_project")
     assert {"Branchline_5.8GHz_Circuit", "Branchline_5.8GHz"} <= set(json.loads(text)["designs"])
+    err, text = _call(server, "create_structure", key="dipole", spec={"f0": 2.4})
+    assert not err and json.loads(text)["design_3d"] == "Dipole_2.4GHz"
     err, text = _call(server, "create_structure", key="ratrace")
     assert err and "not available" in text
 
@@ -253,6 +272,9 @@ def test_wizard_dialog_creates_a_structure(monkeypatch):
     assert dlg.result is not None and dlg.run == "MultiFidelity1"
     dlg = DesignWizard(None, Project("t"), None, start="ratrace")
     assert not dlg.next_btn.isEnabled()
+    dlg = DesignWizard(None, Project("t"), None, start="dipole")
+    dlg._next()
+    assert not dlg.sub_box.isVisibleTo(dlg) and "adaptive" in dlg.creates.text()
     dlg = DesignWizard(None, Project("t"), None, start="patch")
     dlg._next()
     assert dlg.designer == "antenna_patch"
