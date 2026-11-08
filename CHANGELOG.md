@@ -6,6 +6,20 @@ the GitHub release notes.
 ## Unreleased
 
 ### Fixed
+- **MCP calls no longer hang until the client gives up**: in the Meta benchmark (Example 2) three calls got no
+  answer for 30 min each, until Claude Code aborted them, and the server answered the next call at once.
+  Everything the server and its children print (gmsh, EMerge, progress lines, tracebacks) used to go into the
+  client's stderr pipe; a client that does not read that pipe lets it fill up, and the next write blocks the
+  server. It now goes to a log file, ~/.hertzon/logs/mcp-<date>-<pid>.log (the last 20 are kept,
+  HERTZON_MCP_LOG sets another path, '-' the old behaviour). The standard input of the server is the null
+  device, so a child started by a tool can no longer read or wait on the protocol stream. Answers with NaN or
+  infinite values (written as NaN/Infinity, which is not JSON, so the client dropped them) carry null instead.
+- **MCP log**: each request is logged with its duration, and a request that runs longer than 5 min writes the
+  stacks of all threads to the log (again every 5 min; HERTZON_MCP_WATCHDOG sets the time), so a call that
+  does not come back shows where it waits.
+- **MCP project tools are 12 s faster per call** on a machine with stale link files: link files of Hertzon
+  windows that are gone (left by a crash) are removed, and the remaining windows are asked at the same time
+  instead of one after another with 2 s each.
 - **Simulations start as fast as before 0.3.4**: the check for sheets that run through conductors no longer
   runs before every simulation. It built the whole model a second time and cut every sheet with every solid
   (on a board with 85 vias 26 s against 2 s for the model itself), before each run and each optimization
