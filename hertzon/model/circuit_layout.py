@@ -610,11 +610,11 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                Impedance=c.props.get("Z0", "50ohm") or "50ohm",
                IntegrationLine=f"{p.x.text()},{p.y.text()},0;{p.x.text()},{p.y.text()},{zt.text()}")
     if rects:
-        # the finest trace or gap: a gap of coupled lines must be resolved from the first pass, the adaptive
-        # mesh at a frequency in the stopband would not refine it
-        wmin = min([r.w for r in rects] + spacings, key=lambda q: q.num(vals))
+        # half the narrowest trace, and not more than the smallest gap of coupled lines: a gap must be resolved
+        # from the first pass (the adaptive mesh at a frequency in the stopband would not refine it)
+        lmax = min([r.w * 0.5 for r in rects] + spacings, key=lambda q: q.num(vals))
         assign(d.mesh_ops, schema.MESH_OPS, "Length Based On Selection", "Length_Traces", conductors,
-               MaxLength=(wmin * 0.5).text())
+               MaxLength=lmax.text())
     st = Setup("Setup1")
     sw = Sweep("Sweep")
     src = circuit.setups[0].sweeps[0].props if circuit.setups and circuit.setups[0].sweeps else {}
