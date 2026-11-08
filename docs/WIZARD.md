@@ -40,13 +40,21 @@ the next structure.
 |---|---|---|---|
 | Quarter-wave transformer | f0, port and load impedance, 1 to 4 sections, bandwidth, return loss | width `W1..WN` and length `L1..LN` of each section | S11 in the band |
 | T-junction divider | f0, power ratio P3/P2, port impedance, bandwidth, return loss, split tolerance | quarter-wave transformers `Wt2`, `Lt2`, `Wt3`, `Lt3` | S11, S21 and S31 within the tolerance of the split |
+| Stub matching | f, port impedance, load R + jX, bandwidth, return loss | distance `d` from the load and length `l` of the open stub | S11 in the band |
 | Stepped-impedance lowpass | cutoff, order, ripple, high and low impedance, stopband start and rejection | section lengths `L1..LN` (the widths stay) | S11 below the cutoff, S21 in the stopband |
+| Shorted-stub bandpass | f0, bandwidth (30 to 80 %), stubs, ripple, rejection and distance of the stopbands | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..` (symmetric) | S11 in the band, S21 in both stopbands |
 | Branchline coupler | f0, coupling (3 dB or unequal), port impedance, bandwidth, return loss and isolation, amplitude and phase tolerance | series arms `Ws`, `Ls`, shunt arms `Wp`, `Lp` | S11 and S41 (isolation), S21 and S31 within the tolerance, S31/S21 at −90° |
 
 The T-junction divider splits the input admittance in the power ratio K = P3/P2 and brings each half back to the
 port impedance with a quarter-wave transformer of sqrt(Z_in Z0); it has no isolation between the outputs. The
 stepped-impedance lowpass is a Chebyshev prototype of shunt capacitors (low impedance) and series inductors (high
 impedance), beta l = g Z_low/Z0 or g Z0/Z_high at the cutoff.
+
+Stub matching uses a shunt open stub at a distance d from the load (first of the two solutions); the load is a
+series RLC to ground with the reactance at the frequency, a lumped RLC sheet in the 3D design. The shorted-stub
+bandpass has quarter-wave stubs pi Z0 FBW/(4 g) shorted by vias, joined by quarter-wave lines of the port
+impedance; the stubs are synthesized for a 1.4 times wider band because the connecting lines narrow it, and the
+symmetric stubs share their variables.
 
 The quarter-wave transformer is binomial (maximally flat): ln(Z[k+1]/Z[k]) = 2^−N C(N,k) ln(ZL/Z0); port 2 has
 the load impedance. The branchline coupler has series arms Z0·√(1−k²) and shunt arms Z_series/k with
@@ -61,5 +69,5 @@ optimization="MultiFidelity1")` and `apply_optimization`.
 
 ## What comes next
 
-The plan follows the order of the cards: stub matching, stub filters and the first antennas (dipole, monopole, IFA, circular and circularly polarized patch), then Wilkinson,
+The plan follows the order of the cards: the end-coupled and stub filters and the first antennas (dipole, monopole, IFA, circular and circularly polarized patch), then Wilkinson,
 coupled-line coupler, rat-race (after a curved line part), edge-coupled bandpass and the others.

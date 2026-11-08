@@ -68,7 +68,8 @@ def test_branchline_impedances():
 @pytest.mark.parametrize("key,values,ports", [("qwt", {}, 2), ("qwt", {"n": 4, "zl": 100}, 2),
                                               ("branchline", {}, 4), ("branchline", {"c": 6}, 4),
                                               ("tee", {}, 3), ("tee", {"k": 2}, 3), ("stepped", {}, 2),
-                                              ("stepped", {"n": 3}, 2)])
+                                              ("stepped", {"n": 3}, 2), ("stub", {}, 1),
+                                              ("stub", {"xl": -30}, 1), ("stubbp", {}, 2), ("stubbp", {"n": 4}, 2)])
 def test_circuit_3d_and_optimization_share_the_variables(key, values, ports):
     p, r = _made(key, values)
     circ, d3 = r.designs
@@ -112,7 +113,27 @@ def test_stepped_lowpass_prototype():
     assert (db(s[:2, 0, 0]) < -15).all() and db(s[2, 1, 0]) < -20
 
 
-@pytest.mark.parametrize("key", ["branchline", "tee", "stepped"])
+def test_single_stub_matches_the_load():
+    from hertzon.model.structures.matching import single_stub
+    for rl, xl in [(25, 15), (100, -40), (50, 30), (10, 0)]:
+        d, length = single_stub(50, rl, xl)
+        b2 = 2 * math.pi
+        zl = complex(rl, xl)
+        t = math.tan(b2 * d)
+        z = 50 * (zl + 1j * 50 * t) / (50 + 1j * zl * t)        # load seen through the line d
+        y = 1 / z + 1j * math.tan(b2 * length) / 50              # plus the open stub
+        assert abs(y * 50 - 1) < 1e-6, (rl, xl)
+    p, r = _made("stub")
+    assert db(_s(p, r.designs[0], 2.45)[0, 0, 0]) < -15
+
+
+def test_shorted_stub_bandpass_passes_the_band():
+    p, r = _made("stubbp")
+    s = _s(p, r.designs[0], [1.0, 3.0, 5.0])
+    assert db(s[1, 0, 0]) < -12 and db(s[0, 1, 0]) < -10 and db(s[2, 1, 0]) < -10
+
+
+@pytest.mark.parametrize("key", ["branchline", "tee", "stepped", "stub", "stubbp"])
 def test_circuit_optimization_meets_the_goals(tmp_path, key):
     from hertzon.solver.optimize import Optimizer
     p, r = _made(key, multi_fidelity=False)

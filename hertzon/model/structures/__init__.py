@@ -6,12 +6,22 @@ wizard shows greyed out. structure(key) returns one; create_structure() is what 
 """
 from __future__ import annotations
 
-from .base import AVAILABLE, IN_PROGRESS, PLANNED, Field, Result, Structure, Substrate, Synthesis, Variable
+from .base import (
+    AVAILABLE,
+    IN_PROGRESS,
+    PLANNED,
+    Field,
+    Result,
+    Structure,
+    Substrate,
+    Synthesis,
+    Variable,
+)
 from .couplers import Branchline
 from .dividers import TeeDivider
-from .filters import SteppedImpedanceLowpass
+from .filters import ShortedStubBandpass, SteppedImpedanceLowpass
 from .icons import ICONS
-from .matching import QuarterWaveTransformer
+from .matching import QuarterWaveTransformer, StubMatch
 
 CATEGORIES = (("antenna", "Antennas"), ("match", "Matching"), ("coupler", "Couplers & hybrids"),
               ("divider", "Power dividers"), ("filter", "Filters"), ("feed", "Feed networks"),
@@ -72,8 +82,7 @@ CATALOG: list[Structure] = [
             "vivaldi", priority=3, needs="a radial stub (microstrip to slotline transition)", ports=1),
     # ---- matching
     _built(QuarterWaveTransformer, "qwt"),
-    Planned("stub", "Stub matching", "match", "Single or double stub onto any load",
-            "Match a Touchstone file or a solved 3D antenna", "stub", ports=1),
+    _built(StubMatch, "stub"),
     Planned("lumped", "Lumped L / Pi match", "match", "SMD parts, values from the E series",
             "Small boards, antennas in devices", "lump", priority=2, needs="discrete values in the optimizer"),
     # ---- couplers
@@ -96,8 +105,7 @@ CATALOG: list[Structure] = [
     Planned("edge", "Edge-coupled bandpass", "filter", "Parallel coupled half-wave resonators",
             "The textbook bandpass, 5-20 % bandwidth", "edge", priority=2),
     _built(SteppedImpedanceLowpass, "stepped"),
-    Planned("stubbp", "Shorted-stub bandpass", "filter", "Quarter-wave stubs with vias, wideband",
-            "Bandwidths above 30 %", "stubbp"),
+    _built(ShortedStubBandpass, "stubbp"),
     Planned("interdigital", "Interdigital bandpass", "filter", "Quarter-wave fingers",
             "Compact, clean second harmonic", "inter", priority=3, needs="multi-conductor coupled lines"),
     Planned("diplexer", "Hairpin diplexer", "filter", "Two hairpin channels at a junction", "Two bands on one antenna",
@@ -131,5 +139,19 @@ def create_structure(key: str, values: dict | None = None, substrate: Substrate 
     return s.create(values, substrate, **kw)
 
 
-__all__ = ["AVAILABLE", "CATALOG", "CATEGORIES", "Field", "IN_PROGRESS", "PLANNED", "Result", "Structure",
-           "Substrate", "Synthesis", "Variable", "create_structure", "icon", "structure"]
+__all__ = [
+    "AVAILABLE",
+    "CATALOG",
+    "CATEGORIES",
+    "IN_PROGRESS",
+    "PLANNED",
+    "Field",
+    "Result",
+    "Structure",
+    "Substrate",
+    "Synthesis",
+    "Variable",
+    "create_structure",
+    "icon",
+    "structure",
+]

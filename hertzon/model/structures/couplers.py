@@ -3,7 +3,18 @@ from __future__ import annotations
 
 import math
 
-from .base import AVAILABLE, Field, Structure, Substrate, Synthesis, Variable, band, goal, new_circuit, substrate_part
+from .base import (
+    AVAILABLE,
+    Field,
+    Structure,
+    Substrate,
+    Synthesis,
+    Variable,
+    band,
+    goal,
+    new_circuit,
+    substrate_part,
+)
 from .circuits import Schematic
 
 
