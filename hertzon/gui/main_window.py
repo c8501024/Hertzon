@@ -4196,11 +4196,12 @@ class MainWindow(QMainWindow):
             return
         self.doc.dirty = False  # answered above; closing must not ask again
         try:
-            start_installer_after_exit(path, page=release["url"])
+            how = start_installer_after_exit(path, page=release["url"])
         except OSError as e:
             QMessageBox.warning(self, "Install Update", f"The installer could not be started:\n{e}\n\n{path}")
             return
-        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes, then the installer starts.")
+        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes, then the installer starts"
+                              + (" (started directly, PowerShell was not available)." if how == "direct" else "."))
         self.close()
         QApplication.quit()
 

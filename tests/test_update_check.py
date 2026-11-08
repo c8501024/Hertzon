@@ -190,3 +190,55 @@ def test_download_dir_not_in_temp_on_windows(monkeypatch, tmp_path):
     assert U.download_dir() == tmp_path / "Hertzon" / "Updates"
     monkeypatch.delenv("LOCALAPPDATA")
     assert U.download_dir().name == "Hertzon-Update"
+
+
+def _fake_windows(monkeypatch, tmp_path, with_ps=True):
+    root = tmp_path / "Windows"
+    ps = root / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    if with_ps:
+        ps.parent.mkdir(parents=True)
+        ps.write_bytes(b"")
+    monkeypatch.setattr(U.sys, "platform", "win32")
+    monkeypatch.setenv("SystemRoot", str(root))
+    monkeypatch.setenv("PATH", "")  # PATH without the PowerShell folder: "[WinError 2]" before
+    return ps
+
+
+def test_powershell_found_without_path(monkeypatch, tmp_path):
+    ps = _fake_windows(monkeypatch, tmp_path)
+    assert U.powershell_exe() == str(ps)
+
+
+def test_installer_started_through_full_powershell_path(monkeypatch, tmp_path):
+    ps = _fake_windows(monkeypatch, tmp_path)
+    inst = tmp_path / "Hertzon-Setup-9.9.9.exe"
+    inst.write_bytes(b"x")
+    calls = []
+    monkeypatch.setattr(U.subprocess, "Popen", lambda args, **kw: calls.append(args))
+    assert U.start_installer_after_exit(inst, pid=1) == "waiter"
+    assert calls[0][0] == str(ps)
+
+
+def test_installer_started_directly_without_powershell(monkeypatch, tmp_path):
+    _fake_windows(monkeypatch, tmp_path, with_ps=False)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    inst = tmp_path / "Hertzon-Setup-9.9.9.exe"
+    inst.write_bytes(b"x")
+    started = []
+    monkeypatch.setattr(U.os, "startfile", started.append, raising=False)
+    assert U.start_installer_after_exit(inst, pid=1) == "direct"
+    assert started == [str(inst)]
+
+    # PowerShell there but refused to start: also started directly
+    _fake_windows(monkeypatch, tmp_path / "b")
+
+    def refuse(args, **kw):
+        raise FileNotFoundError(2, "not found")
+    monkeypatch.setattr(U.subprocess, "Popen", refuse)
+    assert U.start_installer_after_exit(inst, pid=1) == "direct"
+
+
+def test_missing_installer_is_an_error(monkeypatch, tmp_path):
+    _fake_windows(monkeypatch, tmp_path)
+    with pytest.raises(OSError):
+        U.start_installer_after_exit(tmp_path / "gone.exe", pid=1)
