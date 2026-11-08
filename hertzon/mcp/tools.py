@@ -36,7 +36,7 @@ def window_mode() -> bool:
     (servers, tests)."""
     return os.environ.get("HERTZON_MCP_MODE", "window").lower() != "file"
 
-INSTRUCTIONS = """Hertzon is a 3D full-wave FEM simulator (local workflow, EMerge solver). These tools build
+INSTRUCTIONS = """Hertzon is an electromagnetic design suite: 3D full-wave FEM (EMerge solver), circuits and PCBs, local workflow. These tools build
 and run simulations in Hertzon projects (.hzn files).
 
 Workflow

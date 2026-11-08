@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use Hertzon in your work, please cite it as below, and also cite EMerge, its FEM solver core."
 type: software
-title: "Hertzon: a graphical 3D full-wave electromagnetic simulator"
+title: "Hertzon: an open-source electromagnetic design suite"
 authors:
   - family-names: "Mair"
     given-names: "Dominik"

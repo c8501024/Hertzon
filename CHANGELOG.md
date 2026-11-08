@@ -3,6 +3,13 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Hertzon is now the "Electromagnetic Design Suite"**: new subtitle on the splash screen, the website, the
+  README, the About dialog and the package description. It names what Hertzon has grown into besides the 3D
+  full-wave FEM solver: circuits with their 3D layout, PCB import, optimization and AI agents through MCP.
+
 ## 0.3.8 (2026-11-08)
 
 ### Fixed
