@@ -38,6 +38,7 @@ from . import trust_region as TR
 
 TAG = "@@HZN "
 TRUST_REGION = "Derivative Trust Region"
+SPACE_MAPPING = "Space Mapping"
 NELDER_MEAD = "Latin Hypercube + Nelder-Mead"
 TUNING_MAX_VARIABLES = 6
 ROOT = Path(__file__).resolve().parents[2]
@@ -149,6 +150,10 @@ class Optimizer:
         self.keep_mesh = False          # the trust region computes the tuning model on an evaluation's mesh
         self.algorithm = self.props.get("Optimizer", "Conjugate Gradient")
         self.trust = self.algorithm == TRUST_REGION
+        self.mapping = self.algorithm == SPACE_MAPPING
+        if self.mapping and self.circuit:
+            raise ValueError("Space Mapping optimizes a 3D design with a circuit as its coarse model: add the "
+                             "optimization to the 3D design")
         if self.trust and self.circuit:
             raise ValueError("Derivative Trust Region needs the tuning model of a 3D mesh: use Conjugate Gradient "
                              "or Latin Hypercube + Nelder-Mead for a circuit (every evaluation takes milliseconds)")
@@ -301,6 +306,8 @@ class Optimizer:
     def run(self) -> bool:
         if self.trust:
             return self.run_trust_region()
+        if self.mapping:
+            return self.run_space_mapping()
         if self.algorithm == NELDER_MEAD:
             alg = SampledNelderMead(self.vars.x0(), self.props)
             log(f"Optimization '{self.opt.name}': Latin hypercube sample of {alg.p['samples']} design(s) and the "
@@ -435,6 +442,79 @@ class Optimizer:
             reason = "All goals are met (cost 0)"
         return self._end(reason)
 
+    # ---- space mapping ------------------------------------------------------------------------------
+    def run_space_mapping(self) -> bool:
+        from scipy.optimize import least_squares
+        p = self.props
+        coarse = CoarseModel(self, str(p.get("CoarseModel", "")).strip())
+        rounds = max(1, int(float(p.get("MappingRounds", 6))))
+        tol = max(1e-6, float(p.get("MappingTolerance", 0.01)))
+        (self.out / "ABORT").unlink(missing_ok=True)
+        names = ", ".join(self.vars.names)
+        log(f"Optimization '{self.opt.name}': space mapping over {len(self.vars)} variable(s) ({names}) with the "
+            f"circuit {coarse.name} as the coarse model, goals on {self.opt.solution}")
+        # 1. the goals on the circuit
+        emit("progress", value=0, text=f"Optimizing the circuit {coarse.name} on the goals")
+        t = time.time()
+        u, c_cost, nev = TR.minimize_box(coarse.cost, np.zeros(len(self.vars)), np.ones(len(self.vars)), starts=2)
+        target = np.clip(u, 0, 1)
+        log(f"Circuit optimum: cost {c_cost:.6g} after {nev} circuit evaluations in {time.time() - t:.1f} s: "
+            + ", ".join(f"{k}={v}" for k, v in self.vars.texts(target).items()))
+        if self.aborted():
+            return self._end("Aborted")
+        # 2. rounds of 3D solve, extraction and quasi-Newton step
+        x = self.vars.x0() if p.get("StartFromDesign") == "True" else target.copy()
+        B = np.eye(len(x))
+        xc_prev, f_prev, h = x.copy(), None, None
+        reason = f"Maximum number of rounds ({rounds}) reached"
+        for it in range(rounds):
+            costs = self._solve_batch([x], f"round {it + 1}", it)
+            if costs is None:
+                return self._end("Aborted")
+            cost = costs[0]
+            if not np.isfinite(cost):
+                reason = f"The 3D design of round {it + 1} could not be solved"
+                break
+            if cost == 0:
+                reason = "All goals are met (cost 0)"
+                break
+            fine = ResultStore(self.folders[self.n] / "results").sparams(self.sol)
+            freq, Sf = np.asarray(fine["freq"], float), np.asarray(fine["S"], complex)
+
+            def residual(v):
+                Sc = coarse.response(v, freq)
+                if Sc is None:
+                    return np.full(4 * len(freq), 10.0)
+                d = np.concatenate([(Sc[:, 0, 0] - Sf[:, 0, 0]), (Sc[:, 1, 0] - Sf[:, 1, 0])])
+                return np.concatenate([d.real, d.imag])
+            t = time.time()
+            r = least_squares(residual, xc_prev, bounds=(-1.0, 2.0), x_scale=1.0, diff_step=1e-3, max_nfev=200)
+            xc = r.x
+            f = xc - target
+            log(f"Round {it + 1}: 3D cost {cost:.6g}; circuit fitted to the 3D response (rms error "
+                f"{np.sqrt(np.mean(r.fun ** 2)):.3g}, {r.nfev} circuit evaluations, {time.time() - t:.1f} s): "
+                + ", ".join(f"{n}={v:.5g}" for n, v in zip(self.vars.names, self.vars.lo + xc * (self.vars.hi - self.vars.lo)))
+                + f"; distance to the circuit optimum {np.max(np.abs(f)):.3g} of the ranges")
+            self.history[-1].update(extracted=xc.tolist())
+            if np.max(np.abs(f)) < tol:
+                reason = "The 3D design maps onto the circuit optimum"
+                break
+            if f_prev is not None and h is not None and float(h @ h) > 0:
+                B = B + np.outer(f - f_prev - B @ h, h) / float(h @ h)     # Broyden update of the mapping
+            try:
+                h = np.linalg.solve(B, -f)
+            except np.linalg.LinAlgError:
+                h = -f
+            xn = np.clip(x + h, 0, 1)
+            h = xn - x
+            if np.max(np.abs(h)) < 1e-6:
+                reason = "The step is blocked by the variable ranges"
+                break
+            x, f_prev, xc_prev = xn, f, xc
+            if self.aborted():
+                return self._end("Aborted")
+        return self._end(reason)
+
     def _tuning_model(self, n: int, it: int, points: int):
         """Compute the tuning model of evaluation n on its adaptive mesh; None when aborted."""
         from .tuning import TuningModel, tuning_path
@@ -500,6 +580,64 @@ class Optimizer:
             if not self.circuit:
                 time.sleep(0.2)
         return costs
+
+
+class CoarseModel:
+    """A circuit design of the project with the optimization's variables: its S-parameters and goal cost at
+    variable values (unit box of the optimization), analyzed in this process."""
+
+    def __init__(self, opt: "Optimizer", name: str):
+        from .sweeps import sweep_frequencies
+        if not name:
+            raise ValueError("Space Mapping: enter the circuit design of the coarse model (Optimizer tab)")
+        try:
+            d = opt.proj.design(name)
+        except KeyError:
+            raise ValueError(f"Space Mapping: no design named '{name}'") from None
+        if getattr(d, "kind", "3d") != "circuit":
+            raise ValueError(f"Space Mapping: '{name}' is not a circuit design")
+        missing = [v for v in opt.vars.names if v not in d.variables and v not in opt.proj.variables]
+        if missing:
+            raise ValueError(f"Space Mapping: the circuit {name} has no variable {', '.join(missing)}")
+        self.o, self.name, self.design = opt, name, d
+        self.proj = opt.proj.clone()
+        self.d = self.proj.design(name)
+        self.base = dict(self.d.variables)
+        st = opt.des.setup(opt.setup)
+        sw = next(sw for sw in st.sweeps if sw.name == opt.sol)
+        self.freqs = sweep_frequencies(sw.props, opt.ev)
+        self.evals = 0
+
+    def response(self, x, freqs=None):
+        """S (F, P, P) at the unit-box values x (may lie outside 0..1), None where the circuit fails."""
+        from .circuit import analyze
+        from .optimetrics import fmt_value
+        v = self.o.vars.lo + np.asarray(x, float) * (self.o.vars.hi - self.o.vars.lo)
+        self.d.variables = dict(self.base)
+        self.d.variables.update({n: fmt_value(val, u) for n, val, u in zip(self.o.vars.names, v, self.o.vars.units)})
+        self.evals += 1
+        try:
+            r = analyze(self.proj, self.d, self.freqs if freqs is None else freqs)
+        except Exception:  # noqa: BLE001
+            return None
+        self.z0 = r.z0
+        return r.S
+
+    def cost(self, x) -> float:
+        S = self.response(np.clip(x, 0, 1))
+        if S is None:
+            return float("inf")
+        ports = [{"name": f"Port{i + 1}", "number": i + 1, "kind": "Circuit Port", "modes": 1}
+                 for i in range(S.shape[1])]
+        data = {"freq": self.freqs, "S": S, "z0": self.z0, "solved": self.freqs, "ports": ports}
+        try:
+            c, _ = evaluate_goals(self.o.opt, data, self.o.ev, self.o.outvars)
+        except Exception:  # noqa: BLE001
+            return float("inf")
+        if self.evals % 25 == 0:
+            emit("progress", value=0, text=f"Optimizing the circuit {self.name}: {self.evals} evaluations, "
+                                            f"cost {c:.4g}")
+        return c
 
 
 def at_any_bound(dp, blo, bhi) -> bool:

@@ -61,7 +61,7 @@ def test_hairpin_derivative_trust_region_optimization():
     """The second optimization has the same goals and ranges, with the derivative trust region on L, g, yP."""
     p = hairpin_project(HairpinSpec(n=3))
     d = p.designs[0]
-    cg, dtr = d.optimetrics
+    cg, dtr, _ = d.optimetrics
     assert dtr.name == "HairpinDTR" and dtr.props["Optimizer"] == "Derivative Trust Region"
     assert dtr.solution == cg.solution and dtr.goals == cg.goals and dtr.goals is not cg.goals
     assert [(v["name"], v["min"], v["max"]) for v in dtr.variables] == [(v["name"], v["min"], v["max"]) for v in cg.variables]
@@ -184,3 +184,22 @@ def test_patch_dialog():
     assert dlg.design.name == "Patch_5.8GHz" and dlg.design.spheres
     dlg.close()
     del app
+
+
+def test_hairpin_circuit_model_and_space_mapping():
+    """The project has the filter as a circuit with the same variables, the coarse model of HairpinSM; the
+    circuit has the passband of the 3D design (2.45 GHz centre, 3 resonators)."""
+    from hertzon.solver.circuit import analyze
+    p = hairpin_project(HairpinSpec(n=3))
+    d, c = p.designs
+    sm = d.optimetrics[2]
+    assert sm.name == "HairpinSM" and sm.props["Optimizer"] == "Space Mapping"
+    assert sm.props["CoarseModel"] == c.name == "Hairpin_N3_Circuit" and c.kind == "circuit"
+    assert [v["name"] for v in sm.variables if v["include"]] == ["L", "dL", "g", "yP"] and sm.goals == d.optimetrics[0].goals
+    assert all(c.variables[k] == d.variables[k] for k in d.variables)
+    f = np.array([2.0, 2.45, 2.9]) * 1e9
+    S = analyze(p, c, f).S
+    db = 20 * np.log10(np.abs(S[:, 1, 0]))
+    assert db[1] > -2 and db[0] < -20 and db[2] < -20              # passband in the middle, stopbands outside
+    q = project_from_dict(p.to_dict())
+    assert q.designs[1].components and q.designs[0].optimetrics[2].props["CoarseModel"] == c.name

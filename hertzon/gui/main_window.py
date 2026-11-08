@@ -6205,19 +6205,34 @@ class MainWindow(QMainWindow):
         if dlg.exec() != QDialog.Accepted or dlg.design is None:
             return
         d = dlg.design
+        extra = dlg.extra_designs() if hasattr(dlg, "extra_designs") else []     # named after d as it is now
         names = {x.name for x in self.doc.project.designs}
         base, i = d.name, 1
         while d.name in names:
             i += 1
             d.name = f"{base}_{i}"
+        names.add(d.name)
+        for x in extra:                 # e.g. the circuit model of a filter: unique names, the optimizations follow
+            old, k = x.name, 1
+            x.name = old.replace(base, d.name, 1) if old.startswith(base) else old
+            stem = x.name
+            while x.name in names:
+                k += 1
+                x.name = f"{stem}_{k}"
+            names.add(x.name)
+            for o in d.optimetrics:
+                if o.props.get("CoarseModel") == old:
+                    o.props["CoarseModel"] = x.name
         self.doc.checkpoint()
+        self.doc.project.designs.extend(extra)
         self.doc.project.designs.append(d)
         self.doc.commit("all", geometry=False)
         self._close_reports()
         self.doc.set_design(d.name)
         self.view.fit_all()
-        opt = f" and the optimization {d.optimetrics[0].name}" if d.optimetrics else ""
-        self.msgs.add("info", f"Created the {what} design {d.name} with Setup1 : Sweep{opt}")
+        opt = f" and the optimizations {', '.join(o.name for o in d.optimetrics)}" if d.optimetrics else ""
+        more = f"; its circuit model {', '.join(x.name for x in extra)}" if extra else ""
+        self.msgs.add("info", f"Created the {what} design {d.name} with Setup1 : Sweep{opt}{more}")
 
     def copy_design(self) -> None:
         self.doc.checkpoint()

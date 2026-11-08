@@ -131,16 +131,36 @@ def t_create_hairpin_filter(args):
         d, nom = hairpin_design(spec)
     except ValueError as e:
         raise ToolError(str(e)) from None
+    circ = None
+    if spec.optimization:
+        # the circuit model of the filter, the coarse model of the space mapping optimization HairpinSM; it is
+        # added first, so that the 3D design stays the shown one
+        from ..model.filters import circuit_name, hairpin_circuit
+        taken = {x.name for x in ctx.proj.designs}
+        base, i = d.name, 1
+        while d.name in taken:
+            i += 1
+            d.name = f"{base}_{i}"
+        circ = hairpin_circuit(spec, circuit_name(d.name))
+        k, stem = 1, circ.name
+        while circ.name in taken:
+            k += 1
+            circ.name = f"{stem}_{k}"
+        for o in d.optimetrics:
+            if o.props.get("CoarseModel"):
+                o.props["CoarseModel"] = circ.name
+        ctx.proj.designs.append(circ)
     errors = _new_design_ctx(ctx, d, f"hairpin filter {d.name}")
-    return {"design": d.name, "variables": d.variables, "stopbands_ghz": spec.stopbands, "sweep_ghz": spec.sweep,
+    return {"design": d.name, **({"circuit_model": circ.name} if circ else {}), "variables": d.variables, "stopbands_ghz": spec.stopbands, "sweep_ghz": spec.sweep,
             "ranges_mm": nom["ranges"], "warnings": nom["warnings"],
             **({"geometry_errors": errors} if errors else {}),
             "optimizations": [{"name": o.name, "optimizer": o.props.get("Optimizer", "Conjugate Gradient"),
                                "variables": [v["name"] for v in o.variables if v.get("include")],
                                "goals": len(o.goals)} for o in d.optimetrics],
             "next": "run_simulation for the start design; run_simulation(optimization=...) and apply_optimization. "
-                    "Near the goal, the Derivative Trust Region (set_optimization optimizer=...) on 3 to 4 "
-                    "variables needs far fewer solves than the conjugate gradient on all six"}
+                    "Fastest: HairpinSM (space mapping: the circuit model is optimized in seconds, then a few 3D "
+                    "solves correct it). Near the goal, the Derivative Trust Region on 3 to 4 variables needs far "
+                    "fewer solves than the conjugate gradient on all six"}
 
 
 # ------------------------------------------------------------------------------------------------

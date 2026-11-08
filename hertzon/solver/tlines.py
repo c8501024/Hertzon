@@ -15,6 +15,7 @@ Stripline: exact zero-thickness impedance (Cohn), conductor loss after Pozar. Co
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 
 import numpy as np
 
@@ -71,6 +72,7 @@ def microstrip_eeff(f: float, w: float, h: float, er: float, ee0: float) -> floa
     return er - (er - ee0) / (1 + p)
 
 
+@lru_cache(maxsize=8192)     # pure: a circuit analysis asks for the same values many times
 def microstrip(f: float, w: float, h: float, t: float, er: float, tand: float, cond: float):
     z0s, ee0 = microstrip_static(w, h, t, er)
     ee = microstrip_eeff(f, w, h, er, ee0)
@@ -128,6 +130,7 @@ def open_end_extension(w: float, h: float, t: float, er: float) -> float:
     return 0.412 * h * (ee + 0.3) * (u + 0.264) / ((ee - 0.258) * (u + 0.8))
 
 
+@lru_cache(maxsize=8192)     # pure: a circuit analysis asks for the same values many times
 def coupled_microstrip(f: float, w: float, s: float, h: float, t: float, er: float, tand: float, cond: float):
     """((Z0e, gamma_e), (Z0o, gamma_o)) of symmetric coupled microstrip (Garg-Bahl, static modes)."""
     from scipy.special import ellipk
@@ -222,6 +225,7 @@ def cpw_conductor_loss(f: float, w: float, s: float, t: float, cond: float, ee: 
     return rs * math.sqrt(ee) / (480 * math.pi * kk * kp * (1 - k * k)) * (pa + pb)
 
 
+@lru_cache(maxsize=8192)     # pure: a circuit analysis asks for the same values many times
 def tee_y(f: float, w1: float, w2: float, w3: float, h: float, t: float, er: float, tand: float,
           cond: float) -> np.ndarray:
     """3x3 Y matrix of a microstrip T junction, pins (main arm 1, main arm 2, branch 3) at the edges of the
@@ -303,6 +307,7 @@ def _tee_net(z1: complex, z2: complex, zs: complex) -> np.ndarray:
     return np.linalg.inv(z)
 
 
+@lru_cache(maxsize=8192)     # pure: a circuit analysis asks for the same values many times
 def corner_y(f: float, w: float, h: float, er: float, mitered: bool = False) -> np.ndarray:
     """2x2 Y of a 90 degree microstrip corner (unmitered or 50 % mitered), pins at the edges of the corner
     square: a series inductance on each arm and a shunt capacitance."""

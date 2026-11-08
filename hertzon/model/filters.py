@@ -5,7 +5,8 @@ every second one flipped, sharp inner and miter-cut outer corners, both feed lin
 the outer arms at the same height. Everything is drawn with design variables, so the optimization that
 comes with the design varies the same six parameters as the filterbench runs (L, w, b, g, yP, M), with
 the same ranges and the start in the middle of every range. A second optimization minimizes the same goals
-with the derivative tuning model (Derivative Trust Region) over L, g and yP.
+with the derivative tuning model (Derivative Trust Region) over L, g and yP, a third one by space mapping
+with the filter as a circuit (hairpin_circuit) as the fast coarse model.
 
 No Qt here: used by the dialog, the example generator and scripts.
 """
@@ -324,13 +325,31 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
             dtr.variables.append(dict(v, include=v["name"] in DTR_VARIABLES))
         dtr.goals = [dict(g) for g in op.goals]
         d.optimetrics.append(dtr)
+        # the same goals by space mapping with the circuit of the filter (hairpin_circuit) as the coarse model:
+        # the circuit is optimized in seconds, then a few 3D solves correct its error
+        sm = Optimization("HairpinSM", "Setup1 : Sweep",
+                          props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer="Space Mapping",
+                                     CoarseModel=circuit_name(d.name)))
+        for v in op.variables:
+            sm.variables.append(dict(v, include=v["name"] in SM_VARIABLES))
+        sm.goals = [dict(g) for g in op.goals]
+        d.optimetrics.append(sm)
     return d, nom
+
+
+# variables of the space mapping: those the circuit models well (length, outer length offset, gap, tap)
+SM_VARIABLES = ("L", "dL", "g", "yP")
+
+
+def circuit_name(design_name: str) -> str:
+    """Name of the circuit model of a hairpin design (the coarse model of its space mapping)."""
+    return f"{design_name}_Circuit"
 
 
 def hairpin_project(spec: HairpinSpec) -> Project:
     d, _ = hairpin_design(spec)
     p = Project(f"HairpinFilter_N{spec.n}")
-    p.designs = [d]
+    p.designs = [d, hairpin_circuit(spec, circuit_name(d.name))]
     return p
 
 
@@ -347,3 +366,101 @@ def outlines(design: Design, project: Project | None = None) -> dict[str, list[t
             dx, dy = ev.length(p["XSize"]), ev.length(p["YSize"])
             out[o.name] = [(1e3 * a, 1e3 * b) for a, b in ((x, y), (x + dx, y), (x + dx, y + dy), (x, y + dy))]
     return out
+
+
+# ---------------------------------------------------------------------------------------------
+# the same filter as a circuit: a fast model for the start design (Circuit optimization, space mapping)
+# ---------------------------------------------------------------------------------------------
+# lines shorter than this are drawn at this length (a line of length zero has no admittance matrix)
+_MIN_LINE = "1um"
+
+
+def hairpin_circuit(spec: HairpinSpec, name: str = "") -> Design:
+    """The tapped hairpin filter of hairpin_design as a circuit, with the same design variables (L, dL, w, b, g,
+    yP, ... and the derived ones), so that values move between the two designs unchanged.
+
+    Every arm next to another hairpin is one line of a coupled microstrip pair (MCLIN) with the arm of the
+    neighbour at the gap g; the arms of the outer hairpins on the feed side are single lines with the tap (MTEE)
+    and an open stub to the open end (MLOC, with the open-end extension). The bend of a hairpin is two mitered
+    bends (MMBEND) joined by a line of the inner width b, the arms reach the bends through a line of the corner
+    depth. The coupling of the two arms of one hairpin (at the inner width b) and the coupling beyond the nearest
+    neighbour are not modelled: the circuit is a fast approximation (space mapping corrects it with full-wave
+    solves). The nets are joined by net labels."""
+    from .circuit import AUTO, Component as C
+    from .design import circuit_setup
+    d3, nom = hairpin_design(spec)
+    n = spec.n
+    d = Design(name=name or circuit_name(spec.name or f"Hairpin_N{n}"), kind="circuit")
+    d.variables = {k: v for k, v in d3.variables.items()}
+    d.variables.update({"si": "s", "sx": "so"})     # arm length of the inner and of the outer (tapped) hairpins
+    d.settings[AUTO] = "False"                       # the junctions are explicit parts
+    comps: list = [C("Sub1", "SUBST", 0, -120, 0, {"Er": f"{spec.er:g}", "H": "h", "T": "t_cu",
+                                                   "TanD": f"{spec.tand:g}", "Cond": f"{spec.sigma:g}"})]
+    sub = {"Subst": "Sub1"}
+    col = [0]
+
+    def place(ctype, nm, props, nets, rot=0):
+        """A part in the next free cell of the schematic, a net label on each pin."""
+        from .circuit import pins
+        x, y = 200 * (col[0] % 8), 200 * (col[0] // 8)
+        col[0] += 1
+        c = C(nm, ctype, x, y, rot, dict(props))
+        comps.append(c)
+        for (px, py), net in zip(pins(c), nets):
+            if net:
+                comps.append(C(f"N_{nm}_{px}_{py}", "LABEL", px, py, 0, {"Net": net}))
+        return c
+
+    def arm(i):
+        return "sx" if i in (0, n - 1) else "si"
+    # the open end of hairpin i is at the top (+y) for even i, at the bottom for odd i (flipped)
+    for i in range(n - 1):
+        a, b = arm(i), arm(i + 1)
+        lc = f"min({a},{b})"
+        # line 1: right arm of hairpin i, line 2: left arm of hairpin i+1; pins 1/3 at the top, 2/4 at the bottom
+        place("MCLIN", f"C{i + 1}", {**sub, "W": "w", "S": "g", "L": lc},
+              [f"H{i}R_t", f"H{i}R_b", f"H{i + 1}L_t", f"H{i + 1}L_b"])
+        for j, side, other in ((i, "R", b), (i + 1, "L", a)):
+            # the longer arm reaches beyond the coupled part by half the difference at both ends
+            ext = f"max({_MIN_LINE}, ({arm(j)}-{other})/2)"
+            top_open = j % 2 == 0
+            for end in ("t", "b"):
+                is_open = (end == "t") == top_open
+                if is_open:
+                    place("MLOC", f"E{j}{side}{end}", {**sub, "W": "w", "L": ext}, [f"H{j}{side}_{end}"])
+                else:
+                    place("MLIN", f"E{j}{side}{end}", {**sub, "W": "w", "L": ext},
+                          [f"H{j}{side}_{end}", f"H{j}{side}_bend"])
+    # the tapped arms of the outer hairpins and the feeds
+    for i, side, port in ((0, "L", 1), (n - 1, "R", 2)):
+        top_open = i % 2 == 0
+        # tap height from the open end (yt is measured from the arm centre, +y up; a flipped hairpin is mirrored)
+        y_tap = "yt" if top_open else "(-yt)"
+        place("MLOC", f"A{i}{side}o", {**sub, "W": "w", "L": f"max({_MIN_LINE}, {arm(i)}/2-{y_tap}-wf/2)"},
+              [f"T{port}_open"])
+        place("MLIN", f"A{i}{side}b", {**sub, "W": "w", "L": f"max({_MIN_LINE}, {arm(i)}/2+{y_tap}-wf/2)"},
+              [f"T{port}_bend", f"H{i}{side}_bend"])
+        place("MTEE", f"T{port}", {**sub, "W1": "w", "W2": "w", "W3": "wf"},
+              [f"T{port}_open", f"T{port}_bend", f"T{port}_feed"])
+        place("MLIN", f"F{port}", {**sub, "W": "wf", "L": "Wsub/2-xe"}, [f"P{port}", f"T{port}_feed"])
+        place("PORT", f"Port{port}", {"Num": str(port), "Z0": f"{spec.z_feed:g}ohm"}, [f"P{port}"])
+    # the bends: arm end - line of the corner depth - mitered bend - line b - mitered bend - line - arm end
+    for i in range(n):
+        place("MLIN", f"V{i}L", {**sub, "W": "w", "L": f"max({_MIN_LINE}, dep-w)"}, [f"H{i}L_bend", f"B{i}_l"])
+        place("MMBEND", f"M{i}L", {**sub, "W": "w"}, [f"B{i}_l", f"B{i}_lh"])
+        place("MLIN", f"U{i}", {**sub, "W": "w", "L": "b"}, [f"B{i}_lh", f"B{i}_rh"])
+        place("MMBEND", f"M{i}R", {**sub, "W": "w"}, [f"B{i}_rh", f"B{i}_r"])
+        place("MLIN", f"V{i}R", {**sub, "W": "w", "L": f"max({_MIN_LINE}, dep-w)"}, [f"B{i}_r", f"H{i}R_bend"])
+    d.components = comps
+    st = circuit_setup()
+    a, b, step = spec.sweep
+    st.sweeps[0].props.update(Distribution="Linear Step", Start=f"{a:g}GHz", Stop=f"{b:g}GHz", Step=f"{step:g}GHz")
+    d.setups.append(st)
+    if spec.optimization:
+        op = Optimization("HairpinCircuitOpt", "Setup1 : Sweep",
+                          props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer="Conjugate Gradient"))
+        for v in d3.optimetrics[0].variables:
+            op.variables.append(dict(v, include=v["name"] in SM_VARIABLES))
+        op.goals = [dict(g) for g in d3.optimetrics[0].goals]
+        d.optimetrics.append(op)
+    return d
