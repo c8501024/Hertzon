@@ -190,9 +190,14 @@ img{max-width:100%;height:auto}
 .aid-status{display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid #1f2d47;font-size:.8rem;color:#9fb0c8;min-height:40px}
 .aid-meter{flex:1;max-width:200px;height:6px;border-radius:3px;background:#1a2842;overflow:hidden}
 .aid-meter i{display:block;height:100%;width:0;background:#f2a33a;transition:width .8s}
-.aid-card{position:absolute;inset:36px 0 0 0;background:rgba(8,14,26,.94);display:flex;flex-direction:column;justify-content:center;
+.aid-card{position:absolute;inset:36px 0 0 0;background:rgba(8,14,26,.94);display:grid;align-content:center;column-gap:28px;
+  grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "stats" "plot" "foot";
   padding:24px clamp(16px,4vw,48px);animation:aidfade .6s both}
 .aid-card[hidden]{display:none}
+.aid-win:not(.video) .aid-card{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"head head" "stats plot" "foot foot"}
+.aid-win:not(.video) .aid-card .aid-stats{grid-template-columns:1fr 1fr}
+.aid-card-head{grid-area:head}.aid-card .aid-stats{grid-area:stats;align-self:center}
+.aid-card .aid-plot{grid-area:plot;align-self:center}.aid-card .aid-foot{grid-area:foot}
 @keyframes aidfade{from{opacity:0}}
 .aid-card-head p{margin:0;color:#f2a33a;font-size:.78rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
 .aid-card-head h3{margin:4px 0 16px;font-size:1.35rem;color:#fff}
@@ -207,6 +212,10 @@ img{max-width:100%;height:auto}
 .aid-plot .ref{stroke:#5b6b85;stroke-dasharray:3 3}
 .aid-plot .band{fill:rgba(242,163,58,.13)}
 .aid-plot .trace{fill:none;stroke:#f2a33a;stroke-width:1.8}
+.aid-plot .trace.ref2{stroke:#7cc4ff;stroke-dasharray:4 3}
+.aid-plot .dot{fill:#f2a33a;stroke:none}
+.aid-plot .dot.ref2{fill:#7cc4ff}
+.aid-plot .leg{fill:#c5d0e0}
 .aid-foot{margin:8px 0 0;font-size:.78rem;color:#7d8ea8;max-width:720px}
 .aid-replay{position:absolute;right:12px;bottom:12px;display:none;align-items:center;gap:6px;background:#16243d;color:#dfe5ee;
   border:1px solid #2b3d5e;border-radius:8px;padding:6px 12px;font:inherit;font-size:.85rem;cursor:pointer;z-index:2}
@@ -216,12 +225,13 @@ img{max-width:100%;height:auto}
   .aid-body{grid-template-columns:1fr}
   .aid-chat{border-right:0;border-bottom:1px solid #1f2d47;max-height:240px;min-height:200px}
   .aid-card{position:relative;inset:auto}
+  .aid-win:not(.video) .aid-card{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "stats" "plot" "foot"}
   .aid-stats b{font-size:1.1rem}
 }
 .aid-win.video .aid-body{grid-template-columns:minmax(0,4fr) minmax(0,8fr)}
 .aid-win.video .aid-canvas{padding:10px;background:#0b1424}
 .aid-win.video .aid-note{display:none}
-.aid-win.video .aid-card{right:auto;width:min(560px,52%);background:rgba(8,14,26,.95);border-right:1px solid #22324f}
+.aid-win.video .aid-card{display:flex;flex-direction:column;justify-content:center;right:auto;width:min(560px,52%);background:rgba(8,14,26,.95);border-right:1px solid #22324f}
 .aid-win.video .aid-stats{grid-template-columns:1fr 1fr}
 .aid-plot{max-height:190px}
 .outlook-h{font-size:1.4rem;margin:64px 0 8px}

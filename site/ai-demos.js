@@ -65,14 +65,19 @@
     this.shapes = {};
   };
 
-  /* ---------- result plot of the end card */
+  /* ---------- result plot of the end card: p.data is one trace; p.series several, each {label, data, cls, dots};
+     a null in a trace's data breaks the line; xticks are numbers or [position, label] */
   function plot(p) {
-    var W = 320, H = 150, L = 34, R = 8, T = 8, B = 26;
-    var xs = p.data.map(function (d) { return d[0]; }), ys = p.data.map(function (d) { return d[1]; });
+    var series = p.series || [{data: p.data}];
+    var leg = p.series && p.series.length > 1;
+    var W = 320, H = p.h || 150, L = 34, R = 8, T = leg ? 24 : 8, B = 26;
+    var all = [].concat.apply([], series.map(function (sr) { return sr.data.filter(Boolean); }));
+    var xs = all.map(function (d) { return d[0]; });
     var x0 = p.x ? p.x[0] : Math.min.apply(null, xs), x1 = p.x ? p.x[1] : Math.max.apply(null, xs);
     var y0 = p.y[0], y1 = p.y[1];
     function X(x) { return L + (x - x0) / (x1 - x0) * (W - L - R); }
     function Y(y) { return T + (y1 - y) / (y1 - y0) * (H - T - B); }
+    function cy(y) { return Y(Math.max(y0, Math.min(y1, y))); }
     var s = svg("svg", { viewBox: "0 0 " + W + " " + H, "class": "aid-plot", role: "img", "aria-label": p.label });
     (p.bands || []).forEach(function (b) {
       s.appendChild(svg("rect", { x: X(b[0]), y: T, width: X(b[1]) - X(b[0]), height: H - T - B, "class": "band" }));
@@ -84,21 +89,43 @@
       s.appendChild(tx);
     });
     (p.xticks || []).forEach(function (t) {
-      var tx = svg("text", { x: X(t), y: H - B + 14, "text-anchor": "middle" });
-      tx.textContent = t;
+      var pos = t.length ? t[0] : t;
+      var tx = svg("text", { x: X(pos), y: H - B + 14, "text-anchor": "middle" });
+      tx.textContent = t.length ? t[1] : t;
       s.appendChild(tx);
     });
     (p.hlines || []).forEach(function (t) {
       s.appendChild(svg("line", { x1: L, x2: W - R, y1: Y(t), y2: Y(t), "class": "ref" }));
     });
-    var d = p.data.map(function (q, i) { return (i ? "L" : "M") + X(q[0]).toFixed(1) + " " + Y(Math.max(y0, Math.min(y1, q[1]))).toFixed(1); }).join("");
-    s.appendChild(svg("path", { d: d, "class": "trace" }));
+    series.forEach(function (sr) {
+      var d = "", pen = "M";
+      sr.data.forEach(function (q) {
+        if (!q) { pen = "M"; return; }
+        d += pen + X(q[0]).toFixed(1) + " " + cy(q[1]).toFixed(1);
+        pen = "L";
+      });
+      s.appendChild(svg("path", { d: d, "class": "trace " + (sr.cls || "") }));
+      if (sr.dots) sr.data.forEach(function (q) {
+        if (q) s.appendChild(svg("circle", { cx: X(q[0]).toFixed(1), cy: cy(q[1]).toFixed(1), r: 2.4, "class": "dot " + (sr.cls || "") }));
+      });
+    });
+    if (leg) {                          // legend in one row above the plot, right-aligned
+      var lx = W - R;
+      p.series.slice().reverse().forEach(function (sr) {
+        var tx = svg("text", { x: lx, y: 9.5, "text-anchor": "end", "class": "leg" });
+        tx.textContent = sr.label;
+        s.appendChild(tx);
+        lx -= sr.label.length * 5.1 + 4;
+        s.appendChild(svg("line", { x1: lx - 14, x2: lx, y1: 6, y2: 6, "class": "trace " + (sr.cls || "") }));
+        lx -= 24;
+      });
+    }
     var cap = svg("text", { x: W - R, y: H - 2, "text-anchor": "end", "class": "cap" });
     cap.textContent = p.xlabel;
     s.appendChild(cap);
-    var cy = svg("text", { x: 2, y: T + 2, "class": "cap", "dominant-baseline": "hanging" });
-    cy.textContent = p.ylabel;
-    s.appendChild(cy);
+    var cyl = svg("text", { x: 2, y: leg ? 2 : T + 2, "class": "cap", "dominant-baseline": "hanging" });
+    cyl.textContent = p.ylabel;
+    s.appendChild(cyl);
     return s;
   }
 
