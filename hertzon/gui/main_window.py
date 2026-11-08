@@ -4131,7 +4131,7 @@ class MainWindow(QMainWindow):
         import threading
         from PySide6.QtCore import QObject, Signal
         from PySide6.QtWidgets import QApplication, QProgressDialog
-        from .update_check import download, download_dir, installer_asset, start_installer_after_exit
+        from .update_check import download, download_dir, installer_asset, start_installer_after_exit, still_there
         a = installer_asset(release)
         if self.solver.busy and QMessageBox.question(
                 self, "Install Update", "A solve is running. Installing the update stops it. Continue?",
@@ -4157,6 +4157,7 @@ class MainWindow(QMainWindow):
         pd.canceled.connect(cancel.set)
         loop = QEventLoop()
         result: list = [None, ""]
+        gone = [False]
 
         def finished(path, err) -> None:
             result[:] = [path, err]
@@ -4167,6 +4168,8 @@ class MainWindow(QMainWindow):
             try:
                 path = download(a["browser_download_url"], download_dir() / a["name"], a.get("digest") or "",
                                 progress=relay.progress.emit, cancelled=cancel.is_set)
+                # virus protection may remove the new program right after it was written
+                gone[0] = path is not None and not still_there(path, int(a.get("size") or 0))
                 relay.done.emit(path, "")
             except Exception as e:  # noqa: BLE001
                 relay.done.emit(None, str(e) or type(e).__name__)
@@ -4178,17 +4181,39 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Install Update", f"The installer could not be downloaded:\n{err}\n\n"
                                 f"It is also on the release page:\n{release['url']}")
             return
-        if path is None or not self.maybe_save():  # cancelled
+        if path is None:  # cancelled
+            return
+        if gone[0]:
+            self._update_installer_gone(path, release)
+            return
+        if not self.maybe_save():
+            return
+        if not path.is_file():  # removed while the save question was open
+            self._update_installer_gone(path, release)
             return
         self.doc.dirty = False  # answered above; closing must not ask again
         try:
-            start_installer_after_exit(path)
+            start_installer_after_exit(path, page=release["url"])
         except OSError as e:
             QMessageBox.warning(self, "Install Update", f"The installer could not be started:\n{e}\n\n{path}")
             return
         self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes, then the installer starts.")
         self.close()
         QApplication.quit()
+
+    def _update_installer_gone(self, path, release: dict) -> None:
+        """The downloaded installer vanished right after the download (virus protection): Hertzon stays open
+        and says where to get the installer instead of closing for nothing."""
+        self.msgs.add("error", f"Update: the downloaded installer {path} was removed right after the download.")
+        if QMessageBox.warning(
+                self, "Install Update",
+                f"The downloaded installer was removed right after the download, probably by the virus "
+                f"protection:\n{path}\n\nHertzon stays open. Download the installer from the release page and "
+                f"start it there (Windows may ask whether to run it).\n\nOpen the release page?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl(release["url"]))
 
     def goto_message(self, text: str) -> None:
         """Select what a message is about: object, boundary/excitation/mesh operation, setup, report."""

@@ -3,6 +3,17 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Install Update closed Hertzon and then nothing happened**: the installer is started by a small script
+  without a window after Hertzon has closed. When the downloaded installer was gone by then (virus protection
+  may remove a freshly downloaded program, cleaning tools empty the temporary folder) or could not be
+  started, nothing was shown. Hertzon now downloads to %LOCALAPPDATA%\Hertzon\Updates instead of the
+  temporary folder, checks after the download that the installer is still there (if not, Hertzon stays open
+  and offers the release page), and the script checks the file again, writes update.log next to the
+  installer and shows a message with the path and the release page when the installer cannot be started.
+
 ## 0.3.5 (2026-11-08)
 
 ### Fixed
