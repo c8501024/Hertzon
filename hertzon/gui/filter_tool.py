@@ -433,3 +433,236 @@ def _float(text) -> float:
         return float(text)
     except (TypeError, ValueError):
         return 0.0
+
+
+class DiplexerDialog(QDialog):
+    """Two tapped hairpin filters joined by a T-junction (model/diplexer.py): channel A to Port 2, channel B to
+    Port 3, the common Port 1; as a parametrized design with setup, sweep, the space mapping optimization
+    DiplexerSM (with the diplexer as a circuit, extra_designs) and a conjugate gradient on the same goals."""
+
+    def __init__(self, parent, project):
+        from ..model.diplexer import DiplexerSpec
+        super().__init__(parent)
+        self.project = project
+        self.setWindowTitle("Filter Design: Hairpin Diplexer")
+        d = DiplexerSpec()
+        top = QHBoxLayout(self)
+        left = QVBoxLayout()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        inner = QWidget()
+        inner.setLayout(left)
+        scroll.setWidget(inner)
+        scroll.setMinimumWidth(420)
+        top.addWidget(scroll)
+
+        self.ch = []
+        for k, c in enumerate(d.channels):
+            g = QGroupBox(f"Channel {'AB'[k]} (Port {k + 2})")
+            f = QFormLayout(g)
+            n = QSpinBox()
+            n.setRange(2, 9)
+            n.setValue(c.n)
+            w = {"n": n, "lo": _num(c.passband[0], 0.01, 300, 4, "GHz"), "hi": _num(c.passband[1], 0.01, 300, 4, "GHz"),
+                 "il": _num(c.insertion_loss, 0, 100, 2, "dB"), "rl": _num(c.return_loss, 0, 100, 2, "dB"),
+                 "rip": _num(c.ripple, 0, 100, 2, "dB"), "rej": _num(c.rejection, 0, 200, 2, "dB")}
+            f.addRow("Resonators N", n)
+            f.addRow("Passband", _pair(w["lo"], w["hi"]))
+            f.addRow("Insertion loss <=", w["il"])
+            f.addRow("Return loss >=", w["rl"])
+            f.addRow("Ripple <=", w["rip"])
+            rej = w["rej"]
+            rej.setToolTip("In the passband of the other channel and in the outer stopband (a third of the bandwidth "
+                           "away from the passband)")
+            f.addRow("Rejection >=", rej)
+            self.ch.append(w)
+            left.addWidget(g)
+
+        g = QGroupBox("Diplexer")
+        f = QFormLayout(g)
+        self.iso = _num(d.isolation, 0, 200, 2, "dB")
+        self.iso.setToolTip("|S32| in both passbands")
+        self.fl, self.mb = _num(d.feed, 0.1, 100, 2, "mm"), _num(d.margin, 0, 100, 2, "mm")
+        f.addRow("Isolation >=", self.iso)
+        f.addRow("Feed line to Ports 2, 3", self.fl)
+        f.addRow("Board margin", self.mb)
+        left.addWidget(g)
+
+        g = QGroupBox("Substrate")
+        f = QFormLayout(g)
+        self.mat = QComboBox()
+        mats = [m for m in project.all_materials() if not m.pec and not is_conductor(m) and _float(m.permittivity) > 1]
+        self.mats = {m.name: m for m in mats}
+        self.mat.addItems(sorted(self.mats))
+        if d.material in self.mats:
+            self.mat.setCurrentText(d.material)
+        self.mat_info = QLabel("")
+        self.h, self.t = _num(d.h, 0.01, 50, 4, "mm", 0.01), _num(d.t, 0, 500, 1, "um")
+        f.addRow("Material", self.mat)
+        f.addRow("", self.mat_info)
+        f.addRow("Height h", self.h)
+        f.addRow("Copper thickness", self.t)
+        left.addWidget(g)
+
+        g = QGroupBox("Hairpins")
+        f = QFormLayout(g)
+        self.zr, self.zf = _num(d.z_res, 10, 200, 2, "ohm"), _num(d.z_feed, 10, 200, 2, "ohm")
+        self.b, self.b_tol = _num(d.inner, 0.01, 100, 3, "mm"), _num(100 * d.inner_tol, 0, 90, 1, "%")
+        self.w_tol = _num(100 * d.trace_tol, 0, 90, 1, "%")
+        self.g_lo, self.g_hi = _num(d.gap[0], 0.001, 50, 3, "mm"), _num(d.gap[1], 0.001, 50, 3, "mm")
+        self.l_lo, self.l0, self.l_hi = (_num(v, 1, 200, 1, "%") for v in d.length_pct)
+        self.m_lo, self.m_hi = _num(d.miter[0], 0, 0.99, 2), _num(d.miter[1], 0, 0.99, 2)
+        self.dmin = _num(d.min_feature, 0.001, 5, 3, "mm")
+        f.addRow("Resonator line impedance", self.zr)
+        f.addRow("Feed line impedance", self.zf)
+        f.addRow("Trace width w tolerance", self.w_tol)
+        f.addRow("Inner width b", _pair(self.b, self.b_tol))
+        f.addRow("Coupling gaps (min, max)", _pair(self.g_lo, self.g_hi))
+        self.syn = QCheckBox("Gaps and taps from the Chebyshev prototype of each channel")
+        self.syn.setChecked(d.synthesis)
+        f.addRow(self.syn)
+        f.addRow("Length L of lambda_g (min, start, max)", _pair(self.l_lo, self.l0, self.l_hi))
+        f.addRow("Miter M (min, max)", _pair(self.m_lo, self.m_hi))
+        f.addRow("Minimum feature", self.dmin)
+        left.addWidget(g)
+
+        g = QGroupBox("Analysis")
+        f = QFormLayout(g)
+        self.auto = QCheckBox("Sweep from the passbands")
+        self.auto.setChecked(True)
+        self.f_lo, self.f_hi = _num(d.sweep[0], 0.001, 300, 4, "GHz"), _num(d.sweep[1], 0.001, 300, 4, "GHz")
+        self.f_step = _num(d.sweep[2], 0.0001, 10, 4, "GHz")
+        self.opt = QCheckBox("Add the optimizations (space mapping with the diplexer as a circuit, conjugate gradient)")
+        self.opt.setChecked(True)
+        self.name = QLineEdit("")
+        self.name.setPlaceholderText("Diplexer_N3_N3")
+        f.addRow(self.auto)
+        f.addRow("Sweep (start, stop, step)", _pair(self.f_lo, self.f_hi, self.f_step))
+        f.addRow(self.opt)
+        f.addRow("Design name", self.name)
+        left.addWidget(g)
+        left.addStretch(1)
+
+        right = QVBoxLayout()
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+        from matplotlib.figure import Figure
+        self.fig = Figure(figsize=(6.4, 4.6), tight_layout=True)
+        self.ax = self.fig.add_subplot(111)
+        self.canvas = FigureCanvasQTAgg(self.fig)
+        right.addWidget(self.canvas, 1)
+        self.info = QLabel("")
+        self.info.setWordWrap(True)
+        right.addWidget(self.info)
+        self.bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.bb.button(QDialogButtonBox.Ok).setText("Create Design")
+        self.bb.accepted.connect(self.accept)
+        self.bb.rejected.connect(self.reject)
+        right.addWidget(self.bb)
+        top.addLayout(right, 1)
+
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(250)
+        self.timer.timeout.connect(self.refresh)
+        for w in self.findChildren(QDoubleSpinBox) + self.findChildren(QSpinBox):
+            w.valueChanged.connect(self.timer.start)
+        for c in (self.auto, self.syn):
+            c.toggled.connect(self.timer.start)
+        self.mat.currentTextChanged.connect(self.timer.start)
+        for w in self.ch:
+            w["n"].valueChanged.connect(self._placeholder)
+        self.design = None
+        self._spec = None
+        self.resize(1180, 760)
+        self.refresh()
+
+    def _placeholder(self) -> None:
+        self.name.setPlaceholderText(f"Diplexer_N{self.ch[0]['n'].value()}_N{self.ch[1]['n'].value()}")
+
+    def extra_designs(self) -> list:
+        """The diplexer as a circuit (coarse model of DiplexerSM), made when the dialog is accepted."""
+        from ..model.diplexer import circuit_name, diplexer_circuit
+        if self.design is None or self._spec is None or not self._spec.optimization:
+            return []
+        return [diplexer_circuit(self._spec, circuit_name(self.design.name))]
+
+    def spec(self):
+        from ..model.diplexer import ChannelSpec, DiplexerSpec, auto_sweep
+        m = self.mats.get(self.mat.currentText())
+        chans = [ChannelSpec(n=w["n"].value(), passband=(w["lo"].value(), w["hi"].value()),
+                             insertion_loss=w["il"].value(), return_loss=w["rl"].value(), ripple=w["rip"].value(),
+                             rejection=w["rej"].value()) for w in self.ch]
+        if self.auto.isChecked() and all(c.passband[1] > c.passband[0] for c in chans):
+            sweep = auto_sweep(chans)
+            for w, v in ((self.f_lo, sweep[0]), (self.f_hi, sweep[1]), (self.f_step, sweep[2])):
+                w.blockSignals(True)
+                w.setValue(v)
+                w.blockSignals(False)
+        for w in (self.f_lo, self.f_hi, self.f_step):
+            w.setEnabled(not self.auto.isChecked())
+        if not m:
+            raise ValueError("Choose a substrate material")
+        if self.g_hi.value() < self.g_lo.value() or self.m_hi.value() < self.m_lo.value() or \
+                not self.l_lo.value() <= self.l0.value() <= self.l_hi.value():
+            raise ValueError("Every range needs min <= max (and the start length inside its range)")
+        return DiplexerSpec(
+            channels=chans, isolation=self.iso.value(), material=m.name, er=_float(m.permittivity),
+            tand=_float(m.loss_tangent), h=self.h.value(), t=self.t.value(), z_res=self.zr.value(),
+            z_feed=self.zf.value(), gap=(self.g_lo.value(), self.g_hi.value()), inner=self.b.value(),
+            inner_tol=self.b_tol.value() / 100, trace_tol=self.w_tol.value() / 100,
+            length_pct=(self.l_lo.value(), self.l0.value(), self.l_hi.value()),
+            miter=(self.m_lo.value(), self.m_hi.value()), min_feature=self.dmin.value(), feed=self.fl.value(),
+            margin=self.mb.value(), sweep=(self.f_lo.value(), self.f_hi.value(), self.f_step.value()),
+            synthesis=self.syn.isChecked(), optimization=self.opt.isChecked(), name=self.name.text().strip())
+
+    def refresh(self) -> None:
+        from ..model.diplexer import diplexer_design
+        from ..model.diplexer import outlines as dx_outlines
+        ax = self.ax
+        ax.clear()
+        m = self.mats.get(self.mat.currentText())
+        self.mat_info.setText(f"er = {m.permittivity}, tan d = {m.loss_tangent}" if m else "")
+        try:
+            s = self.spec()
+            self.design, nom = diplexer_design(s)
+            self._spec = s
+        except Exception as e:  # noqa: BLE001
+            self.design = None
+            self.info.setText(f"<span style='color:#c0392b'>{e}</span>")
+            self.bb.button(QDialogButtonBox.Ok).setEnabled(False)
+            self.canvas.draw_idle()
+            return
+        self.bb.button(QDialogButtonBox.Ok).setEnabled(True)
+        ev = self.design.evaluator(self.project)
+        L = {k: ev.length(k) * 1e3 for k in ("Wl", "Wr", "Wy")}
+        x0, x1, hy = -L["Wl"], L["Wr"], L["Wy"] / 2
+        ax.fill([x0, x1, x1, x0], [-hy, -hy, hy, hy], color="#c9d6a3", zorder=0)
+        for name, pts in dx_outlines(self.design, self.project).items():
+            xs, ys = zip(*pts)
+            ax.fill(xs, ys, color="#c8892b", ec="#7a5216", lw=0.6, zorder=2)
+            if name.startswith("Hairpin"):
+                ax.text(sum(xs) / len(xs), max(ys) + 0.4, name.replace("Hairpin", ""), ha="center", fontsize=7,
+                        color="#5a3a10")
+        for (x, y), lab in (((0, hy), "1"), ((x0, 0), "2"), ((x1, 0), "3")):
+            ax.plot([x], [y], "s", color="#c0392b", ms=6, zorder=3)
+            ax.annotate(f"Port {lab}", (x, y), xytext=(0, 8), textcoords="offset points", ha="center", fontsize=8,
+                        color="#c0392b")
+        ax.set_aspect("equal")
+        ax.set_xlim(x0 - 1, x1 + 1)
+        ax.set_ylim(-hy - 1, hy + 2)
+        ax.set_xlabel("x (mm)")
+        ax.set_ylabel("y (mm)")
+        self.canvas.draw_idle()
+        parts = []
+        for k, (c, n) in enumerate(zip(s.channels, nom["channels"])):
+            gaps = ", ".join(f"{a} = {b:g}" for a, b in sorted(n["gaps"].items()))
+            parts.append(f"Channel {'AB'[k]}: L = {n['length']:g} mm, {gaps} mm, yP = {n['yP']:g} mm, "
+                         f"junction line j = {nom['j'][k]:g} mm")
+        txt = (f"Synthesis: {nom['synthesis']}.  Board {L['Wl'] + L['Wr']:.1f} x {L['Wy']:.1f} mm.<br>"
+               + "<br>".join(parts)
+               + "<br>The junction lines start where each filter looks like an open circuit at the junction in "
+                 "the band of the other channel.")
+        warn = [w for n in nom["channels"] for w in n["warnings"]]
+        if warn:
+            txt += "<br><span style='color:#b9770e'>" + "<br>".join(warn) + "</span>"
+        self.info.setText(txt)

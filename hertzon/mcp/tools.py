@@ -77,8 +77,9 @@ Conventions
 - Coordinate systems: set_coordinate_system makes one the working CS; new objects are created in it.
 
 Design assistants, optimizers and tuning
-- create_patch_antenna and create_hairpin_filter make complete parametrized designs (geometry, ports,
-  setup, sweep, optimization) from a specification; start there for patches and hairpin filters.
+- create_patch_antenna, create_hairpin_filter and create_hairpin_diplexer make complete parametrized designs
+  (geometry, ports, setup, sweep, optimization) from a specification; start there for patches, hairpin filters
+  and diplexers.
 - Optimizers (set_optimization optimizer=...): "Conjugate Gradient" (gradient by finite differences, many
   solves, robust near a good start), "Latin Hypercube + Nelder-Mead" (sample of the ranges, then simplex
   chains: far from the start, several resonances, antennas), "Derivative Trust Region" (one solve per round

@@ -476,6 +476,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         fd = m.addMenu("Filter Design")
         fd.addAction("Tapped Hairpin...", self.filter_hairpin)
+        fd.addAction("Hairpin Diplexer...", self.filter_diplexer)
         ad = m.addMenu("Antenna Design")
         ad.addAction("Rectangular Patch...", self.antenna_patch)
         m.addSeparator()
@@ -541,7 +542,8 @@ class MainWindow(QMainWindow):
         g = pg.group("Tools")
         g.large("Options", "options", self.options)
         g.large("Materials", "material", self.edit_materials)
-        g.large("Filter Design", "filter", self.filter_hairpin, menu=[("Tapped Hairpin...", self.filter_hairpin)],
+        g.large("Filter Design", "filter", self.filter_hairpin, menu=[("Tapped Hairpin...", self.filter_hairpin),
+                                                                       ("Hairpin Diplexer...", self.filter_diplexer)],
                 tip="Tapped hairpin band-pass filter as a parametrized design with optimization")
         g.large("Antenna Design", "antenna", self.antenna_patch, menu=[("Rectangular Patch...", self.antenna_patch)],
                 tip="Inset-fed patch antenna as a parametrized design with optimization")
@@ -6106,6 +6108,11 @@ class MainWindow(QMainWindow):
         # Create and Optimize: the new design is the current one; its optimization goes into the solve queue
         if dlg.result() == QDialog.Accepted and dlg.design is not None and dlg.run_optimization:
             self.analyze_optimization(dlg.run_optimization)
+
+    def filter_diplexer(self) -> None:
+        """Tools > Filter Design > Hairpin Diplexer: two hairpin filters on a T-junction as a new design."""
+        from .filter_tool import DiplexerDialog
+        self._insert_generated(DiplexerDialog(self, self.doc.project), "hairpin diplexer")
 
     def antenna_patch(self) -> None:
         """Tools > Antenna Design > Rectangular Patch: inserts the parametrized patch as a new design."""
