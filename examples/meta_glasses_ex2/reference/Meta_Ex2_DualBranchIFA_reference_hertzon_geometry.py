@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Meta AI-glasses benchmark, Example 2, Run 2 final design (A22): independent Ansys HFSS check.
+Meta AI-glasses benchmark, Example 2, Run 2 final design (A22): independent check with the reference solver.
 
 Uses Meta's original STEP for the complete environment (FPC, PCB, feed parts, chassis, port sheet) instead of the
 simplified Hertzon primitives, and adds only the antenna sheet, the shorting pin and a 30 um bridge from the FPC to the
 feed pin. Total efficiency = RadiatedPower / IncidentPower (1 W).
 
-Batch: ansysedt.exe -ng -RunScriptAndExit Meta_Ex2_Run2_HFSS.py    Tested with AEDT 2025 R1.
+Batch: <solver executable> -ng -RunScriptAndExit Meta_Ex2_Run2_reference.py    Tested with version 2025 R1.
 """
 import ScriptEnv, os, traceback
 ScriptEnv.Initialize("Ansoft.ElectronicsDesktop")
 
 STP_FILE = r"C:\path\to\Meta_Ex2_DualBranchIFA.step"  # the STEP in this folder
-OUT_DIR = os.path.join(os.path.expanduser("~"), "Documents", "Meta_Ex2_HFSS_prim")  # change if needed
+OUT_DIR = os.path.join(os.path.expanduser("~"), "Documents", "Meta_Ex2_reference_prim")  # change if needed
 PROJECT_NAME = "Meta_Ex2_Run2_prim"
 RUN_ANALYSIS = True
 

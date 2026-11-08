@@ -4,15 +4,15 @@ Meta Reality Labs published two antenna design benchmarks based on AI-glasses te
 *IEEE Antennas and Propagation Magazine*, vol. 68, no. 5, Oct. 2026, Industry Activities
 ([IEEE Xplore 11775874](https://ieeexplore.ieee.org/document/11775874)). This folder holds a solution of
 Example 1, found by a general-purpose LLM agent (Claude Opus 5.5 in Claude Code) that drove Hertzon only
-through its MCP interface, and cross-checked in Ansys HFSS.
+through its MCP interface, and cross-checked with a commercial FEM reference solver.
 
-**Full report:** [REPORT.md](REPORT.md) (method, design evolution, HFSS cross-check, timing and token usage).
+**Full report:** [REPORT.md](REPORT.md) (method, design evolution, reference cross-check, timing and token usage).
 
 ## Result
 
 Coupled-fed shorted strip on the top layer of the 25 x 5 mm keep-out, **no matching components**.
 
-| Band | Hertzon total efficiency | HFSS 2025 R1 total efficiency |
+| Band | Hertzon total efficiency | Reference total efficiency |
 | --- | --- | --- |
 | 2401–2483 MHz | 79–82 %, average 81 % | 84–86 %, average 85 % |
 | 5170–7125 MHz | 64–87 %, average 81 % (76 % with radiation efficiency capped at 95 %) | 61–83 %, average 77 % |
@@ -43,8 +43,8 @@ time on one 64-core workstation, ~95k model output tokens.
 | --- | --- |
 | `Meta_Ex1_CoupledFedStrip.hzn` | Hertzon project of the final design (Setup1: adaptive at 2.45 + 6.1 GHz, S11 and efficiency sweeps) |
 | `Meta_Ex1_CoupledFedStrip.step` | Geometry (PCB, keep-out, antenna sheets, port) |
-| `hfss/Meta_Ex1_CoupledFedStrip_HFSS.py` | Self-contained AEDT IronPython script: builds, solves and exports the HFSS model (Tools > Run Script) |
-| `results/` | Hertzon S11, HFSS S11 and efficiency, plots |
+| `reference/Meta_Ex1_CoupledFedStrip_reference.py` | Self-contained IronPython script for the reference solver: builds, solves and exports the model (Tools > Run Script) |
+| `results/` | Hertzon S11, reference S11 and efficiency, plots |
 | `tools/match.py`, `tools/s1p.py` | Lossy matching-network search used while screening designs |
 
 ## Limitations
@@ -62,5 +62,5 @@ time on one 64-core workstation, ~95k model output tokens.
 
 - Hertzon: open the `.hzn` and run Setup1 (about 4 min on 64 cores). Total efficiency = radiated power /
   incident power of the Eff sweep.
-- HFSS: Tools > Run Script > `hfss/Meta_Ex1_CoupledFedStrip_HFSS.py` (about 3 min). Results land in
-  `Documents/Meta_Ex1_HFSS`.
+- Reference solver: Tools > Run Script > `reference/Meta_Ex1_CoupledFedStrip_reference.py` (about 3 min). Results land in
+  `Documents/Meta_Ex1_reference`.
