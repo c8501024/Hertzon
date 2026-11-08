@@ -118,6 +118,20 @@ def test_coupled_line_coupler_couples_as_asked():
     assert abs(db(s[2, 0]) + 15) < 0.5 and db(s[0, 0]) < -20 and db(s[3, 0]) < -20
 
 
+def test_printed_ifa():
+    from hertzon.model.structures.antennas import ifa_eeff
+    assert ifa_eeff(4.4) == pytest.approx(1.51)
+    p, r = _made("ifa")
+    (d3,) = r.designs
+    op = d3.optimetrics[0]
+    assert [v["name"] for v in op.variables if v["include"]] == ["L", "s"]
+    assert r.materials[0].name == "IFA_Er3.66" and len(d3.excitations) == 1
+    board, copper = ST.base.top_view(d3, p)
+    assert board and len(copper) == 4
+    lam = 299.792458 / 2.45
+    assert float(d3.variables["L"].removesuffix("mm")) + 4 == pytest.approx(lam / 4 / math.sqrt(ifa_eeff(3.66)))
+
+
 @pytest.mark.parametrize("key,var", [("dipole", "Larm"), ("monopole", "L")])
 def test_wire_antennas_are_3d_designs_with_a_tuning(key, var):
     from hertzon.model.structures.antennas import resonant_fraction

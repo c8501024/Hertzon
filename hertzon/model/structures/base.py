@@ -124,6 +124,7 @@ class Structure:
     coarse = "Circuit"                  # coarse model of the multi-fidelity optimization (shown in the wizard)
     optimizer = "Conjugate Gradient"    # algorithm of the optimization (a sampled start for rugged goals)
     kind = "circuit"                    # "circuit": circuit + 3D layout; "3d": a 3D design only (antennas)
+    view = "top"                        # preview of the 3D design in the wizard: "top" or "side"
 
     # ---- specification
     def defaults(self) -> dict[str, float]:
@@ -226,7 +227,11 @@ class Structure:
             op.variables.append({"name": v.name, "include": v.include, "min": v.text(v.lo), "max": v.text(v.hi)})
         op.goals = self.goals(spec)
         d3.optimetrics.append(op)
-        return Result([d3], d3.name, op.name, syn, list(syn.warnings), [])
+        return Result([d3], d3.name, op.name, syn, list(syn.warnings), self.materials3d(spec, sub))
+
+    def materials3d(self, spec: dict, sub: Substrate) -> list:
+        """Materials a 3D-only design needs (a substrate), new to the project."""
+        return []
 
     def default_name(self, spec: dict) -> str:
         f = spec.get("f0")

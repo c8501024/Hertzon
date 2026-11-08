@@ -6,7 +6,7 @@ wizard shows greyed out. structure(key) returns one; create_structure() is what 
 """
 from __future__ import annotations
 
-from .antennas import Dipole, Monopole
+from .antennas import Dipole, Monopole, PrintedIFA
 from .base import (
     AVAILABLE,
     IN_PROGRESS,
@@ -68,8 +68,7 @@ CATALOG: list[Structure] = [
             "GNSS, satellite links", "cppatch", ports=1),
     _built(Dipole, "dipole"),
     _built(Monopole, "monopole"),
-    Planned("ifa", "Inverted-F (IFA)", "antenna", "Printed on the PCB edge, shorting via", "Bluetooth, Wi-Fi in devices",
-            "ifa", ports=1),
+    _built(PrintedIFA, "ifa"),
     Planned("uwb", "UWB disc monopole", "antenna", "Planar disc, partial ground", "Ultra-wideband 3.1-10.6 GHz",
             "uwb", priority=2, ports=1),
     Planned("slot", "Microstrip-fed slot", "antenna", "Slot in the ground plane", "Low profile, bidirectional",

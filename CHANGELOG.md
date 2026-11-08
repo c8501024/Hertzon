@@ -14,7 +14,8 @@ the GitHub release notes.
   **coupled-line coupler**, the **Wilkinson divider**, the **T-junction divider** (equal or unequal), **stub matching** of a complex load, the **stepped-impedance
   lowpass** (Chebyshev), the **shorted-stub bandpass** (wideband, quarter-wave stubs with vias), the
   **edge-coupled bandpass** (parallel coupled half-wave resonators), the **open-stub bandstop** and the first
-  antennas, the **dipole** and the **monopole** (a 3D design tuned on its adaptive solution, no circuit).
+  antennas, the **dipole**, the **monopole** and the printed **inverted-F antenna** (a 3D design tuned on its
+  adaptive solution, no circuit).
   The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
   `list_structures`, `create_structure`. See [Design Wizard](docs/WIZARD.md).
 

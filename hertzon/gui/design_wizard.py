@@ -657,7 +657,7 @@ class DesignWizard(QDialog):
         p = Project("preview")
         p.materials = list(self.project.materials)
         p.designs = [d for d in (circ, d3) if d is not None]
-        if circ is None:
+        if getattr(self.sel, "view", "top") == "side":
             board, copper = ST.base.side_view(d3, p)
             view, xl, yl = "side view", "x (mm)", "z (mm)"
         else:
