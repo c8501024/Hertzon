@@ -95,6 +95,32 @@ def sheet_messages(design: Design, placement) -> list[str]:
     return out
 
 
+def contact_messages(placement) -> list[str]:
+    """Messages for objects that almost touch (kernel.occ.near_contacts, listed by sheet_placement as
+    "gap:<m>" / "tangent:<m>"): the mesher can fail there ("Unknown model face", "Invalid boundary mesh") or
+    the solution get NaN error estimates. Warnings: simple models of that kind often mesh and solve."""
+    out = []
+    for a, b, how in placement or []:
+        kind, _, d = how.partition(":")
+        if kind not in ("gap", "tangent"):
+            continue
+        try:
+            um = f"{float(d) * 1e6:.3g} µm" if float(d) >= 1e-9 else "0 µm"
+        except ValueError:
+            um = "?"
+        if kind == "gap":
+            out.append(f"'{a}' and '{b}' almost touch: parallel faces {um} apart (a gap or overlap of a few "
+                       "micrometres). The mesher can fail there (\"Unknown model face\", \"Invalid boundary mesh\"). "
+                       "Make the faces coincide exactly, or overlap the objects clearly (0.05 mm or more), or "
+                       "leave a real gap")
+        else:
+            out.append(f"'{a}' and '{b}' touch tangentially: an edge or face of one runs along the round face of "
+                       f"the other (off by {um}), e.g. a via exactly as wide as the trace that ends on it. The "
+                       "slivers there can break the solution (\"NaN detected in the a-posteriori error estimate\"). "
+                       "Make the via clearly wider or narrower than the trace, or let it overlap the edge")
+    return out
+
+
 def _check_touchstone(project: Project, a, add) -> None:
     from pathlib import Path
     from .touchstone import ComponentImpedance
@@ -160,6 +186,8 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                                                "different materials are only allowed for a metal in a dielectric "
                                                "(material override)")
     for m in sheet_messages(design, sheets):
+        add("3D Model", "warning", m)
+    for m in contact_messages(sheets):
         add("3D Model", "warning", m)
     if not any(c.level == "error" for c in out if c.category == "3D Model"):
         add("3D Model", "ok", f"{len(live)} objects")
@@ -283,6 +311,14 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                 err = ev.check(v)
                 if err:
                     add("Analysis Setup", "error", f"{s.name}.{p.name}: {err}")
+        if not s.eigen and s.props.get("SolutionFrequencyMode") == "Multi-Frequencies":
+            freqs = schema.frequency_list(s.props.get("MultiFrequencies", ""))
+            if not freqs:
+                add("Analysis Setup", "error", f"{s.name}.MultiFrequencies: no frequency given")
+            for x in freqs:
+                err = ev.check(x)
+                if err:
+                    add("Analysis Setup", "error", f"{s.name}.MultiFrequencies '{x}': {err}")
         for sw in s.sweeps:
             for p in schema.SWEEP:
                 if p.type == "freq" and schema.is_visible(p, sw.props):

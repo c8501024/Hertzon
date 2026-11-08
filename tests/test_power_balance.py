@@ -166,3 +166,44 @@ def test_lossy_patch_conserves_power(tmp_path):
     v = next(iter(vals.values()))[-1]["values"][0]
     assert v["RadiationEfficiency"] == pytest.approx(prad / (prad + ploss), rel=1e-6)
     assert abs(v["PowerBalance"]) < 0.015
+
+
+def test_conductor_solids_are_not_volume_losses():
+    """A tetrahedron of a conductor solid (copper): EMerge solves no field inside, its loss is the surface
+    impedance on its faces. sigma |E|^2 of the interpolated surface field gave Ploss of 100x the input power."""
+    m = _unit_tet()
+    fld = _Field(1.0, 1e9, {0: ((1.0, 0, 0), (0, 0, 0))}, sig=5.8e7)
+    assert power.LossModel(m, fld).empty
+    fld = _Field(1.0, 1e9, {0: ((1.0, 0, 0), (0, 0, 0))}, sig=100.0)       # a lossy dielectric still counts
+    assert not power.LossModel(m, fld).empty
+
+
+def test_patch_with_a_copper_ground_solid_conserves_power(tmp_path):
+    """The FR4 patch with its ground as a 0.2 mm copper solid: Prad + Ploss = Pacc within ~2 % (it was
+    Ploss = 171 W for 1 W incident)."""
+    from hertzon.solver import bridge
+    d = json.loads((EXAMPLES / "PatchAntenna.hzn").read_text(encoding="utf-8"))
+    design = d["designs"][0]
+    d["designs"] = [design]
+    for o in design["objects"]:
+        if o["name"] == "Ground":
+            o["history"][0] = {**o["history"][0], "kind": "CreateBox",
+                               "props": {"Position": "-Ws/2,-Ls/2,-0.2mm", "XSize": "Ws", "YSize": "Ls",
+                                         "ZSize": "0.2mm"}}
+            o["material"] = "copper"
+    design["boundaries"] = [b for b in design["boundaries"] if b["name"] != "PerfE_Ground"]
+    setup = design["setups"][0]
+    setup["props"].update(MaximumPasses="4", MinimumPasses="4")
+    for sw in setup.get("sweeps", []):
+        sw["props"]["Enabled"] = "False"
+    proj = tmp_path / "patch_cu.hzn"
+    proj.write_text(json.dumps(d), encoding="utf-8")
+    out = tmp_path / "out"
+    assert bridge.run(str(proj), design["name"], setup["name"], str(out)) == 0
+    h = np.load(out / "huygens_LastAdaptive.npz")
+    lo = np.load(out / "losses_LastAdaptive.npz")
+    S = np.load(out / "sparams_LastAdaptive.npz")["S"]
+    prad, ploss = float(h["Prad_0_1"][0]), float(np.real(lo["Ploss_0"][0, 0]))
+    pacc = 1 - abs(S.ravel()[0]) ** 2
+    assert 0.3 < ploss < 0.7
+    assert abs(prad + ploss - pacc) < 0.025

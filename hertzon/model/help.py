@@ -136,7 +136,7 @@ HELP: dict[str, str] = {
     "SolutionFrequencyMode": "Single frequency, multiple frequencies or broadband adaptive meshing.",
     "Frequency": "Solution (adaptive meshing) frequency. Choose the highest frequency of interest for "
                  "filters; for antennas the operating frequency.",
-    "MultiFrequencies": "Adaptive frequencies, separated by ';'.",
+    "MultiFrequencies": "Adaptive frequencies, separated by ',' or ';' (2.45GHz, 6.1GHz).",
     "LowFrequency": "Lower adaptive frequency (broadband).",
     "HighFrequency": "Upper adaptive frequency (broadband).",
     "MaximumPasses": "Maximum number of adaptive passes. Raising it later continues from the last adaptive "

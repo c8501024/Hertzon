@@ -104,7 +104,8 @@ def adaptive_frequencies(setup: Setup, ev: Evaluator) -> list[float]:
         return [ev.freq(p.get("MinimumFrequency", "1GHz") or "1GHz")]
     mode = p.get("SolutionFrequencyMode", "Single")
     if mode == "Multi-Frequencies":
-        return sorted(ev.freq(x) for x in p.get("MultiFrequencies", "").split(",") if x.strip())
+        from ..model.schema import frequency_list
+        return sorted(ev.freq(x) for x in frequency_list(p.get("MultiFrequencies", "")))
     if mode == "Broadband":
         return [ev.freq(p["LowFrequency"]), ev.freq(p["HighFrequency"])]
     return [ev.freq(p["Frequency"])]
@@ -451,10 +452,11 @@ class Bridge:
         fails (they are the usual cause of an inconsistent mesh). Run only then: it builds the whole model again
         in a scratch model and intersects every sheet with every solid, which made every start slower. The
         Validation Check shows the same warnings before a run."""
-        from ..model.validate import sheet_messages
+        from ..model.validate import contact_messages, sheet_messages
         try:
             cond = lambda n: is_conductor(self.project.material(self.design.obj(n).material))  # noqa: E731
-            self.sheet_hints = sheet_messages(self.design, K.sheet_placement(self.design, self.ev, cond))
+            pl = K.sheet_placement(self.design, self.ev, cond)
+            self.sheet_hints = contact_messages(pl) + sheet_messages(self.design, pl)
         except Exception as e:  # noqa: BLE001
             self.sheet_hints = []
             info(f"Sheet placement check skipped: {e}")

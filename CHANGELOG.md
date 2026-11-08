@@ -3,6 +3,26 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Loss power and power balance of antennas with copper solids**: the tetrahedra of conductor solids
+  (conductivity above 1e4 S/m) were counted as lossy volume. EMerge solves no field inside them (it puts a
+  surface impedance on their faces), so sigma |E|^2 of the interpolated surface field gave a loss power of up
+  to hundreds of times the input power (Meta benchmark Example 2: Power Balance +150 to +1200 %; the FR4 patch
+  with a copper ground: Ploss = 171 W for 1 W incident, now 0.46 W with a balance of -1.3 %). Their loss is
+  that of the surface impedance on their faces, which was already counted.
+- **Multi-Frequencies setups accept ';'**: the help said the frequencies are separated by ';', but only ','
+  worked ("Invalid expression '2.45GHz;6.1GHz'"). Both work now, and the Validation Check names a bad entry.
+
+### Added
+- **Validation Check: objects that almost touch**: parallel faces of two objects a few micrometres apart (a gap
+  or an overlap smaller than 20 um, or 0.1 % of the model size) and a straight edge or plane face that touches a
+  cylinder tangentially (a via exactly as wide as the trace that ends on it) are named as warnings, with the
+  distance. gmsh can fail on the first ("Unknown model face with tag N", "Invalid boundary mesh"), the second
+  can give "NaN detected in the a-posteriori error estimate". When a solve fails, the error message names
+  them as the possible cause. Thin solids (copper foil on a substrate) are not reported.
+
 ## 0.3.6 (2026-11-08)
 
 ### Fixed

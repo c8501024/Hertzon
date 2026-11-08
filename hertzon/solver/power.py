@@ -43,7 +43,7 @@ class LossModel:
         nodes = np.asarray(m.mesh.nodes, float)
         tets = np.asarray(m.mesh.tets, np.int64)
         self.vol = None
-        lossy = _lossy_tets(fld)
+        lossy = _lossy_tets(fld, _conductor_limit(m))
         if lossy.any():
             ids = np.nonzero(lossy)[0]
             P = nodes[:, tets[:, ids]]                                  # (3, 4, T)
@@ -76,7 +76,24 @@ class LossModel:
         return self.vol is None and not self.surf
 
 
-def _lossy_tets(fld) -> np.ndarray:
+# EMerge solves no field inside a solid above this conductivity (S/m): it fixes the field there and puts a
+# surface impedance on the solid's faces instead (settings.mw_3d_surfimplim)
+SURFACE_IMPEDANCE_LIMIT = 1e4
+
+
+def _conductor_limit(m) -> float:
+    try:
+        return float(m.mw.assembler.settings.mw_3d_surfimplim)
+    except Exception:  # noqa: BLE001
+        return SURFACE_IMPEDANCE_LIMIT
+
+
+def _lossy_tets(fld, conductor_limit: float = SURFACE_IMPEDANCE_LIMIT) -> np.ndarray:
+    """Tetrahedra with conductivity or a lossy permittivity / permeability. Tetrahedra of conductor solids
+    (conductivity above conductor_limit) are left out: the solver has no field inside them, only the
+    interpolation of their surface field, and their loss is that of the surface impedance on their faces
+    (counted there). Counting sigma |E|^2 of that interpolated field over the conductor volume gave a loss power
+    of up to hundreds of times the input power."""
     def lossy_im(a):
         a = np.asarray(a)
         if a.ndim == 3:                       # tensor (3, 3, T)
@@ -88,7 +105,9 @@ def _lossy_tets(fld) -> np.ndarray:
     out |= lossy_im(fld._dur)
     sig = getattr(fld, "_dsig", None)
     if sig is not None:
-        out |= np.abs(np.asarray(sig)) > 0
+        sig = np.abs(np.asarray(sig))
+        out |= sig > 0
+        out &= ~(sig > conductor_limit)
     return out
 
 

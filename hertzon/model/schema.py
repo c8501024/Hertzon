@@ -503,6 +503,11 @@ DESIGN_SETTINGS: list[Prop] = [
 ]
 
 
+def frequency_list(text: str) -> list[str]:
+    """The entries of a list of frequencies (MultiFrequencies): separated by ',' or ';' ("2.45GHz;6.1GHz")."""
+    return [x.strip() for x in str(text or "").replace(";", ",").split(",") if x.strip()]
+
+
 def material_override(design) -> bool:
     """design setting "Material override": a metal overrides a dielectric where solids overlap."""
     return str(design.settings.get("MaterialOverride", "True")) == "True"
