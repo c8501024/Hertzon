@@ -94,8 +94,43 @@ def test_diplexer_dialog():
     dlg = DiplexerDialog(None, Project())
     assert dlg.design is not None and dlg.design.name == "Diplexer_N3_N3"
     assert [x.name for x in dlg.extra_designs()] == ["Diplexer_N3_N3_Circuit"]
+    dlg.junction.setCurrentIndex(1)                               # common resonator
+    dlg.refresh()
+    assert dlg.design.name == "Diplexer_N3_N3_R" and "HairpinR0" in {o.name for o in dlg.design.objects}
+    assert [x.name for x in dlg.extra_designs()] == ["Diplexer_N3_N3_R_Circuit"]
     dlg.ch[1]["lo"].setValue(2.4)                                 # overlaps channel A
     dlg.refresh()
     assert dlg.design is None
     dlg.close()
     del app
+
+
+def test_common_resonator_diplexer():
+    """Junction "resonator": one row A1..A3 R0 B3..B1, R0 tapped by Port 1 from inside its U, the outer ports at
+    the tap heights of their channels; much smaller than the T-junction; the circuit has the same variables."""
+    from hertzon.solver.circuit import analyze
+    p = diplexer_project(DiplexerSpec(junction="resonator"))
+    d, c = p.designs
+    assert d.name == "Diplexer_N3_N3_R" and c.name == "Diplexer_N3_N3_R_Circuit"
+    ev = d.evaluator(p)
+    K.ensure_gmsh("test_diplexer_r")
+    ctx = K.build_design(d, ev)
+    assert not ctx.errors
+    names = ["HairpinA1", "HairpinA2", "HairpinA3", "HairpinR0", "HairpinB3", "HairpinB2", "HairpinB1"]
+    assert all(len(ctx.built[n]) == 1 for n in names)
+    ol = outlines(d, p)
+    xs = [(min(x for x, _ in ol[n]), max(x for x, _ in ol[n])) for n in names]
+    gaps = [xs[i + 1][0] - xs[i][1] for i in range(6)]
+    want = [ev.length(g) * 1e3 for g in ("g_A", "g_A", "g_0A", "g_0B", "g_B", "g_B")]
+    assert np.allclose(gaps, want, atol=1e-6)
+    area_r = (ev.length("Wl") + ev.length("Wr")) * ev.length("Wy")
+    t = diplexer_project(DiplexerSpec())
+    et = t.designs[0].evaluator(t)
+    area_t = (et.length("Wl") + et.length("Wr")) * et.length("Wy")
+    assert area_r < 0.6 * area_t
+    sm = d.optimetrics[0]
+    inc = [v["name"] for v in sm.variables if v["include"]]
+    assert {"L_0", "g_0A", "g_0B", "yP_0", "L_A", "g_A", "yP_B"} <= set(inc) and "j_A" not in inc
+    assert all(c.variables[k] == d.variables[k] for k in d.variables)
+    S = analyze(p, c, np.array([2.35e9])).S
+    assert np.all(np.isfinite(S)) and S.shape == (1, 3, 3)

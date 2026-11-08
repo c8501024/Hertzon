@@ -67,6 +67,7 @@ class DiplexerSpec:
     synthesis: bool = True
     optimization: bool = True
     name: str = ""
+    junction: str = "tee"                        # "tee": T-junction and lines; "resonator": common resonator
 
     def __post_init__(self) -> None:
         if self.sweep is None:
@@ -301,7 +302,9 @@ def circuit_name(design_name: str) -> str:
 
 def diplexer_design(spec: DiplexerSpec) -> tuple[Design, dict]:
     """The parametrized 3D diplexer and its nominal values {"channels": [nominal A, nominal B], "j": (j_A, j_B),
-    "ranges": {...}}."""
+    "ranges": {...}}. With junction "resonator" the common-resonator diplexer (_resonator_design)."""
+    if spec.junction == "resonator":
+        return _resonator_design(spec)
     noms = nominals(spec)
     jmin = max(3 * spec.h, noms[0]["feed"], 1.0)
     j0, lam_o = junction_lines(spec, noms, jmin)
@@ -353,20 +356,29 @@ def diplexer_design(spec: DiplexerSpec) -> tuple[Design, dict]:
     p2 = d.add_object("CreateRectangle", name="Port2", Position="-Wl,-wf/2,0", Axis="X", YSize="wf", ZSize="h")
     p3 = d.add_object("CreateRectangle", name="Port3", Position="Wr,-wf/2,0", Axis="X", YSize="wf", ZSize="h")
 
-    def assign(lst, table, kind, name, objects, **props):
-        p = schema.defaults(table[kind])
-        p.update(props)
-        lst.append(Assignment(name, kind, p, objects=list(objects)))
-
     copper = [p.name for row in rows for p in row if p is not b_in]
-    assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Top", copper,
-           UseThickness="True", Thickness="t_cu", TwoSided="True")
-    assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Ground", [gnd.name],
-           UseThickness="True", Thickness="t_cu", TwoSided="True")
-    for num, port, line in ((1, p1, "0,Wy/2,0;0,Wy/2,h"), (2, p2, "-Wl,0,0;-Wl,0,h"), (3, p3, "Wr,0,0;Wr,0,h")):
-        assign(d.excitations, schema.EXCITATIONS, "Lumped Port", str(num), [port.name], PortNumber=str(num),
-               IntegrationLine=line)
-    assign(d.mesh_ops, schema.MESH_OPS, "Length Based On Selection", "Length_Copper", copper, MaxLength="w/2")
+    ports = ((1, p1, "0,Wy/2,0;0,Wy/2,h"), (2, p2, "-Wl,0,0;-Wl,0,h"), (3, p3, "Wr,0,0;Wr,0,h"))
+    ranges = _ranges(spec, noms, j0, jmin, lam_o)
+    _finish(d, spec, copper, gnd, ports, ranges)
+    return d, {"channels": noms, "j": j0, "jmin": jmin, "ranges": ranges, "synthesis": engine()}
+
+
+def _assign(lst, table, kind, name, objects, **props):
+    p = schema.defaults(table[kind])
+    p.update(props)
+    lst.append(Assignment(name, kind, p, objects=list(objects)))
+
+
+def _finish(d: Design, spec: DiplexerSpec, copper: list[str], gnd, ports, ranges: dict) -> None:
+    """Boundaries, ports, mesh operation, setup and sweep, and the optimizations DiplexerSM and DiplexerCG."""
+    _assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Top", copper,
+            UseThickness="True", Thickness="t_cu", TwoSided="True")
+    _assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Ground", [gnd.name],
+            UseThickness="True", Thickness="t_cu", TwoSided="True")
+    for num, port, line in ports:
+        _assign(d.excitations, schema.EXCITATIONS, "Lumped Port", str(num), [port.name], PortNumber=str(num),
+                IntegrationLine=line)
+    _assign(d.mesh_ops, schema.MESH_OPS, "Length Based On Selection", "Length_Copper", copper, MaxLength="w/2")
     st = Setup("Setup1")
     f_mid = (min(c.passband[0] for c in spec.channels) + max(c.passband[1] for c in spec.channels)) / 2
     st.props.update(Frequency=f"{f_mid:g}GHz", MaximumPasses="10", MaximumDeltaS="0.05")
@@ -376,7 +388,6 @@ def diplexer_design(spec: DiplexerSpec) -> tuple[Design, dict]:
                     Step=f"{step:g}GHz", ErrorTolerance="1", MaxSolutions="60")
     st.sweeps.append(sw)
     d.setups.append(st)
-    ranges = _ranges(spec, noms, j0, jmin, lam_o)
     if spec.optimization:
         goals = diplexer_goals(spec)
         sm = Optimization("DiplexerSM", "Setup1 : Sweep",
@@ -390,7 +401,6 @@ def diplexer_design(spec: DiplexerSpec) -> tuple[Design, dict]:
                                     "max": f"{hi:g}{unit}"})
             o.goals = [dict(g) for g in goals]
             d.optimetrics.append(o)
-    return d, {"channels": noms, "j": j0, "jmin": jmin, "ranges": ranges, "synthesis": engine()}
 
 
 def diplexer_circuit(spec: DiplexerSpec, name: str = "") -> Design:
@@ -400,6 +410,8 @@ def diplexer_circuit(spec: DiplexerSpec, name: str = "") -> Design:
     from .circuit import AUTO
     from .circuit import Component as C
     from .design import circuit_setup
+    if spec.junction == "resonator":
+        return _resonator_circuit(spec, name)
     d3, _ = diplexer_design(spec)
     d = Design(name=name or circuit_name(d3.name), kind="circuit")
     d.variables = dict(d3.variables)
@@ -461,3 +473,232 @@ def outlines(design: Design, project: Project | None = None) -> dict[str, list[t
             out[o.name] = [(1e3 * a, 1e3 * b) for a, b in ((x, y), (x + dx, y), (x + dx, y + dy), (x, y + dy))]
     return out
 
+
+
+# ---------------------------------------------------------------------------------------------
+# common resonator instead of the T-junction
+# ---------------------------------------------------------------------------------------------
+# One hairpin R0 between the channels couples to the first resonator of each and is tapped by the common port
+# from inside its U (the feed comes down from the top edge and turns to the left arm). The rows of A, R0 and B
+# form one row of hairpins centred on y = 0; Port 2 and Port 3 sit at the tap heights of their channels.
+#
+#                      Port 1
+#                        |
+#     Port 2 -- A1 A2 A3 R0 B3 B2 B1 -- Port 3        (A3 and B3 couple to R0 at the gaps g_0A and g_0B)
+
+def _row(spec: DiplexerSpec) -> list[dict]:
+    """The hairpins of the common-resonator diplexer from left to right: arm length, outer width, inner width,
+    flipped (open end at the bottom); R0 opens to the top, its neighbours alternate from there."""
+    na, nb = (c.n for c in spec.channels)
+    row = []
+    for i in range(na):
+        row.append({"name": f"A{i + 1}", "arm": "so_A" if i == 0 else "s_A", "wo": "wo", "b": "b"})
+    row.append({"name": "R0", "arm": "s_0", "wo": "wo0", "b": "b0"})
+    for i in range(nb):
+        row.append({"name": f"B{nb - i}", "arm": "so_B" if i == nb - 1 else "s_B", "wo": "wo", "b": "b"})
+    for k, h in enumerate(row):
+        h["flip"] = (k - na) % 2 == 1
+    return row
+
+
+def _row_gaps(spec: DiplexerSpec) -> list[str]:
+    na, nb = (c.n for c in spec.channels)
+    return [f"{g}_A" for g in gap_names(na)] + ["g_0A", "g_0B"] + [f"{g}_B" for g in gap_names(nb)][::-1]
+
+
+def _resonator_start(spec: DiplexerSpec, noms: list[dict], b0: float) -> dict:
+    """Start of the common resonator: half a wavelength at the centre between the channels, tapped for the
+    external Q of a filter over both channels (Qe = g0 g1 / FBW with g1 of the channel prototype), coupled to
+    each channel at the gap of its first pair."""
+    lo = min(c.passband[0] for c in spec.channels)
+    hi = max(c.passband[1] for c in spec.channels)
+    f0 = (lo + hi) / 2
+    loss = {"tand": spec.tand, "sigma": spec.sigma}
+    h, t = spec.h * 1e-3, spec.t * 1e-6
+    trace = noms[0]["trace"]
+    lam = guided_wavelength(trace * 1e-3, h, spec.er, t, f0 * 1e9, **loss) * 1e3
+    length = lam * spec.length_pct[1] / 100
+    dep = max(trace, 2 * noms[0]["miter"] * trace)
+    arm = (length - b0 - 2 * dep) / 2
+    proto = [n.get("prototype") for n in noms]
+    g1 = min(p["g"][1] for p in proto) if all(proto) else 1.0
+    qe = g1 / ((hi - lo) / f0)
+    c2 = math.pi * spec.z_feed / (2 * spec.z_res * qe)
+    l_open = length / math.pi * math.acos(min(1.0, math.sqrt(min(max(c2, 0.0), 1.0))))
+    tap = max(0.0, arm / 2 - noms[0]["feed"] / 2 - spec.min_feature)
+    yp = min(max(arm / 2 - l_open, -tap), tap)
+    gaps = [noms[k]["gaps"][gap_names(spec.channels[k].n)[0]] for k in range(2)]
+    p_lo, _, p_hi = spec.length_pct
+    return {"L": _r(length), "yP": _r(yp), "g": gaps, "range_L": (_r(lam * p_lo / 100), _r(lam * p_hi / 100)),
+            "tap": _r(tap), "f0": f0, "Qe": qe}
+
+
+def _resonator_variables(spec: DiplexerSpec, noms: list[dict], r0: dict, b0: float) -> dict[str, str]:
+    v = _variables(spec, noms)
+    for k in ("j_A", "j_B", "xl_A", "xl_B", "xe_A", "xe_B", "Wl", "Wr", "Wy"):
+        v.pop(k, None)
+    v.update({"b0": _mm(b0), "wo0": "b0+2*w", "L_0": _mm(r0["L"]), "yP_0": _mm(r0["yP"]),
+              "g_0A": _mm(r0["g"][0]), "g_0B": _mm(r0["g"][1]),
+              "s_0": "(L_0-b0-2*dep)/2", "ycap_0": "max(0mm, s_0/2-wf/2-dmin)",
+              "yt_0": "max(-ycap_0, min(ycap_0, yP_0))"})
+    row, gaps = _row(spec), _row_gaps(spec)
+    # x of the left edge of each hairpin: R0 centred on x = 0
+    k0 = spec.channels[0].n
+    for k, hp in enumerate(row):
+        if k < k0:
+            parts = ["-wo0/2"] + [f"-{gaps[j]}-{row[j]['wo']}" for j in range(k, k0)]
+        elif k == k0:
+            parts = ["-wo0/2"]
+        else:
+            parts = ["wo0/2"] + [f"+{gaps[j]}" for j in range(k0, k)] + [f"+{row[j]['wo']}" for j in range(k0 + 1, k)]
+        v[f"x_{hp['name']}"] = "".join(parts).lstrip("+")
+    last = row[-1]
+    v["Wl"] = f"fl-x_{row[0]['name']}"
+    v["Wr"] = f"x_{last['name']}+wo+fl"
+    v["Wy"] = "2*(max(so_A, s_A, s_0, so_B, s_B)/2+dep+mb)"
+    return v
+
+
+def _resonator_design(spec: DiplexerSpec) -> tuple[Design, dict]:
+    noms = nominals(spec)
+    b0 = _r(noms[0]["feed"] + 2 * max(1.0, 2 * spec.h))       # room for the common feed inside R0
+    r0 = _resonator_start(spec, noms, b0)
+    na, nb = (c.n for c in spec.channels)
+    d = Design(name=spec.name or f"Diplexer_N{na}_N{nb}_R", units="mm")
+    d.variables.update(_resonator_variables(spec, noms, r0, b0))
+    d.settings["AutoOpen"] = "Auto Open - Filter"
+    d.settings["FilterAirMargin"] = "12mm"
+    d.add_object("CreateBox", name="Substrate", material=spec.material, Position="-Wl,-Wy/2,0",
+                 XSize="Wl+Wr", YSize="Wy", ZSize="h")
+    gnd = d.add_object("CreateRectangle", name="Ground", Position="-Wl,-Wy/2,0", Axis="Z", XSize="Wl+Wr",
+                       YSize="Wy")
+    pins = {}
+    for hp in _row(spec):
+        xs = [x.replace("wo", hp["wo"]) for x in _X]
+        ys = [y.replace("s/2", f"{hp['arm']}/2") for y in _Y]
+        cx = f"x_{hp['name']}+{hp['wo']}/2+"
+        pts = [f"{cx}({px}),{'-' if hp['flip'] else ''}({py}),h" for px, py in zip(xs, ys)]
+        if hp["flip"]:
+            pts = pts[:1] + pts[:0:-1]
+        pins[hp["name"]] = d.add_object("CreatePolyline", name=f"Hairpin{hp['name']}", material="vacuum",
+                                        Points=";".join(pts), Closed="True", Covered="True")
+    row = _row(spec)
+    a_out, b_out = pins[row[0]["name"]], pins[row[-1]["name"]]
+    for name, pos, xs, pin in (
+            ("Feed2", "-Wl,yt_A-wf/2,h", f"x_{row[0]['name']}+w/2+Wl", a_out),
+            ("Feed3", f"x_{row[-1]['name']}+wo-w/2,yt_B-wf/2,h", f"Wr-(x_{row[-1]['name']}+wo-w/2)", b_out)):
+        f = d.add_object("CreateRectangle", name=name, Position=pos, Axis="Z", XSize=xs, YSize="wf")
+        pin.history.append(Command.new("Unite", Tools=f.name))
+        f.consumed_by = pin.name
+    # the common feed: down from the top edge in the middle of R0, then to its left arm at the tap height
+    r = pins["R0"]
+    f1 = d.add_object("CreateRectangle", name="Feed1", Position="-wf/2,yt_0-wf/2,h", Axis="Z", XSize="wf",
+                      YSize="Wy/2-yt_0+wf/2")
+    st = d.add_object("CreateRectangle", name="Feed1Tap", Position="-wo0/2+w/2,yt_0-wf/2,h", Axis="Z",
+                      XSize="wo0/2-w/2", YSize="wf")
+    r.history.append(Command.new("Unite", Tools=f"{f1.name},{st.name}"))
+    for o in (f1, st):
+        o.consumed_by = r.name
+    p1 = d.add_object("CreateRectangle", name="Port1", Position="-wf/2,Wy/2,0", Axis="Y", XSize="wf", ZSize="h")
+    p2 = d.add_object("CreateRectangle", name="Port2", Position="-Wl,yt_A-wf/2,0", Axis="X", YSize="wf", ZSize="h")
+    p3 = d.add_object("CreateRectangle", name="Port3", Position="Wr,yt_B-wf/2,0", Axis="X", YSize="wf", ZSize="h")
+    ports = ((1, p1, "0,Wy/2,0;0,Wy/2,h"), (2, p2, "-Wl,yt_A,0;-Wl,yt_A,h"), (3, p3, "Wr,yt_B,0;Wr,yt_B,h"))
+    ranges = {}
+    for k, ch in enumerate(CHANNELS):
+        n, nr = spec.channels[k].n, noms[k]["ranges"]
+        for name in ("L", "dL", *sorted(set(gap_names(n))), "yP"):
+            ranges[_var(name, ch, n)] = nr[name]
+    ranges.update({"L_0": r0["range_L"], "g_0A": spec.gap, "g_0B": spec.gap, "yP_0": (-r0["tap"], r0["tap"])})
+    a = noms[0]["ranges"]
+    ranges.update({"w": a["w"], "b": a["b"], "M": a["M"]})
+    _finish(d, spec, [p.name for p in pins.values()], gnd, ports, ranges)
+    return d, {"channels": noms, "resonator": r0, "b0": b0, "ranges": ranges, "synthesis": engine()}
+
+
+def _resonator_circuit(spec: DiplexerSpec, name: str = "") -> Design:
+    """The common-resonator diplexer as a circuit: the row of hairpins with coupled lines between neighbours
+    (the pair A-R0 split at the tap of R0), the outer taps to Port 2 and Port 3 and the common feed (line, corner,
+    line) to the tap on the left arm of R0."""
+    from .circuit import AUTO
+    from .circuit import Component as C
+    from .design import circuit_setup
+    d3, _ = _resonator_design(spec)
+    d = Design(name=name or circuit_name(d3.name), kind="circuit")
+    d.variables = dict(d3.variables)
+    d.settings[AUTO] = "False"
+    comps = [C("Sub1", "SUBST", 0, -120, 0, _subst(spec))]
+    place = _placer(comps)
+    sub = {"Subst": "Sub1"}
+    row, gaps = _row(spec), _row_gaps(spec)
+    k0 = spec.channels[0].n
+    m = _MIN_LINE
+
+    def end(k, side, top):
+        """Net at the top or bottom end of an arm; the end at the open side is left open by an MLOC."""
+        return f"H{k}{side}_{'t' if top else 'b'}"
+
+    def open_top(k):
+        return not row[k]["flip"]
+
+    def close_end(k, side, top, ext):
+        """The arm beyond the coupled part: open stub at the open end, line to the bend at the other."""
+        net = end(k, side, top)
+        if top == open_top(k):
+            place("MLOC", f"E{k}{side}{'t' if top else 'b'}", {**sub, "W": "w", "L": ext}, [net])
+        else:
+            place("MLIN", f"E{k}{side}{'t' if top else 'b'}", {**sub, "W": "w", "L": ext}, [net, f"H{k}{side}_bend"])
+
+    for k in range(len(row) - 1):
+        a, b = row[k]["arm"], row[k + 1]["arm"]
+        lc = f"min({a},{b})"
+        if k == k0 - 1:
+            # A's last hairpin and the left arm of R0 (open at the top), split at the tap of R0
+            up, lo = f"max({m}, {lc}/2-yt_0-wf/2)", f"max({m}, {lc}/2+yt_0-wf/2)"
+            place("MCLIN", f"C{k + 1}u", {**sub, "W": "w", "S": gaps[k], "L": up},
+                  [end(k, "R", True), "PA_u", end(k + 1, "L", True), "PR_u"])
+            place("MLIN", f"C{k + 1}m", {**sub, "W": "w", "L": "wf"}, ["PA_u", "PA_l"])
+            place("MTEE", "T1", {**sub, "W1": "w", "W2": "w", "W3": "wf"}, ["PR_u", "PR_l", "T1_feed"])
+            place("MCLIN", f"C{k + 1}l", {**sub, "W": "w", "S": gaps[k], "L": lo},
+                  ["PA_l", end(k, "R", False), "PR_l", end(k + 1, "L", False)])
+        else:
+            place("MCLIN", f"C{k + 1}", {**sub, "W": "w", "S": gaps[k], "L": lc},
+                  [end(k, "R", True), end(k, "R", False), end(k + 1, "L", True), end(k + 1, "L", False)])
+        for j, side, other in ((k, "R", b), (k + 1, "L", a)):
+            ext = f"max({m}, ({row[j]['arm']}-{other})/2)"
+            for top in (True, False):
+                close_end(j, side, top, ext)
+    # the common feed: from the tap to the middle of R0, corner, up to the top edge
+    place("MLIN", "F1h", {**sub, "W": "wf", "L": f"max({m}, wo0/2-w-wf/2)"}, ["T1_feed", "F1c"])
+    place("MCORN", "F1k", {**sub, "W": "wf"}, ["F1c", "F1v"])
+    place("MLIN", "F1", {**sub, "W": "wf", "L": f"max({m}, Wy/2-yt_0-wf/2)"}, ["F1v", "P1"])
+    place("PORT", "Port1", {"Num": "1", "Z0": f"{spec.z_feed:g}ohm"}, ["P1"])
+    # the outer taps of the first and the last hairpin
+    for k, side, num, yt in ((0, "L", 2, "yt_A"), (len(row) - 1, "R", 3, "yt_B")):
+        arm = row[k]["arm"]
+        y_tap = yt if open_top(k) else f"(-{yt})"
+        place("MLOC", f"A{k}{side}o", {**sub, "W": "w", "L": f"max({m}, {arm}/2-{y_tap}-wf/2)"}, [f"T{num}_open"])
+        place("MLIN", f"A{k}{side}b", {**sub, "W": "w", "L": f"max({m}, {arm}/2+{y_tap}-wf/2)"},
+              [f"T{num}_bend", f"H{k}{side}_bend"])
+        place("MTEE", f"T{num}", {**sub, "W1": "w", "W2": "w", "W3": "wf"},
+              [f"T{num}_open", f"T{num}_bend", f"T{num}_feed"])
+        place("MLIN", f"F{num}", {**sub, "W": "wf", "L": "fl"}, [f"P{num}", f"T{num}_feed"])
+        place("PORT", f"Port{num}", {"Num": str(num), "Z0": f"{spec.z_feed:g}ohm"}, [f"P{num}"])
+    # the bends
+    for k, hp in enumerate(row):
+        place("MLIN", f"V{k}L", {**sub, "W": "w", "L": f"max({m}, dep-w)"}, [f"H{k}L_bend", f"B{k}_l"])
+        place("MMBEND", f"M{k}L", {**sub, "W": "w"}, [f"B{k}_l", f"B{k}_lh"])
+        place("MLIN", f"U{k}", {**sub, "W": "w", "L": hp["b"]}, [f"B{k}_lh", f"B{k}_rh"])
+        place("MMBEND", f"M{k}R", {**sub, "W": "w"}, [f"B{k}_rh", f"B{k}_r"])
+        place("MLIN", f"V{k}R", {**sub, "W": "w", "L": f"max({m}, dep-w)"}, [f"B{k}_r", f"H{k}R_bend"])
+    d.components = comps
+    st = circuit_setup()
+    a, b, step = spec.sweep
+    st.sweeps[0].props.update(Distribution="Linear Step", Start=f"{a:g}GHz", Stop=f"{b:g}GHz", Step=f"{step:g}GHz")
+    d.setups.append(st)
+    if spec.optimization:
+        op = Optimization("DiplexerCircuitOpt", "Setup1 : Sweep",
+                          props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer="Conjugate Gradient"))
+        op.variables = [dict(v) for v in d3.optimetrics[0].variables]
+        op.goals = [dict(g) for g in d3.optimetrics[0].goals]
+        d.optimetrics.append(op)
+    return d

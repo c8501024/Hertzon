@@ -41,6 +41,11 @@ the GitHub release notes.
   four or more resonators could not reach a Chebyshev response; the fifth-order circuit now reaches a return
   loss of 18 dB in the passband.
 
+- **Hairpin diplexer**: Tools › Filter Design › Hairpin Diplexer (and MCP `create_hairpin_diplexer`) builds two
+  hairpin filters on a T-junction from two channel specifications: the 3D design, the same diplexer as a
+  circuit and the space mapping optimization *DiplexerSM* on both channel masks and the isolation. The
+  junction lines start where each filter looks open in the band of the other channel.
+
 ### Changed
 - **Faster circuit analysis**: expressions are parsed once and the line and junction models are cached; the
   hairpin circuit takes 30 ms instead of 95 ms per analysis.

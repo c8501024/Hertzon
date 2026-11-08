@@ -189,6 +189,16 @@ the feeds at the taps. The dialog shows, while the values change, the ideal Cheb
 with the loss of the board, the circuit of the start design and the mask; its table of N and **Suggest N** help
 choosing the number of resonators, and **Create and Optimize** creates the design and starts *HairpinSM*.
 
+**Tools › Filter Design › Hairpin Diplexer** builds two hairpin filters on a T-junction: channel A to Port 2 on
+the left, channel B to Port 3 on the right, the common Port 1 at the top edge. Each channel has its own length,
+outer length offset, gaps, tap and junction line (`L_A`, `dL_A`, `g_A`, `g2_A`, `yP_A`, `j_A`, ...); trace
+width, inner width and miter are shared. The rows are shifted by their tap heights so that the taps and the
+three ports lie on one line. The junction lines start where each filter looks like an open circuit at the
+junction in the band of the other channel (from the circuit of that channel alone). The diplexer comes with its
+circuit (`Diplexer_N3_N3_Circuit`) and the optimization *DiplexerSM* on both channel masks (insertion loss,
+ripple, return loss at the common and the channel port, rejection in the other channel and in the outer
+stopband) and the isolation S32 in both passbands.
+
 ## 3D layout
 
 **Simulation › 3D Layout › Create 3D Layout** builds a new 3D design from the schematic:

@@ -480,6 +480,11 @@ class DiplexerDialog(QDialog):
 
         g = QGroupBox("Diplexer")
         f = QFormLayout(g)
+        self.junction = QComboBox()
+        self.junction.addItems(["T-junction", "Common resonator"])
+        self.junction.setToolTip("T-junction: the filters on two lines from a tee. Common resonator: one hairpin "
+                                 "between the channels, tapped by Port 1 and coupled to both filters (smaller)")
+        f.addRow("Junction", self.junction)
         self.iso = _num(d.isolation, 0, 200, 2, "dB")
         self.iso.setToolTip("|S32| in both passbands")
         self.fl, self.mb = _num(d.feed, 0.1, 100, 2, "mm"), _num(d.margin, 0, 100, 2, "mm")
@@ -569,6 +574,8 @@ class DiplexerDialog(QDialog):
         for c in (self.auto, self.syn):
             c.toggled.connect(self.timer.start)
         self.mat.currentTextChanged.connect(self.timer.start)
+        self.junction.currentIndexChanged.connect(self.timer.start)
+        self.junction.currentIndexChanged.connect(self._placeholder)
         for w in self.ch:
             w["n"].valueChanged.connect(self._placeholder)
         self.design = None
@@ -577,7 +584,8 @@ class DiplexerDialog(QDialog):
         self.refresh()
 
     def _placeholder(self) -> None:
-        self.name.setPlaceholderText(f"Diplexer_N{self.ch[0]['n'].value()}_N{self.ch[1]['n'].value()}")
+        r = "_R" if self.junction.currentIndex() == 1 else ""
+        self.name.setPlaceholderText(f"Diplexer_N{self.ch[0]['n'].value()}_N{self.ch[1]['n'].value()}{r}")
 
     def extra_designs(self) -> list:
         """The diplexer as a circuit (coarse model of DiplexerSM), made when the dialog is accepted."""
@@ -613,7 +621,8 @@ class DiplexerDialog(QDialog):
             length_pct=(self.l_lo.value(), self.l0.value(), self.l_hi.value()),
             miter=(self.m_lo.value(), self.m_hi.value()), min_feature=self.dmin.value(), feed=self.fl.value(),
             margin=self.mb.value(), sweep=(self.f_lo.value(), self.f_hi.value(), self.f_step.value()),
-            synthesis=self.syn.isChecked(), optimization=self.opt.isChecked(), name=self.name.text().strip())
+            synthesis=self.syn.isChecked(), optimization=self.opt.isChecked(), name=self.name.text().strip(),
+            junction="resonator" if self.junction.currentIndex() == 1 else "tee")
 
     def refresh(self) -> None:
         from ..model.diplexer import diplexer_design
@@ -643,7 +652,10 @@ class DiplexerDialog(QDialog):
             if name.startswith("Hairpin"):
                 ax.text(sum(xs) / len(xs), max(ys) + 0.4, name.replace("Hairpin", ""), ha="center", fontsize=7,
                         color="#5a3a10")
-        for (x, y), lab in (((0, hy), "1"), ((x0, 0), "2"), ((x1, 0), "3")):
+        ya = yb = 0.0
+        if s.junction == "resonator":
+            ya, yb = ev.length("yt_A") * 1e3, ev.length("yt_B") * 1e3
+        for (x, y), lab in (((0, hy), "1"), ((x0, ya), "2"), ((x1, yb), "3")):
             ax.plot([x], [y], "s", color="#c0392b", ms=6, zorder=3)
             ax.annotate(f"Port {lab}", (x, y), xytext=(0, 8), textcoords="offset points", ha="center", fontsize=8,
                         color="#c0392b")
@@ -656,12 +668,20 @@ class DiplexerDialog(QDialog):
         parts = []
         for k, (c, n) in enumerate(zip(s.channels, nom["channels"])):
             gaps = ", ".join(f"{a} = {b:g}" for a, b in sorted(n["gaps"].items()))
-            parts.append(f"Channel {'AB'[k]}: L = {n['length']:g} mm, {gaps} mm, yP = {n['yP']:g} mm, "
-                         f"junction line j = {nom['j'][k]:g} mm")
+            line = f"Channel {'AB'[k]}: L = {n['length']:g} mm, {gaps} mm, yP = {n['yP']:g} mm"
+            if "j" in nom:
+                line += f", junction line j = {nom['j'][k]:g} mm"
+            parts.append(line)
+        if "resonator" in nom:
+            r0 = nom["resonator"]
+            parts.append(f"Common resonator R0: L_0 = {r0['L']:g} mm at {r0['f0']:.4g} GHz, Qe = {r0['Qe']:.2f}, "
+                         f"yP_0 = {r0['yP']:g} mm, g_0A = {r0['g'][0]:g} mm, g_0B = {r0['g'][1]:g} mm "
+                         "(start; the circuit optimization of DiplexerSM sets them)")
+        else:
+            parts.append("The junction lines start where each filter looks like an open circuit at the junction in "
+                         "the band of the other channel.")
         txt = (f"Synthesis: {nom['synthesis']}.  Board {L['Wl'] + L['Wr']:.1f} x {L['Wy']:.1f} mm.<br>"
-               + "<br>".join(parts)
-               + "<br>The junction lines start where each filter looks like an open circuit at the junction in "
-                 "the band of the other channel.")
+               + "<br>".join(parts))
         warn = [w for n in nom["channels"] for w in n["warnings"]]
         if warn:
             txt += "<br><span style='color:#b9770e'>" + "<br>".join(warn) + "</span>"

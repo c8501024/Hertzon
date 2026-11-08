@@ -176,8 +176,11 @@ def t_create_hairpin_diplexer(args):
                                  insertion_loss=float(c.get("insertion_loss_db", 2.0)),
                                  return_loss=float(c.get("return_loss_db", 12.0)),
                                  ripple=float(c.get("ripple_db", 1.0)), rejection=float(c.get("rejection_db", 15.0))))
+    junction = args.get("junction", "tee")
+    if junction not in ("tee", "resonator"):
+        raise ToolError("junction must be 'tee' or 'resonator'")
     kw = dict(channels=chans, isolation=float(args.get("isolation_db", 25.0)), material=mat, er=er, tand=tand,
-              optimization=bool(args.get("optimization", True)), name=args.get("name") or "")
+              optimization=bool(args.get("optimization", True)), name=args.get("name") or "", junction=junction)
     for key, attr in (("height_mm", "h"), ("copper_um", "t"), ("resonator_impedance", "z_res"),
                       ("feed_impedance", "z_feed"), ("inner_width_mm", "inner"), ("feed_mm", "feed"),
                       ("margin_mm", "margin"), ("min_feature_mm", "min_feature")):
@@ -214,7 +217,8 @@ def t_create_hairpin_diplexer(args):
         ctx.proj.designs.append(circ)
     errors = _new_design_ctx(ctx, d, f"hairpin diplexer {d.name}")
     return {"design": d.name, **({"circuit_model": circ.name} if circ else {}), "variables": d.variables,
-            "sweep_ghz": spec.sweep, "junction_lines_mm": nom["j"], "ranges_mm": nom["ranges"],
+            "sweep_ghz": spec.sweep, **({"junction_lines_mm": nom["j"]} if "j" in nom else {}),
+            "ranges_mm": nom["ranges"],
             "warnings": [w for n in nom["channels"] for w in n["warnings"]],
             **({"geometry_errors": errors} if errors else {}),
             "optimizations": [{"name": o.name, "optimizer": o.props.get("Optimizer", "Conjugate Gradient"),
@@ -850,6 +854,9 @@ TOOLS = [
                                 "insertion_loss_db, return_loss_db, ripple_db, rejection_db"},
                   "channel_b": {"type": "object", "description": "as channel_a"},
                   "isolation_db": NUM,
+                  "junction": {"type": "string", "enum": ["tee", "resonator"],
+                               "description": "tee (default): T-junction and lines; resonator: a common hairpin "
+                                              "between the channels, tapped by Port 1 (smaller)"},
                   "material": {"type": "string", "description": "substrate (default Rogers RO4350B (tm))"},
                   "height_mm": NUM, "copper_um": NUM, "resonator_impedance": NUM, "feed_impedance": NUM,
                   "inner_width_mm": NUM, "gap_mm": RANGE, "feed_mm": NUM, "margin_mm": NUM, "min_feature_mm": NUM,
