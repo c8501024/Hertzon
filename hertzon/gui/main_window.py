@@ -4475,6 +4475,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Optimization", f"{name}: Derivative Trust Region needs the tuning model "
                                     "of a 3D mesh. Choose Conjugate Gradient or Latin Hypercube + Nelder-Mead.")
                 return
+            from ..model.circuit_layout import layouts_of
+            if op.props.get("MultiFidelity") == "True" and not op.props.get("FineModel", "").strip() and \
+                    not layouts_of(self.doc.project, self.des):
+                QMessageBox.warning(self, "Optimization", f"{name}: Multi-fidelity solves the 3D layout of the "
+                                    "circuit. Create it first (Simulation › 3D Layout › Create 3D Layout).")
+                return
         elif not self.preflight():
             return
         if not self.doc.project.path or self.doc.dirty:
@@ -4610,6 +4616,8 @@ class MainWindow(QMainWindow):
             setup = optimization_setup(op)
             if any(s.name == setup for s in self.des.setups):
                 self.analyze_circuit([setup])
+            if op.props.get("MultiFidelity") == "True":
+                self._apply_to_layout(op, row, source)
             return
         setup = optimization_setup(op)
         if not any(s.name == setup for s in self.des.setups):
@@ -4639,6 +4647,42 @@ class MainWindow(QMainWindow):
             self.msgs.add("info", f"The S-parameters and adaptive passes of {source} are now the solution of "
                                   f"{setup} (no new solve); only the best evaluation keeps its mesh and fields: "
                                   "analyze for field overlays and derivative tuning")
+
+    def _apply_to_layout(self, op, row: dict, source: str) -> None:
+        """Multi-fidelity: the evaluations solved the circuit's 3D layout; its variables take the values too,
+        and the solution of the evaluation becomes the layout's solution (no new 3D solve)."""
+        from ..model import circuit_layout as CL
+        from ..solver.parametric import adopt_evaluation, evaluation_dir
+        name = op.props.get("FineModel", "").strip()
+        layouts = [d for d in self.doc.project.designs if d.name == name] if name else \
+            CL.layouts_of(self.doc.project, self.des)
+        if not layouts:
+            return
+        lay = layouts[0]
+        # the optimized values and the other circuit variables, as in the 3D solves of the optimization
+        values = {**self.des.variables, **row["variables"]}
+        changed = {k: v for k, v in values.items() if k in lay.variables and lay.variables[k] != v}
+        if changed:
+            self.doc.checkpoint()
+            lay.variables.update(changed)
+            self.doc.commit("variables")
+            self.msgs.add("info", f"Applied {source} to the 3D layout {lay.name}: "
+                          + ", ".join(f"{k} = {v}" for k, v in changed.items()))
+        if not self.doc.project.path:
+            return
+        sol = op.props.get("FineSolution", "").strip()
+        setup = sol.partition(":")[0].strip() if sol else next((s.name for s in lay.setups if not s.eigen and
+                                                                s.sweeps), "")
+        folder = evaluation_dir(self.doc.project.path, self.des.name, op.name, row["eval"])
+        if not setup or not (folder / "status.json").exists():
+            return
+        try:
+            adopt_evaluation(self.doc.project, lay, setup, folder)
+            F._cache.clear()
+            self.doc.changed.emit("results")
+            self.msgs.add("info", f"The 3D solution of {source} is now the solution of {lay.name} {setup}")
+        except Exception as e:  # noqa: BLE001
+            self.msgs.add("info", f"Analyze {lay.name} {setup} for the 3D solution of the applied values ({e})")
 
     def apply_variables(self, values: dict, source: str) -> None:
         """Set design variables (from an optimization result); undo restores the previous values."""

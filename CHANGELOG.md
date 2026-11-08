@@ -6,6 +6,12 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Multi-fidelity optimization of circuits**: the optimization of a circuit design can correct itself with
+  the circuit's 3D layout (Optimizer tab: *Multi-fidelity: correct with the 3D layout*). The circuit is the
+  fast model, the layout the exact one: the goals are optimized on the circuit, then each round solves the
+  layout once in 3D and corrects the variables by space mapping, as for the hairpin filter. The layout uses the
+  circuit's variables under their names, so nothing has to be mapped; Apply Best Variables sets the circuit and
+  the layout. See [Circuit designs](docs/CIRCUIT.md#multi-fidelity-optimize-a-circuit-and-correct-it-with-its-3d-layout).
 - **Hairpin filter assistant: what the specification allows** (Tools › Filter Design › Tapped Hairpin): a
   *Response* tab shows, live while the values change, the ideal Chebyshev filter of N resonators with the loss of
   the board (unloaded Q of the resonator line), the same for N − 1 and N + 1, the circuit of the start design and
@@ -18,6 +24,8 @@ the GitHub release notes.
   and starts its optimization of patch length and inset (*PatchOpt*) right away, instead of only setting it up.
 
 ### Changed
+- **Space Mapping** fits the circuit to all S-parameters (any number of ports) instead of S11 and S21, and goes
+  back with half the step when a 3D solve is worse than the best one.
 - **The circuit of the hairpin filter looks like the filter**: the U of every hairpin, the coupled arms side by
   side, the feeds at the taps, joined by wires instead of net labels; short lines get named lengths (`lv`, `lxi`,
   `lo1` ...). The netlist and the S-parameters are unchanged.

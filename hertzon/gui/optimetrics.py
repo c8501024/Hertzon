@@ -201,7 +201,8 @@ class OptimizationDialog(QDialog):
         # ---- optimizer ----
         self.values = {**schema.defaults(schema.OPTIMIZATION), **op.props}
         self.grid = TabbedPropertyGrid(self)
-        self.grid.set(schema.OPTIMIZATION, self.values, doc.evaluator())
+        self.grid.set(schema.optimization_props(getattr(des, "kind", "3d") == "circuit"), self.values,
+                      doc.evaluator())
         tabs.addTab(self.grid, "Optimizer")
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Apply | QDialogButtonBox.Cancel)
