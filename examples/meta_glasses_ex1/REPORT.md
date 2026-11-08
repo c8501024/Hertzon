@@ -86,7 +86,7 @@ Radiation efficiency is 85 % at 2.4 GHz, limited mainly by the tan δ = 0.02 kee
 
 ## 5a Cross-check with a reference solver
 
-An independent reference-solver model of the final design confirms the result: 85 % average total efficiency at 2.4 GHz and 77 % across 5170–7125 MHz, against 81 % and 76–81 % in Hertzon. The geometry was rebuilt from the same dimensions in the reference solver (version 2025 R1) (lumped port, finite-conductivity copper sheets, radiation boundary 32 mm from the board, multi-frequency adaptive meshing at 2.45 and 6.1 GHz, ΔS ≤ 0.01). It converged after 11 passes in about 3 min.
+An independent reference-solver model of the final design confirms the result: 85 % average total efficiency at 2.4 GHz and 77 % across 5170–7125 MHz, against 81 % and 76–81 % in Hertzon. The geometry was rebuilt from the same dimensions by script (`reference/Meta_Ex1_CoupledFedStrip_reference.py`) in the reference solver (version 2025 R1) (lumped port, finite-conductivity copper sheets, radiation boundary 32 mm from the board, multi-frequency adaptive meshing at 2.45 and 6.1 GHz, ΔS ≤ 0.01). It converged after 11 passes in about 3 min.
 
 | Frequency (GHz) | Hertzon total eff. (%) | Reference total eff. (%) | Reference radiation eff. (%) |
 | --- | --- | --- | --- |
@@ -162,7 +162,7 @@ The missing body model also reflects the task as given: the prompt was only "fin
 
 ## 8 Conclusion
 
-An LLM agent driving an open FEM solver produced a matching-free design for Meta's Example 1 with about 81 % average total efficiency in both Wi-Fi 6E bands within 2 h 25 min and 50 simulations. What made this possible is the MCP interface between the language model and the solver: every modelling, solving and post-processing step was a tool call the agent could plan, check and repeat, so no antenna-specific AI model, training data or human hand-off was needed. On the antenna side, the decisive step was a topology change, from an IFA to a coupled-fed shorted strip with the feed near the middle of the arm, rather than component-level matching. Model, scripts and data are in this folder (`Meta_Ex1_CoupledFedStrip.hzn`, `Meta_Ex1_CoupledFedStrip.step`, `results/`, `tools/`).
+An LLM agent driving an open FEM solver produced a matching-free design for Meta's Example 1 with about 81 % average total efficiency in both Wi-Fi 6E bands within 2 h 25 min and 50 simulations. What made this possible is the MCP interface between the language model and the solver: every modelling, solving and post-processing step was a tool call the agent could plan, check and repeat, so no antenna-specific AI model, training data or human hand-off was needed. On the antenna side, the decisive step was a topology change, from an IFA to a coupled-fed shorted strip with the feed near the middle of the arm, rather than component-level matching. Model, scripts and data are in this folder (`Meta_Ex1_CoupledFedStrip.hzn`, `Meta_Ex1_CoupledFedStrip.step`, `reference/`, `results/`, `tools/`).
 
 ## References
 
