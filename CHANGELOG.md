@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.10 (2026-11-08)
 
 ### Added
 - **Multi-fidelity optimization of circuits**: the optimization of a circuit design can correct itself with
@@ -30,6 +30,12 @@ the GitHub release notes.
   side, the feeds at the taps, joined by wires instead of net labels; short lines get named lengths (`lv`, `lxi`,
   `lo1` ...). The netlist and the S-parameters are unchanged.
 - Schematic: the text of an upright, mirrored part is drawn on its left side.
+
+### Fixed
+- **Install Update on Windows**: on some computers the update stopped with "The installer could not be started:
+  [WinError 2]". PowerShell, which starts the installer once Hertzon has closed, is now started by its full
+  path instead of through PATH; without PowerShell the installer is started directly. Computers on 0.3.5 or
+  older install 0.3.10 once from the release page.
 
 ## 0.3.9 (2026-11-08)
 
