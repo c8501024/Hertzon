@@ -84,7 +84,7 @@ window.HZ_AI_DEMOS = [
 },
 {
   id: "meta2",
-  tab: "Meta AI-glasses, Example 2",
+  tab: "Meta AI-glasses, Example 2 (faulty, under research)",
   tabSub: "4 h 06 min, 24 full-wave runs",
   title: "Hertzon · Meta_Ex2_DualBranchIFA.hzn",
   runWord: "full-wave run",
@@ -172,7 +172,7 @@ window.HZ_AI_DEMOS = [
   ],
   viewNote: "",
   card: {
-    kicker: "Meta AI-glasses benchmark · Example 2",
+    kicker: "Meta AI-glasses benchmark · Example 2 (faulty, under research)",
     title: "Dual-branch inverted-F on the flex board, no matching parts",
     stats: [["4 h 06 min", "from the prompt to the final design"], ["24", "full-wave runs, ~200 min solver time"],
             ["66.5 % · 49.8 %", "average total efficiency, 2.4 GHz · 5.2–7.1 GHz (reference solver: 74.0 % · 54.3 %)"],
