@@ -120,7 +120,7 @@ def test_only_the_settings_tab_of_the_chosen_optimizer_is_shown():
     app = QApplication.instance() or QApplication([])
     values = {**schema.defaults(schema.OPTIMIZATION), "Optimizer": "Latin Hypercube + Nelder-Mead"}
     g = TabbedPropertyGrid()
-    g.set(schema.OPTIMIZATION, values)
+    g.set(schema.optimization_props(False), values)       # as the dialog of a 3D design
     shown = lambda: [g.tabText(i) for i in range(g.count()) if g.isTabVisible(i)]   # noqa: E731
     assert shown() == ["General", "Nelder-Mead"]
     g.grids["General"]._set("Optimizer", "Derivative Trust Region", rebuild=True)

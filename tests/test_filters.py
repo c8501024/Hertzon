@@ -144,6 +144,17 @@ def test_hairpin_dialog():
     dlg.f_lo.setValue(2.1)                                     # sweep no longer covers the stopband
     dlg.refresh()
     assert dlg.design is None
+    dlg.auto.setChecked(True)
+    dlg.refresh()
+    # the response preview and the table of N; Suggest N sets N = 5 and makes room for it
+    assert dlg.table.rowCount() == 8 and dlg.rax.lines and "Suggested: N = 5" in dlg.hint.text()
+    dlg.apply_suggestion()
+    dlg.refresh()
+    assert dlg.n.value() == 5 and dlg.design is not None and not dlg.run_optimization
+    dlg.opt.setChecked(False)
+    dlg.go.click()                                     # Create and Optimize: with the optimizations, HairpinSM
+    assert dlg.result() == 1 and dlg.run_optimization == "HairpinSM"
+    assert [o.name for o in dlg.design.optimetrics][-1] == "HairpinSM" and dlg.extra_designs()
     dlg.close()
     del app
 
@@ -227,3 +238,47 @@ def test_one_gap_per_pair_of_neighbours():
     for o in d.optimetrics:
         names = [v["name"] for v in o.variables if v["include"]]
         assert "g2" in names and "g" in names
+
+
+def test_ideal_response_and_suggested_order():
+    """The coupling matrix response of the Chebyshev prototype: lossless, the passband ripple of the return loss
+    goal + margin and full transmission at the centre; with the board loss an insertion loss; more resonators reject
+    more and lose more. The suggestion picks the smallest N that meets the goals."""
+    from hertzon.model.filters import ideal_response, order_table, prototype_ripple, suggest_n, unloaded_q
+    s = HairpinSpec(n=3)
+    pb = np.linspace(2.3, 2.6, 41)
+    s21, s11 = ideal_response(s, pb, qu=float("inf"))
+    assert np.allclose(np.abs(s21) ** 2 + np.abs(s11) ** 2, 1, atol=1e-9)
+    assert -20 * np.log10(np.abs(s21)).max() <= prototype_ripple(s.return_loss) + 1e-6
+    assert 60 < unloaded_q(s) < 400
+    rows = order_table(s)
+    assert [r["n"] for r in rows] == list(range(2, 10))
+    assert all(a["rejection"] < b["rejection"] and a["il"] < b["il"] for a, b in zip(rows, rows[1:]))
+    n, why, _ = suggest_n(s)                       # 20 dB rejection at 2.2 GHz: N = 5, but above 2 dB loss
+    assert n == 5 and "insertion loss" in why
+    easy = HairpinSpec(n=3, insertion_loss=6.0)
+    assert suggest_n(easy)[0] == 5 and "meets the rejection and the insertion loss" in suggest_n(easy)[1]
+    wide = HairpinSpec(n=3, stopbands=[(1.8, 2.0), (2.9, 3.1)], sweep=(1.8, 3.1, 0.01))
+    assert suggest_n(wide)[0] == 3
+
+
+def test_hairpin_schematic_looks_like_the_filter():
+    """The circuit is drawn as the filter: parts joined by wires (no net labels), the U of every hairpin (the
+    bend lines below the coupled lines for even hairpins, above for odd ones), and the wires make the nets of the
+    filter (every pin of a net on one node)."""
+    from hertzon.model import circuit as CK
+    from hertzon.solver.circuit import analyze
+    for n in (3, 4):
+        p = hairpin_project(HairpinSpec(n=n, region=12 + 6 * n, board=18 + 6 * n))
+        c = p.designs[1]
+        assert c.wires and not any(x.type == "LABEL" for x in c.components)
+        by = {x.name: x for x in c.components}
+        for i in range(n):
+            u, cl = by[f"U{i}"], by.get(f"C{min(i, n - 2) + 1}")
+            assert (u.y > cl.y) == (i % 2 == 0)              # bend at the bottom for even hairpins
+            assert by[f"M{i}L"].x < u.x < by[f"M{i}R"].x
+        ids, _ = CK.nets(c.components, c.wires)
+        p1, p2 = (ids[CK.pins(by[f"Port{k}"])[0]] for k in (1, 2))
+        assert p1 != p2 and 0 not in (p1, p2)
+        S = analyze(p, c, np.array([2.0, 2.45, 2.9]) * 1e9).S
+        assert 20 * np.log10(abs(S[1, 1, 0])) > -6

@@ -141,6 +141,7 @@ class Optimizer:
         self.antenna_goals = any(uses_antenna(g.get("calc", ""), self.outvars) for g in self.opt.goals)
         if self.antenna_goals:
             check_antenna_goals(self.des, setup, sol)
+        self.multi = False
         self.history: list[dict] = []
         self.cache: dict[tuple, float] = {}
         self.best: dict | None = None
@@ -151,9 +152,14 @@ class Optimizer:
         self.algorithm = self.props.get("Optimizer", "Conjugate Gradient")
         self.trust = self.algorithm == TRUST_REGION
         self.mapping = self.algorithm == SPACE_MAPPING
-        if self.mapping and self.circuit:
+        self.coarse_name = str(self.props.get("CoarseModel", "")).strip()
+        self.layout_sync: dict[str, str] = {}
+        if self.circuit and self.props.get("MultiFidelity") == "True":
+            self._to_layout()          # multi-fidelity: the circuit is the coarse model of its 3D layout
+        elif self.mapping and self.circuit:
             raise ValueError("Space Mapping optimizes a 3D design with a circuit as its coarse model: add the "
-                             "optimization to the 3D design")
+                             "optimization to the 3D design, or switch on Multi-fidelity in the optimization of "
+                             "the circuit")
         if self.trust and self.circuit:
             raise ValueError("Derivative Trust Region needs the tuning model of a 3D mesh: use Conjugate Gradient "
                              "or Latin Hypercube + Nelder-Mead for a circuit (every evaluation takes milliseconds)")
@@ -167,10 +173,64 @@ class Optimizer:
             raise ValueError(f"Derivative Trust Region: at most {TUNING_MAX_VARIABLES} variables (the tuning "
                              f"model), {len(self.vars)} are included")
 
+    def _to_layout(self) -> None:
+        """Multi-fidelity optimization of a circuit: its generated 3D layout (the same variables, see
+        circuit_layout) is the fine model, the circuit the coarse one of a space mapping. The evaluations solve
+        the layout; the goals, variables and ranges are those of the circuit's optimization."""
+        from ..model import circuit_layout as CL
+        circuit = self.des
+        name = str(self.props.get("FineModel", "")).strip()
+        if name:
+            try:
+                layout = self.proj.design(name)
+            except KeyError:
+                raise ValueError(f"Multi-fidelity: no design named '{name}'") from None
+            if getattr(layout, "kind", "3d") == "circuit":
+                raise ValueError(f"Multi-fidelity: '{name}' is a circuit; enter its 3D layout")
+        else:
+            found = CL.layouts_of(self.proj, circuit)
+            if not found:
+                raise ValueError(f"Multi-fidelity: {circuit.name} has no 3D layout. Create it with 'Create 3D "
+                                 "Layout' (Simulation tab of the schematic) and set up its analysis")
+            layout = found[0]
+        missing = [v for v in self.vars.names if v not in layout.variables]
+        if missing:
+            raise ValueError(f"Multi-fidelity: the 3D design {layout.name} has no variable {', '.join(missing)}; "
+                             "update the layout from the schematic ('Update 3D Layout')")
+        sol = str(self.props.get("FineSolution", "")).strip()
+        if sol:
+            setup, _, sweep = [x.strip() for x in sol.partition(":")]
+        else:
+            st = next((s for s in layout.setups if not s.eigen and s.sweeps), None)
+            if st is None:
+                raise ValueError(f"Multi-fidelity: the 3D design {layout.name} has no setup with a frequency sweep")
+            sw = next((w for w in st.sweeps if w.name == self.sol), None) or \
+                next((w for w in st.sweeps if w.props.get("Enabled", "True") == "True"), st.sweeps[0])
+            setup, sweep = st.name, sw.name
+        try:
+            st = layout.setup(setup)
+        except KeyError:
+            raise ValueError(f"Multi-fidelity: {layout.name} has no setup {setup}") from None
+        if not any(w.name == sweep for w in st.sweeps):
+            raise ValueError(f"Multi-fidelity: sweep '{sweep}' not found in {layout.name} {setup}")
+        for w in CL.layout_differences(self.proj, layout):
+            log(f"Multi-fidelity: {w}", "warning")
+        # the other circuit variables (not optimized) take their circuit values in the layout as well
+        self.layout_sync = {k: v for k, v in circuit.variables.items()
+                            if k in layout.variables and k not in self.vars.names}
+        self.coarse_name, self.des, self.setup, self.sol = circuit.name, layout, setup, sweep
+        self.ev = layout.evaluator(self.proj)
+        self.circuit, self.mapping, self.trust = False, True, False
+        self.parallel = 1
+        self.multi = True
+        log(f"Multi-fidelity: {circuit.name} is the coarse model, its 3D layout {layout.name} ({setup} : "
+            f"{sweep}) the fine one")
+
     # ---- one evaluation ---------------------------------------------------------------------
     def _project_for(self, texts: dict) -> Project:
         p = self.proj.clone()
         d = p.design(self.des.name)
+        d.variables.update(self.layout_sync)
         d.variables.update(texts)
         d.optimetrics = []
         d.reports, d.field_plots = [], []
@@ -446,7 +506,7 @@ class Optimizer:
     def run_space_mapping(self) -> bool:
         from scipy.optimize import least_squares
         p = self.props
-        coarse = CoarseModel(self, str(p.get("CoarseModel", "")).strip())
+        coarse = CoarseModel(self, self.coarse_name)
         rounds = max(1, int(float(p.get("MappingRounds", 6))))
         tol = max(1e-6, float(p.get("MappingTolerance", 0.01)))
         (self.out / "ABORT").unlink(missing_ok=True)
@@ -465,7 +525,8 @@ class Optimizer:
         # 2. rounds of 3D solve, extraction and quasi-Newton step
         x = self.vars.x0() if p.get("StartFromDesign") == "True" else target.copy()
         B = np.eye(len(x))
-        xc_prev, f_prev, h = x.copy(), None, None
+        xc_prev, h = x.copy(), None
+        best_x, best_cost, best_f, halvings = None, float("inf"), None, 0
         reason = f"Maximum number of rounds ({rounds}) reached"
         for it in range(rounds):
             costs = self._solve_batch([x], f"round {it + 1}", it)
@@ -478,29 +539,45 @@ class Optimizer:
             if cost == 0:
                 reason = "All goals are met (cost 0)"
                 break
+            if best_x is not None and cost > best_cost and h is not None:
+                # the step made the 3D design worse: back to the best one with half the step (the mapping is
+                # kept; it is only trusted less far)
+                halvings += 1
+                if halvings > 3:
+                    reason = f"No 3D improvement after {halvings - 1} shorter steps"
+                    break
+                h = 0.5 * (x - best_x)
+                x = np.clip(best_x + h, 0, 1)
+                log(f"Round {it + 1}: 3D cost {cost:.6g} is above the best {best_cost:.6g}: half the step")
+                continue
             fine = ResultStore(self.folders[self.n] / "results").sparams(self.sol)
             freq, Sf = np.asarray(fine["freq"], float), np.asarray(fine["S"], complex)
+            pairs = mapping_pairs(Sf.shape[1])
+            reg = 1e-2             # a little pull to the previous extraction: unique where the response is flat
 
             def residual(v):
                 Sc = coarse.response(v, freq)
-                if Sc is None:
-                    return np.full(4 * len(freq), 10.0)
-                d = np.concatenate([(Sc[:, 0, 0] - Sf[:, 0, 0]), (Sc[:, 1, 0] - Sf[:, 1, 0])])
-                return np.concatenate([d.real, d.imag])
+                if Sc is None or Sc.shape[1] != Sf.shape[1]:
+                    return np.full(2 * len(pairs) * len(freq) + len(v), 10.0)
+                d = np.concatenate([Sc[:, i, j] - Sf[:, i, j] for i, j in pairs])
+                return np.concatenate([d.real, d.imag, reg * (np.asarray(v) - xc_prev)])
             t = time.time()
             r = least_squares(residual, xc_prev, bounds=(-1.0, 2.0), x_scale=1.0, diff_step=1e-3, max_nfev=200)
             xc = r.x
             f = xc - target
+            rms = np.sqrt(np.mean(r.fun[:-len(xc)] ** 2))
             log(f"Round {it + 1}: 3D cost {cost:.6g}; circuit fitted to the 3D response (rms error "
-                f"{np.sqrt(np.mean(r.fun ** 2)):.3g}, {r.nfev} circuit evaluations, {time.time() - t:.1f} s): "
+                f"{rms:.3g}, {r.nfev} circuit evaluations, {time.time() - t:.1f} s): "
                 + ", ".join(f"{n}={v:.5g}" for n, v in zip(self.vars.names, self.vars.lo + xc * (self.vars.hi - self.vars.lo)))
                 + f"; distance to the circuit optimum {np.max(np.abs(f)):.3g} of the ranges")
             self.history[-1].update(extracted=xc.tolist())
             if np.max(np.abs(f)) < tol:
                 reason = "The 3D design maps onto the circuit optimum"
                 break
-            if f_prev is not None and h is not None and float(h @ h) > 0:
-                B = B + np.outer(f - f_prev - B @ h, h) / float(h @ h)     # Broyden update of the mapping
+            dh = x - best_x if best_x is not None else None
+            if best_f is not None and float(dh @ dh) > 0:
+                B = B + np.outer(f - best_f - B @ dh, dh) / float(dh @ dh)     # Broyden update of the mapping
+            best_x, best_cost, best_f, halvings = x.copy(), cost, f, 0
             try:
                 h = np.linalg.solve(B, -f)
             except np.linalg.LinAlgError:
@@ -510,7 +587,7 @@ class Optimizer:
             if np.max(np.abs(h)) < 1e-6:
                 reason = "The step is blocked by the variable ranges"
                 break
-            x, f_prev, xc_prev = xn, f, xc
+            x, xc_prev = xn, xc
             if self.aborted():
                 return self._end("Aborted")
         return self._end(reason)
@@ -638,6 +715,12 @@ class CoarseModel:
             emit("progress", value=0, text=f"Optimizing the circuit {self.name}: {self.evals} evaluations, "
                                             f"cost {c:.4g}")
         return c
+
+
+def mapping_pairs(ports: int) -> list[tuple[int, int]]:
+    """The S-parameters the circuit is fitted to in space mapping: all of a reciprocal network (Sij with
+    i >= j), for any number of ports."""
+    return [(i, j) for j in range(ports) for i in range(j, ports)]
 
 
 def at_any_bound(dp, blo, bhi) -> bool:

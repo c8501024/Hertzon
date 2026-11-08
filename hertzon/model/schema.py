@@ -465,11 +465,49 @@ OPTIMIZATION: list[Prop] = [
       visible_if=("Optimizer", "Space Mapping"),
       help="Stop when the fitted circuit values are this close to the circuit optimum (fraction of each "
            "variable's range)"),
+    # circuit designs only (the optimization dialog shows them for a circuit, see circuit_optimization_props)
+    P("MultiFidelity", "bool", "False", label="Multi-fidelity: correct with the 3D layout", tab="Multi-Fidelity",
+      help="The circuit is the fast model of its 3D layout ('Create 3D Layout', the same variables): the goals are "
+           "optimized on the circuit, then every round solves the layout once in 3D, fits the circuit to the 3D "
+           "S-parameters and moves the variables so that the fitted circuit reaches its optimum (space mapping). "
+           "Typically 3 to 6 3D solves. The evaluations of the results are the 3D solves; Apply to Design sets "
+           "the values in the circuit and in the layout"),
+    P("FineModel", "text", "", label="3D layout design", tab="Multi-Fidelity",
+      visible_if=("MultiFidelity", "True"),
+      help="The 3D design solved in every round; empty: the layout created from this circuit"),
+    P("FineSolution", "text", "", label="3D setup : sweep", tab="Multi-Fidelity",
+      visible_if=("MultiFidelity", "True"),
+      help="Setup and sweep of the layout the goals are evaluated on, for example 'Setup1 : Sweep'; empty: the "
+           "first sweep of the layout"),
     P("TuningPoints", "int", "51", label="Tuning points", tab="Derivative Trust Region",
       visible_if=("Optimizer", "Derivative Trust Region"),
       help="Frequencies of the tuning model of a fast sweep or one not analyzed yet (as in the tuning panel); "
            "a discrete sweep uses its own frequencies, an interpolating one the frequencies it solved"),
 ]
+
+CIRCUIT_ONLY = ("MultiFidelity", "FineModel", "FineSolution")
+
+
+def optimization_props(circuit: bool) -> list[Prop]:
+    """The optimizer settings of a 3D design or of a circuit: a circuit has no tuning model and is not the fine
+    model of a space mapping, but can be the coarse model of its own 3D layout (multi-fidelity, with the rounds
+    and the tolerance of the space mapping)."""
+    import dataclasses
+    if not circuit:
+        return [p for p in OPTIMIZATION if p.name not in CIRCUIT_ONLY]
+    out = []
+    for p in OPTIMIZATION:
+        if p.name in ("CoarseModel", "TrustRadius", "MaxRounds", "TuningPoints"):
+            continue
+        if p.name == "Optimizer":
+            p = dataclasses.replace(p, choices=OPTIMIZERS[:2], enabled_if=("MultiFidelity", "False"))
+        elif p.name in ("MappingRounds", "MappingTolerance"):
+            p = dataclasses.replace(p, tab="Multi-Fidelity", visible_if=("MultiFidelity", "True"))
+        elif p.name == "ParallelEvaluations":
+            continue
+        out.append(p)
+    return out
+
 
 COORDINATE_SYSTEM: list[Prop] = [
     P("Mode", "choice", "Axis/Position", choices=("Axis/Position", "Euler Angle ZXZ", "Euler Angle ZYZ")),

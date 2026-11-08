@@ -476,13 +476,14 @@ class ComponentItem(QGraphicsItem):
             p.setPen(QPen(QColor(MUTED)))
             for i, line in enumerate(lines):
                 p.drawText(QRectF(-110, y0 + (i + 1) * lh, 220, lh), Qt.AlignCenter, line)
-        elif h > w and c.type not in CK.NPORT_TYPES:          # vertical part: text to the right
-            x, y0 = w / 2 + 6, -(1 + len(lines)) * lh / 2
+        elif h > w and c.type not in CK.NPORT_TYPES:          # vertical part: text to the right (mirrored: left)
+            x, y0 = (-w / 2 - 6 - 220 if c.mirror else w / 2 + 6), -(1 + len(lines)) * lh / 2
+            al = (Qt.AlignRight if c.mirror else Qt.AlignLeft) | Qt.AlignVCenter
             p.setPen(QPen(INKC))
-            p.drawText(QRectF(x, y0, 220, lh), Qt.AlignLeft | Qt.AlignVCenter, c.name)
+            p.drawText(QRectF(x, y0, 220, lh), al, c.name)
             p.setPen(QPen(QColor(MUTED)))
             for i, line in enumerate(lines):
-                p.drawText(QRectF(x, y0 + (i + 1) * lh, 220, lh), Qt.AlignLeft | Qt.AlignVCenter, line)
+                p.drawText(QRectF(x, y0 + (i + 1) * lh, 220, lh), al, line)
         else:
             p.setPen(QPen(INKC))
             p.drawText(QRectF(-110, -h / 2 - lh - 3, 220, lh), Qt.AlignCenter, c.name)
