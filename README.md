@@ -16,13 +16,19 @@
 
 🌐 **Website:** [c8501024.github.io/Hertzon](https://c8501024.github.io/Hertzon/)
 
-**Hertzon Electromagnetic Design Suite:** an open-source suite for engineers and AI agents. At its core is a 3D
+**Hertzon Electromagnetic Design Suite:** an open-source suite for co-design by engineers and AI agents. At its core is a 3D
 full-wave electromagnetic simulator (FEM, frequency domain) for **antennas, microwave
 filters, waveguides, PCB structures and radar cross section**, with a **classic engineering workflow**:
 draw the model, assign boundaries and excitations, add an analysis setup with
 **adaptive meshing**, add frequency sweeps, analyze, then look at S-parameters, fields
 and radiation patterns. Circuit designs with lumped parts and transmission lines turn into 3D layouts
 and back.
+
+> 🤝 **The vision: co-design with AI.** Every design is made by an engineer and an AI agent together.
+> Hertzon provides its methods (modelling, adaptive solving, sweeps, optimizers, derivative tuning, circuits,
+> PCB import, and next the topology optimization from the author's research) as tools that an AI agent calls
+> through **MCP** ([what is MCP?](docs/MCP.md)). The AI picks and combines the methods; the engineer sets the
+> goal, sees every step in the open window and decides.
 
 Hertzon is by **Dominik Mair**. Its FEM solver core, EMerge, is by **Robert Fennis**.
 
@@ -259,7 +265,7 @@ region, ports, radiation boundaries) are left out. See [docs/GERBER_EXPORT.md](d
 
 ## AI assistants (MCP)
 
-The [tutorial](docs/TUTORIAL.md#5-let-an-ai-assistant-build-and-run-it-mcp) shows the setup and example prompts.
+What MCP is and how Hertzon uses it for co-design: [docs/MCP.md](docs/MCP.md). The [tutorial](docs/TUTORIAL.md#5-let-an-ai-assistant-build-and-run-it-mcp) shows the setup and example prompts.
 
 Hertzon ships an MCP server, so Claude Code, Codex or VS Code (Copilot agent mode) can build and run
 simulations: "build a 2.45 GHz patch on FR4 with a lumped port, solve it and give me S11 and the gain".

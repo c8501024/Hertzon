@@ -9,6 +9,8 @@ the GitHub release notes.
 - **Hertzon is now the "Electromagnetic Design Suite"**: new subtitle on the splash screen, the website, the
   README, the About dialog and the package description. It names what Hertzon has grown into besides the 3D
   full-wave FEM solver: circuits with their 3D layout, PCB import, optimization and AI agents through MCP.
+- **Co-design with AI**: the website and the README now lead with the vision of co-design by engineer and AI
+  agent; the new page [What is MCP?](docs/MCP.md) explains MCP and how Hertzon offers its methods as tools.
 
 ## 0.3.8 (2026-11-08)
 
