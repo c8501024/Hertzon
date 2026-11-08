@@ -97,6 +97,9 @@ class SteppedImpedanceLowpass(Structure):
         return [goal("dB(S(1,1))", 0.05 * fc, 0.95 * fc, "<=", -min(rl - 1, 25)),
                 goal("dB(S(2,1))", fs, 1.25 * fs, "<=", -spec["rej"])]
 
+    def adapt(self, spec: dict) -> float:
+        return 0.9 * spec["fc"]
+
     def sweep(self, spec: dict) -> tuple[float, float, int]:
         return 0.05 * spec["fc"], 1.35 * spec["fs"] * spec["fc"], 241
 
@@ -197,6 +200,9 @@ class ShortedStubBandpass(Structure):
         if hi + gd * f0 < 1.9 * f0:
             out.append(goal("dB(S(2,1))", hi + gd * f0, 1.9 * f0, "<=", -spec["rej"]))
         return out
+
+    def adapt(self, spec: dict) -> float:
+        return spec["f0"]
 
     def sweep(self, spec: dict) -> tuple[float, float, int]:
         return 0.1 * spec["f0"], 1.9 * spec["f0"], 241
@@ -319,6 +325,9 @@ class EdgeCoupledBandpass(Structure):
             out.append(goal("dB(S(2,1))", hi + gd * f0, 1.6 * f0, "<=", -spec["rej"]))
         return out
 
+    def adapt(self, spec: dict) -> float:
+        return spec["f0"]
+
     def sweep(self, spec: dict) -> tuple[float, float, int]:
         return 0.5 * spec["f0"], 1.6 * spec["f0"], 241
 
@@ -428,6 +437,9 @@ class StubBandstop(Structure):
         if 1 + pb < 1.85:
             out.append(goal("dB(S(1,1))", f0 * (1 + pb), 1.9 * f0, "<=", rl))
         return out
+
+    def adapt(self, spec: dict) -> float:
+        return spec["f0"] * (1 + min(self.fbw(spec), 1.2) / 2 + 0.1)     # the upper passband
 
     def sweep(self, spec: dict) -> tuple[float, float, int]:
         return 0.1 * spec["f0"], 1.9 * spec["f0"], 241

@@ -151,6 +151,11 @@ class Structure:
     def goals(self, spec: dict) -> list[dict]:
         raise NotImplementedError
 
+    def adapt(self, spec: dict) -> float | None:
+        """Frequency (GHz) of the adaptive mesh of the 3D design, None for the top of the sweep. A filter refines
+        in its passband: in the stopband the fields do not reach the resonators."""
+        return None
+
     def sweep(self, spec: dict) -> tuple[float, float, int]:
         """(start GHz, stop GHz, points) of the analysis; the goals lie inside it."""
         f0 = spec["f0"]
@@ -187,7 +192,7 @@ class Structure:
         a, b, n = self.sweep(spec)
         st = circ.setups[0]
         st.sweeps[0].props.update(Distribution="Linear Count", Start=f"{a:.6g}GHz", Stop=f"{b:.6g}GHz", Count=str(n))
-        fine_sweep(d3, spec, a, b)
+        fine_sweep(d3, spec, a, b, self.adapt(spec))
         op = Optimization("Optimization1", "Setup1 : Sweep",
                           props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer=self.optimizer))
         if multi_fidelity:
@@ -228,13 +233,13 @@ def apply_ranges(syn: Synthesis, sub: Substrate, pct: float) -> None:
             v.hi = hi
 
 
-def fine_sweep(d3: Design, spec: dict, start: float, stop: float) -> None:
-    """The 3D design sweeps the same range as the circuit (interpolating); it is solved adaptively at the top
-    of the range (as every generated layout)."""
+def fine_sweep(d3: Design, spec: dict, start: float, stop: float, adapt: float | None = None) -> None:
+    """The 3D design sweeps the same range as the circuit (interpolating); it is solved adaptively at adapt
+    (GHz), by default the top of the range (as every generated layout)."""
     if not d3.setups:
         return
     st = d3.setups[0]
-    st.props["Frequency"] = f"{stop:.6g}GHz"
+    st.props["Frequency"] = f"{adapt or stop:.6g}GHz"
     for sw in st.sweeps:
         sw.props.update(SweepType="Interpolating", Distribution="Linear Count", Start=f"{start:.6g}GHz",
                         Stop=f"{stop:.6g}GHz", Count="201")
