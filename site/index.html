@@ -41,7 +41,7 @@
 </head>
 <body class="home">
 <!--HEADER-->
-<section class="hero"><div class="hero-in">
+<section class="hero"><div class="hero-in hero-grid"><div class="hero-text">
 <h1>Electromagnetic design, by you and/or <em>your AI agent</em></h1>
 <p><strong>3D modelling</strong> in a modern interface, with the workflow you know from the established design tools,
 and <strong>adaptive meshing</strong> for high accuracy. Hertzon offers its methods as tools that an AI agent uses through
@@ -50,9 +50,36 @@ and <strong>adaptive meshing</strong> for high accuracy. Hertzon offers its meth
 <a class="btn primary" href="https://github.com/c8501024/Hertzon/releases/latest">Download for Windows / Linux</a>
 <a class="btn ghost" href="docs/tutorial.html">Start the tutorial</a>
 <a class="btn ghost" href="https://github.com/c8501024/Hertzon">Source on GitHub</a>
+<a class="btn ghost tour-open" href="#tour">&#9654; Watch the 90-second tour</a>
 </div>
 <small>Free under the GPL · by Dominik Mair · FEM solver core: EMerge by Robert Fennis</small>
+</div>
+<a class="tour-thumb tour-open" href="#tour" aria-label="Play the 90-second tour of Hertzon">
+<img src="tour/poster.jpg" alt="Hertzon tour: fields, patterns and S-parameters" width="1280" height="720" loading="lazy">
+<span class="tour-play" aria-hidden="true"></span>
+<span class="tour-cap">Hertzon in 90 seconds: today and what comes next</span>
+</a>
 </div></section>
+
+<dialog class="tour-dlg" id="tour" aria-label="Hertzon tour video">
+<button class="tour-close" type="button" aria-label="Close">&times;</button>
+<video controls playsinline preload="none" poster="tour/poster.jpg" width="1920" height="1080">
+<source src="tour/hertzon-tour.webm" type="video/webm">
+<source src="tour/hertzon-tour.mp4" type="video/mp4">
+</video>
+</dialog>
+<script>
+(function(){
+  var d=document.getElementById("tour"), v=d.querySelector("video");
+  function open(e){ if(e) e.preventDefault(); if(!d.open){ d.showModal(); } v.play().catch(function(){}); }
+  function close(){ v.pause(); if(d.open) d.close(); if(location.hash==="#tour") history.replaceState(null,"",location.pathname+location.search); }
+  document.querySelectorAll(".tour-open").forEach(function(a){ a.addEventListener("click", open); });
+  d.querySelector(".tour-close").addEventListener("click", close);
+  d.addEventListener("click", function(e){ if(e.target===d) close(); });
+  d.addEventListener("close", function(){ v.pause(); });
+  if(location.hash==="#tour") open();
+})();
+</script>
 
 <section class="band glance-band"><div class="wrap">
 <p class="eyebrow">At a glance</p>
