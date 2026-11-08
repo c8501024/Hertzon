@@ -5,7 +5,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QLineEdit, QComboBox,
                                QSpinBox, QDoubleSpinBox, QCheckBox, QLabel, QDialogButtonBox, QWidget, QScrollArea)
 
-from ..model.filters import HairpinSpec, auto_bands, hairpin_design, outlines
+from ..model.filters import HairpinSpec, auto_bands, circuit_name, hairpin_circuit, hairpin_design, outlines
 from ..model.materials import is_conductor
 
 
@@ -34,7 +34,8 @@ def _pair(a: QDoubleSpinBox, b: QDoubleSpinBox, c: QDoubleSpinBox | None = None)
 class HairpinFilterDialog(QDialog):
     """Band-pass filter of N directly tapped hairpins (the filterbench geometry), as a parametrized design
     with setup, sweep, a conjugate gradient optimization of L, w, b, g, yP and M on the filter mask and a
-    derivative trust region optimization of L, g and yP on the same mask."""
+    derivative trust region optimization of L, g and yP on the same mask; with the optimizations also the filter
+    as a circuit (extra_designs), the coarse model of a space mapping optimization."""
 
     def __init__(self, parent, project):
         super().__init__(parent)
@@ -127,7 +128,7 @@ class HairpinFilterDialog(QDialog):
         f = QFormLayout(g)
         self.f_lo, self.f_hi = _num(d.sweep[0], 0.001, 300, 4, "GHz"), _num(d.sweep[1], 0.001, 300, 4, "GHz")
         self.f_step = _num(d.sweep[2], 0.0001, 10, 4, "GHz")
-        self.opt = QCheckBox("Add the optimizations on the filter mask (conjugate gradient, derivative trust region)")
+        self.opt = QCheckBox("Add the optimizations on the filter mask (conjugate gradient, derivative trust region, space mapping with the filter as a circuit)")
         self.opt.setChecked(True)
         self.name = QLineEdit("")
         self.name.setPlaceholderText("Hairpin_N3")
@@ -170,6 +171,12 @@ class HairpinFilterDialog(QDialog):
         self.refresh()
 
     # ---- specification ------------------------------------------------------------------------
+    def extra_designs(self) -> list:
+        """The circuit model of the filter (coarse model of HairpinSM), made when the dialog is accepted."""
+        if self.design is None or not getattr(self, "_spec", None) or not self._spec.optimization:
+            return []
+        return [hairpin_circuit(self._spec, circuit_name(self.design.name))]
+
     def spec(self) -> HairpinSpec:
         m = self.mats.get(self.mat.currentText())
         bands = []
@@ -228,6 +235,7 @@ class HairpinFilterDialog(QDialog):
             s = self.spec()
             self._check(s)
             self.design, nom = hairpin_design(s)
+            self._spec = s
         except Exception as e:  # noqa: BLE001
             self.design = None
             self.info.setText(f"<span style='color:#c0392b'>{e}</span>")

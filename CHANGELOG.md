@@ -11,8 +11,21 @@ the GitHub release notes.
   Every evaluation is a circuit analysis in the optimizer process, so thousands of designs take seconds; Apply
   Best Variables analyzes the circuit again. A circuit optimized this way is a fast start design for its 3D
   layout. See [Circuit designs](docs/CIRCUIT.md#optimization).
+- **Space Mapping optimizer**: a 3D design is optimized with a circuit design of the same variables as its fast
+  coarse model. The goals are optimized on the circuit, then each round solves the 3D design once, fits the
+  circuit to the solved response and corrects the 3D variables (aggressive space mapping, Broyden update).
+- **Hairpin filter as a circuit**: Tools › Filter Design › Tapped Hairpin (and MCP `create_hairpin_filter`)
+  also creates the filter as a circuit (coupled lines, taps, bends; within about 1 % of the 3D response) and the
+  optimization *HairpinSM*. On the third-order example it reached the circuit optimum in three 3D solves, about
+  13 minutes on 4 cores, instead of 4.5 hours with the Derivative Trust Region.
+- **Hairpin filter: one gap per pair of neighbours** (g in the middle, g2, g3 ... outwards, symmetric), each
+  from its own coupling of the Chebyshev prototype and included in the optimizations. With one common gap,
+  four or more resonators could not reach a Chebyshev response; the fifth-order circuit now reaches a return
+  loss of 18 dB in the passband.
 
 ### Changed
+- **Faster circuit analysis**: expressions are parsed once and the line and junction models are cached; the
+  hairpin circuit takes 30 ms instead of 95 ms per analysis.
 - **Hertzon is now the "Electromagnetic Design Suite"**: new subtitle on the splash screen, the website, the
   README, the About dialog and the package description. It names what Hertzon has grown into besides the 3D
   full-wave FEM solver: circuits with their 3D layout, PCB import, optimization and AI agents through MCP.

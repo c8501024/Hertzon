@@ -374,7 +374,7 @@ SWEEP: list[Prop] = [
     P("Parallel", "bool", "False", label="Solve frequencies in parallel"),
 ]
 
-OPTIMIZERS = ("Conjugate Gradient", "Latin Hypercube + Nelder-Mead", "Derivative Trust Region")
+OPTIMIZERS = ("Conjugate Gradient", "Latin Hypercube + Nelder-Mead", "Derivative Trust Region", "Space Mapping")
 COST_FUNCTIONS = ("Error Area", "Worst Case")
 GOAL_CONDITIONS = ("<=", ">=", "=", "Ripple <=")
 
@@ -402,7 +402,10 @@ OPTIMIZATION: list[Prop] = [
            "antennas, rough cost). Derivative Trust Region: every round solves the design once, computes its "
            "derivative tuning model (as Compute Derivatives) and minimizes the goals on the model within a part "
            "of the tuning range; the step is checked with a solve. Few solves for designs near the goal (at most 6 "
-           "variables, the topology must not change)"),
+           "variables, the topology must not change). Space Mapping: a circuit design with the same variables is "
+           "the fast coarse model; it is optimized on the goals, and every round solves the 3D design once, fits "
+           "the circuit to the solved S-parameters and moves the 3D variables so that the fitted circuit values "
+           "reach the circuit optimum. A few solves when the circuit has the right shape of response"),
     P("CostFunction", "choice", "Error Area", label="Cost function", choices=COST_FUNCTIONS,
       help="Error Area: area of the goal violations over frequency (dB GHz), weighted and summed. "
            "Worst Case: weighted mean of the squared largest violation of every goal"),
@@ -451,6 +454,17 @@ OPTIMIZATION: list[Prop] = [
     P("MaxRounds", "int", "10", label="Maximum rounds", tab="Derivative Trust Region",
       visible_if=("Optimizer", "Derivative Trust Region"),
       help="Rounds of model optimum and check; each costs one solve, plus a tuning model when the step is taken"),
+    P("CoarseModel", "text", "", label="Circuit design (coarse model)", tab="Space Mapping",
+      visible_if=("Optimizer", "Space Mapping"),
+      help="Name of a circuit design of this project with the same variables as this design (the filter "
+           "assistants make one); it is the fast model the goals are optimized on"),
+    P("MappingRounds", "int", "6", label="Maximum rounds", tab="Space Mapping",
+      visible_if=("Optimizer", "Space Mapping"),
+      help="Rounds of 3D solve, circuit fit and step; each costs one 3D solve"),
+    P("MappingTolerance", "float", "0.01", label="Mapping tolerance", tab="Space Mapping",
+      visible_if=("Optimizer", "Space Mapping"),
+      help="Stop when the fitted circuit values are this close to the circuit optimum (fraction of each "
+           "variable's range)"),
     P("TuningPoints", "int", "51", label="Tuning points", tab="Derivative Trust Region",
       visible_if=("Optimizer", "Derivative Trust Region"),
       help="Frequencies of the tuning model of a fast sweep or one not analyzed yet (as in the tuning panel); "

@@ -85,3 +85,77 @@ def test_window_lists_circuit_optimizations_and_applies_the_best(tmp_path):
     from hertzon.solver.results import ResultStore, results_dir
     data = ResultStore(results_dir(str(path), "Match", "Setup1")).sparams("Sweep")
     assert data is not None and np.abs(data["S"][2, 0, 0]) < 0.02    # analyzed again with the applied value
+
+
+def test_space_mapping_corrects_a_shifted_fine_model(tmp_path, monkeypatch):
+    """Space mapping on the hairpin filter with a stand-in for the 3D solve: the circuit itself, but with the
+    length 0.5 mm longer and the gap 0.05 mm wider than the variables say (a model error of the kind the
+    circuit has). The rounds find the 3D values whose response is the circuit optimum."""
+    from hertzon.model.filters import HairpinSpec, hairpin_project
+    from hertzon.solver import optimize as O
+    from hertzon.solver.circuit import analyze
+    from hertzon.solver.optimetrics import evaluate_goals
+    from hertzon.solver.results import ResultStore
+    p = hairpin_project(HairpinSpec(n=3))
+    path = tmp_path / "hp.hzn"
+    p.save(path)
+    out = tmp_path / "opt"
+    out.mkdir()
+    opt = O.Optimizer(str(path), "Hairpin_N3", "HairpinSM", out)
+    circ = p.designs[1]
+    solved = []
+
+    def fake_solve(self, points, phase, iteration):
+        costs = []
+        for x in points:
+            self.n += 1
+            texts = self.vars.texts(x)
+            v = dict(zip(self.vars.names, self.vars.values(x)))
+            circ.variables.update(texts)
+            circ.variables["L"] = f"{v['L'] + 0.5:.6g}mm"
+            circ.variables["g"] = f"{v['g'] + 0.05:.6g}mm"
+            r = analyze(p, circ, self.freqs_fine)
+            folder = self.out / "evals" / f"{self.n:04d}"
+            ports = [{"name": n, "number": i + 1, "kind": "Circuit Port", "modes": 1} for i, n in enumerate(r.ports)]
+            ResultStore(folder / "results").save_sparams(self.sol, r.freq, r.S, r.z0, ports)
+            self.folders[self.n] = folder
+            cost, _ = evaluate_goals(self.opt, {"freq": r.freq, "S": r.S, "z0": r.z0, "ports": ports}, self.ev)
+            self.history.append({"eval": self.n, "variables": texts, "cost": cost})
+            solved.append((v, cost))
+            costs.append(cost)
+        return costs
+    from hertzon.solver.sweeps import sweep_frequencies
+    sw = p.designs[0].setups[0].sweeps[0]
+    opt.freqs_fine = sweep_frequencies(sw.props, opt.ev)
+    monkeypatch.setattr(O.Optimizer, "_solve_batch", fake_solve)
+    monkeypatch.setattr(O.Optimizer, "discard", lambda self, n: None)
+    box = O.TR.minimize_box
+    monkeypatch.setattr(O.TR, "minimize_box", lambda f, lo, hi, starts=6: box(f, lo, hi, starts=1))   # quicker
+    opt.run()
+    summary = json.loads((out / "summary.json").read_text())
+    assert "circuit optimum" in summary["reason"] or "cost 0" in summary["reason"], summary["reason"]
+    assert len(solved) <= 6
+    first, last = solved[0], solved[-1]
+    assert last[1] < first[1]
+    # the length and the gap were corrected by the model error
+    assert abs((first[0]["L"] - last[0]["L"]) - 0.5) < 0.1 and abs((first[0]["g"] - last[0]["g"]) - 0.05) < 0.02
+
+
+def test_filter_assistant_inserts_the_circuit_model(monkeypatch):
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QDialog
+    QApplication.instance() or QApplication([])
+    from hertzon.gui.filter_tool import HairpinFilterDialog
+    from hertzon.gui.main_window import MainWindow
+    w = MainWindow()
+    for _ in range(2):                                   # the second time both designs are renamed
+        dlg = HairpinFilterDialog(w, w.doc.project)
+        dlg.refresh()
+        monkeypatch.setattr(dlg, "exec", lambda: QDialog.Accepted)
+        w._insert_generated(dlg, "hairpin filter")
+    names = [d.name for d in w.doc.project.designs]
+    assert {"Hairpin_N3", "Hairpin_N3_Circuit", "Hairpin_N3_2", "Hairpin_N3_2_Circuit"} <= set(names)
+    sm = next(o for o in w.doc.project.design("Hairpin_N3_2").optimetrics if o.name == "HairpinSM")
+    assert sm.props["CoarseModel"] == "Hairpin_N3_2_Circuit"
+    assert w.doc.design_name == "Hairpin_N3_2"

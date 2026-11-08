@@ -6,6 +6,7 @@ Values are written like in the reference workflow: ``10mm``, ``w/2 + 0.5mm``,
 from __future__ import annotations
 
 import ast
+import functools
 import math
 import re
 
@@ -105,6 +106,24 @@ def _strip_units(text: str, scale: dict[str, float] | None = None) -> tuple[str,
     return _NUM_UNIT.sub(repl, text), found
 
 
+@functools.lru_cache(maxsize=16384)
+def _compiled(text: str, scale: tuple) -> tuple:
+    """(code object, referenced variable names in order, carries a unit) of an expression, checked once: the
+    same expressions are evaluated again and again (circuit and optimization evaluations)."""
+    code, has_unit = _strip_units(text, dict(scale) or None)
+    try:
+        tree = ast.parse(code.replace("^", "**"), mode="eval")
+    except SyntaxError as e:
+        raise ExprError(f"Invalid expression '{text}'") from e
+    refs: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, _ALLOWED_NODES):
+            raise ExprError(f"Unsupported syntax in '{text}'")
+        if isinstance(node, ast.Name) and node.id not in _FUNCS and node.id not in _CONSTS and node.id not in refs:
+            refs.append(node.id)
+    return compile(tree, "<expr>", "eval"), tuple(refs), has_unit
+
+
 class Evaluator:
     """Evaluates expressions against variables. Variables are evaluated lazily
     and may reference each other. Results are SI values."""
@@ -147,25 +166,18 @@ class Evaluator:
         text = str(text).strip()
         if not text:
             raise ExprError("Empty expression")
-        code, has_unit = _strip_units(text, self._scale)
-        try:
-            tree = ast.parse(code.replace("^", "**"), mode="eval")
-        except SyntaxError as e:
-            raise ExprError(f"Invalid expression '{text}'") from e
+        code, refs, has_unit = _compiled(text, tuple(sorted(self._scale.items())) if self._scale else ())
         names: dict[str, float] = {}
-        for node in ast.walk(tree):
-            if not isinstance(node, _ALLOWED_NODES):
-                raise ExprError(f"Unsupported syntax in '{text}'")
-            if isinstance(node, ast.Name) and node.id not in _FUNCS and node.id not in _CONSTS:
-                v, u = self._var(node.id)
-                names[node.id] = v
-                has_unit = has_unit or u
+        for name in refs:
+            v, u = self._var(name)
+            names[name] = v
+            has_unit = has_unit or u
         try:
             consts = _CONSTS
             if self._scale:             # the speed of light is a length times a frequency
                 c0 = _CONSTS["c0"] * self._scale.get("m", 1.0) * self._scale.get("Hz", 1.0)
                 consts = {**_CONSTS, "c0": c0}
-            val = eval(compile(tree, "<expr>", "eval"), {"__builtins__": {}}, {**_FUNCS, **consts, **names})
+            val = eval(code, {"__builtins__": {}}, {**_FUNCS, **consts, **names})
         except ZeroDivisionError as e:
             raise ExprError(f"Division by zero in '{text}'") from e
         except Exception as e:  # noqa: BLE001
