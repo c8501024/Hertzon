@@ -3,6 +3,24 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Hairpin filter assistant: what the specification allows** (Tools › Filter Design › Tapped Hairpin): a
+  *Response* tab shows, live while the values change, the ideal Chebyshev filter of N resonators with the loss of
+  the board (unloaded Q of the resonator line), the same for N − 1 and N + 1, the circuit of the start design and
+  the filter mask. A table lists for every N the rejection in the stopbands, the insertion loss in the passband
+  and where S21 falls below the rejection goal; **Suggest N** picks the smallest N that meets the goals (or says
+  which goal the board cannot meet) and enlarges the region and board where the hairpins need room.
+- **Create and Optimize**: creates the filter with its circuit model and starts the space mapping optimization
+  *HairpinSM* right away (the circuit is optimized in seconds, a few 3D solves correct it).
+
+### Changed
+- **The circuit of the hairpin filter looks like the filter**: the U of every hairpin, the coupled arms side by
+  side, the feeds at the taps, joined by wires instead of net labels; short lines get named lengths (`lv`, `lxi`,
+  `lo1` ...). The netlist and the S-parameters are unchanged.
+- Schematic: the text of an upright, mirrored part is drawn on its left side.
+
 ## 0.3.9 (2026-11-08)
 
 ### Added
