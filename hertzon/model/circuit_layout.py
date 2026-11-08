@@ -788,3 +788,32 @@ def update_layout(project: Project, layout: Design) -> list[str]:
     layout.settings.update({k: v for k, v in new.settings.items() if k in (LINK, DIMS, VARS)})
     layout.notes = new.notes
     return warnings
+
+
+def layouts_of(project: Project, circuit: Design) -> list[Design]:
+    """The 3D designs generated from the circuit design ('Create 3D Layout'), in project order."""
+    return [d for d in project.designs
+            if getattr(d, "kind", "3d") != "circuit" and d.settings.get(LINK, "") == circuit.name]
+
+
+def layout_differences(project: Project, layout: Design) -> list[str]:
+    """Where a generated layout no longer follows its schematic: a dimension of a part that differs, or a line
+    that is not in the layout (the schematic was edited after 'Create 3D Layout'). Empty when they agree."""
+    circuit = source_circuit(project, layout)
+    if circuit is None:
+        return []
+    out = []
+    for c in circuit.components:
+        props = BACK.get(c.type, ())
+        if c.type in ("MLIN", "MLOC", "MLSC", "SLIN", "MCLIN", "CPWLIN") and f"{c.name}_L" not in layout.variables:
+            out.append(f"{c.name} of {circuit.name} is not in the layout {layout.name}")
+            continue
+        for prop in props:
+            v = layout.variables.get(f"{c.name}_{prop}")
+            if v is not None and c.props.get(prop, "").strip() and v.strip() != c.props[prop].strip():
+                out.append(f"{c.name}.{prop} is {c.props[prop]} in {circuit.name} but {v} in the layout "
+                           f"{layout.name}")
+    if out:
+        out.append(f"the layout {layout.name} differs from its schematic: use 'Update 3D Layout' first, so that "
+                   "the 3D solves are of the circuit being optimized")
+    return out

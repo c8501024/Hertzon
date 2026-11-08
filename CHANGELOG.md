@@ -6,6 +6,22 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Hairpin diplexer and triplexer**: Tools › Filter Design › Hairpin Diplexer (and MCP
+  `create_hairpin_diplexer`) builds hairpin filters for two or three channel specifications: the 3D design, the
+  same diplexer as a circuit and the space mapping optimization *DiplexerSM* on all channel masks and the
+  isolation of every pair of ports. Junctions: a T-junction (the lines start where each filter looks open in the
+  band of the other channel), a common resonator shared by both filters (about half the board), or for three
+  channels a star junction with the third filter turned downwards.
+
+## 0.3.10 (2026-11-08)
+
+### Added
+- **Multi-fidelity optimization of circuits**: the optimization of a circuit design can correct itself with
+  the circuit's 3D layout (Optimizer tab: *Multi-fidelity: correct with the 3D layout*). The circuit is the
+  fast model, the layout the exact one: the goals are optimized on the circuit, then each round solves the
+  layout once in 3D and corrects the variables by space mapping, as for the hairpin filter. The layout uses the
+  circuit's variables under their names, so nothing has to be mapped; Apply Best Variables sets the circuit and
+  the layout. See [Circuit designs](docs/CIRCUIT.md#multi-fidelity-optimize-a-circuit-and-correct-it-with-its-3d-layout).
 - **Hairpin filter assistant: what the specification allows** (Tools › Filter Design › Tapped Hairpin): a
   *Response* tab shows, live while the values change, the ideal Chebyshev filter of N resonators with the loss of
   the board (unloaded Q of the resonator line), the same for N − 1 and N + 1, the circuit of the start design and
@@ -14,19 +30,22 @@ the GitHub release notes.
   which goal the board cannot meet) and enlarges the region and board where the hairpins need room.
 - **Create and Optimize**: creates the filter with its circuit model and starts the space mapping optimization
   *HairpinSM* right away (the circuit is optimized in seconds, a few 3D solves correct it).
-- **Hairpin diplexer and triplexer**: Tools › Filter Design › Hairpin Diplexer (and MCP
-  `create_hairpin_diplexer`) builds hairpin filters for two or three channel specifications: the 3D design, the
-  same diplexer as a circuit and the space mapping optimization *DiplexerSM* on all channel masks and the
-  isolation of every pair of ports. Junctions: a T-junction (the lines start where each filter looks open in the
-  band of the other channel), a common resonator shared by both filters (about half the board), or for three
-  channels a star junction with the third filter turned downwards.
+- **Patch antenna assistant: Create and Optimize** (Tools › Antenna Design › Rectangular Patch): creates the patch
+  and starts its optimization of patch length and inset (*PatchOpt*) right away, instead of only setting it up.
 
 ### Changed
-- Space mapping fits the circuit to the S-parameters of all ports (a diplexer's third port was not seen).
+- **Space Mapping** fits the circuit to all S-parameters (any number of ports) instead of S11 and S21, and goes
+  back with half the step when a 3D solve is worse than the best one.
 - **The circuit of the hairpin filter looks like the filter**: the U of every hairpin, the coupled arms side by
   side, the feeds at the taps, joined by wires instead of net labels; short lines get named lengths (`lv`, `lxi`,
   `lo1` ...). The netlist and the S-parameters are unchanged.
 - Schematic: the text of an upright, mirrored part is drawn on its left side.
+
+### Fixed
+- **Install Update on Windows**: on some computers the update stopped with "The installer could not be started:
+  [WinError 2]". PowerShell, which starts the installer once Hertzon has closed, is now started by its full
+  path instead of through PATH; without PowerShell the installer is started directly. Computers on 0.3.5 or
+  older install 0.3.10 once from the release page.
 
 ## 0.3.9 (2026-11-08)
 
