@@ -85,8 +85,10 @@ HELP: dict[str, str] = {
     "Roughness": "Surface roughness (RMS); increases the loss above the skin-depth model.",
     "UseThickness": "Take the conductor thickness into account: the surface impedance grows once the "
                     "thickness gets comparable to the skin depth ('Use thickness').",
-    "TwoSided": "Thin conductor: current flows on both sides of the sheet. Off: one-sided surface "
-                "impedance, enough for a trace or patch on a thin substrate.",
+    "TwoSided": "On (default, as in HFSS): a sheet inside the model carries current on both sides, each "
+                "with the surface impedance, and both sides dissipate. Off: one surface impedance for the "
+                "total current of both sides, which overestimates the conductor loss up to 2x (a strip or "
+                "dipole in air). Faces on the outer boundary of the model are always one-sided.",
     "Resistance": "Resistance (Ohm, or Ohm/square for an impedance boundary).",
     "Reactance": "Reactance (Ohm/square).",
     "UseResistance": "Include a resistor in the lumped RLC.",
@@ -136,7 +138,7 @@ HELP: dict[str, str] = {
     "SolutionFrequencyMode": "Single frequency, multiple frequencies or broadband adaptive meshing.",
     "Frequency": "Solution (adaptive meshing) frequency. Choose the highest frequency of interest for "
                  "filters; for antennas the operating frequency.",
-    "MultiFrequencies": "Adaptive frequencies, separated by ';'.",
+    "MultiFrequencies": "Adaptive frequencies, separated by ',' or ';' (2.45GHz, 6.1GHz).",
     "LowFrequency": "Lower adaptive frequency (broadband).",
     "HighFrequency": "Upper adaptive frequency (broadband).",
     "MaximumPasses": "Maximum number of adaptive passes. Raising it later continues from the last adaptive "

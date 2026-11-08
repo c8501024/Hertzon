@@ -166,3 +166,137 @@ def test_lossy_patch_conserves_power(tmp_path):
     v = next(iter(vals.values()))[-1]["values"][0]
     assert v["RadiationEfficiency"] == pytest.approx(prad / (prad + ploss), rel=1e-6)
     assert abs(v["PowerBalance"]) < 0.015
+
+
+def test_conductor_solids_are_not_volume_losses():
+    """A tetrahedron of a conductor solid (copper): EMerge solves no field inside, its loss is the surface
+    impedance on its faces. sigma |E|^2 of the interpolated surface field gave Ploss of 100x the input power."""
+    m = _unit_tet()
+    fld = _Field(1.0, 1e9, {0: ((1.0, 0, 0), (0, 0, 0))}, sig=5.8e7)
+    assert power.LossModel(m, fld).empty
+    fld = _Field(1.0, 1e9, {0: ((1.0, 0, 0), (0, 0, 0))}, sig=100.0)       # a lossy dielectric still counts
+    assert not power.LossModel(m, fld).empty
+
+
+def test_patch_with_a_copper_ground_solid_conserves_power(tmp_path):
+    """The FR4 patch with its ground as a 0.2 mm copper solid: Prad + Ploss = Pacc within ~2 % (it was
+    Ploss = 171 W for 1 W incident)."""
+    from hertzon.solver import bridge
+    d = json.loads((EXAMPLES / "PatchAntenna.hzn").read_text(encoding="utf-8"))
+    design = d["designs"][0]
+    d["designs"] = [design]
+    for o in design["objects"]:
+        if o["name"] == "Ground":
+            o["history"][0] = {**o["history"][0], "kind": "CreateBox",
+                               "props": {"Position": "-Ws/2,-Ls/2,-0.2mm", "XSize": "Ws", "YSize": "Ls",
+                                         "ZSize": "0.2mm"}}
+            o["material"] = "copper"
+    design["boundaries"] = [b for b in design["boundaries"] if b["name"] != "PerfE_Ground"]
+    setup = design["setups"][0]
+    setup["props"].update(MaximumPasses="4", MinimumPasses="4")
+    for sw in setup.get("sweeps", []):
+        sw["props"]["Enabled"] = "False"
+    proj = tmp_path / "patch_cu.hzn"
+    proj.write_text(json.dumps(d), encoding="utf-8")
+    out = tmp_path / "out"
+    assert bridge.run(str(proj), design["name"], setup["name"], str(out)) == 0
+    h = np.load(out / "huygens_LastAdaptive.npz")
+    lo = np.load(out / "losses_LastAdaptive.npz")
+    S = np.load(out / "sparams_LastAdaptive.npz")["S"]
+    prad, ploss = float(h["Prad_0_1"][0]), float(np.real(lo["Ploss_0"][0, 0]))
+    pacc = 1 - abs(S.ravel()[0]) ** 2
+    assert 0.3 < ploss < 0.7
+    assert abs(prad + ploss - pacc) < 0.025
+
+
+class ThinConductor(SurfaceImpedance):     # named like the EMerge boundary: a separate field on each side
+    pass
+
+
+def test_thin_conductor_loss_counts_both_sides():
+    """A two-sided sheet (EMerge ThinConductor splits the DoFs of the sheet): each side has its own tangential
+    E and dissipates 1/2 Re(1/Zs) |E_t|^2; the loss is the sum of both. One interpolation at the face saw one
+    side only."""
+    nodes = np.array([[0, 1, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, -1]], float) * 1e-2
+    tets = np.array([[0, 0], [1, 1], [2, 2], [3, 4]])               # tet 0 above z = 0, tet 1 below
+    mesh = SimpleNamespace(nodes=nodes, tets=tets, tris=np.array([[0], [1], [2]]),
+                           tri_to_tet=np.array([[0], [1]]), get_triangles=lambda tags: [0] if tags == [7] else [])
+    zs = 0.02 + 0.02j
+    for kind, expect in ((ThinConductor, 9 + 16), (SurfaceImpedance, None)):
+        m = SimpleNamespace(mesh=mesh, mw=SimpleNamespace(bc=SimpleNamespace(boundary_conditions=[kind(zs)])))
+
+        class _Sided(_Field):                  # E_x = 3 above the sheet, E_y = 4 below
+            def interpolate(self, x, y, z, usenan=False, mapping=None):
+                super().interpolate(x, y, z, usenan, mapping)
+                side = np.asarray(mapping if mapping is not None else np.zeros(len(x), int))
+                self.Ex = np.where(side == 0, 3.0, 0).astype(complex)
+                self.Ey = np.where(side == 1, 4.0, 0).astype(complex)
+
+        fld = _Sided(1.0, 1e9, {0: ((0, 0, 0), (0, 0, 0))})
+        model = power.LossModel(m, fld)
+        L = power.loss_matrix(model, fld, [0], _excite)
+        p = 0.5 * (1 / zs).real * 0.5e-4
+        if expect is None:
+            assert len(model.surf) == 1                     # one-sided: the field is continuous, one side
+        else:
+            assert len(model.surf) == 2
+            assert L[0, 0].real == pytest.approx(p * expect, rel=1e-9)
+            # the points are nudged into their tetrahedron
+            assert np.all(model.surf[0]["pts"][2] > 0) and np.all(model.surf[1]["pts"][2] < 0)
+
+
+def _strip_dipole(tmp_path, variant: str, sigma: float = 2e4):
+    """Dipole of two 4 x 70 mm strips at 1 GHz, conductivity sigma: Finite Conductivity sheets ('one'- or
+    'two'-sided) or 0.2 mm thick conductor solids ('solid', surface impedance on all faces). Returns
+    Prad, Ploss, Pacc."""
+    from hertzon.solver import bridge
+    d = json.loads((EXAMPLES / "Dipole.hzn").read_text(encoding="utf-8"))
+    de = d["designs"][0]
+    d["designs"] = [de]
+    de["variables"].update(w="4mm", t="0.2mm")
+    for o in de["objects"]:
+        if o["name"] in ("ArmTop", "ArmBottom"):
+            z0, sz = ("g/2", "Larm") if o["name"] == "ArmTop" else ("-g/2", "-Larm")
+            if variant == "solid":
+                o["history"] = [{"kind": "CreateBox", "props": {"Position": f"-w/2,-t/2,{z0}", "XSize": "w",
+                                                                 "YSize": "t", "ZSize": sz}}]
+                o["material"] = "lossy"
+            else:
+                o["history"] = [{"kind": "CreateRectangle", "props": {"Position": f"-w/2,0,{z0}", "Axis": "Y",
+                                                                       "XSize": "w", "YSize": "1", "ZSize": sz}}]
+                o["material"] = "vacuum"
+        if o["name"] == "Gap":
+            o["history"][0]["props"].update(Position="-w/2,0,-g/2", XSize="w")
+    d["materials"] = [{"name": "lossy", "conductivity": str(sigma)}]
+    if variant != "solid":
+        de["boundaries"] = [{"name": "FC", "kind": "Finite Conductivity", "faces": [], "edges": [], "enabled": True,
+                             "objects": ["ArmTop", "ArmBottom"],
+                             "props": {"UseMaterial": "False", "Conductivity": str(sigma),
+                                       "TwoSided": "True" if variant == "two" else "False"}}]
+    setup = de["setups"][0]
+    setup["props"].update(MaximumPasses="5", MinimumPasses="5")
+    for sw in setup["sweeps"]:
+        sw["props"]["Enabled"] = "False"
+    proj = tmp_path / f"strip_{variant}.hzn"
+    proj.write_text(json.dumps(d), encoding="utf-8")
+    out = tmp_path / f"out_{variant}"
+    assert bridge.run(str(proj), de["name"], setup["name"], str(out)) == 0
+    h = np.load(out / "huygens_LastAdaptive.npz")
+    lo = np.load(out / "losses_LastAdaptive.npz")
+    S = np.load(out / "sparams_LastAdaptive.npz")["S"].ravel()[0]
+    return float(h["Prad_0_1"][0]), float(np.real(lo["Ploss_0"][0, 0])), 1 - abs(S) ** 2
+
+
+def test_two_sided_sheet_matches_a_conductor_solid(tmp_path):
+    """Lossy strip dipole (sigma = 2e4 S/m): the two-sided sheet dissipates what a thin conductor solid does
+    (both sides carry current), and Prad + Ploss = Pacc. The one-sided sheet puts the current of both sides
+    through one surface impedance: about twice the loss. Measured: one-sided eff 0.860 / Ploss 0.135, two-sided
+    0.919 / 0.080 (0.040 and a balance of -4.3 % while one side was counted), solid 0.922 / 0.074."""
+    p2, l2, a2 = _strip_dipole(tmp_path, "two")
+    ps, ls, a_s = _strip_dipole(tmp_path, "solid")
+    p1, l1, a1 = _strip_dipole(tmp_path, "one")
+    for p, l, a in ((p2, l2, a2), (ps, ls, a_s), (p1, l1, a1)):
+        assert abs(p + l - a) < 0.015                              # power balance
+    assert l2 == pytest.approx(ls, rel=0.2)
+    assert p2 / (p2 + l2) == pytest.approx(ps / (ps + ls), abs=0.01)
+    assert 1.5 < l1 / l2 < 2.2

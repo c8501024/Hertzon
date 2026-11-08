@@ -50,7 +50,7 @@ def t_export(args):
         gmsh.model.remove()
         gmsh.model.add("hertzon_export")
         K.build_design(d, d.evaluator(ctx.proj))
-        gmsh.write(path)
+        K.write_step(path)
         gmsh.model.remove()
         return {"written": path}
     if kind == "gerber":

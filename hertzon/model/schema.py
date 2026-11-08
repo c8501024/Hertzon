@@ -183,7 +183,7 @@ BOUNDARIES: dict[str, list[Prop]] = {
         P("Roughness", "length", "0um", label="Surface roughness (RMS)"),
         P("UseThickness", "bool", "False", label="Use thickness"),
         P("Thickness", "length", "35um", visible_if=("UseThickness", "True")),
-        P("TwoSided", "bool", "False", label="Thin conductor (two-sided)", visible_if=("UseThickness", "True")),
+        P("TwoSided", "bool", "True", label="Two-sided (sheet inside the model)"),
     ],
     "Impedance": [P("Resistance", "expr", "50", label="Resistance (ohm/sq)"),
                   P("Reactance", "expr", "0", label="Reactance (ohm/sq)")],
@@ -501,6 +501,11 @@ DESIGN_SETTINGS: list[Prop] = [
     P("FilterAirMargin", "length", "12mm", label="Filter air margin", visible_if=("AutoOpen", "Auto Open - Filter")),
     P("MaterialOverride", "bool", "True", label="Material override"),
 ]
+
+
+def frequency_list(text: str) -> list[str]:
+    """The entries of a list of frequencies (MultiFrequencies): separated by ',' or ';' ("2.45GHz;6.1GHz")."""
+    return [x.strip() for x in str(text or "").replace(";", ",").split(",") if x.strip()]
 
 
 def material_override(design) -> bool:

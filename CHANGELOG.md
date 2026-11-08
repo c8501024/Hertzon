@@ -3,6 +3,37 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.8 (2026-11-08)
+
+### Fixed
+- **Loss power and power balance of antennas with copper solids**: the tetrahedra of conductor solids
+  (conductivity above 1e4 S/m) were counted as lossy volume. EMerge solves no field inside them (it puts a
+  surface impedance on their faces), so sigma |E|^2 of the interpolated surface field gave a loss power of up
+  to hundreds of times the input power (Meta benchmark Example 2: Power Balance +150 to +1200 %; the FR4 patch
+  with a copper ground: Ploss = 171 W for 1 W incident, now 0.46 W with a balance of -1.3 %). Their loss is
+  that of the surface impedance on their faces, which was already counted.
+- **Multi-Frequencies setups accept ';'**: the help said the frequencies are separated by ';', but only ','
+  worked ("Invalid expression '2.45GHz;6.1GHz'"). Both work now, and the Validation Check names a bad entry.
+- **Conductor loss of sheets, radiation efficiency and gain**: Finite Conductivity sheets were one-sided by
+  default: one surface impedance carried the current of both sides of the sheet, about twice the conductor loss
+  of a strip in air. They are two-sided now by default (as HFSS treats a sheet inside the model), also without
+  "Use thickness"; a face on the outer boundary stays one-sided. The loss power of a two-sided sheet counted one
+  side only (half its loss), so the radiation efficiency, GainTotal and the power balance were too optimistic;
+  both sides count now. Lossy strip dipole (2e4 S/m, 1 GHz): one-sided efficiency 86.0 %, two-sided 91.9 %, a
+  0.2 mm conductor solid 92.2 %; the balance of the two-sided sheet went from -4.3 % to -0.3 %. Projects
+  saved with "Two-sided" off keep it, and the Validation Check warns about it; solutions of sheets with
+  "Two-sided" on and no thickness are outdated (they were solved one-sided).
+- **STEP export was 1000x too small**: coordinates were written in metres into a file that states millimetres
+  (a 147 mm model ended at 0.147 mm). GUI and MCP export write millimetres now.
+
+### Added
+- **Validation Check: objects that almost touch**: parallel faces of two objects a few micrometres apart (a gap
+  or an overlap smaller than 20 um, or 0.1 % of the model size) and a straight edge or plane face that touches a
+  cylinder tangentially (a via exactly as wide as the trace that ends on it) are named as warnings, with the
+  distance. gmsh can fail on the first ("Unknown model face with tag N", "Invalid boundary mesh"), the second
+  can give "NaN detected in the a-posteriori error estimate". When a solve fails, the error message names
+  them as the possible cause. Thin solids (copper foil on a substrate) are not reported.
+
 ## 0.3.7 (2026-11-08)
 
 ### Fixed

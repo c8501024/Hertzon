@@ -65,6 +65,9 @@ def model_key(project, design, setup) -> str:
         p = b.get("props", {})
         if b.get("kind") == "Finite Conductivity" and p.get("TwoSided") == p.get("UseThickness", "False"):
             b["props"] = {k: v for k, v in p.items() if k != "TwoSided"}
+        elif b.get("kind") == "Finite Conductivity" and p.get("TwoSided") == "True":
+            # two-sided without a thickness was one-sided up to 0.3.6: the solutions of then are outdated
+            b["props"] = {**p, "_TwoSidedSheet": "v2"}
     used = {o.get("orientation", "Global") for o in objs}
     if used <= {"Global"}:
         d.pop("coord_systems", None)
