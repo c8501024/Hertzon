@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.6 (2026-11-08)
 
 ### Fixed
 - **Install Update closed Hertzon and then nothing happened**: the installer is started by a small script
