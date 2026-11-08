@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.8 (2026-11-08)
 
 ### Fixed
 - **Loss power and power balance of antennas with copper solids**: the tetrahedra of conductor solids
