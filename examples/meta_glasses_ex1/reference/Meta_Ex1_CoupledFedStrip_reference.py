@@ -3,20 +3,20 @@
 Meta AI-glasses temple-arm antenna benchmark, Example 1 (IEEE AP Magazine, Oct. 2026, Industry Activities).
 Final design: coupled-fed shorted strip, top layer of the 25 x 5 mm keep-out, no matching components.
 
-Self-contained Ansys Electronics Desktop (IronPython) script. It builds the full model from scratch
+Self-contained IronPython script for the reference solver. It builds the full model from scratch
 (geometry, materials, boundaries, lumped port, setup, sweeps, far-field sphere), solves it, exports
 S11 and antenna parameters (CSV) and the geometry (STEP), and saves the project.
 
 GUI:   Tools > Run Script...  and pick this file.
-Batch: ansysedt.exe -ng -RunScriptAndExit Meta_Ex1_CoupledFedStrip_HFSS.py
+Batch: <solver executable> -ng -RunScriptAndExit Meta_Ex1_CoupledFedStrip_reference.py
 
 Output folder: OUT_DIR below (created if missing). Total efficiency = RadiatedPower / IncidentPower (1 W).
-Tested with AEDT 2025 R1.
+Tested with version 2025 R1.
 """
 import ScriptEnv, os
 ScriptEnv.Initialize("Ansoft.ElectronicsDesktop")
 
-OUT_DIR = os.path.join(os.path.expanduser("~"), "Documents", "Meta_Ex1_HFSS")  # change if needed
+OUT_DIR = os.path.join(os.path.expanduser("~"), "Documents", "Meta_Ex1_reference")  # change if needed
 PROJECT_NAME = "Meta_Ex1_CoupledFedStrip"
 RUN_ANALYSIS = True
 

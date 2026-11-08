@@ -34,6 +34,18 @@ the GitHub release notes.
   can give "NaN detected in the a-posteriori error estimate". When a solve fails, the error message names
   them as the possible cause. Thin solids (copper foil on a substrate) are not reported.
 
+## 0.3.7 (2026-11-08)
+
+### Fixed
+- **Meshing no longer fails with "index N is out of bounds"** on imported STEP bodies with slots or pockets:
+  after a boolean the geometry kernel keeps edges and points inside a face, gmsh meshes them as embedded
+  entities, and their nodes were missing from the per-face node list. The face matching before each mesh and
+  the display tessellation now look the nodes up in the node table of the whole mesh.
+
+### Added
+- **Example: Meta AI-glasses benchmark, Example 2** (dual-branch IFA) in examples/meta_glasses_ex2, set up and
+  solved via MCP, with project, results and report.
+
 ## 0.3.6 (2026-11-08)
 
 ### Fixed
