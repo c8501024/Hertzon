@@ -43,6 +43,7 @@ the next structure.
 | Stub matching | f, port impedance, load R + jX, bandwidth, return loss | distance `d` from the load and length `l` of the open stub | S11 in the band |
 | Stepped-impedance lowpass | cutoff, order, ripple, high and low impedance, stopband start and rejection | section lengths `L1..LN` (the widths stay) | S11 below the cutoff, S21 in the stopband |
 | Shorted-stub bandpass | f0, bandwidth (30 to 80 %), stubs, ripple, rejection and distance of the stopbands | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..` (symmetric) | S11 in the band, S21 in both stopbands |
+| Edge-coupled bandpass | f0, bandwidth (2 to 30 %), resonators, ripple, rejection and distance of the stopbands | width `W1..`, gap `S1..` and length `L1..` of each coupled section (symmetric) | S11 in the band, S21 in both stopbands |
 | Branchline coupler | f0, coupling (3 dB or unequal), port impedance, bandwidth, return loss and isolation, amplitude and phase tolerance | series arms `Ws`, `Ls`, shunt arms `Wp`, `Lp` | S11 and S41 (isolation), S21 and S31 within the tolerance, S31/S21 at −90° |
 
 The T-junction divider splits the input admittance in the power ratio K = P3/P2 and brings each half back to the
@@ -55,6 +56,12 @@ series RLC to ground with the reactance at the frequency, a lumped RLC sheet in 
 bandpass has quarter-wave stubs pi Z0 FBW/(4 g) shorted by vias, joined by quarter-wave lines of the port
 impedance; the stubs are synthesized for a 1.4 times wider band because the connecting lines narrow it, and the
 symmetric stubs share their variables.
+
+The edge-coupled bandpass has N+1 coupled sections with J Z0 from the Chebyshev prototype and
+Z0e,o = Z0 (1 ± J Z0 + (J Z0)²); width and gap are solved from the coupled-line model of the circuit, the length
+is a quarter wavelength of the mean phase constant. The open ends of the resonators shift the 3D response down
+by a few %, which the multi-fidelity rounds correct. Wide bands need gaps below the smallest feature (the wizard
+warns): on 0.508 mm RO4350B about 7 % for three resonators.
 
 The quarter-wave transformer is binomial (maximally flat): ln(Z[k+1]/Z[k]) = 2^−N C(N,k) ln(ZL/Z0); port 2 has
 the load impedance. The branchline coupler has series arms Z0·√(1−k²) and shunt arms Z_series/k with
@@ -69,5 +76,5 @@ optimization="MultiFidelity1")` and `apply_optimization`.
 
 ## What comes next
 
-The plan follows the order of the cards: the end-coupled and stub filters and the first antennas (dipole, monopole, IFA, circular and circularly polarized patch), then Wilkinson,
+The plan follows the order of the cards: the stub filters and the first antennas (dipole, monopole, IFA, circular and circularly polarized patch), then Wilkinson,
 coupled-line coupler, rat-race (after a curved line part), edge-coupled bandpass and the others.

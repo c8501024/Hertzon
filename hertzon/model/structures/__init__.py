@@ -19,7 +19,7 @@ from .base import (
 )
 from .couplers import Branchline
 from .dividers import TeeDivider
-from .filters import ShortedStubBandpass, SteppedImpedanceLowpass
+from .filters import EdgeCoupledBandpass, ShortedStubBandpass, SteppedImpedanceLowpass
 from .icons import ICONS
 from .matching import QuarterWaveTransformer, StubMatch
 
@@ -102,8 +102,7 @@ CATALOG: list[Structure] = [
     # ---- filters
     Designer("hairpin", "Hairpin bandpass", "filter", "Tapped, N resonators, gap per pair",
              "Compact narrowband bandpass; space mapping with its circuit", "filter_hairpin", "hairpin", ports=2),
-    Planned("edge", "Edge-coupled bandpass", "filter", "Parallel coupled half-wave resonators",
-            "The textbook bandpass, 5-20 % bandwidth", "edge", priority=2),
+    _built(EdgeCoupledBandpass, "edge"),
     _built(SteppedImpedanceLowpass, "stepped"),
     _built(ShortedStubBandpass, "stubbp"),
     Planned("interdigital", "Interdigital bandpass", "filter", "Quarter-wave fingers",

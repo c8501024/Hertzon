@@ -69,7 +69,8 @@ def test_branchline_impedances():
                                               ("branchline", {}, 4), ("branchline", {"c": 6}, 4),
                                               ("tee", {}, 3), ("tee", {"k": 2}, 3), ("stepped", {}, 2),
                                               ("stepped", {"n": 3}, 2), ("stub", {}, 1),
-                                              ("stub", {"xl": -30}, 1), ("stubbp", {}, 2), ("stubbp", {"n": 4}, 2)])
+                                              ("stub", {"xl": -30}, 1), ("stubbp", {}, 2), ("stubbp", {"n": 4}, 2),
+                                              ("edge", {}, 2), ("edge", {"n": 4}, 2)])
 def test_circuit_3d_and_optimization_share_the_variables(key, values, ports):
     p, r = _made(key, values)
     circ, d3 = r.designs
@@ -127,13 +128,28 @@ def test_single_stub_matches_the_load():
     assert db(_s(p, r.designs[0], 2.45)[0, 0, 0]) < -15
 
 
+def test_edge_coupled_bandpass_synthesis():
+    from hertzon.model.structures.base import Substrate
+    from hertzon.model.structures.filters import EdgeCoupledBandpass, coupled_lines
+    from hertzon.solver.tlines import coupled_microstrip
+    # Pozar example 8.8: N = 3, 0.5 dB, 10 %: J Z0 = 0.3137, 0.1187, 0.1187, 0.3137
+    assert np.allclose(EdgeCoupledBandpass.inverters(3, 0.5, 0.1), [0.3137, 0.1187, 0.1187, 0.3137], atol=2e-4)
+    sub = Substrate()
+    w, s, _ = coupled_lines(sub, 70.0, 37.0, 5.0)
+    (ze, _), (zo, _) = coupled_microstrip(5e9, w * 1e-3, s * 1e-3, sub.h * 1e-3, sub.t * 1e-6, sub.er, 0, sub.sigma)
+    assert ze == pytest.approx(70, rel=1e-4) and zo == pytest.approx(37, rel=1e-4)
+    p, r = _made("edge")
+    s = _s(p, r.designs[0], [4.0, 5.0, 6.0])
+    assert db(s[1, 0, 0]) < -12 and db(s[0, 1, 0]) < -20 and db(s[2, 1, 0]) < -20
+
+
 def test_shorted_stub_bandpass_passes_the_band():
     p, r = _made("stubbp")
     s = _s(p, r.designs[0], [1.0, 3.0, 5.0])
     assert db(s[1, 0, 0]) < -12 and db(s[0, 1, 0]) < -10 and db(s[2, 1, 0]) < -10
 
 
-@pytest.mark.parametrize("key", ["branchline", "tee", "stepped", "stub", "stubbp"])
+@pytest.mark.parametrize("key", ["branchline", "tee", "stepped", "stub", "stubbp", "edge"])
 def test_circuit_optimization_meets_the_goals(tmp_path, key):
     from hertzon.solver.optimize import Optimizer
     p, r = _made(key, multi_fidelity=False)
