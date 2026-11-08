@@ -12,7 +12,9 @@ the GitHub release notes.
   client's stderr pipe; a client that does not read that pipe lets it fill up, and the next write blocks the
   server. It now goes to a log file, ~/.hertzon/logs/mcp-<date>-<pid>.log (the last 20 are kept,
   HERTZON_MCP_LOG sets another path, '-' the old behaviour). The standard input of the server is the null
-  device, so a child started by a tool can no longer read or wait on the protocol stream. Answers with NaN or
+  device, so a child started by a tool can no longer read or wait on the protocol stream, and on Windows the
+  pipe is read only when data is there (PeekNamedPipe): a waiting read held every DLL load (gmsh, scipy,
+  EMerge) and child start in the server until the client wrote again. Answers with NaN or
   infinite values (written as NaN/Infinity, which is not JSON, so the client dropped them) carry null instead.
 - **MCP log**: each request is logged with its duration, and a request that runs longer than 5 min writes the
   stacks of all threads to the log (again every 5 min; HERTZON_MCP_WATCHDOG sets the time), so a call that

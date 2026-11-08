@@ -7,9 +7,8 @@ The pipes of the client are used for the protocol only. Everything the server an
 EMerge, numba, tracebacks, progress lines) goes to a log file, ~/.hertzon/logs/mcp-<pid>.log, never into the
 client's stderr pipe: a client that does not read that pipe lets it fill up, and the next write would block the
 server until the client gives up on the call. The standard input of the process is the null device for the same
-reason: a child started with an inherited stdin (EMerge, run_python scripts ...) must not touch the client's
-pipe, on which the reader thread waits (Windows serializes synchronous I/O on one pipe, the child would wait
-until the client writes again).
+reason, and on Windows the reader thread reads the pipe only when data is there (_lines_windows): a waiting
+synchronous read held DLL loads and child starts until the client wrote again.
 """
 from __future__ import annotations
 
@@ -150,7 +149,7 @@ class Server:
     def serve(self) -> None:
         # The client's pipes carry the protocol and nothing else: private handles on the real stdin and
         # stdout, fd 0 on the null device, fd 1 and fd 2 on the log file (children inherit those).
-        inp = os.fdopen(os.dup(sys.stdin.fileno()), "rb")
+        inp = os.fdopen(os.dup(sys.stdin.fileno()), "rb", buffering=0 if os.name == "nt" else -1)
         self.out = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
         sys.stdout.flush()
         sys.stderr.flush()
@@ -197,8 +196,9 @@ class Server:
                   file=sys.stderr, flush=True)
 
     def _read(self, inp) -> None:
+        lines = _lines_windows(inp) if os.name == "nt" else None
         while True:
-            line = inp.readline()
+            line = next(lines, b"") if lines is not None else inp.readline()
             if not line:
                 self._inbox.put(None)
                 return
@@ -287,6 +287,46 @@ class Server:
         if method == "prompts/list":
             return {"prompts": []}
         raise _RpcError(-32601, f"Method not found: {method}")
+
+
+def _lines_windows(inp):
+    """The lines of the client's pipe, read only when data is there (PeekNamedPipe).
+
+    A synchronous ReadFile that waits on the pipe holds every other use of it on Windows. While the reader
+    thread waited in readline(), the main thread hung in LoadLibrary of a DLL (gmsh, scipy, EMerge) and a child
+    with an inherited stdin hung at its start, until the client wrote the next byte. Claude Code writes
+    nothing while it waits for a call: its abort after 30 min was that byte (import_geometry, list_materials
+    and run_python in the Meta benchmark, each the first call that loaded such a DLL). Not a pipe (a file in
+    tests): plain reads."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    fd = inp.fileno()
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.PeekNamedPipe.argtypes = (wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD, wintypes.LPVOID,
+                                  ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID)
+    k32.PeekNamedPipe.restype = wintypes.BOOL
+    h = wintypes.HANDLE(msvcrt.get_osfhandle(fd))
+    avail = wintypes.DWORD()
+    if not k32.PeekNamedPipe(h, None, 0, None, ctypes.byref(avail), None):
+        yield from iter(inp.readline, b"")
+        return
+    buf = b""
+    while True:
+        if not k32.PeekNamedPipe(h, None, 0, None, ctypes.byref(avail), None):
+            break                                   # the client closed the pipe
+        if avail.value == 0:
+            time.sleep(0.01)
+            continue
+        data = os.read(fd, avail.value)
+        if not data:
+            break
+        buf += data
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            yield line + b"\n"
+    if buf:
+        yield buf
 
 
 def _describe(m: dict) -> str:
