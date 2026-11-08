@@ -1,0 +1,22 @@
+run,change,mismatch_eff_LB,mismatch_eff_HB,total_eff_LB,total_eff_HB
+A2,IFA, short left of feed,0.079,0.717,nan,nan
+A3,+ inner return arm,0.116,0.834,nan,nan
+A4,+ arm around the hole,0.147,0.744,nan,nan
+A5,+ bottom-layer tail 5 mm,0.284,0.763,nan,nan
+A6,tail 3.1 mm, LB on frequency,0.886,0.760,nan,nan
+A7,short moved right of feed (classic IFA),0.983,0.327,nan,nan
+A8,+ feed branch for high band,0.186,0.625,nan,nan
+A9,tail removed, shorter arm,0.337,0.631,nan,nan
+A10,inner arm shortened,0.462,0.658,nan,nan
+A11,LB arm 0.6 mm shorter,0.923,0.763,nan,nan
+A12,high-band arm on bottom layer,0.946,0.524,nan,nan
+A13,bottom arm raised,0.979,0.395,nan,nan
+A14,short on bottom layer, top HB arm,0.920,0.336,nan,nan
+A15,+ grounded parasitic,0.750,0.282,nan,nan
+A16,parasitic removed, HB branch moved up,0.619,0.789,nan,nan
+A17,LB retuned (best design),0.997,0.731,0.664,0.498
+A18,right tip shortened,0.973,0.533,0.662,0.383
+A19,+ bottom HB arm,0.987,0.664,0.668,0.494
+A20,HB branch shortened,0.952,0.687,0.634,0.468
+A21,right branch removed,0.958,0.483,0.647,0.304
+A22,best design, 0.1 mm rule met (final),0.994,0.694,0.665,0.498
