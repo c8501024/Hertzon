@@ -6,8 +6,6 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
-- Circuit: a free end of a coupled microstrip line (a pin on no other part) now carries the open end capacitance,
-  as its layout does; coupled-line filters agree with the 3D design within about 1 %.
 - **Design Wizard** (Tools › Design Wizard, the ribbon and the start page): one window for couplers, dividers,
   matching networks, filters and antennas. Choose a structure from cards by category, enter the specification
   and the substrate, and see the synthesized start values while typing. It creates the circuit, its 3D design
@@ -19,6 +17,10 @@ the GitHub release notes.
   The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
   `list_structures`, `create_structure`. See [Design Wizard](docs/WIZARD.md).
 
+
+### Changed
+- Circuit: a free end of a coupled microstrip line (a pin on no other part) now carries the open end capacitance,
+  as its layout does; coupled-line filters agree with the 3D design within about 1 %.
 ## 0.3.10 (2026-11-08)
 
 ### Added
