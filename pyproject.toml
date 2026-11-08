@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hertzon"
-version = "0.3.8"
+version = "0.3.9"
 description = "Open-source electromagnetic design suite for engineers and AI agents: 3D full-wave FEM, circuits, PCBs and optimization"
 readme = "README.md"
 license = {text = "GPL-2.0-or-later"}
