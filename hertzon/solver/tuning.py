@@ -95,11 +95,13 @@ class LumpedGeometry:
             bc.height = it["h0"] * np.ptp(P @ it["d"]) / it["ed"]
             bc.width = it["w0"] * np.ptp(P @ it["w"]) / it["ew"] if it["ew"] > 0 else it["w0"]
             if it["port"]:
-                # integration lines from the nodes on the low side of the sheet along the field direction,
-                # as EMerge defines them (with a tolerance, so the morphed nodes keep their lines)
-                t = P @ it["d"]
-                low = P[t <= t.min() + 1e-6 * bc.height]
-                bc.voltage_integration_line = [Line.from_points(a, a + it["d"] * bc.height, 21) for a in low]
+                # integration lines evenly over the width of the morphed sheet, as for the nominal mesh
+                # (port_lines); a sheet without width keeps lines from its low nodes
+                from .port_lines import set_port_lines
+                if not set_port_lines(bc, P):
+                    t = P @ it["d"]
+                    low = P[t <= t.min() + 1e-6 * bc.height]
+                    bc.voltage_integration_line = [Line.from_points(a, a + it["d"] * bc.height, 21) for a in low]
 
 
 class Assembly:

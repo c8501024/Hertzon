@@ -32,6 +32,17 @@ the GitHub release notes.
 - **Co-design with AI**: the website and the README now lead with the vision of co-design by engineer and AI
   agent; the new page [What is MCP?](docs/MCP.md) explains MCP and how Hertzon offers its methods as tools.
 
+### Fixed
+- **S-parameters of wide lumped ports** (#231): the port voltage was integrated on a single line at a corner
+  of the port sheet (EMerge starts its lines at the edge nodes with exactly the lowest coordinate, which with
+  rounding is often one node). The voltage is now averaged over lines spread evenly across the width of the
+  port. On the UWB dipole of #231 (a 12.8 x 3 mm port) S11 changes by up to 2 dB and the radiated power now
+  matches the accepted power within 0.5 % over the whole sweep (it was up to 1.7 % above).
+- **Discrete sweeps ran out of memory on large meshes**: the system matrices of every frequency of the sweep
+  were assembled before the first was solved. A 71-point sweep of a UWB dipole with 250,000 unknowns needed
+  14 GB and was killed; it is now assembled in batches of the frequencies solved at a time (6 GB peak, same
+  results).
+
 ## 0.3.8 (2026-11-08)
 
 ### Fixed
