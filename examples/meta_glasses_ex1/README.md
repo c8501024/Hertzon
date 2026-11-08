@@ -43,6 +43,7 @@ time on one 64-core workstation, ~95k model output tokens.
 | --- | --- |
 | `Meta_Ex1_CoupledFedStrip.hzn` | Hertzon project of the final design (Setup1: adaptive at 2.45 + 6.1 GHz, S11 and efficiency sweeps) |
 | `Meta_Ex1_CoupledFedStrip.step` | Geometry (PCB, keep-out, antenna sheets, port) |
+| `reference/Meta_Ex1_CoupledFedStrip_reference.py` | Self-contained IronPython script for the reference solver: builds, solves and exports the model (Tools > Run Script) |
 | `results/` | Hertzon S11, reference S11 and efficiency, plots |
 | `tools/match.py`, `tools/s1p.py` | Lossy matching-network search used while screening designs |
 
@@ -61,3 +62,5 @@ time on one 64-core workstation, ~95k model output tokens.
 
 - Hertzon: open the `.hzn` and run Setup1 (about 4 min on 64 cores). Total efficiency = radiated power /
   incident power of the Eff sweep.
+- Reference solver: Tools > Run Script > `reference/Meta_Ex1_CoupledFedStrip_reference.py` (about 3 min). Results land in
+  `Documents/Meta_Ex1_reference`.
