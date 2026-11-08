@@ -1,4 +1,4 @@
-f_GHz,total_Hertzon,total_Hertzon_2sided_sheets,total_HFSS_MetaSTEP,total_HFSS_HertzonGeometry,accepted_Hertzon,accepted_HFSS_MetaSTEP,accepted_HFSS_HertzonGeometry
+f_GHz,total_Hertzon,total_Hertzon_2sided_sheets,total_reference_MetaSTEP,total_reference_HertzonGeometry,accepted_Hertzon,accepted_reference_MetaSTEP,accepted_reference_HertzonGeometry
 2.4010,0.4948,0.4948,0.6139,0.6443,0.7961,0.7797,0.8206
 2.4420,0.7213,0.7520,0.7998,0.8100,0.9792,0.9801,0.9938
 2.4830,0.7796,0.8460,0.8071,0.7877,0.9626,0.9707,0.9476

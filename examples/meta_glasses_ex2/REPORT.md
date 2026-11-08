@@ -4,30 +4,30 @@ November 2026
 
 ## Result
 
-The final antenna, without matching parts, reaches a mean total efficiency of **74.0 % in 2401–2483 MHz and 54.3 % in 5170–7125 MHz in Ansys HFSS** on Meta's original STEP model, 64.2 % with both bands weighted equally. Hertzon agrees well with HFSS: the curves have the same shape and the same dip, with 66.5 % and 49.8 % (58.2 %) for the same design, about 6 points lower on average, within 5 points at 6 of the 10 frequencies and at most 12 points lower. Total efficiency is radiated power over incident power (1 W) in both solvers.
+The final antenna, without matching parts, reaches a mean total efficiency of **74.0 % in 2401–2483 MHz and 54.3 % in 5170–7125 MHz in the reference solver** on Meta's original STEP model, 64.2 % with both bands weighted equally. Hertzon agrees well with the reference solver: the curves have the same shape and the same dip, with 66.5 % and 49.8 % (58.2 %) for the same design, about 6 points lower on average, within 5 points at 6 of the 10 frequencies and at most 12 points lower. Total efficiency is radiated power over incident power (1 W) in both solvers.
 
-In HFSS the design is **slightly below Run 1** at equal weight (64.2 % against 66.3 %): about 10 points better at 2.4 GHz and 14 points worse in the high band. A fine Hertzon mesh of the same design with a 0.02 mm wider end stub (373k tetrahedra) gave 68.2 % and 49.3 %. Run 1 took less wall time for the design (3.75 h against about 4.1 h), although Run 2 needed 24 solves instead of 74.
+In the reference solver the design is **slightly below Run 1** at equal weight (64.2 % against 66.3 %): about 10 points better at 2.4 GHz and 14 points worse in the high band. A fine Hertzon mesh of the same design with a 0.02 mm wider end stub (373k tetrahedra) gave 68.2 % and 49.3 %. Run 1 took less wall time for the design (3.75 h against about 4.1 h), although Run 2 needed 24 solves instead of 74.
 
 | Run | Solver | 2.4 GHz band | 5.17–7.125 GHz | Equal weight | Design time | Solves |
 | --- | --- | --- | --- | --- | --- | --- |
 | Run 1 (earlier) | Hertzon | ~65 % | ~65 % | ~65 % | 3.75 h | 74 |
-| Run 1 (earlier, own feed model) | HFSS | 63.9 % | 68.6 % | 66.3 % | | |
+| Run 1 (earlier, own feed model) | Reference | 63.9 % | 68.6 % | 66.3 % | | |
 | Run 2, final, no matching | Hertzon | 66.5 % | 49.8 % | 58.2 % | ~4.1 h | 24 |
-| Run 2, final, no matching, Meta's STEP | HFSS | **74.0 %** | **54.3 %** | **64.2 %** | | |
+| Run 2, final, no matching, Meta's STEP | Reference | **74.0 %** | **54.3 %** | **64.2 %** | | |
 | Run 2, with 3-part match (lossy model) | Hertzon + Circuits | 63.1 % | 53.5 % | 58.3 % | | |
 
-![S11 and efficiency, Hertzon against HFSS](results/Ex2_Run2_hertzon_vs_hfss.png)
+![S11 and efficiency, Hertzon against the reference solver](results/Ex2_Run2_hertzon_vs_reference.png)
 
 ![S11 and efficiency, Hertzon, with and without matching](results/Ex2_Run2_final_efficiency.png)
 
-## Comparison with Ansys HFSS
+## Comparison with a reference solver
 
-Two HFSS 2025 R1 models of the final design were solved (multi-frequency adaptive at 2.45 and 6.1 GHz, ΔS ≤ 0.01, 3° far-field sphere; about 6 min each):
+Two reference-solver models (version 2025 R1) of the final design were solved (multi-frequency adaptive at 2.45 and 6.1 GHz, ΔS ≤ 0.01, 3° far-field sphere; about 6 min each):
 
-- **Meta's STEP**: Meta's complete environment, feed parts and port sheet, with only the antenna sheet, the shorting pin and a 30 µm bridge between FPC and feed pin added (`hfss/Meta_Ex2_DualBranchIFA_HFSS.py`).
-- **Hertzon geometry**: the simplified primitives exported from Hertzon, to separate the model from the solver (`hfss/Meta_Ex2_DualBranchIFA_HFSS_hertzon_geometry.py`).
+- **Meta's STEP**: Meta's complete environment, feed parts and port sheet, with only the antenna sheet, the shorting pin and a 30 µm bridge between FPC and feed pin added (`reference/Meta_Ex2_DualBranchIFA_reference.py`).
+- **Hertzon geometry**: the simplified primitives exported from Hertzon, to separate the model from the solver (`reference/Meta_Ex2_DualBranchIFA_reference_hertzon_geometry.py`).
 
-| Frequency (GHz) | Hertzon total (%) | Hertzon, two-sided sheets (%) | HFSS, Meta's STEP (%) | HFSS, Hertzon geometry (%) | Accepted: Hertzon / HFSS STEP (%) |
+| Frequency (GHz) | Hertzon total (%) | Hertzon, two-sided sheets (%) | Reference, Meta's STEP (%) | Reference, Hertzon geometry (%) | Accepted: Hertzon / reference STEP (%) |
 | --- | --- | --- | --- | --- | --- |
 | 2.401 | 49.5 | 49.5 | 61.4 | 64.4 | 79.6 / 78.0 |
 | 2.442 | 72.1 | 75.2 | 80.0 | 81.0 | 97.9 / 98.0 |
@@ -43,16 +43,16 @@ Two HFSS 2025 R1 models of the final design were solved (multi-frequency adaptiv
 
 What the comparison shows:
 
-- **The simplified model is fine.** HFSS on Meta's STEP and on the Hertzon primitives agree within 1 point in both bands, so the simplifications listed under Setup do not explain the difference.
+- **The simplified model is fine.** The reference solver on Meta's STEP and on the Hertzon primitives agree within 1 point in both bands, so the simplifications listed under Setup do not explain the difference.
 - **Total efficiency agrees well between the solvers.** Shape and dip match, and Hertzon is on average 6 points lower on identical geometry, comparable to the 2 to 7 points in Example 1. Radiated power is within 1 to 4 points at most frequencies (for example 5.5 and 6.55 GHz); the largest differences are 2.401 GHz (49.5 against 61.4 %) and 6.85 and 7.125 GHz (about 9 to 10 points).
 - **The sheet loss model explains part of it.** Zero-thickness sheets with one-sided surface impedance count the conductor loss on one side. With two-sided sheets (35 µm) the 2.4 GHz mean rises from 66.5 to 69.8 % and the high band from 49.8 to 50.8 %, so about 40 % of the gap at 2.4 GHz.
 - **Two other quantities do not match, but they do not change the result.** Accepted power from 1 − |S11|² in Hertzon is too high at badly matched frequencies (6.55 GHz: 43 % against 24 %; the Hertzon changelog also calls this quantity inaccurate there), and the displayed Radiation Efficiency is wrong (below). Total efficiency Prad/Pinc does not use either of them.
-- **The dip at 6.2–6.85 GHz is real** and confirmed by HFSS. Its radiated power agrees between both solvers; it is a mismatch problem, see Limits.
-- **The definition of total efficiency is the same in both solvers** (Prad/Pinc with 1 W incident). Hertzon's displayed "Radiation Efficiency" is not comparable: since #231 it is Prad/(Prad+Ploss), and Ploss is several times too large in this model (Power Balance +150 to +1200 %). The radiation efficiencies in the Design table below are Prad/(1−|S11|²), not that display, and are too pessimistic at mismatched points (6.55 GHz: 34 %, HFSS 67 %).
+- **The dip at 6.2–6.85 GHz is real** and confirmed by the reference solver. Its radiated power agrees between both solvers; it is a mismatch problem, see Limits.
+- **The definition of total efficiency is the same in both solvers** (Prad/Pinc with 1 W incident). Hertzon's displayed "Radiation Efficiency" is not comparable: since #231 it is Prad/(Prad+Ploss), and Ploss is several times too large in this model (Power Balance +150 to +1200 %). The radiation efficiencies in the Design table below are Prad/(1−|S11|²), not that display, and are too pessimistic at mismatched points (6.55 GHz: 34 %, reference 67 %).
 
 ## Setup
 
-The simplified temple arm comes from the supplied STEP/CST/HFSS files: FPC (Dk 3.09, tan δ 0.0105 as in Fig. 2 and the HFSS file; the running text of the paper says 0.00105, which is a typo), copper PCB, simplified chassis with a stainless section, 50 Ω lumped port on the supplied feed location, feed pin r = 0.3 mm from FPC to PCB. All geometry was rebuilt as polylines and primitives. The CAD chassis bodies were replaced by prisms that overlap each other by 0.05 to 0.2 mm.
+The simplified temple arm comes from the supplied STEP and solver project files: FPC (Dk 3.09, tan δ 0.0105 as in Fig. 2 and the supplied solver project; the running text of the paper says 0.00105, which is a typo), copper PCB, simplified chassis with a stainless section, 50 Ω lumped port on the supplied feed location, feed pin r = 0.3 mm from FPC to PCB. All geometry was rebuilt as polylines and primitives. The CAD chassis bodies were replaced by prisms that overlap each other by 0.05 to 0.2 mm.
 
 ![Complete benchmark structure with chassis, hinge block and front plate](results/Ex2_structure_full.png)
 
@@ -82,7 +82,7 @@ All traces are at least 0.1 mm from the FPC edges and holes. No part of Meta's r
 
 ![Layout of the final antenna on the FPC (top layer, feed pin in yellow, shorting pin at the lower edge)](results/Ex2_final_layout.png)
 
-Hertzon results of the final design (radiation efficiency here is Prad/(1−|S11|²), which is unreliable at mismatched points, see the HFSS comparison):
+Hertzon results of the final design (radiation efficiency here is Prad/(1−|S11|²), which is unreliable at mismatched points, see the reference comparison):
 
 | Frequency (GHz) | Radiation eff. (%) | Total eff., no match (%) | Total eff., 3-part match (%) |
 | --- | --- | --- | --- |
@@ -114,10 +114,10 @@ Iteration table and plot: `results/iterations.csv`, `results/Ex2_Run2_progress.p
 - Matching parts use a generic loss model (L: Q 35 at 2.4 GHz rising with √f, C: Q 120), not a vendor catalog.
 - The matched values are checked in a Hertzon Circuits schematic (`Match` design with the 3D result as a block), but the final design is quoted without matching parts.
 - The Hertzon power balance is unreliable, so radiation efficiency is taken as Prad/Pacc, and Hertzon's far-field loss power has been reported as a bug.
-- Hertzon reads about 6 points below HFSS on average; the sheet loss model explains part of that, the rest is open.
+- Hertzon reads about 6 points below the reference solver on average; the sheet loss model explains part of that, the rest is open.
 - The matching network was tested in Hertzon only, with up to 3 of the allowed 5 parts.
 - The solver needed a one-line patch to `facematch.py`, see `Timing_Log.md`.
 
 ## Effort
 
-About 4 h 6 min wall time for the design, 24 full-wave solves plus about 15 mesh-only tries, about 200 min of solver time, 360 model calls and 183k output tokens up to the final design (details in `Timing_Log.md`). The investigation of the dip and the HFSS comparison took another 47 min (4 Hertzon runs, 2 HFSS models). No Hertzon MCP call hung during this run.
+About 4 h 6 min wall time for the design, 24 full-wave solves plus about 15 mesh-only tries, about 200 min of solver time, 360 model calls and 183k output tokens up to the final design (details in `Timing_Log.md`). The investigation of the dip and the reference comparison took another 47 min (4 Hertzon runs, 2 reference models). No Hertzon MCP call hung during this run.
