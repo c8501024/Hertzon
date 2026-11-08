@@ -276,7 +276,7 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                     same.append((na, nb))
                     continue
                 if t in LUMPED:
-                    g = setvar(f"{c.name}_Gap", GAP)
+                    g = setvar(f"{c.name}_Gap", c.props.get("Gap") or GAP)     # pad to pad, an expression too
                     gaps.append((c, here, dd, g, na, nb))
                     reach(nb, here + along(dd, g), c)
                     continue

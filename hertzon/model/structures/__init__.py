@@ -18,7 +18,7 @@ from .base import (
     Variable,
 )
 from .couplers import Branchline
-from .dividers import TeeDivider
+from .dividers import TeeDivider, Wilkinson
 from .filters import (
     EdgeCoupledBandpass,
     ShortedStubBandpass,
@@ -99,8 +99,7 @@ CATALOG: list[Structure] = [
     Planned("lange", "Lange coupler", "coupler", "Interdigitated 3 dB, bond wires", "Octave-band 3 dB quadrature",
             "lange", priority=3, needs="multi-conductor coupled lines and bond wires", ports=4),
     # ---- dividers
-    Planned("wilkinson", "Wilkinson divider", "divider", "Equal or unequal, 1 to 4 sections",
-            "Splitting with isolated, matched outputs", "wilk", priority=2, ports=3),
+    _built(Wilkinson, "wilk"),
     _built(TeeDivider, "tee"),
     Planned("gysel", "Gysel divider", "divider", "Loads to ground, high power", "High-power combining", "gysel",
             priority=3, needs="a curved line part", ports=3),

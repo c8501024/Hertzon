@@ -39,6 +39,7 @@ the next structure.
 | Structure | Specification | Variables | Goals |
 |---|---|---|---|
 | Quarter-wave transformer | f0, port and load impedance, 1 to 4 sections, bandwidth, return loss | width `W1..WN` and length `L1..LN` of each section | S11 in the band |
+| Wilkinson divider | f0, port impedance, bandwidth, return loss, isolation, split tolerance | arm width `Wa` and run `Lb` | S11, S22, S33 and S32 (isolation), S21 and S31 within the tolerance |
 | T-junction divider | f0, power ratio P3/P2, port impedance, bandwidth, return loss, split tolerance | quarter-wave transformers `Wt2`, `Lt2`, `Wt3`, `Lt3` | S11, S21 and S31 within the tolerance of the split |
 | Stub matching | f, port impedance, load R + jX, bandwidth, return loss | distance `d` from the load and length `l` of the open stub | S11 in the band |
 | Stepped-impedance lowpass | cutoff, order, ripple, high and low impedance, stopband start and rejection | section lengths `L1..LN` (the widths stay) | S11 below the cutoff, S21 in the stopband |
@@ -46,6 +47,10 @@ the next structure.
 | Edge-coupled bandpass | f0, bandwidth (2 to 30 %), resonators, ripple, rejection and distance of the stopbands | width `W1..`, gap `S1..` and length `L1..` of each coupled section (symmetric) | S11 in the band, S21 in both stopbands |
 | Open-stub bandstop | f0, width of the stopband with the rejection, stubs, ripple, rejection | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..`, line width `Wu` | S21 in the stopband, S11 in both passbands |
 | Branchline coupler | f0, coupling (3 dB or unequal), port impedance, bandwidth, return loss and isolation, amplitude and phase tolerance | series arms `Ws`, `Ls`, shunt arms `Wp`, `Lp` | S11 and S41 (isolation), S21 and S31 within the tolerance, S31/S21 at −90° |
+
+The Wilkinson divider has arms of Z0·√2 and a resistor of 2 Z0. The arms rise from the input tee by `La`, turn and
+run in parallel to the resistor; in the 3D design the resistor is a lumped RLC sheet of length 2 La + Wa between
+the two arm ends, so the layout closes.
 
 The T-junction divider splits the input admittance in the power ratio K = P3/P2 and brings each half back to the
 port impedance with a quarter-wave transformer of sqrt(Z_in Z0); it has no isolation between the outputs. The
@@ -83,5 +88,5 @@ optimization="MultiFidelity1")` and `apply_optimization`.
 
 ## What comes next
 
-The plan follows the order of the cards: the stub filters and the first antennas (dipole, monopole, IFA, circular and circularly polarized patch), then Wilkinson,
-coupled-line coupler, rat-race (after a curved line part), edge-coupled bandpass and the others.
+The plan follows the order of the cards: the first antennas (dipole, monopole, IFA, circular and circularly
+polarized patch), then the coupled-line coupler, the rat-race (after a curved line part) and the others.

@@ -46,7 +46,7 @@ def test_catalogue_is_consistent():
     avail = {s.key for s in ST.CATALOG if s.status == ST.AVAILABLE}
     assert {"qwt", "branchline", "patch", "hairpin"} <= avail
     with pytest.raises(ValueError, match="not available"):
-        ST.structure("wilkinson").create()
+        ST.structure("ratrace").create()
     with pytest.raises(ValueError, match="own designer"):
         ST.create_structure("patch")
 
@@ -71,7 +71,8 @@ def test_branchline_impedances():
                                               ("stepped", {"n": 3}, 2), ("stub", {}, 1),
                                               ("stub", {"xl": -30}, 1), ("stubbp", {}, 2), ("stubbp", {"n": 4}, 2),
                                               ("edge", {}, 2), ("edge", {"n": 4}, 2), ("stubbs", {}, 2),
-                                              ("stubbs", {"n": 5}, 2)])
+                                              ("stubbs", {"n": 5}, 2),
+                                              ("wilkinson", {}, 3)])
 def test_circuit_3d_and_optimization_share_the_variables(key, values, ports):
     p, r = _made(key, values)
     circ, d3 = r.designs
@@ -96,6 +97,15 @@ def test_start_values_are_close():
     assert abs(db(s[1, 0]) + 3.01) < 0.6 and abs(db(s[2, 0]) + 3.01) < 0.6
     assert db(s[0, 0]) < -15 and db(s[3, 0]) < -15
     assert abs(np.degrees(np.angle(s[2, 0] / s[1, 0])) + 90) < 3
+
+
+def test_wilkinson_isolates_the_outputs():
+    p, r = _made("wilkinson")
+    s = _s(p, r.designs[0], 2.45)[0]
+    assert abs(db(s[1, 0]) + 3.01) < 0.3 and abs(db(s[2, 0]) + 3.01) < 0.3
+    assert db(s[0, 0]) < -25 and db(s[1, 1]) < -25 and db(s[2, 1]) < -25
+    d3 = r.designs[1]
+    assert d3.variables["R1_Gap"] == "2*La + Wa" and any(b.name == "R1" for b in d3.boundaries)
 
 
 def test_tee_divider_splits_as_asked():
@@ -159,7 +169,7 @@ def test_shorted_stub_bandpass_passes_the_band():
     assert db(s[1, 0, 0]) < -12 and db(s[0, 1, 0]) < -10 and db(s[2, 1, 0]) < -10
 
 
-@pytest.mark.parametrize("key", ["branchline", "tee", "stepped", "stub", "stubbp", "edge", "stubbs"])
+@pytest.mark.parametrize("key", ["branchline", "tee", "stepped", "stub", "stubbp", "edge", "stubbs", "wilkinson"])
 def test_circuit_optimization_meets_the_goals(tmp_path, key):
     from hertzon.solver.optimize import Optimizer
     p, r = _made(key, multi_fidelity=False)
@@ -213,7 +223,7 @@ def test_mcp_list_and_create(server, tmp_path):
     assert out["circuit"] == "Branchline_5.8GHz_Circuit" and out["design_3d"] == "Branchline_5.8GHz"
     err, text = _call(server, "get_project")
     assert {"Branchline_5.8GHz_Circuit", "Branchline_5.8GHz"} <= set(json.loads(text)["designs"])
-    err, text = _call(server, "create_structure", key="wilkinson")
+    err, text = _call(server, "create_structure", key="ratrace")
     assert err and "not available" in text
 
 
@@ -231,7 +241,7 @@ def test_wizard_dialog_creates_a_structure(monkeypatch):
     assert dlg.table.rowCount() == 9
     dlg._create(True)
     assert dlg.result is not None and dlg.run == "MultiFidelity1"
-    dlg = DesignWizard(None, Project("t"), None, start="wilkinson")
+    dlg = DesignWizard(None, Project("t"), None, start="ratrace")
     assert not dlg.next_btn.isEnabled()
     dlg = DesignWizard(None, Project("t"), None, start="patch")
     dlg._next()
