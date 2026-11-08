@@ -3,6 +3,19 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **MCP: diagnostics that keep an AI from wrong conclusions.** `get_results` now splits total efficiency into
+  mismatch efficiency (Pacc/Pinc) and radiation efficiency (Prad/Pacc) and names the limiting factor (new
+  `kind="efficiency"`: the split at every far-field frequency, with Q_Z). New `kind="impedance"`: R, X, Q_Z
+  (Yaghjian–Best) and the resonances (X = 0) of a port over a sweep. The summary lists the port resonances, hints
+  for strongly reflecting ranges (e.g. high Q without a resonance: likely no radiating mode, matching cannot fix
+  it) and a clear warning when the adaptive mesh did not reach its Delta S target. The server instructions gain
+  an *Interpreting results* section: when a dip may be called a mismatch, how to separate loss from radiation
+  (lossless counter test), check convergence first, and call a cause confirmed only after a test that could have
+  refuted it.
+
 ## 0.3.10 (2026-11-08)
 
 ### Added
