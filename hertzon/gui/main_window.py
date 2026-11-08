@@ -6110,7 +6110,11 @@ class MainWindow(QMainWindow):
     def antenna_patch(self) -> None:
         """Tools > Antenna Design > Rectangular Patch: inserts the parametrized patch as a new design."""
         from .antenna_tool import PatchAntennaDialog
-        self._insert_generated(PatchAntennaDialog(self, self.doc.project), "patch antenna")
+        dlg = PatchAntennaDialog(self, self.doc.project)
+        self._insert_generated(dlg, "patch antenna")
+        # Create and Optimize: the new design is the current one; its optimization goes into the solve queue
+        if dlg.result() == QDialog.Accepted and dlg.design is not None and dlg.run_optimization:
+            self.analyze_optimization(dlg.run_optimization)
 
     def _circuit_import_designs(self) -> None:
         """Data > 3D Design > From Project File: the 3D designs of another project file as blocks."""

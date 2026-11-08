@@ -14,6 +14,8 @@ the GitHub release notes.
   which goal the board cannot meet) and enlarges the region and board where the hairpins need room.
 - **Create and Optimize**: creates the filter with its circuit model and starts the space mapping optimization
   *HairpinSM* right away (the circuit is optimized in seconds, a few 3D solves correct it).
+- **Patch antenna assistant: Create and Optimize** (Tools › Antenna Design › Rectangular Patch): creates the patch
+  and starts its optimization of patch length and inset (*PatchOpt*) right away, instead of only setting it up.
 
 ### Changed
 - **The circuit of the hairpin filter looks like the filter**: the U of every hairpin, the coupled arms side by
