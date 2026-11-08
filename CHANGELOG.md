@@ -5,6 +5,13 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Optimization of circuit designs**: the optimizers (Conjugate Gradient, Latin Hypercube + Nelder-Mead) now
+  work on a schematic too (**Simulation › Optimization**, or the *Optimization* group of the Project Manager).
+  Every evaluation is a circuit analysis in the optimizer process, so thousands of designs take seconds; Apply
+  Best Variables analyzes the circuit again. A circuit optimized this way is a fast start design for its 3D
+  layout. See [Circuit designs](docs/CIRCUIT.md#optimization).
+
 ### Changed
 - **Hertzon is now the "Electromagnetic Design Suite"**: new subtitle on the splash screen, the website, the
   README, the About dialog and the package description. It names what Hertzon has grown into besides the 3D

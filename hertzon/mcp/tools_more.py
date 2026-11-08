@@ -183,6 +183,15 @@ def t_apply_optimization(args):
     commit(ctx, f"apply {name}")
     res = {"applied": row["variables"], "evaluation": row["eval"], "cost": row["cost"]}
     setup = optimization_setup(op)
+    if d.kind == "circuit":                     # analyzing the circuit again takes milliseconds
+        from ..solver.circuit import CircuitError, run_setup
+        if any(s.name == setup for s in d.setups):
+            try:
+                run_setup(ctx.proj, d, d.setup(setup))
+                res["solution"] = f"{setup} analyzed with the applied values"
+            except CircuitError as e:
+                res["solution"] = f"{setup} could not be analyzed: {e}"
+        return res
     folder = evaluation_dir(ctx.proj.path, d.name, name, row["eval"])
     if any(s.name == setup for s in d.setups) and folder.exists():
         try:

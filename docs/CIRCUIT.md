@@ -22,6 +22,7 @@ The [tutorial](TUTORIAL.md#11-a-stub-filter-as-a-circuit-and-its-3d-layout) buil
 * [Line model: closed form or full wave](#line-model-closed-form-or-full-wave)
 * [3D designs as blocks](#3d-designs-as-blocks)
 * [Analyze and results](#analyze-and-results)
+* [Optimization](#optimization)
 * [3D layout](#3d-layout)
 * [AI assistants](#ai-assistants)
 * [Not yet](#not-yet)
@@ -157,6 +158,19 @@ the port parameters (`dB(S(2,1))`, `Z(1,1)`, `VSWR(1)`, ...). **Results › Touc
 as `.sNp`. Problems (no port, a port shorted to ground, a line without a substrate, a 3D block that is not
 solved yet, a missing Touchstone file) are explained in the Message Manager.
 
+## Optimization
+
+Part values written as design variables (for example `L` = `ms_len` in a line, with `ms_len` = `12mm` under
+**Simulation › Design Variables**) can be optimized as in a 3D design: **Simulation › Optimization** (or
+right-click *Optimization* in the Project Manager) sets the variables with their ranges, the goals (also the
+filter mask) and the optimizer. Every evaluation is a circuit analysis in the optimizer process, a few
+milliseconds instead of a 3D solve, so thousands of designs take seconds. **Conjugate Gradient** and **Latin
+Hypercube + Nelder-Mead** are offered; the **Derivative Trust Region** needs the tuning model of a 3D mesh and
+is for 3D designs only. The goals are evaluated on a frequency sweep of the circuit. **Apply Best Variables**
+sets the variables and analyzes the circuit again; **Create 3D Layout** then takes the optimized values into
+the 3D design as the start for a full-wave check or a final optimization there. With the full-wave line model,
+new cross-sections (changed widths) are solved and cached during the run.
+
 ## 3D layout
 
 **Simulation › 3D Layout › Create 3D Layout** builds a new 3D design from the schematic:
@@ -192,7 +206,8 @@ objects. A click on either button takes the newest layout of the schematic, the 
 
 The MCP server covers circuit designs: `create_circuit`, `get_circuit`, `edit_circuit` (parts, wires, 3D
 design and Touchstone blocks), `run_simulation`, `get_results` and `render_image` on a schematic,
-`circuit_layout` (create or update the 3D layout, or copy it back to the schematic) and `import_3d_designs`.
+`circuit_layout` (create or update the 3D layout, or copy it back to the schematic) and `import_3d_designs`;
+`set_optimization`, `run_simulation(optimization=...)` and `apply_optimization` work on circuits as on 3D designs.
 See the [tutorial](TUTORIAL.md#5-let-an-ai-assistant-build-and-run-it-mcp).
 
 ## Not yet
