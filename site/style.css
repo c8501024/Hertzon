@@ -227,3 +227,11 @@ img{max-width:100%;height:auto}
 .outlook-h{font-size:1.4rem;margin:64px 0 8px}
 .outlook{margin-top:0}
 .outlook .card h3{margin-top:0}
+
+/* "At a glance" capability grid right under the hero */
+.glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.glance .g{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:10px;padding:14px 16px;background:var(--card)}
+.glance .g h3{margin:0 0 4px;font-size:1rem}
+.glance .g h3::before{content:"\2713\00a0";color:var(--accent-ink)}
+.glance .g p{margin:0;color:var(--muted);font-size:.92rem}
+.glance-not{margin:22px 0 0;color:var(--muted)}
