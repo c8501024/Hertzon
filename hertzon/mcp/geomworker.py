@@ -7,7 +7,7 @@ time limit is reached or the client cancels the call. The server stays usable ei
 
 The child stays between calls (gmsh is loaded once). Jobs come on its stdin as ``J <hex pickle>`` lines;
 answers go to its private stdout handle, one frame per line: ``P <json>`` progress, ``R <hex pickle>`` the
-result ({name: Tess}, {name: error}). Everything gmsh prints goes to stderr.
+result ({name: Tess}, {name: error}). Everything gmsh prints goes to stderr (the server log file).
 """
 from __future__ import annotations
 
