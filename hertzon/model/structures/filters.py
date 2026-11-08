@@ -305,15 +305,17 @@ class EdgeCoupledBandpass(Structure):
             lq = C0 / (f0 * 1e9) / math.sqrt(ee) * 1e3 / 4 - 1e3 * open_end_extension(
                 w * 1e-3, sub.h * 1e-3, sub.t * 1e-6, sub.er)
             pair = f" and {n + 2 - k}" if n + 2 - k != k else ""
+            # the gaps get a wider range: the coupling depends on them steeply and the prototype is narrowband
             syn.variables.append(Variable(f"S{k}", s_k, f"section {k}{pair}: gap, coupling {(ze - zo) / (ze + zo):.3f} "
-                                          f"(Z0e/Z0o {ze:.1f}/{zo:.1f} ohm)"))
+                                          f"(Z0e/Z0o {ze:.1f}/{zo:.1f} ohm)", lo=max(0.6 * s_k, sub.min_feature),
+                                          hi=1.6 * s_k))
             syn.variables.append(Variable(f"L{k}", lq, f"section {k}: length, a quarter wavelength"))
             if s_k < sub.min_feature:
                 syn.warnings.append(f"S{k} = {s_k:.3f} mm is below the smallest gap: use fewer resonators, a smaller "
                                     "bandwidth or a thinner substrate")
-        wf = sub.width(z0, f0)
-        syn.variables.append(Variable("Wf", wf, f"feed width, {z0:g} ohm", include=False))
-        syn.variables.append(Variable("lf", max(sub.lambda_g(wf, f0) / 8, 2 * sub.h), "feed line length",
+        # the feed lines have the resonator width: a wider feed would reach past the gap and touch the open end
+        # of the first resonator beside it
+        syn.variables.append(Variable("lf", max(sub.lambda_g(w, f0) / 8, 2 * sub.h), "feed line length (width W)",
                                       include=False))
         syn.note = (f"Chebyshev {spec['ripple']:g} dB, N = {n}: J Z0 = " + ", ".join(f"{j:.3f}" for j in js) +
                     "; Z0e/Z0o = " + ", ".join(f"{a:.1f}/{b:.1f}" for a, b in zs) + " ohm (the outer sections "
@@ -327,14 +329,14 @@ class EdgeCoupledBandpass(Structure):
         s = Schematic()
         s.parts.append(substrate_part(sub, -200, -160))
         sp = {"Subst": "Sub1"}
-        feed1 = s.add("Feed1", "MLIN", 0, 0, 0, **sp, W="Wf", L="lf")
+        feed1 = s.add("Feed1", "MLIN", 0, 0, 0, **sp, W="W", L="lf")
         prev, x, y = s.pin(feed1, "right"), 140, 10
         for k in range(1, n + 2):
             j = min(k, n + 2 - k)
             c = s.add(f"CL{k}", "MCLIN", x, y, 0, **sp, W="W", S=f"S{j}", L=f"L{j}")
             s.net(f"a{k}", prev, s.pin(c, 0))
             prev, x, y = s.pin(c, 3), x + 120, y + 20
-        feed2 = s.add("Feed2", "MLIN", x, y - 10, 0, **sp, W="Wf", L="lf")
+        feed2 = s.add("Feed2", "MLIN", x, y - 10, 0, **sp, W="W", L="lf")
         s.net("out", prev, s.pin(feed2, "left"))
         s.port(1, f"{spec['z0']:g}ohm", s.pin(feed1, "left"), "left")
         s.port(2, f"{spec['z0']:g}ohm", s.pin(feed2, "right"), "right")

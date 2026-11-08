@@ -70,7 +70,8 @@ symmetric stubs share their variables.
 The edge-coupled bandpass has N+1 coupled sections with J Z0 from the Chebyshev prototype and
 Z0e,o = Z0 (1 ± J Z0 + (J Z0)²). All resonators have one width (from the outer section) and each section its
 gap for the coupling (Z0e − Z0o)/(Z0e + Z0o): with different widths the corner of a wide resonator would touch the
-end of the narrower line before it. The length is a quarter wavelength of the mean phase constant less the open
+end of the narrower line before it, and the feed lines have that width too (a wider feed would touch the open
+end of the first resonator). The length is a quarter wavelength of the mean phase constant less the open
 end. Wide bands need gaps below the smallest feature (the wizard warns): on 0.508 mm RO4350B about 7 % for three
 resonators. The optimization starts from a Latin hypercube sample with Nelder-Mead chains.
 
