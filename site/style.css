@@ -184,6 +184,8 @@ img{max-width:100%;height:auto}
 .aid-s.port{fill:#e04a4a;stroke:#ff8a8a}
 .aid-s.sketch{fill:rgba(242,163,58,.45);stroke:#f2a33a;stroke-dasharray:3 2}
 .aid-s.ant{fill:#f2a33a;stroke:#ffd08a}
+.aid-s.hole{fill:#0b1424;stroke:#4fa38c}
+.aid-s.pin{fill:#c97b3c;stroke:#ffb27a}
 .aid-note{text-align:center;font-size:.8rem;color:#8fa0bb;min-height:1.4em;padding:0 12px}
 .aid-status{display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid #1f2d47;font-size:.8rem;color:#9fb0c8;min-height:40px}
 .aid-meter{flex:1;max-width:200px;height:6px;border-radius:3px;background:#1a2842;overflow:hidden}
