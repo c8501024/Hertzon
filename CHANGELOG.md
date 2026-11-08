@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.5 (2026-11-08)
 
 ### Fixed
 - **MCP calls no longer hang until the client gives up**: in the Meta benchmark (Example 2) three calls got no
