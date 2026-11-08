@@ -281,6 +281,11 @@ class ProjectTree(QTreeWidget):
                 it = self._item(si, sw.name, ("sweep", s.name, sw.name))
                 if sw.props.get("Enabled", "True") != "True":
                     it.setForeground(0, QBrush(QColor("#999")))
+        g = self._item(dn, "Optimization", ("group", "Optimization"))
+        for op in des.optimetrics:
+            st = self._optim_status(op.name)
+            self._item(g, op.name + {"running": "  [running]", "failed": "  [failed]",
+                                     "aborted": "  [aborted]"}.get(st, ""), ("optim", op.name))
         g = self._item(dn, "Results", ("group", "Results"))
         for r in des.reports:
             self._item(g, r.name, ("report", r.name))

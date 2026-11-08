@@ -68,7 +68,7 @@ cat > "$DATA/applications/hertzon.desktop" <<EOS
 Type=Application
 Name=Hertzon
 GenericName=3D Full-Wave FEM Solver
-Comment=3D full-wave electromagnetic FEM simulation
+Comment=Electromagnetic Design Suite: 3D full-wave FEM, circuits, PCBs
 Exec=$BIN/hertzon %f
 Icon=hertzon
 Terminal=false

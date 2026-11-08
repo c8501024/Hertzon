@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hertzon"
 version = "0.3.8"
-description = "3D full-wave FEM simulator with an adaptive-meshing workflow, circuit simulation and optimization"
+description = "Open-source electromagnetic design suite for engineers and AI agents: 3D full-wave FEM, circuits, PCBs and optimization"
 readme = "README.md"
 license = {text = "GPL-2.0-or-later"}
 requires-python = ">=3.10,<3.14"   # EMerge 3 supports Python 3.10 to 3.13

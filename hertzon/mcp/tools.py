@@ -36,7 +36,7 @@ def window_mode() -> bool:
     (servers, tests)."""
     return os.environ.get("HERTZON_MCP_MODE", "window").lower() != "file"
 
-INSTRUCTIONS = """Hertzon is a 3D full-wave FEM simulator (local workflow, EMerge solver). These tools build
+INSTRUCTIONS = """Hertzon is an electromagnetic design suite: 3D full-wave FEM (EMerge solver), circuits and PCBs, local workflow. These tools build
 and run simulations in Hertzon projects (.hzn files).
 
 Workflow
@@ -1565,7 +1565,7 @@ def _run_study(ctx: Ctx, name: str, kind: str, args) -> dict:
                 "next": f"get_status({kind}=...) with wait_seconds; get_results({kind}=...)"}
     if not ctx.proj.path:
         raise ToolError("Save the project first")
-    if not args.get("skip_validation"):
+    if not args.get("skip_validation") and getattr(d, "kind", "3d") != "circuit":
         tess, errors = tessellate(ctx.proj, d)
         bad = [c.message for c in validate(ctx.proj, d, tess, errors) if c.level == "error"]
         if bad:

@@ -3,6 +3,22 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Optimization of circuit designs**: the optimizers (Conjugate Gradient, Latin Hypercube + Nelder-Mead) now
+  work on a schematic too (**Simulation › Optimization**, or the *Optimization* group of the Project Manager).
+  Every evaluation is a circuit analysis in the optimizer process, so thousands of designs take seconds; Apply
+  Best Variables analyzes the circuit again. A circuit optimized this way is a fast start design for its 3D
+  layout. See [Circuit designs](docs/CIRCUIT.md#optimization).
+
+### Changed
+- **Hertzon is now the "Electromagnetic Design Suite"**: new subtitle on the splash screen, the website, the
+  README, the About dialog and the package description. It names what Hertzon has grown into besides the 3D
+  full-wave FEM solver: circuits with their 3D layout, PCB import, optimization and AI agents through MCP.
+- **Co-design with AI**: the website and the README now lead with the vision of co-design by engineer and AI
+  agent; the new page [What is MCP?](docs/MCP.md) explains MCP and how Hertzon offers its methods as tools.
+
 ## 0.3.8 (2026-11-08)
 
 ### Fixed

@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
         self._restore_settings()
         self._update_title()
         self.doc.rebuild()
-        self.msgs.add("info", f"Hertzon {__version__} - 3D full-wave FEM (EMerge solver)")
+        self.msgs.add("info", f"Hertzon {__version__} - Electromagnetic Design Suite")
         self._first_start_note()
         self._start_update_check()
         from .ai_link import AiLink
@@ -976,6 +976,9 @@ class MainWindow(QMainWindow):
         g.small("Add Sweep", "freq_sweep", lambda: self.des.setups and self.add_sweep(self.des.setups[0].name))
         g = pg.group("Variables")
         g.large("Design Variables", "variables", lambda: self.edit_variables(False))
+        g.large("Optimization", "variables", self.add_optimization,
+                tip="Optimize design variables on goals (e.g. a filter mask): every evaluation is a circuit "
+                    "analysis of milliseconds, so thousands of designs take seconds. Then Create 3D Layout")
         g = pg.group("Analyze")
         g.large("Analyze", "analyze", self.analyze_all)
         g = pg.group("3D Layout")
@@ -4466,11 +4469,18 @@ class MainWindow(QMainWindow):
         except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, "Optimization", f"{name}: {e}")
             return
-        if not self.preflight():
+        if self._is_circuit():
+            if op.props.get("Optimizer") == "Derivative Trust Region":
+                QMessageBox.warning(self, "Optimization", f"{name}: Derivative Trust Region needs the tuning model "
+                                    "of a 3D mesh. Choose Conjugate Gradient or Latin Hypercube + Nelder-Mead.")
+                return
+        elif not self.preflight():
             return
         if not self.doc.project.path or self.doc.dirty:
             if not self.file_save():
                 return
+        if self._is_circuit() and not self._solve_cross_sections():      # full-wave line model: the start widths
+            return
         self.solver.submit(Job(self.doc.project.path, self.des.name, "", optimization=name))
         self.project_tree.rebuild()
         self.optimization_results(name)
@@ -4594,6 +4604,11 @@ class MainWindow(QMainWindow):
         self.apply_variables(row["variables"], source)
         op = next((o for o in self.des.optimetrics if o.name == name), None)
         if op is None or not self.doc.project.path:
+            return
+        if self._is_circuit():                  # analyzing the circuit again takes milliseconds
+            setup = optimization_setup(op)
+            if any(s.name == setup for s in self.des.setups):
+                self.analyze_circuit([setup])
             return
         setup = optimization_setup(op)
         if not any(s.name == setup for s in self.des.setups):
@@ -5762,6 +5777,8 @@ class MainWindow(QMainWindow):
                 m.addAction("Clear Overlays", self.clear_overlays)
             elif g == "Radiation":
                 m.addAction("Insert Far Field Setup > Infinite Sphere...", self.add_sphere)
+            elif g == "Optimization" and self._is_circuit():
+                m.addAction("Add Optimization...", self.add_optimization)
             elif g == "Optimization":
                 m.addAction("Add Parametric...", self.add_parametric)
                 m.addAction("Add Optimization...", self.add_optimization)
@@ -6496,7 +6513,7 @@ class MainWindow(QMainWindow):
 
     def about(self) -> None:
         QMessageBox.about(self, "About Hertzon",
-                          f"<b>Hertzon {__version__}</b><br>Open-source 3D full-wave FEM workflow with adaptive meshing."
+                          f"<b>Hertzon {__version__}</b><br>Electromagnetic Design Suite: 3D full-wave FEM with adaptive meshing, circuits, PCBs, optimization and AI agents via MCP."
                           "<br>By Dominik Mair. FEM solver core: <a href='https://github.com/FennisRobert/EMerge'>EMerge</a> "
                           "by Robert Fennis (GPL v2+).<br>Geometry: gmsh/OpenCASCADE, display: VTK/PyVista.<br><br>"
                           "Licensed under the GNU GPL v2 or later. Provided without any warranty: check simulation "
