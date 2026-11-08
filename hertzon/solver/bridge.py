@@ -598,6 +598,15 @@ class Bridge:
                 info(f"PML on '{rname}' sides {''.join(sorted(set(sides)))}, thickness {thick * 1e3:.3g} mm")
 
     # ----------------------------------------------------------------------------------------
+    def exterior_face_tags(self) -> set[int]:
+        """Face tags on the outer boundary of the meshed domain (one side only)."""
+        if getattr(self, "_exterior_tags", None) is None:
+            try:
+                self._exterior_tags = set(self.m.mesher.domain_boundary_face_tags)
+            except Exception:  # noqa: BLE001
+                self._exterior_tags = set()
+        return self._exterior_tags
+
     def selection_for(self, a: Assignment):
         """FaceSelection for an assignment (faces of objects or whole sheet objects)."""
         em = self.em
@@ -673,10 +682,22 @@ class Bridge:
                                       name=b.name)
                 rough = ev.length(p.get("Roughness", "0") or "0")
                 thick = ev.length(p["Thickness"]) if p.get("UseThickness") == "True" else None
-                if thick is not None and p.get("TwoSided", "True") == "True":
-                    mw.bc.ThinConductor(sel, material=mat, thickness=thick, surface_roughness=rough)
+                # two-sided (the default, as HFSS treats a sheet inside the model): current and loss on both sides
+                # of the sheet, each with the surface impedance. A face on the outer boundary of the model has one
+                # side only and gets the one-sided impedance.
+                inner, outer = list(tags), []
+                if p.get("TwoSided", "True") == "True":
+                    ext = self.exterior_face_tags()
+                    inner = [t for t in tags if t not in ext]
+                    outer = [t for t in tags if t in ext]
                 else:
-                    mw.bc.SurfaceImpedance(sel, material=mat, surface_roughness=rough, thickness=thick)
+                    inner, outer = [], list(tags)
+                if inner:
+                    mw.bc.ThinConductor(em.FaceSelection(inner) if outer else sel, material=mat, thickness=thick,
+                                        surface_roughness=rough)
+                if outer:
+                    mw.bc.SurfaceImpedance(em.FaceSelection(outer) if inner else sel, material=mat,
+                                           surface_roughness=rough, thickness=thick)
             elif b.kind == "Impedance":
                 Zs = complex(ev.value(p["Resistance"]), ev.value(p["Reactance"]))
                 mw.bc.SurfaceImpedance(sel, impedance_function=lambda f, Zs=Zs: Zs)

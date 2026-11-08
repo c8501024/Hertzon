@@ -2435,7 +2435,7 @@ class MainWindow(QMainWindow):
         gmsh.model.remove()
         gmsh.model.add("hertzon_export")
         K.build_design(self.des, self.doc.evaluator())
-        gmsh.write(path)
+        K.write_step(path)
         self.msgs.add("info", f"Exported {path}")
 
     def edit_stackup(self) -> None:

@@ -32,6 +32,8 @@ _TRI_W = np.array([0.223381589678011] * 3 + [0.109951743655322] * 3)
 
 # EMerge boundary conditions that dissipate power on a surface (absorbing boundaries and ports are not losses)
 LOSSY_BCS = ("SurfaceImpedance", "ThinConductor", "LumpedElement")
+# a boundary with a separate field on each side of the sheet, both sides dissipating
+TWO_SIDED_BCS = ("ThinConductor",)
 
 
 class LossModel:
@@ -65,11 +67,19 @@ class LossModel:
             n = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0], axis=0)
             area = np.linalg.norm(n, axis=0) / 2
             n = n / np.maximum(2 * area, 1e-300)
-            pts = np.einsum("qk,ikf->iqf", _TRI, T).reshape(3, -1)
+            pts = np.einsum("qk,ikf->iqf", _TRI, T).reshape(3, -1)       # point q of face f at q*F+f
             w = np.outer(_TRI_W, area).ravel()
             nrm = np.repeat(n[:, None, :], len(_TRI), axis=1).reshape(3, -1)
-            # the containing tetrahedron of a point on a face: either side, the tangential E is continuous
-            self.surf.append({"bc": bc, "pts": pts, "w": w, "n": nrm})
+            if type(bc).__name__ in TWO_SIDED_BCS:
+                # a thin conductor has its own field on each side (EMerge splits the DoFs of the sheet) and the
+                # same surface impedance on both: its loss is the sum of the two sides. A point on the sheet
+                # interpolated in whichever tetrahedron contains it saw one side only, about half the loss.
+                for tet in _side_tets(m, tri_ids):
+                    self.surf.append({"bc": bc, "pts": _nudge(pts, nodes, tets, tet), "w": w, "n": nrm,
+                                      "map": np.tile(tet, len(_TRI))})
+            else:
+                # one-sided impedance: the tangential E is continuous through the face, either tetrahedron does
+                self.surf.append({"bc": bc, "pts": pts, "w": w, "n": nrm, "map": None})
 
     @property
     def empty(self) -> bool:
@@ -111,6 +121,25 @@ def _lossy_tets(fld, conductor_limit: float = SURFACE_IMPEDANCE_LIMIT) -> np.nda
     return out
 
 
+def _side_tets(m, tri_ids) -> list[np.ndarray]:
+    """The tetrahedra on side 0 and side 1 of mesh triangles (the triangles of an interior sheet have two)."""
+    t2t = np.asarray(m.mesh.tri_to_tet, np.int64)[:, tri_ids]
+    ntet = np.asarray(m.mesh.tets).shape[1]
+    ok = (t2t >= 0) & (t2t < ntet)
+    if not ok[1].all():                        # a face on the outer boundary: one side only
+        return [t2t[0]]
+    return [t2t[0], t2t[1]]
+
+
+def _nudge(pts, nodes, tets, tet_of_point_face, frac: float = 1e-6):
+    """Points on a face moved a tiny bit into the given tetrahedron (one per face, repeated per point), so the
+    interpolation evaluates that side's field and does not reject a point on its border."""
+    q = len(_TRI)
+    c = nodes[:, tets[:, tet_of_point_face]].mean(axis=1)               # (3, F) centroids
+    c = np.tile(c, (1, q))                                              # point q of face f at q*F+f
+    return pts + frac * (c - pts)
+
+
 def _fields_at(fld, pts, mapping=None):
     """E, H (3, N) at points; mapping: their tetrahedra when known."""
     if mapping is None:
@@ -130,7 +159,7 @@ def loss_matrix(model: LossModel, fld, excitations: list, excite) -> np.ndarray:
     k0 = w / C0
     vol_e, vol_h, surf_e = [], [], [[] for _ in model.surf]
     vmap = model.vol["map"] if model.vol is not None else None
-    smaps = [None] * len(model.surf)
+    smaps = [s.get("map") for s in model.surf]
     for x in excitations:
         excite(fld, x)
         if model.vol is not None:

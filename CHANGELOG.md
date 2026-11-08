@@ -14,6 +14,17 @@ the GitHub release notes.
   that of the surface impedance on their faces, which was already counted.
 - **Multi-Frequencies setups accept ';'**: the help said the frequencies are separated by ';', but only ','
   worked ("Invalid expression '2.45GHz;6.1GHz'"). Both work now, and the Validation Check names a bad entry.
+- **Conductor loss of sheets, radiation efficiency and gain**: Finite Conductivity sheets were one-sided by
+  default: one surface impedance carried the current of both sides of the sheet, about twice the conductor loss
+  of a strip in air. They are two-sided now by default (as HFSS treats a sheet inside the model), also without
+  "Use thickness"; a face on the outer boundary stays one-sided. The loss power of a two-sided sheet counted one
+  side only (half its loss), so the radiation efficiency, GainTotal and the power balance were too optimistic;
+  both sides count now. Lossy strip dipole (2e4 S/m, 1 GHz): one-sided efficiency 86.0 %, two-sided 91.9 %, a
+  0.2 mm conductor solid 92.2 %; the balance of the two-sided sheet went from -4.3 % to -0.3 %. Projects
+  saved with "Two-sided" off keep it, and the Validation Check warns about it; solutions of sheets with
+  "Two-sided" on and no thickness are outdated (they were solved one-sided).
+- **STEP export was 1000x too small**: coordinates were written in metres into a file that states millimetres
+  (a 147 mm model ended at 0.147 mm). GUI and MCP export write millimetres now.
 
 ### Added
 - **Validation Check: objects that almost touch**: parallel faces of two objects a few micrometres apart (a gap

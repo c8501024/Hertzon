@@ -789,6 +789,17 @@ def _cad_cache_file(path: str) -> Path:
     return d / f"{p.stem}_{key}.brep"
 
 
+def write_step(path: str) -> None:
+    """Write the current gmsh model (coordinates in metres) as a STEP file. A STEP file states its unit
+    (millimetres); without OCCTargetUnit = M the metre values were written as millimetres, 1000x too small."""
+    old = gmsh.option.getString("Geometry.OCCTargetUnit")
+    gmsh.option.setString("Geometry.OCCTargetUnit", "M")
+    try:
+        gmsh.write(path)
+    finally:
+        gmsh.option.setString("Geometry.OCCTargetUnit", old)
+
+
 def _read_brep_m(file: Path) -> list[tuple[int, int]]:
     """A BREP file whose coordinates are metres, read as they are."""
     old = gmsh.option.getString("Geometry.OCCTargetUnit")

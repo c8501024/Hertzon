@@ -232,3 +232,31 @@ def test_window_commands_of_the_new_tools(tmp_path, monkeypatch):
     link.handle("apply_evaluation", {"design": patch.name, "optimization": "PatchOpt",
                                      "row": {"eval": 3, "variables": {"Lp": "12.1mm"}, "cost": 1.0}})
     assert w.doc.project.design(patch.name).variables["Lp"] == "12.1mm"
+
+
+def test_step_export_is_in_millimetres(tmp_path):
+    """The model is built in metres; the STEP file states millimetres, so its values must be millimetres
+    (a 147 mm model came out with coordinates up to 0.147)."""
+    import gmsh
+    from hertzon.kernel import occ as K
+    K.ensure_gmsh("hertzon_test_step")
+    gmsh.model.remove()
+    gmsh.model.add("hertzon_test_step")
+    gmsh.model.occ.addBox(0, 0, 0, 0.147, 0.01, 0.002)
+    gmsh.model.occ.synchronize()
+    path = str(tmp_path / "box.step")
+    K.write_step(path)
+    gmsh.model.remove()
+    text = Path(path).read_text()
+    assert "SI_UNIT(.MILLI.,.METRE.)" in text and "147." in text
+    gmsh.model.add("hertzon_test_step_in")
+    try:
+        old = gmsh.option.getString("Geometry.OCCTargetUnit")
+        gmsh.option.setString("Geometry.OCCTargetUnit", "M")
+        gmsh.model.occ.importShapes(path)
+        gmsh.option.setString("Geometry.OCCTargetUnit", old)
+        gmsh.model.occ.synchronize()
+        bb = gmsh.model.getBoundingBox(-1, -1)
+        assert bb[3] - bb[0] == pytest.approx(0.147, rel=1e-3)
+    finally:
+        gmsh.model.remove()

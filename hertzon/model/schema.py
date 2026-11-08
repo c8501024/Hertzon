@@ -183,7 +183,7 @@ BOUNDARIES: dict[str, list[Prop]] = {
         P("Roughness", "length", "0um", label="Surface roughness (RMS)"),
         P("UseThickness", "bool", "False", label="Use thickness"),
         P("Thickness", "length", "35um", visible_if=("UseThickness", "True")),
-        P("TwoSided", "bool", "False", label="Thin conductor (two-sided)", visible_if=("UseThickness", "True")),
+        P("TwoSided", "bool", "True", label="Two-sided (sheet inside the model)"),
     ],
     "Impedance": [P("Resistance", "expr", "50", label="Resistance (ohm/sq)"),
                   P("Reactance", "expr", "0", label="Reactance (ohm/sq)")],
