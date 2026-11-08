@@ -1,11 +1,20 @@
-"""Tools > Filter Design > Tapped Hairpin: specification dialog with a live top view of the layout."""
+"""Tools > Filter Design > Tapped Hairpin: specification dialog with a live preview of what the specification
+allows (the ideal Chebyshev response with the loss of the board and the circuit of the start design), help with the
+number of resonators, a top view of the layout, and Create and Optimize (the design, then its space mapping
+optimization with the circuit as the fast model)."""
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QLineEdit, QComboBox,
-                               QSpinBox, QDoubleSpinBox, QCheckBox, QLabel, QDialogButtonBox, QWidget, QScrollArea)
+import dataclasses
 
-from ..model.filters import HairpinSpec, auto_bands, circuit_name, hairpin_circuit, hairpin_design, outlines
+import numpy as np
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QLineEdit, QComboBox,
+                               QSpinBox, QDoubleSpinBox, QCheckBox, QLabel, QDialogButtonBox, QWidget, QScrollArea,
+                               QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
+                               QAbstractItemView)
+
+from ..model.filters import (HairpinSpec, auto_bands, circuit_name, fit_region, hairpin_circuit, hairpin_design,
+                             ideal_response, nominal, outlines, suggest_n, unloaded_q)
 from ..model.materials import is_conductor
 
 
@@ -49,7 +58,8 @@ class HairpinFilterDialog(QDialog):
         inner = QWidget()
         inner.setLayout(left)
         scroll.setWidget(inner)
-        scroll.setMinimumWidth(400)
+        scroll.setMinimumWidth(560)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         top.addWidget(scroll)
 
         g = QGroupBox("Filter")
@@ -66,7 +76,20 @@ class HairpinFilterDialog(QDialog):
         self.fd.setSpecialValueText("Passband center")
         self.fd.setToolTip("Frequency the resonators are synthesized at (half wavelength); "
                            "at the minimum the passband center is used")
-        f.addRow("Resonators N", self.n)
+        self.suggest = QPushButton("Suggest N")
+        self.suggest.setToolTip("The smallest number of resonators whose ideal filter meets the rejection in the "
+                                "stopbands and the insertion loss in the passband with the loss of this board; "
+                                "the region and board grow where the hairpins need more room")
+        self.suggest.clicked.connect(self.apply_suggestion)
+        row = QWidget()
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.addWidget(self.n)
+        rl.addWidget(self.suggest)
+        f.addRow("Resonators N", row)
+        self.hint = QLabel("")
+        self.hint.setWordWrap(True)
+        f.addRow(self.hint)
         f.addRow("Passband", _pair(self.pb_lo, self.pb_hi))
         f.addRow("Design frequency", self.fd)
         f.addRow("Insertion loss <=", self.il)
@@ -114,9 +137,9 @@ class HairpinFilterDialog(QDialog):
         f.addRow("Trace width w tolerance", self.w_tol)
         f.addRow("Inner width b", _pair(self.b, self.b_tol))
         f.addRow("Coupling gap g (min, max)", _pair(self.g_lo, self.g_hi))
-        self.syn = QCheckBox("Gap and tap from the Chebyshev prototype (otherwise the middle of their ranges)")
+        self.syn = QCheckBox("Gap and tap from the Chebyshev prototype")
         self.syn.setChecked(d.synthesis)
-        self.syn.setToolTip("Couplings and external Q of the prototype for the passband with the return loss goal "
+        self.syn.setToolTip("Otherwise the middle of their ranges. Couplings and external Q of the prototype for the passband with the return loss goal "
                             "+ 3 dB; the gap from the coupled line impedances, the tap height from the external Q")
         f.addRow(self.syn)
         f.addRow("Length L of lambda_g (min, start, max)", _pair(self.l_lo, self.l0, self.l_hi))
@@ -128,7 +151,9 @@ class HairpinFilterDialog(QDialog):
         f = QFormLayout(g)
         self.f_lo, self.f_hi = _num(d.sweep[0], 0.001, 300, 4, "GHz"), _num(d.sweep[1], 0.001, 300, 4, "GHz")
         self.f_step = _num(d.sweep[2], 0.0001, 10, 4, "GHz")
-        self.opt = QCheckBox("Add the optimizations on the filter mask (conjugate gradient, derivative trust region, space mapping with the filter as a circuit)")
+        self.opt = QCheckBox("Add the optimizations on the filter mask")
+        self.opt.setToolTip("Conjugate gradient, derivative trust region, and space mapping with the filter as a "
+                            "circuit (HairpinSM, the fast one: Create and Optimize starts it)")
         self.opt.setChecked(True)
         self.name = QLineEdit("")
         self.name.setPlaceholderText("Hairpin_N3")
@@ -141,19 +166,45 @@ class HairpinFilterDialog(QDialog):
         right = QVBoxLayout()
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
         from matplotlib.figure import Figure
+        self.tabs = QTabWidget()
+        self.rfig = Figure(figsize=(5.6, 4.0), tight_layout=True)
+        self.rax = self.rfig.add_subplot(111)
+        self.rcanvas = FigureCanvasQTAgg(self.rfig)
+        self.tabs.addTab(self.rcanvas, "Response")
         self.fig = Figure(figsize=(5.2, 5.2), tight_layout=True)
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasQTAgg(self.fig)
-        right.addWidget(self.canvas, 1)
+        self.tabs.addTab(self.canvas, "Layout")
+        right.addWidget(self.tabs, 1)
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["N", "Rejection (dB)", "Insertion loss (dB)", "Rejection reached at",
+                                              "Goals"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setMaximumHeight(150)
+        self.table.setToolTip("The ideal filter of every N with the unloaded Q of this board: worst rejection in "
+                              "the stopbands, worst insertion loss in the passband, the frequencies where S21 "
+                              "falls below the rejection goal. Double-click a row to use that N")
+        self.table.cellDoubleClicked.connect(lambda r, _c: self.set_n(int(self.table.item(r, 0).text())))
+        right.addWidget(self.table)
         self.info = QLabel("")
         self.info.setWordWrap(True)
         right.addWidget(self.info)
         self.bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.bb.button(QDialogButtonBox.Ok).setText("Create Design")
+        self.go = self.bb.addButton("Create and Optimize", QDialogButtonBox.ActionRole)
+        self.go.setToolTip("Create the design with its circuit model and start the space mapping optimization "
+                           "(HairpinSM): the circuit is optimized in seconds, a few 3D solves correct it")
+        self.go.clicked.connect(self._optimize_clicked)
         self.bb.accepted.connect(self.accept)
         self.bb.rejected.connect(self.reject)
         right.addWidget(self.bb)
         top.addLayout(right, 1)
+        self.run_optimization = ""                  # the optimization the main window starts after inserting
 
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
@@ -167,8 +218,41 @@ class HairpinFilterDialog(QDialog):
         self.mat.currentTextChanged.connect(self.timer.start)
         self.n.valueChanged.connect(lambda v: self.name.setPlaceholderText(f"Hairpin_N{v}"))
         self.design = None
-        self.resize(1080, 720)
+        self.resize(1280, 820)
         self.refresh()
+
+    # ---- number of resonators and optimization ---------------------------------------------------
+    def set_n(self, n: int) -> None:
+        """Use n resonators; the region and board grow where the hairpins do not fit."""
+        self.n.setValue(n)
+        try:
+            s = self.spec()
+            ok = True
+            try:
+                nom = nominal(s)
+                ok = not any(w.startswith(("Length range", "Inner width", "The start length")) for w in nom["warnings"])
+            except ValueError:
+                ok = False
+            if not ok:
+                region, board = fit_region(s)
+                self.region.setValue(max(region, self.region.value()))
+                self.board.setValue(max(board, self.board.value()))
+        except ValueError:
+            pass
+
+    def apply_suggestion(self) -> None:
+        try:
+            n, _why, _rows = suggest_n(self.spec())
+        except ValueError:
+            return
+        self.set_n(n)
+
+    def _optimize_clicked(self) -> None:
+        self.opt.setChecked(True)
+        self.refresh()
+        if self.design is not None:
+            self.run_optimization = "HairpinSM"
+            self.accept()
 
     # ---- specification ------------------------------------------------------------------------
     def extra_designs(self) -> list:
@@ -240,9 +324,14 @@ class HairpinFilterDialog(QDialog):
             self.design = None
             self.info.setText(f"<span style='color:#c0392b'>{e}</span>")
             self.bb.button(QDialogButtonBox.Ok).setEnabled(False)
+            self.go.setEnabled(False)
             self.canvas.draw_idle()
+            self.rax.clear()
+            self.rcanvas.draw_idle()
             return
         self.bb.button(QDialogButtonBox.Ok).setEnabled(True)
+        self.go.setEnabled(True)
+        self._response(s)
         half, reg = s.board / 2, s.region / 2
         ax.fill([-half, half, half, -half], [-half, -half, half, half], color="#c9d6a3", zorder=0)
         ax.plot([-reg, reg, reg, -reg, -reg], [-reg, -reg, reg, reg, -reg], "--", color="#7f8c5a", lw=0.8, zorder=1)
@@ -278,6 +367,65 @@ class HairpinFilterDialog(QDialog):
         if nom["warnings"]:
             txt += "<br><span style='color:#b9770e'>" + "<br>".join(nom["warnings"]) + "</span>"
         self.info.setText(txt)
+
+    def _response(self, s: HairpinSpec) -> None:
+        """The response tab, the table of N and the hint: the ideal Chebyshev filter of N resonators (and of N - 1,
+        N + 1) with the unloaded Q of the board, the circuit of the start design and the filter mask."""
+        qu = unloaded_q(s)
+        n_best, why, rows = suggest_n(s, qu=qu)
+        lo, hi = s.passband
+        bw = hi - lo
+        a = min(s.sweep[0], lo - 1.5 * bw, *(x for x, _ in s.stopbands))
+        b = max(s.sweep[1], hi + 1.5 * bw, *(y for _, y in s.stopbands))
+        f = np.linspace(max(a, 1e-3), b, 601)
+        ax = self.rax
+        ax.clear()
+        db = lambda v: 20 * np.log10(np.maximum(np.abs(v), 1e-12))  # noqa: E731
+        for k, style in ((s.n - 1, ":"), (s.n + 1, "--")):
+            if 2 <= k <= 9:
+                ax.plot(f, db(ideal_response(s, f, k, qu)[0]), style, color="#9aa5b1", lw=1, label=f"Ideal S21, N = {k}")
+        s21, s11 = ideal_response(s, f, s.n, qu)
+        ax.plot(f, db(s21), color="#1f5fbf", lw=2, label=f"Ideal S21, N = {s.n} (Qu {qu:.0f})")
+        ax.plot(f, db(s11), color="#1f5fbf", lw=1, alpha=0.45, label="Ideal S11")
+        try:
+            from ..model.design import Project
+            from ..solver.circuit import analyze
+            c = hairpin_circuit(dataclasses.replace(s, optimization=False), "preview")
+            fc = np.linspace(s.sweep[0], s.sweep[1], 181)
+            S = analyze(Project(), c, fc * 1e9).S
+            ax.plot(fc, db(S[:, 1, 0]), color="#c8892b", lw=1.2, label="Start design (circuit), S21")
+        except Exception:  # noqa: BLE001 (the preview of the start design is optional)
+            pass
+        # the mask
+        ax.plot([lo, hi], [-s.insertion_loss] * 2, color="#27ae60", lw=2.5)
+        ax.plot([lo, hi], [-s.return_loss] * 2, color="#27ae60", lw=1.5, ls="--")
+        for x, y in s.stopbands:
+            ax.plot([x, y], [-s.rejection] * 2, color="#c0392b", lw=2.5)
+        ax.set_xlim(f[0], f[-1])
+        ax.set_ylim(min(-s.rejection - 25, -40), 2)
+        ax.set_xlabel("Frequency (GHz)")
+        ax.set_ylabel("dB")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7, loc="lower center")
+        self.rcanvas.draw_idle()
+        self.table.setRowCount(len(rows))
+        for i, r in enumerate(rows):
+            e0, e1 = r["edges"]
+            edges = f"{e0:.4g} / {e1:.4g} GHz" if e0 is not None and e1 is not None else "-"
+            cells = [str(r["n"]), f"{r['rejection']:.1f}", f"{r['il']:.2f}", edges,
+                     "met" if r["ok"] else ("rejection only" if r["rejection"] >= s.rejection else "-")]
+            for j, t in enumerate(cells):
+                it = QTableWidgetItem(t)
+                if r["n"] == s.n:
+                    font = it.font()
+                    font.setBold(True)
+                    it.setFont(font)
+                self.table.setItem(i, j, it)
+        hint = f"Suggested: N = {n_best}. {why}."
+        if n_best % 2 == 0:
+            hint += " Odd N are easier for the tapped hairpin (even N: the taps sit on opposite sides)."
+        met = any(r["ok"] and r["n"] == s.n for r in rows)
+        self.hint.setText(f"<span style='color:{'#1e8449' if met else '#b9770e'}'>{hint}</span>")
 
 
 def _float(text) -> float:

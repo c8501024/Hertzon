@@ -184,6 +184,10 @@ shape of response. **Tools › Filter Design › Tapped Hairpin** adds the filte
 mitered bends) and the optimization *HairpinSM* on L, dL, g and yP. On the third-order example the circuit
 lies within about 1 % of the 3D response, and *HairpinSM* reached the cost of the circuit optimum (0.31) in
 three 3D solves, about 13 minutes on 4 cores, where the Derivative Trust Region needed 4.5 hours for 0.60.
+The schematic is drawn like the filter seen from above: the U of every hairpin, the coupled arms side by side,
+the feeds at the taps. The dialog shows, while the values change, the ideal Chebyshev response of N resonators
+with the loss of the board, the circuit of the start design and the mask; its table of N and **Suggest N** help
+choosing the number of resonators, and **Create and Optimize** creates the design and starts *HairpinSM*.
 
 ## 3D layout
 
