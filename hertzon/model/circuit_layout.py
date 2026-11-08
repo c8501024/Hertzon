@@ -164,6 +164,8 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     d.variables[T] = sub["T"]
     d.variables["Margin"] = MARGIN
 
+    spacings: list[Lin] = []           # gaps of coupled lines and gap parts (they set the trace mesh too)
+
     def setvar(n: str, value: str) -> Lin:
         d.variables[n] = value
         return var(n)
@@ -364,12 +366,14 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                 for j in (1, 2):
                     setvar(f"{c.name}_W{j}", c.props[f"W{j}"])
                 g = setvar(f"{c.name}_S", c.props["S"])
+                spacings.append(g)
                 reach(nodes[c.name][1 - k], here + along(dd, g), c)
             elif t == "MCLIN":
                 da = _dir(pp[0], pp[1])
                 o = _dir(pp[0], pp[2])
                 w, ln = setvar(f"{c.name}_W", c.props["W"]), setvar(f"{c.name}_L", c.props["L"])
                 s = setvar(f"{c.name}_S", c.props["S"])
+                spacings.append(s)
                 off = along(o, w + s)
                 rel = [Pt(Lin(), Lin()), along(da, ln), off, along(da, ln) + off]
                 p0 = here - rel[k]
@@ -606,7 +610,9 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                Impedance=c.props.get("Z0", "50ohm") or "50ohm",
                IntegrationLine=f"{p.x.text()},{p.y.text()},0;{p.x.text()},{p.y.text()},{zt.text()}")
     if rects:
-        wmin = min((r.w for r in rects), key=lambda q: q.num(vals))
+        # the finest trace or gap: a gap of coupled lines must be resolved from the first pass, the adaptive
+        # mesh at a frequency in the stopband would not refine it
+        wmin = min([r.w for r in rects] + spacings, key=lambda q: q.num(vals))
         assign(d.mesh_ops, schema.MESH_OPS, "Length Based On Selection", "Length_Traces", conductors,
                MaxLength=(wmin * 0.5).text())
     st = Setup("Setup1")
