@@ -1777,13 +1777,33 @@ _APEX_CB = None
 _ALL_NODES: list = []     # [lut, coords] of the whole display mesh, filled lazily per tessellation
 
 
+def node_table() -> tuple[np.ndarray, np.ndarray]:
+    """(lut, coords) of every node of the current mesh: coords[lut[node tag]].
+
+    Element node tags of a face must be looked up here, not in getNodes(2, face, includeBoundary=True): that
+    leaves out the nodes of curves and points embedded in the face. OCC keeps internal edges and vertices
+    that a boolean leaves inside a face (slots and pockets of imported STEP bodies), gmsh meshes them as
+    embedded entities, and the triangles of the face use their nodes. The per-face lookup then failed with
+    "index N is out of bounds for axis 0 with size M", or quietly used wrong points."""
+    ntags, coords, _ = gmsh.model.mesh.getNodes()
+    X = coords.reshape(-1, 3)
+    lut = np.full(int(ntags.max()) + 1 if len(ntags) else 1, -1, np.int64)
+    lut[ntags.astype(np.int64)] = np.arange(len(ntags))
+    return lut, X
+
+
+def element_points(lut: np.ndarray, X: np.ndarray, enodes) -> np.ndarray:
+    """Coordinates of element node tags (any shape) from a node_table."""
+    en = np.asarray(enodes, np.int64)
+    idx = lut[en] if len(en) and en.max() < len(lut) else np.full(en.shape, -1, np.int64)
+    if (idx < 0).any():
+        raise ValueError("element nodes missing from the node table")
+    return X[idx]
+
+
 def _all_nodes():
     if not _ALL_NODES:
-        ntags, coords, _ = gmsh.model.mesh.getNodes()
-        X = coords.reshape(-1, 3)
-        lut = np.full(int(ntags.max()) + 1 if len(ntags) else 1, -1, np.int64)
-        lut[ntags.astype(np.int64)] = np.arange(len(ntags))
-        _ALL_NODES[:] = [lut, X]
+        _ALL_NODES[:] = list(node_table())
     return _ALL_NODES
 
 
@@ -1808,10 +1828,14 @@ def _entity_tris(dim: int, tag: int):
         return X, (np.vstack(conn) if conn else np.zeros((0, 3), np.int64))
     ntags, coords, _ = gmsh.model.mesh.getNodes(dim, tag, includeBoundary=True)
     X = coords.reshape(-1, 3)
-    if len(ntags) == 0:
+    if len(ntags) == 0 or not len(types):
         return X, np.zeros((0, 3), np.int64)
     lut = np.full(int(ntags.max()) + 1, -1, np.int64)
     lut[ntags] = np.arange(len(ntags))
+    used = np.unique(np.concatenate([e.astype(np.int64) for e in enodes]))
+    if used.max() >= len(lut) or (lut[used] < 0).any():
+        # nodes of embedded curves or points (internal edges of the face): the table of the whole mesh
+        lut, X = node_table()
     conn = []
     for t, en in zip(types, enodes):
         if t == 2:     # 3-node triangle
