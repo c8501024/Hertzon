@@ -18,9 +18,10 @@
 
 **Hertzon Electromagnetic Design Suite:** an open-source suite for co-design by engineers and AI agents. At its core is a 3D
 full-wave electromagnetic simulator (FEM, frequency domain) for **antennas, microwave
-filters, waveguides, PCB structures and radar cross section**, with a **classic engineering workflow**:
-draw the model, assign boundaries and excitations, add an analysis setup with
-**adaptive meshing**, add frequency sweeps, analyze, then look at S-parameters, fields
+filters, waveguides, PCB structures and radar cross section**, with **3D modelling** in a modern interface, the **workflow
+of the established design tools** and **high accuracy** from adaptive meshing and curved elements: draw or
+import the model, assign boundaries and excitations, add an analysis setup with **adaptive meshing**, add
+frequency sweeps, analyze, then look at S-parameters, fields
 and radiation patterns. Circuit designs with lumped parts and transmission lines turn into 3D layouts
 and back.
 
