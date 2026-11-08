@@ -3,6 +3,41 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **MCP calls no longer hang until the client gives up**: in the Meta benchmark (Example 2) three calls got no
+  answer for 30 min each, until Claude Code aborted them, and the server answered the next call at once.
+  Everything the server and its children print (gmsh, EMerge, progress lines, tracebacks) used to go into the
+  client's stderr pipe; a client that does not read that pipe lets it fill up, and the next write blocks the
+  server. It now goes to a log file, ~/.hertzon/logs/mcp-<date>-<pid>.log (the last 20 are kept,
+  HERTZON_MCP_LOG sets another path, '-' the old behaviour). The standard input of the server is the null
+  device, so a child started by a tool can no longer read or wait on the protocol stream, and on Windows the
+  pipe is read only when data is there (PeekNamedPipe): a waiting read held every DLL load (gmsh, scipy,
+  EMerge) and child start in the server until the client wrote again. Answers with NaN or
+  infinite values (written as NaN/Infinity, which is not JSON, so the client dropped them) carry null instead.
+- **MCP log**: each request is logged with its duration, and a request that runs longer than 5 min writes the
+  stacks of all threads to the log (again every 5 min; HERTZON_MCP_WATCHDOG sets the time), so a call that
+  does not come back shows where it waits.
+- **MCP project tools are 12 s faster per call** on a machine with stale link files: link files of Hertzon
+  windows that are gone (left by a crash) are removed, and the remaining windows are asked at the same time
+  instead of one after another with 2 s each.
+- **Simulations start as fast as before 0.3.4**: the check for sheets that run through conductors no longer
+  runs before every simulation. It built the whole model a second time and cut every sheet with every solid
+  (on a board with 85 vias 26 s against 2 s for the model itself), before each run and each optimization
+  step. It now runs only when meshing or solving fails, to name the sheets in the error message; the
+  Validation Check shows the same warnings as before.
+- **MCP**: the geometry process for render_image, validate, get_geometry and run_simulation starts with the
+  server and loads gmsh and Hertzon right away, so the first call no longer waits for it
+  (HERTZON_NO_PRELOAD=1 turns it off).
+- **MCP import_geometry** reads the STEP, IGES, BREP or STL file in the geometry process, with a time limit
+  (timeout_s), progress and cancel like render_image. A large file no longer holds the whole server without
+  an answer.
+- **STEP and IGES imports are read from a cache**: the file is translated once and kept as BREP
+  (~/.hertzon/cad_cache). Every later build reads the cache, whether in the window, over MCP, or for each
+  simulation and optimization step. On an assembly with 800 bodies that took 0.4 s instead of 13 s. A changed
+  file is translated again.
+
 ## 0.3.4 (2026-11-07)
 
 ### Added

@@ -769,9 +769,9 @@ def _drop_refs(d: Design, objs) -> list[str]:
     return removed
 
 
-def _check_built(ctx: Ctx, names: list[str], max_faces: int = 30) -> dict:
+def _check_built(ctx: Ctx, names: list[str], max_faces: int = 30, timeout: float | None = None) -> dict:
     try:
-        rep = geometry_report(ctx.proj, ctx.des, names, max_faces)
+        rep = geometry_report(ctx.proj, ctx.des, names, max_faces, timeout=timeout)
     except Exception as e:  # noqa: BLE001
         return {"geometry_check": f"not built: {e}"}
     return {"geometry": rep["objects"], **({"errors": rep["errors"]} if rep["errors"] else {})}
@@ -809,24 +809,25 @@ def t_add_object(args):
 
 
 def t_import_geometry(args):
-    import gmsh
-    from ..kernel import occ as K
+    from . import geomworker as W
+    from .protocol import cancelled, progress
     ctx = load(args)
     d = ctx.des
     f = _abspath(args["file"])
     if not Path(f).exists():
         raise ToolError(f"File not found: {f}")
-    K.ensure_gmsh("hertzon_mcp_probe")
-    gmsh.model.remove()
-    gmsh.model.add("hertzon_mcp_probe")
+    # read in the geometry process: a large file never holds the server (time limit, cancel)
+    limit = W.default_timeout() if args.get("timeout_s") is None else float(args["timeout_s"])
     try:
-        if f.lower().endswith(".stl"):
-            bodies = K.import_stl(f, _unit(d), count_only=True)
-        else:
-            bodies = K.import_cad(f, _unit(d))
-        gmsh.model.occ.synchronize()
-    except Exception as e:  # noqa: BLE001
-        raise ToolError(f"Import failed: {e}") from e
+        bodies = W.probe(f, _unit(d), limit, on_progress=progress, should_stop=cancelled)
+    except W.BuildTimeout:
+        raise ToolError(f"Reading {Path(f).name} took longer than {limit:g} s and was stopped. The server is "
+                        "still available. Give timeout_s for a longer limit (or set HERTZON_MCP_BUILD_TIMEOUT).") \
+            from None
+    except W.BuildCancelled:
+        raise ToolError("The import was cancelled.") from None
+    except RuntimeError as e:
+        raise ToolError(f"Import failed: {e}") from None
     base = args.get("name") or Path(f).stem
     mat = args.get("material") or "vacuum"
     names = []
@@ -838,7 +839,7 @@ def t_import_geometry(args):
     commit(ctx, f"import {Path(f).name}")
     out = {"objects": names}
     if args.get("check", True):
-        out.update(_check_built(ctx, names, 20))
+        out.update(_check_built(ctx, names, 20, args.get("timeout_s")))
     return out
 
 
@@ -2235,7 +2236,7 @@ TOOLS = [
                  ["kind"]), t_add_object),
     Tool("import_geometry", "Import a STEP, IGES, BREP or STL file; one object per body.",
          _schema({"file": {"type": "string"}, "name": {"type": "string"}, "material": {"type": "string"},
-                  "check": {"type": "boolean"}}, ["file"]), t_import_geometry),
+                  "check": {"type": "boolean"}, "timeout_s": TIMEOUT}, ["file"]), t_import_geometry),
     Tool("modify_object", "Change creation or operation properties (history_index), material, attributes, "
          "name; suppress or remove an operation.",
          _schema({"name": {"type": "string"}, "props": OBJ, "history_index": {"type": "integer"},

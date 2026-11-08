@@ -123,3 +123,37 @@ def test_render_of_an_imported_board_is_bounded_and_the_server_stays_usable(tmp_
         assert not r["isError"] and "detail fast" in text
     finally:
         c.close()
+
+
+def test_import_geometry_reads_the_file_in_the_geometry_process_with_a_time_limit(tmp_path):
+    """A STEP file is read in the child process: the bodies come back, and a file the kernel reads for too
+    long is stopped with a clear message while the server stays available."""
+    import gmsh
+    gmsh.initialize(interruptible=False)
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        gmsh.model.add("step")
+        gmsh.model.occ.addBox(0, 0, 0, 1, 1, 1)
+        gmsh.model.occ.addSphere(3, 0, 0, 0.5)
+        gmsh.model.occ.synchronize()
+        step = tmp_path / "two.step"
+        gmsh.write(str(step))
+    finally:
+        gmsh.finalize()
+    env = dict(os.environ, HERTZON_HOME=str(tmp_path / "home"), HERTZON_MCP_MODE="file",
+               PYTHONPATH=str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    c = _Client(env)
+    try:
+        c.send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})
+        c.wait(1)
+        c.call(2, "create_project", path=str(tmp_path / "p.hzn"), units="mm")
+        assert not c.result(2)[0]["isError"]
+        c.call(3, "import_geometry", file=str(step), timeout_s=0.001, check=False)
+        r, text = c.result(3, 60)
+        assert r["isError"] and "was stopped" in text and "still available" in text
+        c.call(4, "import_geometry", file=str(step), name="part")
+        r, text = c.result(4, 120)
+        assert not r["isError"], text
+        assert json.loads(text)["objects"] == ["part_1", "part_2"]
+    finally:
+        c.close()
