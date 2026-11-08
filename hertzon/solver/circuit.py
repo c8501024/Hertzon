@@ -398,6 +398,7 @@ def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) 
     pidx = np.array(port_nodes) - 1
     inner = np.array(sorted(set(range(n)) - set(pidx.tolist())), int)
     sq = np.sqrt(np.array(z_ref))
+    where = {c.name: np.ix_(nodes_of[c.name], nodes_of[c.name]) for c in comps}
     for k, f in enumerate(freqs):
         Y = np.zeros((n + 1, n + 1), complex)
         for c in comps:
@@ -418,7 +419,7 @@ def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) 
                 Ym = element_y(c, f, values[c.name], tables.get(c.name))
             if Ym is None:
                 continue
-            Y[np.ix_(nd, nd)] += Ym
+            Y[where[c.name]] += Ym
         Y = Y[1:, 1:] + GMIN * np.eye(n)
         Ypp = Y[np.ix_(pidx, pidx)]
         if inner.size:

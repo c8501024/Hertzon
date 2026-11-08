@@ -171,6 +171,20 @@ sets the variables and analyzes the circuit again; **Create 3D Layout** then tak
 the 3D design as the start for a full-wave check or a final optimization there. With the full-wave line model,
 new cross-sections (changed widths) are solved and cached during the run.
 
+### Space mapping: the circuit as the fast model of a 3D design
+
+A 3D optimization with the optimizer **Space Mapping** uses a circuit design with the same variable names as
+its coarse model (Optimizer tab: *Circuit design*). The goals are first optimized on the circuit (about a
+minute), then every round solves the 3D design once, fits the circuit to the solved S11 and S21 (which circuit
+values give the same response) and moves the 3D variables so that the fitted values reach the circuit
+optimum (aggressive space mapping with a Broyden update, Bandler et al.). The error of the circuit (coupling,
+junctions, open ends) is corrected by the 3D solves; a few rounds are enough when the circuit has the right
+shape of response. **Tools › Filter Design › Tapped Hairpin** adds the filter as a circuit
+(`Hairpin_N3_Circuit`: coupled lines for the arms of neighbouring hairpins, tee and open stub at the taps,
+mitered bends) and the optimization *HairpinSM* on L, dL, g and yP. On the third-order example the circuit
+lies within about 1 % of the 3D response, and *HairpinSM* reached the cost of the circuit optimum (0.31) in
+three 3D solves, about 13 minutes on 4 cores, where the Derivative Trust Region needed 4.5 hours for 0.60.
+
 ## 3D layout
 
 **Simulation › 3D Layout › Create 3D Layout** builds a new 3D design from the schematic:

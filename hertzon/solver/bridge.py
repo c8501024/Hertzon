@@ -275,6 +275,8 @@ class Bridge:
         keep_global_max_size(m)
         m.generate_mesh()
         info(f"Initial mesh: {m.mesh.n_tets} tetrahedra")
+        from .port_lines import spread_lumped_port_lines
+        spread_lumped_port_lines(m)       # port voltage averaged over the width, not taken at a corner
         self.step("Initial meshing", t)
 
     def solve(self) -> None:
@@ -3423,6 +3425,12 @@ def _solve_at(m, freqs, **kw):
             if note not in _PAR_NOTE:          # once per setting (an interpolating sweep solves in batches)
                 _PAR_NOTE.append(note)
                 info(f"Parallel sweep: {nw} frequencies at a time, PARDISO with {note[1]} cores each")
+    # EMerge assembles the system matrices of a whole frequency group before it solves the first one, and its
+    # default group is every frequency: a 71-point discrete sweep of a 250k-unknown antenna held all 71
+    # matrices at once (14 GB, killed for lack of memory). Groups of as many frequencies as are solved at a
+    # time keep one batch in memory; the worker pool spans the groups, so nothing is rebuilt between them.
+    if "frequency_groups" not in kw:
+        kw = dict(kw, frequency_groups=max(1, int(kw.get("n_workers", 1))) if kw.get("parallel") else 1)
     # EMerge refuses a solver chosen with set_solver() in its worker threads unless it is marked
     # thread-safe, and warns for every frequency; the automatic choice (mt_pardiso) gives PARDISO there
     routine = getattr(m.mw, "solveroutine", None)

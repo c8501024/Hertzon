@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.9 (2026-11-08)
 
 ### Added
 - **Optimization of circuit designs**: the optimizers (Conjugate Gradient, Latin Hypercube + Nelder-Mead) now
@@ -11,13 +11,37 @@ the GitHub release notes.
   Every evaluation is a circuit analysis in the optimizer process, so thousands of designs take seconds; Apply
   Best Variables analyzes the circuit again. A circuit optimized this way is a fast start design for its 3D
   layout. See [Circuit designs](docs/CIRCUIT.md#optimization).
+- **Space Mapping optimizer**: a 3D design is optimized with a circuit design of the same variables as its fast
+  coarse model. The goals are optimized on the circuit, then each round solves the 3D design once, fits the
+  circuit to the solved response and corrects the 3D variables (aggressive space mapping, Broyden update).
+- **Hairpin filter as a circuit**: Tools › Filter Design › Tapped Hairpin (and MCP `create_hairpin_filter`)
+  also creates the filter as a circuit (coupled lines, taps, bends; within about 1 % of the 3D response) and the
+  optimization *HairpinSM*. On the third-order example it reached the circuit optimum in three 3D solves, about
+  13 minutes on 4 cores, instead of 4.5 hours with the Derivative Trust Region.
+- **Hairpin filter: one gap per pair of neighbours** (g in the middle, g2, g3 ... outwards, symmetric), each
+  from its own coupling of the Chebyshev prototype and included in the optimizations. With one common gap,
+  four or more resonators could not reach a Chebyshev response; the fifth-order circuit now reaches a return
+  loss of 18 dB in the passband.
 
 ### Changed
+- **Faster circuit analysis**: expressions are parsed once and the line and junction models are cached; the
+  hairpin circuit takes 30 ms instead of 95 ms per analysis.
 - **Hertzon is now the "Electromagnetic Design Suite"**: new subtitle on the splash screen, the website, the
   README, the About dialog and the package description. It names what Hertzon has grown into besides the 3D
   full-wave FEM solver: circuits with their 3D layout, PCB import, optimization and AI agents through MCP.
 - **Co-design with AI**: the website and the README now lead with the vision of co-design by engineer and AI
   agent; the new page [What is MCP?](docs/MCP.md) explains MCP and how Hertzon offers its methods as tools.
+
+### Fixed
+- **S-parameters of wide lumped ports** (#231): the port voltage was integrated on a single line at a corner
+  of the port sheet (EMerge starts its lines at the edge nodes with exactly the lowest coordinate, which with
+  rounding is often one node). The voltage is now averaged over lines spread evenly across the width of the
+  port. On the UWB dipole of #231 (a 12.8 x 3 mm port) S11 changes by up to 2 dB and the radiated power now
+  matches the accepted power within 0.5 % over the whole sweep (it was up to 1.7 % above).
+- **Discrete sweeps ran out of memory on large meshes**: the system matrices of every frequency of the sweep
+  were assembled before the first was solved. A 71-point sweep of a UWB dipole with 250,000 unknowns needed
+  14 GB and was killed; it is now assembled in batches of the frequencies solved at a time (6 GB peak, same
+  results).
 
 ## 0.3.8 (2026-11-08)
 

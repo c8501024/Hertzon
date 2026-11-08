@@ -61,7 +61,7 @@ def test_hairpin_derivative_trust_region_optimization():
     """The second optimization has the same goals and ranges, with the derivative trust region on L, g, yP."""
     p = hairpin_project(HairpinSpec(n=3))
     d = p.designs[0]
-    cg, dtr = d.optimetrics
+    cg, dtr, _ = d.optimetrics
     assert dtr.name == "HairpinDTR" and dtr.props["Optimizer"] == "Derivative Trust Region"
     assert dtr.solution == cg.solution and dtr.goals == cg.goals and dtr.goals is not cg.goals
     assert [(v["name"], v["min"], v["max"]) for v in dtr.variables] == [(v["name"], v["min"], v["max"]) for v in cg.variables]
@@ -184,3 +184,46 @@ def test_patch_dialog():
     assert dlg.design.name == "Patch_5.8GHz" and dlg.design.spheres
     dlg.close()
     del app
+
+
+def test_hairpin_circuit_model_and_space_mapping():
+    """The project has the filter as a circuit with the same variables, the coarse model of HairpinSM; the
+    circuit has the passband of the 3D design (2.45 GHz centre, 3 resonators)."""
+    from hertzon.solver.circuit import analyze
+    p = hairpin_project(HairpinSpec(n=3))
+    d, c = p.designs
+    sm = d.optimetrics[2]
+    assert sm.name == "HairpinSM" and sm.props["Optimizer"] == "Space Mapping"
+    assert sm.props["CoarseModel"] == c.name == "Hairpin_N3_Circuit" and c.kind == "circuit"
+    assert [v["name"] for v in sm.variables if v["include"]] == ["L", "dL", "g", "yP"] and sm.goals == d.optimetrics[0].goals
+    assert all(c.variables[k] == d.variables[k] for k in d.variables)
+    f = np.array([2.0, 2.45, 2.9]) * 1e9
+    S = analyze(p, c, f).S
+    db = 20 * np.log10(np.abs(S[:, 1, 0]))
+    assert db[1] > -2 and db[0] < -20 and db[2] < -20              # passband in the middle, stopbands outside
+    q = project_from_dict(p.to_dict())
+    assert q.designs[1].components and q.designs[0].optimetrics[2].props["CoarseModel"] == c.name
+
+
+def test_one_gap_per_pair_of_neighbours():
+    """Symmetric filters: g in the middle, g2, g3 ... outwards, each from its own coupling of the prototype;
+    the hairpins sit at those gaps, the circuit uses them and the optimizations include them."""
+    from hertzon.model.filters import gap_names
+    assert gap_names(3) == ["g", "g"] and gap_names(4) == ["g2", "g", "g2"]
+    assert gap_names(5) == ["g2", "g", "g", "g2"] and gap_names(6) == ["g3", "g2", "g", "g2", "g3"]
+    spec = HairpinSpec(n=5, region=32.5, board=38.5)
+    p = hairpin_project(spec)
+    d, c = p.designs
+    ev = d.evaluator(p)
+    g, g2 = ev.length("g") * 1e3, ev.length("g2") * 1e3
+    assert g2 < g                        # the outer pairs couple more (Chebyshev k12 > k23)
+    ol = outlines(d, p)
+    # inner edges of neighbouring hairpins: the gaps of the row, symmetric
+    xs = [(min(x for x, _ in ol[f"Hairpin{i}"]), max(x for x, _ in ol[f"Hairpin{i}"])) for i in range(1, 6)]
+    gaps = [xs[i + 1][0] - xs[i][1] for i in range(4)]
+    assert np.allclose(gaps, [g2, g, g, g2], atol=1e-6)
+    assert np.isclose(xs[0][0], -xs[-1][1])                       # centred row
+    assert [x.props["S"] for x in c.components if x.type == "MCLIN"] == ["g2", "g", "g", "g2"]
+    for o in d.optimetrics:
+        names = [v["name"] for v in o.variables if v["include"]]
+        assert "g2" in names and "g" in names
