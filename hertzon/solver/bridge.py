@@ -104,7 +104,8 @@ def adaptive_frequencies(setup: Setup, ev: Evaluator) -> list[float]:
         return [ev.freq(p.get("MinimumFrequency", "1GHz") or "1GHz")]
     mode = p.get("SolutionFrequencyMode", "Single")
     if mode == "Multi-Frequencies":
-        return sorted(ev.freq(x) for x in p.get("MultiFrequencies", "").split(",") if x.strip())
+        from ..model.schema import frequency_list
+        return sorted(ev.freq(x) for x in frequency_list(p.get("MultiFrequencies", "")))
     if mode == "Broadband":
         return [ev.freq(p["LowFrequency"]), ev.freq(p["HighFrequency"])]
     return [ev.freq(p["Frequency"])]
@@ -451,10 +452,11 @@ class Bridge:
         fails (they are the usual cause of an inconsistent mesh). Run only then: it builds the whole model again
         in a scratch model and intersects every sheet with every solid, which made every start slower. The
         Validation Check shows the same warnings before a run."""
-        from ..model.validate import sheet_messages
+        from ..model.validate import contact_messages, sheet_messages
         try:
             cond = lambda n: is_conductor(self.project.material(self.design.obj(n).material))  # noqa: E731
-            self.sheet_hints = sheet_messages(self.design, K.sheet_placement(self.design, self.ev, cond))
+            pl = K.sheet_placement(self.design, self.ev, cond)
+            self.sheet_hints = contact_messages(pl) + sheet_messages(self.design, pl)
         except Exception as e:  # noqa: BLE001
             self.sheet_hints = []
             info(f"Sheet placement check skipped: {e}")
@@ -596,6 +598,15 @@ class Bridge:
                 info(f"PML on '{rname}' sides {''.join(sorted(set(sides)))}, thickness {thick * 1e3:.3g} mm")
 
     # ----------------------------------------------------------------------------------------
+    def exterior_face_tags(self) -> set[int]:
+        """Face tags on the outer boundary of the meshed domain (one side only)."""
+        if getattr(self, "_exterior_tags", None) is None:
+            try:
+                self._exterior_tags = set(self.m.mesher.domain_boundary_face_tags)
+            except Exception:  # noqa: BLE001
+                self._exterior_tags = set()
+        return self._exterior_tags
+
     def selection_for(self, a: Assignment):
         """FaceSelection for an assignment (faces of objects or whole sheet objects)."""
         em = self.em
@@ -671,10 +682,22 @@ class Bridge:
                                       name=b.name)
                 rough = ev.length(p.get("Roughness", "0") or "0")
                 thick = ev.length(p["Thickness"]) if p.get("UseThickness") == "True" else None
-                if thick is not None and p.get("TwoSided", "True") == "True":
-                    mw.bc.ThinConductor(sel, material=mat, thickness=thick, surface_roughness=rough)
+                # two-sided (the default, as HFSS treats a sheet inside the model): current and loss on both sides
+                # of the sheet, each with the surface impedance. A face on the outer boundary of the model has one
+                # side only and gets the one-sided impedance.
+                inner, outer = list(tags), []
+                if p.get("TwoSided", "True") == "True":
+                    ext = self.exterior_face_tags()
+                    inner = [t for t in tags if t not in ext]
+                    outer = [t for t in tags if t in ext]
                 else:
-                    mw.bc.SurfaceImpedance(sel, material=mat, surface_roughness=rough, thickness=thick)
+                    inner, outer = [], list(tags)
+                if inner:
+                    mw.bc.ThinConductor(em.FaceSelection(inner) if outer else sel, material=mat, thickness=thick,
+                                        surface_roughness=rough)
+                if outer:
+                    mw.bc.SurfaceImpedance(em.FaceSelection(outer) if inner else sel, material=mat,
+                                           surface_roughness=rough, thickness=thick)
             elif b.kind == "Impedance":
                 Zs = complex(ev.value(p["Resistance"]), ev.value(p["Reactance"]))
                 mw.bc.SurfaceImpedance(sel, impedance_function=lambda f, Zs=Zs: Zs)

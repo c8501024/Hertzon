@@ -789,6 +789,17 @@ def _cad_cache_file(path: str) -> Path:
     return d / f"{p.stem}_{key}.brep"
 
 
+def write_step(path: str) -> None:
+    """Write the current gmsh model (coordinates in metres) as a STEP file. A STEP file states its unit
+    (millimetres); without OCCTargetUnit = M the metre values were written as millimetres, 1000x too small."""
+    old = gmsh.option.getString("Geometry.OCCTargetUnit")
+    gmsh.option.setString("Geometry.OCCTargetUnit", "M")
+    try:
+        gmsh.write(path)
+    finally:
+        gmsh.option.setString("Geometry.OCCTargetUnit", old)
+
+
 def _read_brep_m(file: Path) -> list[tuple[int, int]]:
     """A BREP file whose coordinates are metres, read as they are."""
     old = gmsh.option.getString("Geometry.OCCTargetUnit")
@@ -1582,7 +1593,8 @@ def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple
     'along-conductor' (the sheet runs along the inside of a conductor solid and splits it, conductor(name) ->
     bool), 'across-conductor' (it crosses a conductor: an inner copper plane through a via, normal), 'through'
     (through the inside of another solid: an inner layer, normal) or 'ends-inside' (an edge of the sheet ends
-    inside the solid, it is not on one of its faces). Built in a scratch model."""
+    inside the solid, it is not on one of its faces). Built in a scratch model. Also lists objects that almost
+    touch (near_contacts, solids and sheets): (a, b, "gap:<distance in m>") and (a, b, "tangent:<m>")."""
     if not gmsh.isInitialized():
         ensure_gmsh()
     cur = gmsh.model.getCurrent()
@@ -1648,6 +1660,12 @@ def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple
                                                      (0, 0, -1))]
                 if any(all(inside(vdt, m + e) for e in steps) for m in mids):
                     out.append((s, v, "ends-inside"))
+        # objects that almost touch (solids and sheets): how = "gap:<m>" or "tangent:<m>"
+        try:
+            near = near_contacts({n: dt for n, dt in {**sheets, **solids}.items()})
+        except Exception:  # noqa: BLE001
+            near = []
+        out += [(a, b, f"{kind}:{d:.6g}") for a, b, kind, d in near]
         return out
     finally:
         gmsh.model.remove()
@@ -1655,6 +1673,184 @@ def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple
             gmsh.model.setCurrent(cur)
         except Exception:  # noqa: BLE001
             pass
+
+
+NEAR_CONTACT_GAP = 20e-6      # m: faces of two objects closer than this (but not touching) break the mesh
+NEAR_CONTACT_REL = 1e-3       # ... or this fraction of the model size, if that is smaller (on-chip models)
+
+
+def _faces_of(dt) -> list[int]:
+    if not dt:
+        return []
+    if max(d for d, _ in dt) == 3:
+        return [abs(t) for _, t in gmsh.model.getBoundary([d for d in dt if d[0] == 3], combined=False,
+                                                          oriented=False)]
+    return [t for d, t in dt if d == 2]
+
+
+def _plane_of(f: int):
+    """(unit normal with its largest component positive, offset n . x) of a planar face."""
+    lo, hi = gmsh.model.getParametrizationBounds(2, f)
+    n = np.asarray(gmsh.model.getNormal(f, [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2]), float)
+    if not np.linalg.norm(n):
+        return None
+    n /= np.linalg.norm(n)
+    if n[np.argmax(np.abs(n))] < 0:
+        n = -n
+    c = np.asarray(_occ().getCenterOfMass(2, f), float)
+    return n, float(n @ c)
+
+
+def _cylinder_of(f: int):
+    """(point on the axis, unit axis, radius, axial extent (t0, t1) along the axis) of a cylindrical face."""
+    lo, hi = gmsh.model.getParametrizationBounds(2, f)
+    us = [lo[0] + (hi[0] - lo[0]) * k for k in (0.1, 0.45, 0.8)]
+    vm = (lo[1] + hi[1]) / 2
+    pts = np.asarray(gmsh.model.getValue(2, f, [x for u in us for x in (u, vm)]), float).reshape(-1, 3)
+    nrm = np.asarray(gmsh.model.getNormal(f, [x for u in us for x in (u, vm)]), float).reshape(-1, 3)
+    a = np.cross(nrm[0], nrm[2])
+    if np.linalg.norm(a) < 1e-6:
+        return None
+    a /= np.linalg.norm(a)
+    q = pts - np.outer(pts @ a, a)                          # into the plane normal to the axis
+    A, B, C = q
+    ab, ac = B - A, C - A
+    w = np.cross(ab, ac)
+    if np.linalg.norm(w) < 1e-30:
+        return None
+    c = A + (np.cross(w, ab) * (ac @ ac) + np.cross(ac, w) * (ab @ ab)) / (2 * (w @ w))   # circumcentre
+    r = float(np.linalg.norm(A - c))
+    ends = np.asarray(gmsh.model.getValue(2, f, [us[1], lo[1], us[1], hi[1]]), float).reshape(-1, 3)
+    t = sorted(float((e - c) @ a) for e in ends)
+    return c, a, r, (t[0], t[1])
+
+
+def _segment_of(e: int):
+    vs = gmsh.model.getBoundary([(1, e)], combined=False, oriented=False)
+    if len(vs) != 2:
+        return None
+    p = [np.asarray(gmsh.model.getValue(0, abs(v), []), float) for _, v in vs]
+    return p[0], p[1]
+
+
+def near_contacts(built: dict, tol: float | None = None) -> list[tuple[str, str, str, float]]:
+    """Places where two objects almost touch, in the current (synchronized) model: (a, b, kind, distance in m).
+    kind 'gap': parallel plane faces of the two objects are closer than tol but not coincident (a gap or an
+    overlap of a few micrometres; gmsh then fails with "Unknown model face" or "Invalid boundary mesh").
+    kind 'tangent': a straight edge or a plane face of one object touches a cylinder of the other tangentially
+    (within tol), e.g. a via exactly as wide as the sheet that ends on it; the slivers there give NaN error
+    estimates. A thin solid (copper on a substrate) is not a gap: only gaps under half the thickness of the solids
+    count."""
+    names = [n for n, dt in built.items() if dt]
+    if len(names) < 2:
+        return []
+    allb = _bbox([d for n in names for d in built[n]])
+    size = max(allb[3] - allb[0], allb[4] - allb[1], allb[5] - allb[2], 1e-12)
+    if tol is None:
+        tol = min(NEAR_CONTACT_GAP, NEAR_CONTACT_REL * size)
+    lo_tol = 1e-9 * max(size, 1.0)
+    planes, cyls, segs = [], [], []        # (object, ...)
+    thick = {}
+    for n in names:
+        dt = built[n]
+        b = np.asarray(_bbox(dt), float)
+        solid = max(d for d, _ in dt) == 3
+        thick[n] = (b[3:] - b[:3]) if solid else None
+        for f in dict.fromkeys(_faces_of(dt)):
+            try:
+                typ = gmsh.model.getType(2, f)
+                if typ == "Plane":
+                    pl = _plane_of(f)
+                    if pl is not None:
+                        planes.append((n, pl[0], pl[1], np.asarray(_occ().getBoundingBox(2, f), float)))
+                elif typ == "Cylinder":
+                    cy = _cylinder_of(f)
+                    if cy is not None:
+                        cyls.append((n, *cy))
+            except Exception:  # noqa: BLE001
+                continue
+        curves = {abs(t) for _, t in gmsh.model.getBoundary(
+            [(2, f) for f in _faces_of(dt)], combined=False, oriented=False)} if _faces_of(dt) else set()
+        for c in curves:
+            try:
+                if gmsh.model.getType(1, c) == "Line":
+                    sg = _segment_of(c)
+                    if sg is not None:
+                        segs.append((n, *sg))
+            except Exception:  # noqa: BLE001
+                continue
+
+    found: dict[tuple, tuple] = {}
+
+    def add(a, b, kind, d):
+        key = (min(a, b), max(a, b), kind)
+        if key not in found or d < found[key][3]:
+            found[key] = (key[0], key[1], kind, d)
+
+    def half_thickness(name, nrm) -> float:
+        t = thick[name]
+        return np.inf if t is None else 0.5 * float(np.abs(t) @ np.abs(nrm))
+
+    # parallel planes: bucket by normal, sort by offset
+    buckets: dict[tuple, list] = {}
+    for p in planes:
+        buckets.setdefault(tuple(np.round(p[1], 6)), []).append(p)
+    for group in buckets.values():
+        group.sort(key=lambda p: p[2])
+        for i, (na, nrm, oa, ba) in enumerate(group):
+            for nb, _, ob, bb in group[i + 1:]:
+                d = ob - oa
+                if d >= tol:
+                    break
+                if na == nb or d <= lo_tol:
+                    continue
+                # the two faces must face each other: their boxes overlap across the plane
+                inplane = np.abs(nrm) < 0.999
+                if not all(ba[k] < bb[k + 3] - tol and bb[k] < ba[k + 3] - tol for k in range(3) if inplane[k]):
+                    continue
+                if d < min(half_thickness(na, nrm), half_thickness(nb, nrm)):
+                    add(na, nb, "gap", d)
+
+    # cylinders against straight edges and plane faces of other objects
+    for nc, c, a, r, (t0, t1) in cyls:
+        span = (t1 - t0) * 1e-6
+        for ns, p0, p1 in segs:
+            if ns == nc:
+                continue
+            u = p1 - p0
+            L = float(np.linalg.norm(u))
+            if L < 1e-15:
+                continue
+            u = u / L
+            w = np.cross(a, u)
+            if np.linalg.norm(w) < 1e-9:                    # parallel to the axis
+                dv = (p0 - c) - a * float((p0 - c) @ a)
+                d = float(np.linalg.norm(dv))
+                s0, s1 = sorted((float((p0 - c) @ a), float((p1 - c) @ a)))
+                if abs(d - r) < tol and s0 < t1 - span and s1 > t0 + span:
+                    add(nc, ns, "tangent", abs(d - r))
+                continue
+            # closest points of the axis line c + s a and the edge line p0 + t u
+            dp = p0 - c
+            b_ = float(a @ u)
+            den = 1 - b_ * b_
+            s = (float(dp @ a) - b_ * float(dp @ u)) / den
+            t = (b_ * float(dp @ a) - float(dp @ u)) / den
+            d = float(np.linalg.norm(c + s * a - (p0 + t * u)))
+            if abs(d - r) < tol and -tol <= t <= L + tol and t0 - tol <= s <= t1 + tol:
+                add(nc, ns, "tangent", abs(d - r))
+        for np_, nrm, off, bb in planes:
+            if np_ == nc or abs(float(nrm @ a)) > 1e-6:
+                continue
+            d = abs(float(nrm @ c) - off)
+            if abs(d - r) >= tol:
+                continue
+            foot = c + nrm * (off - float(nrm @ c))           # the axis projected on the plane
+            pts = [foot + a * t0, foot + a * t1]
+            if any(all(bb[k] - tol <= q[k] <= bb[k + 3] + tol for k in range(3)) for q in pts) or \
+                    all(bb[k] - tol <= (pts[0][k] + pts[1][k]) / 2 <= bb[k + 3] + tol for k in range(3)):
+                add(nc, np_, "tangent", abs(d - r))
+    return sorted(found.values())
 
 
 # ------------------------------------------------------------------------------------------------

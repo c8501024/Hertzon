@@ -368,6 +368,11 @@ def test_finite_conductivity_thickness_without_two_sided():
     # one-sided with thickness is a different problem
     cu.props.update(TwoSided="False")
     assert model_key(old, des, des.setups[0]) != key
+    # two-sided without a thickness was one-sided up to 0.3.6: a different key than one-sided
+    cu.props.update(UseThickness="False", TwoSided="False")
+    k1 = model_key(old, des, des.setups[0])
+    cu.props.update(TwoSided="True")
+    assert model_key(old, des, des.setups[0]) != k1
 
 
 def test_object_colours_in_other_notations_are_read():
