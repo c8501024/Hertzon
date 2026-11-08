@@ -3,6 +3,20 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Multi-fidelity optimization of circuits**: the optimization of a circuit design can correct itself with
+  the circuit's 3D layout (Optimizer tab: *Multi-fidelity: correct with the 3D layout*). The circuit is the
+  fast model, the layout the exact one: the goals are optimized on the circuit, then each round solves the
+  layout once in 3D and corrects the variables by space mapping, as for the hairpin filter. The layout uses the
+  circuit's variables under their names, so nothing has to be mapped; Apply Best Variables sets the circuit and
+  the layout. See [Circuit designs](docs/CIRCUIT.md#multi-fidelity-optimize-a-circuit-and-correct-it-with-its-3d-layout).
+
+### Changed
+- **Space Mapping** fits the circuit to all S-parameters (any number of ports) instead of S11 and S21, and goes
+  back with half the step when a 3D solve is worse than the best one.
+
 ## 0.3.9 (2026-11-08)
 
 ### Added

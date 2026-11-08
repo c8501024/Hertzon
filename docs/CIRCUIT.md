@@ -175,8 +175,8 @@ new cross-sections (changed widths) are solved and cached during the run.
 
 A 3D optimization with the optimizer **Space Mapping** uses a circuit design with the same variable names as
 its coarse model (Optimizer tab: *Circuit design*). The goals are first optimized on the circuit (about a
-minute), then every round solves the 3D design once, fits the circuit to the solved S11 and S21 (which circuit
-values give the same response) and moves the 3D variables so that the fitted values reach the circuit
+minute), then every round solves the 3D design once, fits the circuit to all solved S-parameters (which
+circuit values give the same response) and moves the 3D variables so that the fitted values reach the circuit
 optimum (aggressive space mapping with a Broyden update, Bandler et al.). The error of the circuit (coupling,
 junctions, open ends) is corrected by the 3D solves; a few rounds are enough when the circuit has the right
 shape of response. **Tools › Filter Design › Tapped Hairpin** adds the filter as a circuit
@@ -184,6 +184,27 @@ shape of response. **Tools › Filter Design › Tapped Hairpin** adds the filte
 mitered bends) and the optimization *HairpinSM* on L, dL, g and yP. On the third-order example the circuit
 lies within about 1 % of the 3D response, and *HairpinSM* reached the cost of the circuit optimum (0.31) in
 three 3D solves, about 13 minutes on 4 cores, where the Derivative Trust Region needed 4.5 hours for 0.60.
+
+A round whose 3D solve is worse than the best one goes back to it with half the step (at most three times in a
+row), so a circuit that is only roughly right does not lead the 3D design away.
+
+### Multi-fidelity: optimize a circuit and correct it with its 3D layout
+
+The same method starts from the circuit: create the layout (**Create 3D Layout**, below), set up its analysis,
+and switch on **Multi-fidelity: correct with the 3D layout** in the Optimizer tab of the circuit's
+optimization. No mapping of variables is needed: the layout keeps the variables of the schematic under their
+names (`MS1_L` = `ms_len`, the coordinates are expressions of them), so a circuit variable is the same
+variable in 3D. The goals, variables and ranges of the circuit optimization are used; the circuit is optimized
+first (milliseconds per design), then every round solves the layout once (one 3D solve per round, typically
+three to six rounds, *Maximum rounds* and *Mapping tolerance* as above). *3D layout design* and *3D setup :
+sweep* are found by themselves (the layout made from this circuit, its first sweep) and can be entered. The
+other circuit variables take their circuit values in the 3D solves too. When the schematic was edited after
+the layout was made, the run warns: use **Update 3D Layout** first. The evaluations of the results window are
+the 3D solves; **Apply Best Variables** sets the values in the circuit and in the layout, and the 3D solution
+of the best evaluation becomes the layout's solution without solving again.
+
+Suited are the dimensions the circuit models: lengths, widths, gaps, tap positions and part values; with more
+than about eight variables the fit of the circuit to the 3D response is no longer unique.
 
 ## 3D layout
 
