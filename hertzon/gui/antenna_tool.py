@@ -76,10 +76,15 @@ class PatchAntennaDialog(QDialog):
         right.addWidget(self.info)
         self.bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.bb.button(QDialogButtonBox.Ok).setText("Create Design")
+        self.go = self.bb.addButton("Create and Optimize", QDialogButtonBox.ActionRole)
+        self.go.setToolTip("Create the design and start the optimization of patch length and inset (PatchOpt) "
+                           "right away")
+        self.go.clicked.connect(self._optimize_clicked)
         self.bb.accepted.connect(self.accept)
         self.bb.rejected.connect(self.reject)
         right.addWidget(self.bb)
         top.addLayout(right, 1)
+        self.run_optimization = ""                  # the optimization the main window starts after inserting
 
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
@@ -91,6 +96,13 @@ class PatchAntennaDialog(QDialog):
         self.design = None
         self.resize(960, 600)
         self.refresh()
+
+    def _optimize_clicked(self) -> None:
+        self.opt.setChecked(True)
+        self.refresh()
+        if self.design is not None and self.design.optimetrics:
+            self.run_optimization = self.design.optimetrics[0].name
+            self.accept()
 
     def spec(self) -> PatchSpec:
         m = self.mats.get(self.mat.currentText())
@@ -114,9 +126,11 @@ class PatchAntennaDialog(QDialog):
             self.design = None
             self.info.setText(f"<span style='color:#c0392b'>{e}</span>")
             self.bb.button(QDialogButtonBox.Ok).setEnabled(False)
+            self.go.setEnabled(False)
             self.canvas.draw_idle()
             return
         self.bb.button(QDialogButtonBox.Ok).setEnabled(True)
+        self.go.setEnabled(True)
         ws, ls = nom["Ws"] / 2, nom["Ls"] / 2
         ax.fill([-ws, ws, ws, -ws], [-ls, -ls, ls, ls], color="#c9d6a3", zorder=0)
         for pts in outlines(self.design, self.project).values():
