@@ -66,7 +66,9 @@ def test_branchline_impedances():
 
 
 @pytest.mark.parametrize("key,values,ports", [("qwt", {}, 2), ("qwt", {"n": 4, "zl": 100}, 2),
-                                              ("branchline", {}, 4), ("branchline", {"c": 6}, 4)])
+                                              ("branchline", {}, 4), ("branchline", {"c": 6}, 4),
+                                              ("tee", {}, 3), ("tee", {"k": 2}, 3), ("stepped", {}, 2),
+                                              ("stepped", {"n": 3}, 2)])
 def test_circuit_3d_and_optimization_share_the_variables(key, values, ports):
     p, r = _made(key, values)
     circ, d3 = r.designs
@@ -93,9 +95,27 @@ def test_start_values_are_close():
     assert abs(np.degrees(np.angle(s[2, 0] / s[1, 0])) + 90) < 3
 
 
-def test_branchline_circuit_optimization_meets_the_goals(tmp_path):
+def test_tee_divider_splits_as_asked():
+    from hertzon.model.structures.dividers import TeeDivider
+    assert TeeDivider.impedances(50, 1) == pytest.approx((50 * math.sqrt(2), 50 * math.sqrt(2)))
+    p, r = _made("tee", {"k": 2})
+    s = _s(p, r.designs[0], 2.45)[0]
+    assert db(s[0, 0]) < -25
+    assert abs(db(s[1, 0]) - 10 * np.log10(1 / 3)) < 0.4 and abs(db(s[2, 0]) - 10 * np.log10(2 / 3)) < 0.4
+
+
+def test_stepped_lowpass_prototype():
+    from hertzon.model.structures.filters import ripple_return_loss
+    assert ripple_return_loss(0.1) == pytest.approx(16.43, abs=0.01)
+    p, r = _made("stepped", {"n": 5, "fc": 2.5})
+    s = _s(p, r.designs[0], [0.5, 1.5, 5.0])
+    assert (db(s[:2, 0, 0]) < -15).all() and db(s[2, 1, 0]) < -20
+
+
+@pytest.mark.parametrize("key", ["branchline", "tee", "stepped"])
+def test_circuit_optimization_meets_the_goals(tmp_path, key):
     from hertzon.solver.optimize import Optimizer
-    p, r = _made("branchline", multi_fidelity=False)
+    p, r = _made(key, multi_fidelity=False)
     path = tmp_path / "b.hzn"
     p.save(path)
     out = tmp_path / "o"

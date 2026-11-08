@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from .base import AVAILABLE, IN_PROGRESS, PLANNED, Field, Result, Structure, Substrate, Synthesis, Variable
 from .couplers import Branchline
+from .dividers import TeeDivider
+from .filters import SteppedImpedanceLowpass
 from .icons import ICONS
 from .matching import QuarterWaveTransformer
 
@@ -85,8 +87,7 @@ CATALOG: list[Structure] = [
     # ---- dividers
     Planned("wilkinson", "Wilkinson divider", "divider", "Equal or unequal, 1 to 4 sections",
             "Splitting with isolated, matched outputs", "wilk", priority=2, ports=3),
-    Planned("tee", "T-junction divider", "divider", "With quarter-wave transformers", "Simple splits, array feeds",
-            "tee", ports=3),
+    _built(TeeDivider, "tee"),
     Planned("gysel", "Gysel divider", "divider", "Loads to ground, high power", "High-power combining", "gysel",
             priority=3, needs="a curved line part", ports=3),
     # ---- filters
@@ -94,8 +95,7 @@ CATALOG: list[Structure] = [
              "Compact narrowband bandpass; space mapping with its circuit", "filter_hairpin", "hairpin", ports=2),
     Planned("edge", "Edge-coupled bandpass", "filter", "Parallel coupled half-wave resonators",
             "The textbook bandpass, 5-20 % bandwidth", "edge", priority=2),
-    Planned("stepped", "Stepped-impedance lowpass", "filter", "High and low impedance sections",
-            "Harmonic suppression", "stepped"),
+    _built(SteppedImpedanceLowpass, "stepped"),
     Planned("stubbp", "Shorted-stub bandpass", "filter", "Quarter-wave stubs with vias, wideband",
             "Bandwidths above 30 %", "stubbp"),
     Planned("interdigital", "Interdigital bandpass", "filter", "Quarter-wave fingers",

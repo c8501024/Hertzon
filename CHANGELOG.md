@@ -10,7 +10,8 @@ the GitHub release notes.
   matching networks, filters and antennas. Choose a structure from cards by category, enter the specification
   and the substrate, and see the synthesized start values while typing. It creates the circuit, its 3D design
   with the same variables and an optimization on the circuit with multi-fidelity switched on. First structures:
-  the **quarter-wave transformer** (1 to 4 binomial sections) and the **branchline coupler** (3 dB or unequal).
+  the **quarter-wave transformer** (1 to 4 binomial sections), the **branchline coupler** (3 dB or unequal), the
+  **T-junction divider** (equal or unequal) and the **stepped-impedance lowpass** (Chebyshev).
   The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
   `list_structures`, `create_structure`. See [Design Wizard](docs/WIZARD.md).
 
