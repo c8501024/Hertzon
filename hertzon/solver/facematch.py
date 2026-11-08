@@ -80,6 +80,8 @@ def final_face_samples(max_pts: int = 24) -> dict[int, np.ndarray]:
             _PASS_CACHE.clear()
             gmsh.model.mesh.clear()
             gmsh.model.mesh.generate(2)
+    from ..kernel.occ import node_table, element_points
+    glut, GX = node_table()
     out = {}
     for _, tag in ents:
         if (2, tag) in _PASS_CACHE:
@@ -90,18 +92,13 @@ def final_face_samples(max_pts: int = 24) -> dict[int, np.ndarray]:
                     C = C[np.linspace(0, len(C) - 1, max_pts).astype(int)]
                 out[tag] = C
             continue
+        # element nodes from the table of the whole mesh: a face's own getNodes(includeBoundary=True) leaves
+        # out the nodes of its embedded (internal) edges and vertices, which its triangles use
         types, _, enodes = gmsh.model.mesh.getElements(2, tag)
-        ntags, coords, _ = gmsh.model.mesh.getNodes(2, tag, includeBoundary=True)
-        if len(ntags) == 0:
-            continue
-        X = coords.reshape(-1, 3)
-        lut = np.full(int(ntags.max()) + 1, -1, np.int64)
-        lut[ntags] = np.arange(len(ntags))
         cents = []
         for t, en in zip(types, enodes):
             if t == 2:
-                tri = lut[en.astype(np.int64)].reshape(-1, 3)
-                cents.append(X[tri].mean(axis=1))
+                cents.append(element_points(glut, GX, en.astype(np.int64).reshape(-1, 3)).mean(axis=1))
         if not cents:
             continue
         C = np.vstack(cents)
