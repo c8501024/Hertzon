@@ -6,7 +6,7 @@ All times UTC, 8 November 2026. Hertzon 0.3.5 with the MCP hang fix (PR #291), o
 
 | Step | Start | End | Wall | Full-wave runs |
 | --- | --- | --- | --- | --- |
-| Read paper and CST/HFSS/STEP data, rebuild FPC and PCB as primitives, find and fix the meshing failure | 08:30 | 08:51 | 21 min | 0 (about 15 mesh-only tries) |
+| Read paper and STEP and solver project data, rebuild FPC and PCB as primitives, find and fix the meshing failure | 08:30 | 08:51 | 21 min | 0 (about 15 mesh-only tries) |
 | Topology search A1 to A6, loss split (tan d = 0) | 08:51 | 09:27 | 36 min | 7 |
 | IFA with short right of the feed (A7), high-band branches A8 to A16 | 09:27 | 10:55 | 88 min | 10 (2 failed starts, NaN) |
 | 2.4 GHz retune A17, high-band variants A18 to A21 | 10:55 | 11:43 | 48 min | 5 |
@@ -21,9 +21,9 @@ Follow-up on the user's request, after the design was finished:
 | Step | Start | End | Wall | Runs |
 | --- | --- | --- | --- | --- |
 | Investigate the 6.2–6.85 GHz dip (lossless run, third branch in two lengths) | 12:36 | 12:55 | 19 min | 3 Hertzon |
-| HFSS on Meta's STEP (3 starts, script errors) | 12:55 | 13:03 | 8 min | 1 HFSS |
+| Reference solver on Meta's STEP (3 starts, script errors) | 12:55 | 13:03 | 8 min | 1 reference |
 | Two-sided sheet test in Hertzon | 13:03 | 13:12 | 9 min | 1 Hertzon |
-| HFSS on the Hertzon geometry (STEP export needed a x1000 scale) and report | 13:12 | 13:25 | 13 min | 1 HFSS |
+| Reference solver on the Hertzon geometry (STEP export needed a x1000 scale) and report | 13:12 | 13:25 | 13 min | 1 reference |
 
 ## Model and token usage (Claude, session transcript, up to 12:34 UTC)
 
@@ -47,8 +47,8 @@ None. All Hertzon tools were called one at a time, as in Run 1. Parallel calls w
 3. A via cylinder exactly tangent to the edge of a sheet gives a NaN in the error estimate. The geometry should be caught at validation.
 4. `Setup.MultiFrequencies`: the help text says separator `;`, but only `,` works (`Invalid expression '2.45GHz;6.1GHz'`).
 5. `Loss Power` and `Power Balance` in the far-field summary are not usable (power balance +150 to +1200 %); radiated power over incident power was used. Since #231 the displayed Radiation Efficiency, GainTotal and RealizedGainTotal use this Ploss, so they are also too low. Reported for a new repo thread.
-6. `export` kind `step` writes coordinates in metres but labels the file mm, so an import is 1000 times too small. Worked around with a x1000 scale in HFSS.
-7. One-sided Finite Conductivity on zero-thickness sheets appears to overestimate the sheet loss: two-sided sheets raised the 2.4 GHz mean from 66.5 to 69.8 % (HFSS 74.0 %).
+6. `export` kind `step` writes coordinates in metres but labels the file mm, so an import is 1000 times too small. Worked around with a x1000 scale in the reference solver.
+7. One-sided Finite Conductivity on zero-thickness sheets appears to overestimate the sheet loss: two-sided sheets raised the 2.4 GHz mean from 66.5 to 69.8 % (reference 74.0 %).
 
 ## Data for animation and report
 

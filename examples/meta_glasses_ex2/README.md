@@ -4,9 +4,9 @@ Meta Reality Labs published two antenna design benchmarks based on AI-glasses te
 *IEEE Antennas and Propagation Magazine*, vol. 68, no. 5, Oct. 2026, Industry Activities
 ([IEEE Xplore 11775874](https://ieeexplore.ieee.org/document/11775874)). This folder holds a solution of
 Example 2, found by a general-purpose LLM agent (Claude in Claude Code) that drove Hertzon only
-through its MCP interface, and cross-checked in Ansys HFSS.
+through its MCP interface, and cross-checked with a commercial FEM reference solver.
 
-**Full report:** [REPORT.md](REPORT.md) (setup, design path, HFSS comparison, timing and token usage).
+**Full report:** [REPORT.md](REPORT.md) (setup, design path, reference comparison, timing and token usage).
 
 ![Layout of the final antenna on the FPC](results/Ex2_final_layout.png)
 
@@ -14,20 +14,20 @@ through its MCP interface, and cross-checked in Ansys HFSS.
 
 Dual-branch inverted-F on the top layer of the FPC, **no matching components**.
 
-| Band | Hertzon total efficiency | HFSS 2025 R1 total efficiency (Meta's STEP) |
+| Band | Hertzon total efficiency | Reference total efficiency (Meta's STEP) |
 | --- | --- | --- |
 | 2401–2483 MHz | 50–78 %, average 66.5 % | 61–81 %, average 74.0 % |
 | 5170–7125 MHz | 15–86 %, average 49.8 % | 16–90 %, average 54.3 % |
 | Equal weight | 58.2 % | 64.2 % |
 
-Hertzon and HFSS agree well in shape, about 6 points apart on average. The high band has a real dip around
-6.2–6.85 GHz (mismatch, confirmed in HFSS). An earlier run of the same benchmark with a different design reached
-66.3 % equal-weighted in HFSS (63.9 % and 68.6 %), so this design is about 2 points lower overall.
+Hertzon and the reference solver agree well in shape, about 6 points apart on average. The high band has a real dip around
+6.2–6.85 GHz (mismatch, confirmed in the reference solver). An earlier run of the same benchmark with a different design reached
+66.3 % equal-weighted in the reference solver (63.9 % and 68.6 %), so this design is about 2 points lower overall.
 
 Effort: about 4 h 6 min wall-clock for the design, 24 full-wave runs, about 200 min solver time on one 64-core
-workstation, 183k model output tokens; HFSS comparison and dip analysis another 47 min.
+workstation, 183k model output tokens; reference comparison and dip analysis another 47 min.
 
-![Hertzon and HFSS](results/Ex2_Run2_hertzon_vs_hfss.png)
+![Hertzon and the reference solver](results/Ex2_Run2_hertzon_vs_reference.png)
 
 ## Benchmark (Example 2)
 
@@ -61,9 +61,9 @@ workstation, 183k model output tokens; HFSS comparison and dip analysis another 
 | --- | --- |
 | `Meta_Ex2_DualBranchIFA.hzn` | Hertzon project of the final design (Setup1: adaptive at 2.45 + 6.1 GHz, S11 and efficiency sweeps), plus the `Match` circuit design |
 | `Meta_Ex2_DualBranchIFA.step` | Hertzon geometry, solids only, units corrected to metres in the file header |
-| `hfss/Meta_Ex2_DualBranchIFA_HFSS.py` | AEDT IronPython script on Meta's STEP (set `STP_FILE`; the STEP is not included here) |
-| `hfss/Meta_Ex2_DualBranchIFA_HFSS_hertzon_geometry.py` | Same model from the Hertzon STEP in this folder |
-| `results/` | Hertzon and HFSS S11 and efficiency, iteration table, plots and structure images |
+| `reference/Meta_Ex2_DualBranchIFA_reference.py` | IronPython script for the reference solver on Meta's STEP (set `STP_FILE`; the STEP is not included here) |
+| `reference/Meta_Ex2_DualBranchIFA_reference_hertzon_geometry.py` | Same model from the Hertzon STEP in this folder |
+| `results/` | Hertzon and the reference solver S11 and efficiency, iteration table, plots and structure images |
 | `tools/` | Band metric, far-field readout, matching search, plots |
 
 ## Limitations
@@ -81,5 +81,5 @@ workstation, 183k model output tokens; HFSS comparison and dip analysis another 
 
 - Hertzon: open the `.hzn` and run Setup1 (about 9 min on 64 cores). Total efficiency = radiated power /
   incident power of the Eff sweep.
-- HFSS: Tools > Run Script > `hfss/Meta_Ex2_DualBranchIFA_HFSS.py` (about 6 min), after setting `STP_FILE`. Results
-  land in `Documents/Meta_Ex2_HFSS`.
+- Reference solver: Tools > Run Script > `reference/Meta_Ex2_DualBranchIFA_reference.py` (about 6 min), after setting `STP_FILE`. Results
+  land in `Documents/Meta_Ex2_reference`.

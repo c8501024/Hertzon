@@ -4,7 +4,7 @@ November 2026
 
 ## Abstract
 
-A coupled-fed shorted-strip antenna reaches about 81 % average total efficiency in both WLAN 802.11ax bands (2401–2483 MHz and 5170–7125 MHz) in Meta's AI-glasses temple-arm benchmark, Example 1, without any matching components. The design was found by an LLM agent (Claude) that drove the open full-wave FEM solver Hertzon through its MCP interface: it built the model, ran 50 simulations in parametric sweeps, searched lossy matching networks in post-processing and verified the final design with far-field efficiency at ten frequencies. Wall-clock time from the request to the verified design was 2 h 25 min, of which about 85 min was solver time on one 64-core workstation. An independent Ansys HFSS simulation of the final design gives 85 % and 77 %, confirming the result. The key enabler is the solver's MCP (Model Context Protocol) interface: it lets a general-purpose LLM, with no antenna-specific training or surrogate model, run the whole loop from geometry to verified far-field efficiency.
+A coupled-fed shorted-strip antenna reaches about 81 % average total efficiency in both WLAN 802.11ax bands (2401–2483 MHz and 5170–7125 MHz) in Meta's AI-glasses temple-arm benchmark, Example 1, without any matching components. The design was found by an LLM agent (Claude) that drove the open full-wave FEM solver Hertzon through its MCP interface: it built the model, ran 50 simulations in parametric sweeps, searched lossy matching networks in post-processing and verified the final design with far-field efficiency at ten frequencies. Wall-clock time from the request to the verified design was 2 h 25 min, of which about 85 min was solver time on one 64-core workstation. An independent simulation with a commercial FEM reference solver of the final design gives 85 % and 77 %, confirming the result. The key enabler is the solver's MCP (Model Context Protocol) interface: it lets a general-purpose LLM, with no antenna-specific training or surrogate model, run the whole loop from geometry to verified far-field efficiency.
 
 ## 1 Introduction and how results are to be shared
 
@@ -84,11 +84,11 @@ The final antenna reaches 81 % average total efficiency in both bands without an
 
 Radiation efficiency is 85 % at 2.4 GHz, limited mainly by the tan δ = 0.02 keep-out. In the high band the far-field integration returns 1–3 % more radiated than accepted power, a numerical error; capping radiation efficiency at 95 % gives a conservative high-band average of 76 % instead of 81 %. The low band is matched better than −10 dB; the high band is limited by mismatch, worst at the 5.17 GHz edge.
 
-## 5a Cross-check with Ansys HFSS
+## 5a Cross-check with a reference solver
 
-An independent HFSS model of the final design confirms the result: 85 % average total efficiency at 2.4 GHz and 77 % across 5170–7125 MHz, against 81 % and 76–81 % in Hertzon. The geometry was rebuilt from the same dimensions by script (`hfss/Meta_Ex1_CoupledFedStrip_HFSS.py`) in Ansys Electronics Desktop 2025 R1 (lumped port, finite-conductivity copper sheets, radiation boundary 32 mm from the board, multi-frequency adaptive meshing at 2.45 and 6.1 GHz, ΔS ≤ 0.01). It converged after 11 passes in about 3 min.
+An independent reference-solver model of the final design confirms the result: 85 % average total efficiency at 2.4 GHz and 77 % across 5170–7125 MHz, against 81 % and 76–81 % in Hertzon. The geometry was rebuilt from the same dimensions by script (`reference/Meta_Ex1_CoupledFedStrip_reference.py`) in the reference solver (version 2025 R1) (lumped port, finite-conductivity copper sheets, radiation boundary 32 mm from the board, multi-frequency adaptive meshing at 2.45 and 6.1 GHz, ΔS ≤ 0.01). It converged after 11 passes in about 3 min.
 
-| Frequency (GHz) | Hertzon total eff. (%) | HFSS total eff. (%) | HFSS radiation eff. (%) |
+| Frequency (GHz) | Hertzon total eff. (%) | Reference total eff. (%) | Reference radiation eff. (%) |
 | --- | --- | --- | --- |
 | 2.401 | 78.8 | 85.3 | 86.9 |
 | 2.442 | 81.9 | 86.0 | 86.9 |
@@ -102,7 +102,7 @@ An independent HFSS model of the final design confirms the result: 85 % average 
 | 7.125 | 85.0 | 79.4 | 98.4 |
 | **Band average** | **81 / 81** | **85 / 77** | |
 
-The two solvers agree within 2–7 percentage points at every frequency. HFSS gives a slightly better match at 2.4 GHz and slightly lower high-band values, close to the conservative 76 % Hertzon estimate. HFSS radiation efficiency stays below 100 % in the high band (94–98 %), which confirms that Hertzon's P_rad > P_acc there is a small far-field integration error, not real gain.
+The two solvers agree within 2–7 percentage points at every frequency. The reference solver gives a slightly better match at 2.4 GHz and slightly lower high-band values, close to the conservative 76 % Hertzon estimate. The reference radiation efficiency stays below 100 % in the high band (94–98 %), which confirms that Hertzon's P_rad > P_acc there is a small far-field integration error, not real gain.
 
 ## 6 Effort and timing
 
@@ -125,7 +125,7 @@ About a third of the time (51 min) went to topologies that were later dropped (s
 
 ## 6a Model and token usage
 
-The whole study ran on one model, Claude Opus 5.5 (model id claude-opus-5-5, 1M-token context), at the "medium" effort setting of Claude Code, with no sub-agents. Example 1 including its write-up and HFSS check used 188 model calls and about 95k output tokens. Counts come from the session transcript (usage fields of each model call), assigned to steps by timestamp (UTC).
+The whole study ran on one model, Claude Opus 5.5 (model id claude-opus-5-5, 1M-token context), at the "medium" effort setting of Claude Code, with no sub-agents. Example 1 including its write-up and reference check used 188 model calls and about 95k output tokens. Counts come from the session transcript (usage fields of each model call), assigned to steps by timestamp (UTC).
 
 | Step | Model calls | Output tokens | Cache-write tokens | Cache-read tokens |
 | --- | --- | --- | --- | --- |
@@ -137,7 +137,7 @@ The whole study ran on one model, Claude Opus 5.5 (model id claude-opus-5-5, 1M-
 | Feed-position sweeps | 7 | 3,756 | 9,401 | 1.9 M |
 | Final design, verification, summary | 24 | 16,462 | 37,503 | 7.0 M |
 | Report (this document) | 12 | 10,764 | 18,492 | 4.8 M |
-| HFSS cross-check, Hertzon update | 40 | 20,774 | 51,161 | 17.5 M |
+| Reference cross-check, Hertzon update | 40 | 20,774 | 51,161 | 17.5 M |
 | Not Example 1 (Example 2 rebuild, CAD search, publication advice) | 70 | 35,602 | 452,566 | 22.3 M |
 | **Whole session** | **258** | **130,300** | **765,293** | **72.5 M** |
 
@@ -147,8 +147,8 @@ Uncached input was only 564 tokens in total: almost all input is the growing con
 
 The result is confirmed by two independent solvers (Section 5a). The remaining caveats:
 
-- **Far-field accuracy.** Hertzon's far field slightly exceeds the accepted power in the high band. HFSS gives 94–98 % radiation efficiency there, so the 77 % HFSS value and the conservative 76 % Hertzon value are the figures to quote.
-- **Mesh.** Screening ran at 45–60k tetrahedra with ΔS ≤ 0.015 and two converged passes. HFSS with its own adaptive mesh lands within a few points, so the mesh was adequate for ranking.
+- **Far-field accuracy.** Hertzon's far field slightly exceeds the accepted power in the high band. The reference solver gives 94–98 % radiation efficiency there, so the 77 % reference value and the conservative 76 % Hertzon value are the figures to quote.
+- **Mesh.** Screening ran at 45–60k tetrahedra with ΔS ≤ 0.015 and two converged passes. The reference solver with its own adaptive mesh lands within a few points, so the mesh was adequate for ranking.
 - **Lumped parts.** The final design uses none, so vendor S-parameters do not affect it. The matching-network results in Section 4 used generic Q values, not catalog data.
 - **Design space.** Only the top layer and rectangular strips were used. The bottom layer, vias and inductively loaded ground connections allowed by the benchmark were not explored and may lift the 5.17 GHz band edge.
 - **Comparability.** Meta does not publish a reference efficiency for its human design, so the result cannot yet be ranked.
@@ -162,7 +162,7 @@ The missing body model also reflects the task as given: the prompt was only "fin
 
 ## 8 Conclusion
 
-An LLM agent driving an open FEM solver produced a matching-free design for Meta's Example 1 with about 81 % average total efficiency in both Wi-Fi 6E bands within 2 h 25 min and 50 simulations. What made this possible is the MCP interface between the language model and the solver: every modelling, solving and post-processing step was a tool call the agent could plan, check and repeat, so no antenna-specific AI model, training data or human hand-off was needed. On the antenna side, the decisive step was a topology change, from an IFA to a coupled-fed shorted strip with the feed near the middle of the arm, rather than component-level matching. Model, scripts and data are in this folder (`Meta_Ex1_CoupledFedStrip.hzn`, `Meta_Ex1_CoupledFedStrip.step`, `hfss/`, `results/`, `tools/`).
+An LLM agent driving an open FEM solver produced a matching-free design for Meta's Example 1 with about 81 % average total efficiency in both Wi-Fi 6E bands within 2 h 25 min and 50 simulations. What made this possible is the MCP interface between the language model and the solver: every modelling, solving and post-processing step was a tool call the agent could plan, check and repeat, so no antenna-specific AI model, training data or human hand-off was needed. On the antenna side, the decisive step was a topology change, from an IFA to a coupled-fed shorted strip with the feed near the middle of the arm, rather than component-level matching. Model, scripts and data are in this folder (`Meta_Ex1_CoupledFedStrip.hzn`, `Meta_Ex1_CoupledFedStrip.step`, `reference/`, `results/`, `tools/`).
 
 ## References
 
