@@ -72,7 +72,8 @@ def test_branchline_impedances():
                                               ("stub", {"xl": -30}, 1), ("stubbp", {}, 2), ("stubbp", {"n": 4}, 2),
                                               ("edge", {}, 2), ("edge", {"n": 4}, 2), ("stubbs", {}, 2),
                                               ("stubbs", {"n": 5}, 2),
-                                              ("wilkinson", {}, 3)])
+                                              ("wilkinson", {}, 3), ("coupled", {}, 4),
+                                              ("coupled", {"c": 20}, 4)])
 def test_circuit_3d_and_optimization_share_the_variables(key, values, ports):
     p, r = _made(key, values)
     circ, d3 = r.designs
@@ -106,6 +107,15 @@ def test_wilkinson_isolates_the_outputs():
     assert db(s[0, 0]) < -25 and db(s[1, 1]) < -25 and db(s[2, 1]) < -25
     d3 = r.designs[1]
     assert d3.variables["R1_Gap"] == "2*La + Wa" and any(b.name == "R1" for b in d3.boundaries)
+
+
+def test_coupled_line_coupler_couples_as_asked():
+    from hertzon.model.structures.couplers import CoupledLineCoupler
+    ze, zo = CoupledLineCoupler.impedances(50, 10)               # Pozar example 7.7: 69.4 and 36.0 ohm
+    assert ze == pytest.approx(69.37, abs=0.05) and zo == pytest.approx(36.04, abs=0.05)
+    p, r = _made("coupled")
+    s = _s(p, r.designs[0], 2.45)[0]
+    assert abs(db(s[2, 0]) + 15) < 0.5 and db(s[0, 0]) < -20 and db(s[3, 0]) < -20
 
 
 def test_tee_divider_splits_as_asked():
@@ -169,7 +179,7 @@ def test_shorted_stub_bandpass_passes_the_band():
     assert db(s[1, 0, 0]) < -12 and db(s[0, 1, 0]) < -10 and db(s[2, 1, 0]) < -10
 
 
-@pytest.mark.parametrize("key", ["branchline", "tee", "stepped", "stub", "stubbp", "edge", "stubbs", "wilkinson"])
+@pytest.mark.parametrize("key", ["branchline", "tee", "stepped", "stub", "stubbp", "edge", "stubbs", "wilkinson", "coupled"])
 def test_circuit_optimization_meets_the_goals(tmp_path, key):
     from hertzon.solver.optimize import Optimizer
     p, r = _made(key, multi_fidelity=False)

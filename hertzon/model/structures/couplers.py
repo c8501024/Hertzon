@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 
+from ..microstrip import C0
 from .base import (
     AVAILABLE,
     Field,
@@ -122,4 +123,88 @@ class Branchline(Structure):
 
     def sweep(self, spec: dict) -> tuple[float, float, int]:
         a, b = band(spec["f0"], max(3 * spec["bw"], 40))
+        return a, b, 201
+
+
+class CoupledLineCoupler(Structure):
+    """Quarter-wave coupled-line directional coupler (Pozar 7.6): Z0e,o = Z0 sqrt((1 +- c) / (1 -+ c)) with
+    c = 10^(-C/20). Backward coupling: port 1 in, 2 through, 3 coupled (beside the input), 4 isolated."""
+    key = "coupled"
+    title = "Coupled-line coupler"
+    category = "coupler"
+    description = "Quarter-wave directional coupler, 6-25 dB"
+    use = "Power monitoring, sampling ports"
+    status = AVAILABLE
+    ports = 4
+    fields = (
+        Field("f0", "Centre frequency", 2.45, "GHz", 0.05, 100),
+        Field("c", "Coupling", 15.0, "dB", 6, 30, 2),
+        Field("z0", "Port impedance", 50.0, "ohm", 5, 300, 1),
+        Field("bw", "Bandwidth", 20.0, "%", 1, 60, 1),
+        Field("rl", "Return loss", 20.0, "dB", 6, 50, 1),
+        Field("iso", "Isolation", 20.0, "dB", 6, 60, 1, help="Microstrip limits the directivity: the even and odd "
+              "modes travel at different speeds"),
+        Field("tol", "Coupling tolerance", 0.5, "dB", 0.05, 3, 2),
+    )
+
+    def default_name(self, spec: dict) -> str:
+        return f"Coupler_{spec['c']:g}dB_{spec['f0']:g}GHz"
+
+    @staticmethod
+    def impedances(z0: float, c_db: float) -> tuple[float, float]:
+        c = 10 ** (-c_db / 20)
+        return z0 * math.sqrt((1 + c) / (1 - c)), z0 * math.sqrt((1 - c) / (1 + c))
+
+    def synthesis(self, spec: dict, sub: Substrate) -> Synthesis:
+        from .filters import coupled_lines
+        f0, z0 = spec["f0"], spec["z0"]
+        ze, zo = self.impedances(z0, spec["c"])
+        w, s, ee = coupled_lines(sub, ze, zo, f0)
+        wf = sub.width(z0, f0)
+        syn = Synthesis([
+            Variable("W", w, f"strip width, Z0e/Z0o {ze:.1f}/{zo:.1f} ohm"),
+            Variable("S", s, "gap"),
+            Variable("L", C0 / (f0 * 1e9) / math.sqrt(ee) * 1e3 / 4, "length, a quarter wavelength of the mean "
+                     "phase constant"),
+            Variable("Wf", wf, f"feed width, {z0:g} ohm", include=False),
+            Variable("lf", max(sub.lambda_g(wf, f0) / 8, 2 * sub.h), "feed line length", include=False),
+        ])
+        syn.note = (f"Coupling {spec['c']:g} dB: Z0e = {ze:.1f} ohm, Z0o = {zo:.1f} ohm, a quarter wavelength long. "
+                    "The feeds turn away from the coupled section with corners. Port 1 in, 2 through, 3 coupled, "
+                    "4 isolated.")
+        if s < sub.min_feature:
+            syn.warnings.append(f"The gap {s:.3f} mm is below the smallest gap: use weaker coupling or a thinner "
+                                "substrate (or a Lange coupler)")
+        return syn
+
+    def circuit(self, spec: dict, sub: Substrate, syn: Synthesis, name: str):
+        d = new_circuit(name, sub, syn)
+        s = Schematic()
+        s.parts.append(substrate_part(sub, -260, -200))
+        sp = {"Subst": "Sub1"}
+        z = f"{spec['z0']:g}ohm"
+        cl = s.add("CL1", "MCLIN", 0, 0, 0, **sp, W="W", S="S", L="L")
+        # (pin of the coupled lines, corner rotation and mirror, vertical direction, port number, side)
+        ends = ((0, 90, True, -1, 1, "left"), (1, 0, True, -1, 2, "right"), (2, 270, False, 1, 3, "left"),
+                (3, 0, False, 1, 4, "right"))
+        for pin, rot, mir, sy, num, side in ends:
+            px, py = s.pin(cl, pin)
+            dx = -30 if side == "left" else 30
+            corner = s.add(f"C{num}", "MCORN", px + dx, py, rot, mir, **sp, W="W")
+            feed = s.add(f"Feed{num}", "MLIN", px + dx, py + sy * 70, 90, **sp, W="Wf", L="lf")
+            s.net(f"e{num}", (px, py), s.pin(corner, "right" if side == "left" else "left"))
+            s.net(f"f{num}", s.pin(corner, "top" if sy < 0 else "bottom"), s.pin(feed, "bottom" if sy < 0 else "top"))
+            s.port(num, z, s.pin(feed, "top" if sy < 0 else "bottom"), side)
+        s.build(d)
+        return d
+
+    def goals(self, spec: dict) -> list[dict]:
+        a, b = band(spec["f0"], spec["bw"])
+        tol = spec["tol"]
+        return [goal("dB(S(1,1))", a, b, "<=", -spec["rl"]),
+                goal("dB(S(4,1))", a, b, "<=", -spec["iso"]),
+                goal("dB(S(3,1))", a, b, ">=", -spec["c"] - tol), goal("dB(S(3,1))", a, b, "<=", -spec["c"] + tol)]
+
+    def sweep(self, spec: dict) -> tuple[float, float, int]:
+        a, b = band(spec["f0"], max(3 * spec["bw"], 60))
         return a, b, 201

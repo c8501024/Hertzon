@@ -46,6 +46,7 @@ the next structure.
 | Shorted-stub bandpass | f0, bandwidth (30 to 80 %), stubs, ripple, rejection and distance of the stopbands | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..` (symmetric) | S11 in the band, S21 in both stopbands |
 | Edge-coupled bandpass | f0, bandwidth (2 to 30 %), resonators, ripple, rejection and distance of the stopbands | width `W1..`, gap `S1..` and length `L1..` of each coupled section (symmetric) | S11 in the band, S21 in both stopbands |
 | Open-stub bandstop | f0, width of the stopband with the rejection, stubs, ripple, rejection | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..`, line width `Wu` | S21 in the stopband, S11 in both passbands |
+| Coupled-line coupler | f0, coupling, port impedance, bandwidth, return loss, isolation, coupling tolerance | width `W`, gap `S`, length `L` | S11, S41 (isolation), S31 within the tolerance |
 | Branchline coupler | f0, coupling (3 dB or unequal), port impedance, bandwidth, return loss and isolation, amplitude and phase tolerance | series arms `Ws`, `Ls`, shunt arms `Wp`, `Lp` | S11 and S41 (isolation), S21 and S31 within the tolerance, S31/S21 at −90° |
 
 The Wilkinson divider has arms of Z0·√2 and a resistor of 2 Z0. The arms rise from the input tee by `La`, turn and
@@ -75,6 +76,11 @@ reaches the rejection), so the stopband you enter is narrower than FBW and the p
 the ripple edges. The width of the connecting lines is a variable too, and the optimization starts from a Latin
 hypercube sample with Nelder-Mead chains because the passband match has local minima.
 
+The coupled-line coupler is a quarter-wave section with Z0e,o = Z0·√((1 ± c)/(1 ∓ c)), c = 10^(−C/20); width
+and gap come from the coupled-line model of the circuit. It couples backwards: port 1 in, 2 through, 3 coupled
+(beside the input), 4 isolated. In microstrip the even and odd modes travel at different speeds, which limits the
+isolation to roughly 15 to 25 dB; coupling much stronger than 12 dB needs gaps below 0.15 mm on 0.508 mm boards.
+
 The quarter-wave transformer is binomial (maximally flat): ln(Z[k+1]/Z[k]) = 2^−N C(N,k) ln(ZL/Z0); port 2 has
 the load impedance. The branchline coupler has series arms Z0·√(1−k²) and shunt arms Z_series/k with
 k = 10^(−C/20); port 1 is the input, 2 through, 3 coupled, 4 isolated. The line lengths are a quarter guided
@@ -89,4 +95,4 @@ optimization="MultiFidelity1")` and `apply_optimization`.
 ## What comes next
 
 The plan follows the order of the cards: the first antennas (dipole, monopole, IFA, circular and circularly
-polarized patch), then the coupled-line coupler, the rat-race (after a curved line part) and the others.
+polarized patch), then the rat-race (after a curved line part) and the others.

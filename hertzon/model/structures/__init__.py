@@ -17,7 +17,7 @@ from .base import (
     Synthesis,
     Variable,
 )
-from .couplers import Branchline
+from .couplers import Branchline, CoupledLineCoupler
 from .dividers import TeeDivider, Wilkinson
 from .filters import (
     EdgeCoupledBandpass,
@@ -94,8 +94,7 @@ CATALOG: list[Structure] = [
     _built(Branchline, "branch"),
     Planned("ratrace", "Rat-race coupler", "coupler", "180 degree hybrid, 1.5 wavelength ring",
             "Balanced mixers, sum and difference", "ratrace", priority=2, needs="a curved line part", ports=4),
-    Planned("coupled", "Coupled-line coupler", "coupler", "Quarter-wave directional coupler, 6-25 dB",
-            "Power monitoring, sampling ports", "cpl", priority=2, ports=4),
+    _built(CoupledLineCoupler, "cpl"),
     Planned("lange", "Lange coupler", "coupler", "Interdigitated 3 dB, bond wires", "Octave-band 3 dB quadrature",
             "lange", priority=3, needs="multi-conductor coupled lines and bond wires", ports=4),
     # ---- dividers

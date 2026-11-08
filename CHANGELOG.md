@@ -11,7 +11,7 @@ the GitHub release notes.
   and the substrate, and see the synthesized start values while typing. It creates the circuit, its 3D design
   with the same variables and an optimization on the circuit with multi-fidelity switched on. First structures:
   the **quarter-wave transformer** (1 to 4 binomial sections), the **branchline coupler** (3 dB or unequal), the
-  **Wilkinson divider**, the **T-junction divider** (equal or unequal), **stub matching** of a complex load, the **stepped-impedance
+  **coupled-line coupler**, the **Wilkinson divider**, the **T-junction divider** (equal or unequal), **stub matching** of a complex load, the **stepped-impedance
   lowpass** (Chebyshev), the **shorted-stub bandpass** (wideband, quarter-wave stubs with vias), the
   **edge-coupled bandpass** (parallel coupled half-wave resonators) and the **open-stub bandstop**.
   The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
