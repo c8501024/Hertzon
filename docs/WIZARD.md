@@ -44,6 +44,7 @@ the next structure.
 | Stepped-impedance lowpass | cutoff, order, ripple, high and low impedance, stopband start and rejection | section lengths `L1..LN` (the widths stay) | S11 below the cutoff, S21 in the stopband |
 | Shorted-stub bandpass | f0, bandwidth (30 to 80 %), stubs, ripple, rejection and distance of the stopbands | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..` (symmetric) | S11 in the band, S21 in both stopbands |
 | Edge-coupled bandpass | f0, bandwidth (2 to 30 %), resonators, ripple, rejection and distance of the stopbands | width `W1..`, gap `S1..` and length `L1..` of each coupled section (symmetric) | S11 in the band, S21 in both stopbands |
+| Open-stub bandstop | f0, width of the stopband with the rejection, stubs, ripple, rejection | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..`, line width `Wu` | S21 in the stopband, S11 in both passbands |
 | Branchline coupler | f0, coupling (3 dB or unequal), port impedance, bandwidth, return loss and isolation, amplitude and phase tolerance | series arms `Ws`, `Ls`, shunt arms `Wp`, `Lp` | S11 and S41 (isolation), S21 and S31 within the tolerance, S31/S21 at −90° |
 
 The T-junction divider splits the input admittance in the power ratio K = P3/P2 and brings each half back to the
@@ -62,6 +63,12 @@ Z0e,o = Z0 (1 ± J Z0 + (J Z0)²); width and gap are solved from the coupled-lin
 is a quarter wavelength of the mean phase constant. The open ends of the resonators shift the 3D response down
 by a few %, which the multi-fidelity rounds correct. Wide bands need gaps below the smallest feature (the wizard
 warns): on 0.508 mm RO4350B about 7 % for three resonators.
+
+The open-stub bandstop has quarter-wave open stubs 4 Z0/(π g FBW) joined by quarter-wave lines. FBW is the
+bandwidth between the ripple edges; the rejection holds over FBW/Ω_s of it (Ω_s where the Chebyshev response
+reaches the rejection), so the stopband you enter is narrower than FBW and the passbands start a little outside
+the ripple edges. The width of the connecting lines is a variable too, and the optimization starts from a Latin
+hypercube sample with Nelder-Mead chains because the passband match has local minima.
 
 The quarter-wave transformer is binomial (maximally flat): ln(Z[k+1]/Z[k]) = 2^−N C(N,k) ln(ZL/Z0); port 2 has
 the load impedance. The branchline coupler has series arms Z0·√(1−k²) and shunt arms Z_series/k with

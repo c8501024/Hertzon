@@ -122,6 +122,7 @@ class Structure:
     needs = ""                          # planned: what is missing before it can be built
     designer = ""                       # an existing dialog that builds it (Tools menu action), see catalog.py
     coarse = "Circuit"                  # coarse model of the multi-fidelity optimization (shown in the wizard)
+    optimizer = "Conjugate Gradient"    # algorithm of the optimization (a sampled start for rugged goals)
 
     # ---- specification
     def defaults(self) -> dict[str, float]:
@@ -188,7 +189,7 @@ class Structure:
         st.sweeps[0].props.update(Distribution="Linear Count", Start=f"{a:.6g}GHz", Stop=f"{b:.6g}GHz", Count=str(n))
         fine_sweep(d3, spec, a, b)
         op = Optimization("Optimization1", "Setup1 : Sweep",
-                          props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer="Conjugate Gradient"))
+                          props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer=self.optimizer))
         if multi_fidelity:
             op.name = "MultiFidelity1"
             op.props.update(MultiFidelity="True", FineModel=d3.name, FineSolution="Setup1 : Sweep")

@@ -303,4 +303,12 @@ ICONS = {
         'l="#c9952f" stroke="#9a6c14" stroke-width=".6"/><path d="M59.5 14 L44 2 A20 20 0 0 1 75 2 Z" fill="#'
         'c9952f" stroke="#9a6c14" stroke-width=".6"/><rect x="54" y="2" width="11" height="0" /></svg>'
     ),
+    'stubbs': (
+        '<svg viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="2" y="2" wi'
+        'dth="116" height="76" rx="3" fill="#e9f1fb" stroke="#9cc3ee"/><rect x="4" y="47" width="112" height='
+        '"6" fill="#c9952f" stroke="#9a6c14" stroke-width=".6"/><rect x="24" y="12" width="10" height="35" fi'
+        'll="#c9952f" stroke="#9a6c14" stroke-width=".6"/><rect x="54" y="12" width="10" height="35" fill="#c'
+        '9952f" stroke="#9a6c14" stroke-width=".6"/><rect x="84" y="12" width="10" height="35" fill="#c9952f"'
+        ' stroke="#9a6c14" stroke-width=".6"/></svg>'
+    ),
 }

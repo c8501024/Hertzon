@@ -70,7 +70,8 @@ def test_branchline_impedances():
                                               ("tee", {}, 3), ("tee", {"k": 2}, 3), ("stepped", {}, 2),
                                               ("stepped", {"n": 3}, 2), ("stub", {}, 1),
                                               ("stub", {"xl": -30}, 1), ("stubbp", {}, 2), ("stubbp", {"n": 4}, 2),
-                                              ("edge", {}, 2), ("edge", {"n": 4}, 2)])
+                                              ("edge", {}, 2), ("edge", {"n": 4}, 2), ("stubbs", {}, 2),
+                                              ("stubbs", {"n": 5}, 2)])
 def test_circuit_3d_and_optimization_share_the_variables(key, values, ports):
     p, r = _made(key, values)
     circ, d3 = r.designs
@@ -143,13 +144,22 @@ def test_edge_coupled_bandpass_synthesis():
     assert db(s[1, 0, 0]) < -12 and db(s[0, 1, 0]) < -20 and db(s[2, 1, 0]) < -20
 
 
+def test_open_stub_bandstop_blocks_the_band():
+    from hertzon.model.structures.filters import chebyshev_edge
+    assert chebyshev_edge(3, 0.1, 20) == pytest.approx(2.63, abs=0.01)
+    p, r = _made("stubbs")
+    assert r.designs[0].optimetrics[0].props["Optimizer"] == "Latin Hypercube + Nelder-Mead"
+    s = _s(p, r.designs[0], [0.9, 3.0, 5.1])
+    assert db(s[1, 1, 0]) < -40 and db(s[0, 1, 0]) > -1 and db(s[2, 1, 0]) > -1
+
+
 def test_shorted_stub_bandpass_passes_the_band():
     p, r = _made("stubbp")
     s = _s(p, r.designs[0], [1.0, 3.0, 5.0])
     assert db(s[1, 0, 0]) < -12 and db(s[0, 1, 0]) < -10 and db(s[2, 1, 0]) < -10
 
 
-@pytest.mark.parametrize("key", ["branchline", "tee", "stepped", "stub", "stubbp", "edge"])
+@pytest.mark.parametrize("key", ["branchline", "tee", "stepped", "stub", "stubbp", "edge", "stubbs"])
 def test_circuit_optimization_meets_the_goals(tmp_path, key):
     from hertzon.solver.optimize import Optimizer
     p, r = _made(key, multi_fidelity=False)

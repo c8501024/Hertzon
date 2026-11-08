@@ -321,3 +321,113 @@ class EdgeCoupledBandpass(Structure):
 
     def sweep(self, spec: dict) -> tuple[float, float, int]:
         return 0.5 * spec["f0"], 1.6 * spec["f0"], 241
+
+
+def chebyshev_edge(n: int, ripple_db: float, rej_db: float) -> float:
+    """Normalized frequency of the lowpass prototype where a Chebyshev response of order n reaches rej_db."""
+    r = math.sqrt((10 ** (rej_db / 10) - 1) / (10 ** (ripple_db / 10) - 1))
+    return math.cosh(math.acosh(max(r, 1.0)) / n)
+
+
+class StubBandstop(Structure):
+    """Bandstop of quarter-wave open stubs joined by quarter-wave lines of the port impedance (Pozar 8.8):
+    Z_stub,n = 4 Z0 / (pi g_n FBW). Symmetric: stub k and N+1-k share their variables."""
+    key = "stubbs"
+    title = "Open-stub bandstop"
+    category = "filter"
+    description = "Quarter-wave open stubs, wide stopband"
+    use = "Block a band of 10 to 40 %, e.g. a transmitter next to a receiver"
+    status = AVAILABLE
+    optimizer = "Latin Hypercube + Nelder-Mead"     # the passband match has local minima for gradients
+    ports = 2
+    fields = (
+        Field("f0", "Centre frequency", 3.0, "GHz", 0.05, 60),
+        Field("bw", "Stopband width", 30.0, "%", 5, 60, 1, help="Width of the band with the rejection"),
+        Field("n", "Stubs", 3, "", 2, 7, 0, True),
+        Field("ripple", "Passband ripple", 0.1, "dB", 0.01, 1, 3),
+        Field("z0", "Port impedance", 50.0, "ohm", 5, 300, 1),
+        Field("rej", "Rejection", 20.0, "dB", 5, 60, 1),
+    )
+
+    @staticmethod
+    def fbw(spec: dict) -> float:
+        """Bandwidth of the prototype between the ripple edges: the rejection holds over bw / Omega_s of it."""
+        return chebyshev_edge(int(spec["n"]), spec["ripple"], spec["rej"]) * spec["bw"] / 100
+
+    def default_name(self, spec: dict) -> str:
+        return f"StubBandstop_{spec['f0']:g}GHz"
+
+    def synthesis(self, spec: dict, sub: Substrate) -> Synthesis:
+        f0, n, z0 = spec["f0"], int(spec["n"]), spec["z0"]
+        fbw = min(self.fbw(spec), 1.2)
+        g = chebyshev_g(n, spec["ripple"])
+        wc = sub.width(z0, f0)
+        syn = Synthesis()
+        if self.fbw(spec) > 1.2:
+            syn.warnings.append("The passbands would start below 0.4 f0: use more stubs, less rejection or a "
+                                "narrower stopband")
+        for k in range(1, (n + 1) // 2 + 1):
+            z = 4 * z0 / (math.pi * g[k] * fbw)
+            w = sub.width(z, f0)
+            syn.variables.append(Variable(f"Ws{k}", w, f"stub {k}{f' and {n + 1 - k}' if n + 1 - k != k else ''}: "
+                                          f"width, {z:.1f} ohm"))
+            syn.variables.append(Variable(f"Ls{k}", sub.lambda_g(w, f0) / 4 - wc / 2,
+                                          f"stub {k}: length, lambda_g/4 (the open end extension is in the model)"))
+        for k in range(1, n // 2 + 1):
+            ws = [syn.value(f"Ws{min(k, n + 1 - k)}"), syn.value(f"Ws{min(k + 1, n - k)}")]
+            syn.variables.append(Variable(f"Lc{k}", sub.lambda_g(wc, f0) / 4 - sum(ws) / 2,
+                                          f"line {k}{f' and {n - k}' if n - k != k else ''}: length, lambda_g/4 "
+                                          "between the stub centres"))
+        syn.variables.append(Variable("Wu", wc, f"width of the lines between the stubs, {z0:g} ohm at the start"))
+        syn.variables.append(Variable("Wc", wc, f"feed width, {z0:g} ohm", include=False))
+        syn.variables.append(Variable("lf", max(sub.lambda_g(wc, f0) / 8, 2 * sub.h), "feed line length",
+                                      include=False))
+        syn.note = (f"Chebyshev {spec['ripple']:g} dB, N = {n}, FBW = {fbw:.2f}: open stubs 4 Z0/(pi g FBW) = "
+                    + ", ".join(f"{4 * z0 / (math.pi * g[k] * fbw):.1f}" for k in range(1, n + 1)) +
+                    f" ohm, joined by {z0:g} ohm lines; each a quarter guided wavelength.")
+        if any(v.value < sub.min_feature for v in syn.variables if v.name.startswith("Ws")):
+            syn.warnings.append("A stub is narrower than the smallest width: widen the stopband")
+        return syn
+
+    def circuit(self, spec: dict, sub: Substrate, syn: Synthesis, name: str):
+        from ..circuit import AUTO
+        n = int(spec["n"])
+        d = new_circuit(name, sub, syn)
+        d.settings[AUTO] = "False"
+        s = Schematic()
+        s.parts.append(substrate_part(sub, -200, -220))
+        sp = {"Subst": "Sub1"}
+        feed1 = s.add("Feed1", "MLIN", 0, 0, 0, **sp, W="Wc", L="lf")
+        prev, x = feed1, 110
+        for k in range(1, n + 1):
+            j = min(k, n + 1 - k)
+            t = s.add(f"T{k}", "MTEE", x, 0, 0, True, **sp, W1="Wc" if k == 1 else "Wu", W2="Wc" if k == n else "Wu",
+                      W3=f"Ws{j}")
+            st = s.add(f"Stub{k}", "MLOC", x, -70, 180, **sp, W=f"Ws{j}", L=f"Ls{j}")
+            s.net(f"a{k}", s.pin(prev, "right"), s.pin(t, 0))
+            s.net(f"s{k}", s.pin(t, 2), s.pin(st, 0))
+            if k < n:
+                c = s.add(f"MS{k}", "MLIN", x + 110, 0, 0, **sp, W="Wu", L=f"Lc{min(k, n - k)}")
+                s.net(f"b{k}", s.pin(t, 1), s.pin(c, "left"))
+                prev, x = c, x + 220
+            else:
+                feed2 = s.add("Feed2", "MLIN", x + 110, 0, 0, **sp, W="Wc", L="lf")
+                s.net(f"b{k}", s.pin(t, 1), s.pin(feed2, "left"))
+        s.port(1, f"{spec['z0']:g}ohm", s.pin(feed1, "left"), "left")
+        s.port(2, f"{spec['z0']:g}ohm", s.pin(feed2, "right"), "right")
+        s.build(d)
+        return d
+
+    def goals(self, spec: dict) -> list[dict]:
+        f0, bw = spec["f0"], spec["bw"] / 100
+        pb = min(self.fbw(spec), 1.2) / 2 + 0.1            # passband edges, a little outside the ripple edges
+        rl = -min(ripple_return_loss(spec["ripple"]) - 2, 25)
+        out = [goal("dB(S(2,1))", f0 * (1 - bw / 2), f0 * (1 + bw / 2), "<=", -spec["rej"])]
+        if 1 - pb > 0.15:
+            out.append(goal("dB(S(1,1))", 0.1 * f0, f0 * (1 - pb), "<=", rl))
+        if 1 + pb < 1.85:
+            out.append(goal("dB(S(1,1))", f0 * (1 + pb), 1.9 * f0, "<=", rl))
+        return out
+
+    def sweep(self, spec: dict) -> tuple[float, float, int]:
+        return 0.1 * spec["f0"], 1.9 * spec["f0"], 241

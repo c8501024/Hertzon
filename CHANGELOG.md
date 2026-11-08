@@ -12,8 +12,8 @@ the GitHub release notes.
   with the same variables and an optimization on the circuit with multi-fidelity switched on. First structures:
   the **quarter-wave transformer** (1 to 4 binomial sections), the **branchline coupler** (3 dB or unequal), the
   **T-junction divider** (equal or unequal), **stub matching** of a complex load, the **stepped-impedance
-  lowpass** (Chebyshev), the **shorted-stub bandpass** (wideband, quarter-wave stubs with vias) and the
-  **edge-coupled bandpass** (parallel coupled half-wave resonators).
+  lowpass** (Chebyshev), the **shorted-stub bandpass** (wideband, quarter-wave stubs with vias), the
+  **edge-coupled bandpass** (parallel coupled half-wave resonators) and the **open-stub bandstop**.
   The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
   `list_structures`, `create_structure`. See [Design Wizard](docs/WIZARD.md).
 

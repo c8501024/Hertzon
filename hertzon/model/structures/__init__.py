@@ -19,7 +19,12 @@ from .base import (
 )
 from .couplers import Branchline
 from .dividers import TeeDivider
-from .filters import EdgeCoupledBandpass, ShortedStubBandpass, SteppedImpedanceLowpass
+from .filters import (
+    EdgeCoupledBandpass,
+    ShortedStubBandpass,
+    SteppedImpedanceLowpass,
+    StubBandstop,
+)
 from .icons import ICONS
 from .matching import QuarterWaveTransformer, StubMatch
 
@@ -105,6 +110,7 @@ CATALOG: list[Structure] = [
     _built(EdgeCoupledBandpass, "edge"),
     _built(SteppedImpedanceLowpass, "stepped"),
     _built(ShortedStubBandpass, "stubbp"),
+    _built(StubBandstop, "stubbs"),
     Planned("interdigital", "Interdigital bandpass", "filter", "Quarter-wave fingers",
             "Compact, clean second harmonic", "inter", priority=3, needs="multi-conductor coupled lines"),
     Planned("diplexer", "Hairpin diplexer", "filter", "Two hairpin channels at a junction", "Two bands on one antenna",
