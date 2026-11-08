@@ -37,7 +37,7 @@ def test_start_page_offers_only_what_is_built(tmp_path):
         assert dlg.type_radio[name].isEnabled()
     for name in ("Electrostatic", "DC Conduction", "Magnetostatic", "Eddy Current"):
         assert not dlg.type_radio[name].isEnabled()
-    assert dlg.recent.count() == 1 and dlg.examples.count() == 1 and dlg.templates.count() == 2
+    assert dlg.recent.count() == 1 and dlg.examples.count() == 1 and dlg.templates.count() == 3
     dlg.type_radio["Eigenmode"].setChecked(True)
     dlg.units.setCurrentText("um")
     dlg.startup.setChecked(False)
@@ -54,7 +54,7 @@ def test_start_page_lists_and_insert_mode(tmp_path):
     dlg._item(dlg.examples.item(0))
     assert (dlg.choice.action, Path(dlg.choice.path).name) == ("example", "PatchAntenna.hzn")
     dlg = StartPageDialog(None, "new")
-    dlg._item(dlg.templates.item(1))
+    dlg._item(dlg.templates.item(2))
     assert (dlg.choice.action, dlg.choice.template) == ("template", "hairpin")
     ins = StartPageDialog(None, "insert", default_name="Design3")
     assert ins.side.isHidden() and ins.startup.isHidden() and ins.empty_btn.isHidden()

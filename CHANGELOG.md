@@ -3,6 +3,17 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Design Wizard** (Tools › Design Wizard, the ribbon and the start page): one window for couplers, dividers,
+  matching networks, filters and antennas. Choose a structure from cards by category, enter the specification
+  and the substrate, and see the synthesized start values while typing. It creates the circuit, its 3D design
+  with the same variables and an optimization on the circuit with multi-fidelity switched on. First structures:
+  the **quarter-wave transformer** (1 to 4 binomial sections) and the **branchline coupler** (3 dB or unequal).
+  The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
+  `list_structures`, `create_structure`. See [Design Wizard](docs/WIZARD.md).
+
 ## 0.3.10 (2026-11-08)
 
 ### Added
