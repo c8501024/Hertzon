@@ -178,7 +178,7 @@ class AiLink(QObject):
                 doc.set_design(des)
             if not doc.project.path:
                 raise RuntimeError("save the project first (save_project with a path)")
-            if not a.get("sweep"):
+            if not a.get("sweep") and getattr(doc.design, "kind", "3d") != "circuit":
                 bad = [c.message for c in validate(doc.project, doc.design, doc.tess, doc.errors,
                                                         w.solid_overlaps()) if c.level == "error"]
                 if bad:

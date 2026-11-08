@@ -99,6 +99,21 @@ class Evaluation:
             pass
 
 
+class CircuitEvaluation:
+    """One candidate circuit design, analyzed at once in this process (same interface as Evaluation)."""
+
+    def __init__(self, n: int, x, texts: dict, folder: Path, data: dict | None, error: str = ""):
+        self.n, self.x, self.texts, self.folder = n, list(x), texts, folder
+        self.data, self.error = data, error
+        self.progress = 100.0
+
+    def finished(self) -> bool:
+        return True
+
+    def kill(self) -> None:
+        pass
+
+
 class Optimizer:
     def __init__(self, project_path: str, design: str, name: str, out: Path):
         self.proj = Project.load(project_path)
@@ -111,6 +126,9 @@ class Optimizer:
         if not setup or not sol:
             raise ValueError("Choose the solution the goals are evaluated on (setup and sweep)")
         self.setup, self.sol = setup, sol
+        self.circuit = getattr(self.des, "kind", "3d") == "circuit"
+        if self.circuit and sol == "LastAdaptive":
+            raise ValueError("A circuit has no adaptive solution: choose a frequency sweep for the goals")
         st = self.des.setup(setup)
         if sol != "LastAdaptive" and not any(sw.name == sol for sw in st.sweeps):
             raise ValueError(f"Sweep '{sol}' not found in {setup}")
@@ -131,6 +149,15 @@ class Optimizer:
         self.keep_mesh = False          # the trust region computes the tuning model on an evaluation's mesh
         self.algorithm = self.props.get("Optimizer", "Conjugate Gradient")
         self.trust = self.algorithm == TRUST_REGION
+        if self.trust and self.circuit:
+            raise ValueError("Derivative Trust Region needs the tuning model of a 3D mesh: use Conjugate Gradient "
+                             "or Latin Hypercube + Nelder-Mead for a circuit (every evaluation takes milliseconds)")
+        if self.circuit:
+            from .sweeps import sweep_frequencies
+            sw = next(sw for sw in st.sweeps if sw.name == sol)
+            self.freqs = sweep_frequencies(sw.props, self.ev)
+            self.parallel = 1
+        self._written = 0.0
         if self.trust and len(self.vars) > TUNING_MAX_VARIABLES:
             raise ValueError(f"Derivative Trust Region: at most {TUNING_MAX_VARIABLES} variables (the tuning "
                              f"model), {len(self.vars)} are included")
@@ -161,6 +188,8 @@ class Optimizer:
         self.n += 1
         texts = self.vars.texts(x)
         folder = self.out / "evals" / f"{self.n:04d}"
+        if self.circuit:
+            return self._analyze_circuit(x, texts, folder)
         folder.mkdir(parents=True, exist_ok=True)
         p = self._project_for(texts)
         path = folder / "design.hzn"
@@ -168,6 +197,17 @@ class Optimizer:
         res = folder / "results"
         cmd = [sys.executable, "-m", "hertzon.solver.run", str(path), self.des.name, self.setup, str(res)]
         return Evaluation(self.n, x, texts, folder, cmd, self._env(workers))
+
+    def _analyze_circuit(self, x, texts: dict, folder: Path) -> CircuitEvaluation:
+        from .circuit import analyze
+        p = self._project_for(texts)
+        try:
+            r = analyze(p, p.design(self.des.name), self.freqs)
+        except Exception as ex:  # noqa: BLE001
+            return CircuitEvaluation(self.n, x, texts, folder, None, str(ex))
+        ports = [{"name": n, "number": i + 1, "kind": "Circuit Port", "modes": 1} for i, n in enumerate(r.ports)]
+        data = {"freq": r.freq, "S": r.S, "z0": r.z0, "solved": r.freq, "ports": ports}
+        return CircuitEvaluation(self.n, x, texts, folder, data)
 
     def _env(self, workers: int, tuning: str = "") -> dict:
         env = dict(os.environ)
@@ -186,17 +226,20 @@ class Optimizer:
         return env
 
     def finish(self, e: Evaluation, phase: str) -> float:
-        st = ResultStore(e.folder / "results")
         row = {"eval": e.n, "phase": phase, "variables": e.texts, "x": e.x, "time": time.time() - self.t0}
         self.folders[e.n] = e.folder
         cost = float("inf")
         try:
-            data = st.sparams(self.sol)
+            if isinstance(e, CircuitEvaluation):
+                data = e.data
+            else:
+                st = ResultStore(e.folder / "results")
+                data = st.sparams(self.sol)
             if data is None:
                 raise RuntimeError(e.error or "no result (the solver stopped early; see solver.log)")
             from .expressions import with_pairs
             antenna = None
-            if self.antenna_goals:
+            if self.antenna_goals and not isinstance(e, CircuitEvaluation):
                 try:
                     antenna = antenna_data(st, self.des, self.sol, self.ev)
                 except Exception as ex:  # noqa: BLE001
@@ -218,13 +261,21 @@ class Optimizer:
                     self.discard(previous["eval"])
             else:
                 self.cleanup(e.folder)
-        (self.out / "history.json").write_text(json.dumps({"variables": self.vars.names, "evaluations": self.history},
-                                                          indent=1, default=str), encoding="utf-8")
+        self._write_history(force=not self.circuit)
         emit("optim", eval=e.n, cost=row.get("cost"), best=self.best["cost"] if self.best else None)
         msg = f"Evaluation {e.n} ({phase}): cost {cost:.6g}" if np.isfinite(cost) else None
-        if msg:
+        if msg and (not self.circuit or self.best is row):
             log(msg + "   " + ", ".join(f"{k}={v}" for k, v in e.texts.items()))
         return cost
+
+    def _write_history(self, force: bool = True) -> None:
+        """history.json; a circuit evaluation takes milliseconds, so then at most twice a second (and at the end)."""
+        now = time.time()
+        if not force and now - self._written < 0.5:
+            return
+        self._written = now
+        (self.out / "history.json").write_text(json.dumps({"variables": self.vars.names, "evaluations": self.history},
+                                                          indent=1, default=str), encoding="utf-8")
 
     def discard(self, n: int) -> None:
         """Remove mesh and fields of evaluation n unless it is the best one."""
@@ -286,6 +337,7 @@ class Optimizer:
 
     def _end(self, reason: str) -> bool:
         stopped = self.aborted()
+        self._write_history()
         for n in list(self.folders):
             self.discard(n)
         reason = "Aborted" if stopped else reason
@@ -445,7 +497,8 @@ class Optimizer:
                 emit("progress", value=100 * frac,
                      text=f"Iteration {iteration + 1}, {label}: {done} of {len(points)} design(s) "
                           f"(evaluation {self.n}){best}")
-            time.sleep(0.2)
+            if not self.circuit:
+                time.sleep(0.2)
         return costs
 
 

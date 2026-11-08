@@ -24,7 +24,9 @@ def goal_solutions(design) -> list[str]:
     for s in design.setups:
         if s.eigen:
             continue
-        out += [f"{s.name} : {sw.name}" for sw in s.sweeps] + [f"{s.name} : LastAdaptive"]
+        out += [f"{s.name} : {sw.name}" for sw in s.sweeps]
+        if getattr(design, "kind", "3d") != "circuit":          # a circuit has no adaptive solution
+            out.append(f"{s.name} : LastAdaptive")
     return out
 
 
