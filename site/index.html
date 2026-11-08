@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hertzon – open-source 3D full-wave EM simulator (FEM, adaptive meshing)</title>
-<meta name="description" content="Hertzon is a free, open-source 3D full-wave electromagnetic simulator for antennas, filters, waveguides and RCS: finite-element solver with adaptive meshing, circuit simulator, S-parameters, fields and radiation patterns. Windows and Linux.">
+<title>Hertzon – open-source electromagnetic design suite (3D full-wave FEM, circuits, PCBs, AI via MCP)</title>
+<meta name="description" content="Hertzon is a free, open-source electromagnetic design suite for engineers and AI agents (MCP): 3D full-wave electromagnetic simulation for antennas, filters, waveguides and RCS: finite-element solver with adaptive meshing, circuit simulator, S-parameters, fields and radiation patterns. Windows and Linux.">
 <meta name="keywords" content="open-source electromagnetic simulator, FEM, finite element method, full-wave, adaptive meshing, antenna simulation, microwave, RF, S-parameters, radiation pattern, RCS, EMerge">
 <link rel="canonical" href="https://c8501024.github.io/Hertzon/">
 <!-- Google Search Console: replace the content value with your verification token, then uncomment. -->
 <!-- <meta name="google-site-verification" content="YOUR_TOKEN"> -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="Hertzon – open-source 3D full-wave EM simulator">
-<meta property="og:description" content="Finite-element EM solver with adaptive meshing for antennas, filters and waveguides. Free and open source.">
+<meta property="og:title" content="Hertzon – open-source electromagnetic design suite">
+<meta property="og:description" content="Open-source electromagnetic design suite for engineers and AI agents: 3D full-wave FEM, circuits, PCBs and optimization. Free and open source.">
 <meta property="og:url" content="https://c8501024.github.io/Hertzon/">
 <meta property="og:image" content="https://c8501024.github.io/Hertzon/screenshots/patch_3d_gain.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -29,7 +29,7 @@
   "applicationCategory": "EngineeringApplication",
   "applicationSubCategory": "Electromagnetic simulation",
   "operatingSystem": "Windows, Linux",
-  "description": "Open-source 3D full-wave electromagnetic simulator with adaptive meshing, circuit simulation and optimization.",
+  "description": "Open-source electromagnetic design suite for co-design by engineers and AI agents: 3D full-wave FEM, circuits, PCBs and optimization.",
   "url": "https://c8501024.github.io/Hertzon/",
   "downloadUrl": "https://github.com/c8501024/Hertzon/releases/latest",
   "codeRepository": "https://github.com/c8501024/Hertzon",
@@ -42,9 +42,10 @@
 <body class="home">
 <!--HEADER-->
 <section class="hero"><div class="hero-in">
-<h1>Open-source 3D full-wave EM simulation with <em>adaptive meshing</em></h1>
-<p>Draw the model, assign boundaries and ports, solve, then look at S-parameters, fields and radiation patterns.
-For antennas, filters, waveguides, PCBs and RCS, plus circuit designs with their 3D layout.</p>
+<h1>Electromagnetic design, by you and/or <em>your AI agent</em></h1>
+<p><strong>3D modelling</strong> in a modern interface, with the workflow you know from the established design tools,
+and <strong>adaptive meshing</strong> for high accuracy. Hertzon offers its methods as tools that an AI agent uses through
+<strong>MCP</strong> (<a href="docs/mcp.html">what is MCP?</a>), so every design can be a <a href="#ai">co-design</a> of engineer and AI.</p>
 <div class="btns">
 <a class="btn primary" href="https://github.com/c8501024/Hertzon/releases/latest">Download for Windows / Linux</a>
 <a class="btn ghost" href="docs/tutorial.html">Start the tutorial</a>
@@ -53,7 +54,26 @@ For antennas, filters, waveguides, PCBs and RCS, plus circuit designs with their
 <small>Free under the GPL · by Dominik Mair · FEM solver core: EMerge by Robert Fennis</small>
 </div></section>
 
-<section class="band"><div class="wrap">
+<section class="band glance-band"><div class="wrap">
+<p class="eyebrow">At a glance</p>
+<h2>Can Hertzon do what you need?</h2>
+<div class="glance">
+<div class="g"><h3>3D modelling</h3><p>Draw with variables, booleans and sweeps; import and export STEP, IGES and BREP.</p></div>
+<div class="g"><h3>Full-wave FEM</h3><p>Adaptive meshing, curved elements, fast and interpolating frequency sweeps, eigenmodes.</p></div>
+<div class="g"><h3>Antennas and RCS</h3><p>Gain, efficiency, 3D radiation patterns, plane-wave RCS, symmetry planes.</p></div>
+<div class="g"><h3>Filters, waveguides, lines</h3><p>Wave and lumped ports, multi-mode ports, S-parameters, Smith charts, field plots.</p></div>
+<div class="g"><h3>Circuits</h3><p>Schematics with lines, lumped parts and Touchstone blocks, turned into a 3D layout and back.</p></div>
+<div class="g"><h3>PCBs</h3><p>Gerber and Excellon import with the stackup, Gerber export of the simulated layout.</p></div>
+<div class="g"><h3>Optimization</h3><p>Three optimizers, parametric sweeps and derivative tuning with mesh morphing.</p></div>
+<div class="g"><h3>Solve anywhere</h3><p>On this computer, another one in the network, or a cloud server.</p></div>
+<div class="g"><h3>AI co-design</h3><p>An MCP server for Claude Code, Codex and VS Code: the AI builds, solves and tunes with you.</p></div>
+<div class="g"><h3>Results and export</h3><p>Touchstone, field and far-field plots, reports, images and animations exactly as shown.</p></div>
+</div>
+<p class="glance-not"><strong>Not yet:</strong> time-domain solving, low-frequency and electrostatics, photonics. They are on the
+<a href="docs/roadmap.html">roadmap</a>. Every function with its status: <a href="docs/feature-matrix.html">feature overview</a>.</p>
+</div></section>
+
+<section class="band alt"><div class="wrap">
 <p class="eyebrow">What you can simulate</p>
 <h2>From a microstrip line to the radar cross section</h2>
 <div class="split">
@@ -71,8 +91,20 @@ For antennas, filters, waveguides, PCBs and RCS, plus circuit designs with their
 </div></section>
 
 <section class="band" id="ai"><div class="wrap">
-<p class="eyebrow">AI assistants</p>
-<h2>One sentence to the AI, and Hertzon builds the model</h2>
+<p class="eyebrow">The vision: co-design</p>
+<h2>Every design, made by engineer and AI together</h2>
+<p class="sub">Hertzon provides its methods as tools that an AI agent can call through MCP (<a href="docs/mcp.html">what is MCP?</a>).
+The AI picks and combines them; the engineer sets the goal, sees every step in the open window and decides.</p>
+<div class="outlook">
+<div class="card"><h3>Methods, not guesses</h3><p>The AI does not guess physics. It uses the same validated methods as you: adaptive
+FEM solving, sweeps, optimizers, derivative tuning, circuits and PCB import. The numbers come from the solver.</p></div>
+<div class="card"><h3>You stay in control</h3><p>Every change appears at once in the open project. You can step in at any time,
+and Ctrl+Z undoes anything the AI did. What it builds is an ordinary Hertzon project.</p></div>
+<div class="card"><h3>Next: topology optimization</h3><p>From the author's research on pixelated antennas
+(<a href="https://doi.org/10.1038/s41598-024-77695-x">Sci. Rep. 2024</a>): the shape of the metal itself is optimized,
+so the AI can explore designs that no parametric model contains.</p></div>
+</div>
+<h3 class="outlook-h">One sentence to the AI, and Hertzon builds the model</h3>
 <p class="sub">Hertzon's MCP server lets an AI assistant draw the geometry, assign ports and boundaries, start the solver,
 read the results and decide what to try next, all in the open Hertzon window. These are replays of real runs:
 the times, run counts and results at the end are what came out.</p>

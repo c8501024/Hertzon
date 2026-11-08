@@ -31,6 +31,7 @@ BASE_URL = "https://c8501024.github.io/Hertzon/"
 NAV = [
     ("Get started", [
         ("docs/TUTORIAL.md", "Tutorial"),
+        ("docs/MCP.md", "AI co-design (MCP)"),
     ]),
     ("User guide", [
         ("docs/CIRCUIT.md", "Circuit designs"),

@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
         self._restore_settings()
         self._update_title()
         self.doc.rebuild()
-        self.msgs.add("info", f"Hertzon {__version__} - 3D full-wave FEM (EMerge solver)")
+        self.msgs.add("info", f"Hertzon {__version__} - Electromagnetic Design Suite")
         self._first_start_note()
         self._start_update_check()
         from .ai_link import AiLink
@@ -6496,7 +6496,7 @@ class MainWindow(QMainWindow):
 
     def about(self) -> None:
         QMessageBox.about(self, "About Hertzon",
-                          f"<b>Hertzon {__version__}</b><br>Open-source 3D full-wave FEM workflow with adaptive meshing."
+                          f"<b>Hertzon {__version__}</b><br>Electromagnetic Design Suite: 3D full-wave FEM with adaptive meshing, circuits, PCBs, optimization and AI agents via MCP."
                           "<br>By Dominik Mair. FEM solver core: <a href='https://github.com/FennisRobert/EMerge'>EMerge</a> "
                           "by Robert Fennis (GPL v2+).<br>Geometry: gmsh/OpenCASCADE, display: VTK/PyVista.<br><br>"
                           "Licensed under the GNU GPL v2 or later. Provided without any warranty: check simulation "
