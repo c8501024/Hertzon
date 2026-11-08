@@ -14,8 +14,15 @@ the GitHub release notes.
   which goal the board cannot meet) and enlarges the region and board where the hairpins need room.
 - **Create and Optimize**: creates the filter with its circuit model and starts the space mapping optimization
   *HairpinSM* right away (the circuit is optimized in seconds, a few 3D solves correct it).
+- **Hairpin diplexer and triplexer**: Tools › Filter Design › Hairpin Diplexer (and MCP
+  `create_hairpin_diplexer`) builds hairpin filters for two or three channel specifications: the 3D design, the
+  same diplexer as a circuit and the space mapping optimization *DiplexerSM* on all channel masks and the
+  isolation of every pair of ports. Junctions: a T-junction (the lines start where each filter looks open in the
+  band of the other channel), a common resonator shared by both filters (about half the board), or for three
+  channels a star junction with the third filter turned downwards.
 
 ### Changed
+- Space mapping fits the circuit to the S-parameters of all ports (a diplexer's third port was not seen).
 - **The circuit of the hairpin filter looks like the filter**: the U of every hairpin, the coupled arms side by
   side, the feeds at the taps, joined by wires instead of net labels; short lines get named lengths (`lv`, `lxi`,
   `lo1` ...). The netlist and the S-parameters are unchanged.
@@ -40,11 +47,6 @@ the GitHub release notes.
   from its own coupling of the Chebyshev prototype and included in the optimizations. With one common gap,
   four or more resonators could not reach a Chebyshev response; the fifth-order circuit now reaches a return
   loss of 18 dB in the passband.
-
-- **Hairpin diplexer**: Tools › Filter Design › Hairpin Diplexer (and MCP `create_hairpin_diplexer`) builds two
-  hairpin filters on a T-junction from two channel specifications: the 3D design, the same diplexer as a
-  circuit and the space mapping optimization *DiplexerSM* on both channel masks and the isolation. The
-  junction lines start where each filter looks open in the band of the other channel.
 
 ### Changed
 - **Faster circuit analysis**: expressions are parsed once and the line and junction models are cached; the
