@@ -480,12 +480,15 @@ class Optimizer:
                 break
             fine = ResultStore(self.folders[self.n] / "results").sparams(self.sol)
             freq, Sf = np.asarray(fine["freq"], float), np.asarray(fine["S"], complex)
+            # every reflection and transmission of the ports (S11, S21 for a filter; S11, S21, S31, S22, S32,
+            # S33 for a diplexer): with S11 and S21 alone the parts behind port 3 are not seen by the fit
+            pairs = [(i, j) for j in range(Sf.shape[2]) for i in range(j, Sf.shape[1])]
 
             def residual(v):
                 Sc = coarse.response(v, freq)
-                if Sc is None:
-                    return np.full(4 * len(freq), 10.0)
-                d = np.concatenate([(Sc[:, 0, 0] - Sf[:, 0, 0]), (Sc[:, 1, 0] - Sf[:, 1, 0])])
+                if Sc is None or Sc.shape[1:] != Sf.shape[1:]:
+                    return np.full(2 * len(pairs) * len(freq), 10.0)
+                d = np.concatenate([Sc[:, i, j] - Sf[:, i, j] for i, j in pairs])
                 return np.concatenate([d.real, d.imag])
             t = time.time()
             r = least_squares(residual, xc_prev, bounds=(-1.0, 2.0), x_scale=1.0, diff_step=1e-3, max_nfev=200)

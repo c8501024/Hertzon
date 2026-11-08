@@ -175,8 +175,8 @@ new cross-sections (changed widths) are solved and cached during the run.
 
 A 3D optimization with the optimizer **Space Mapping** uses a circuit design with the same variable names as
 its coarse model (Optimizer tab: *Circuit design*). The goals are first optimized on the circuit (about a
-minute), then every round solves the 3D design once, fits the circuit to the solved S11 and S21 (which circuit
-values give the same response) and moves the 3D variables so that the fitted values reach the circuit
+minute), then every round solves the 3D design once, fits the circuit to the solved S-parameters of all
+ports (which circuit values give the same response) and moves the 3D variables so that the fitted values reach the circuit
 optimum (aggressive space mapping with a Broyden update, Bandler et al.). The error of the circuit (coupling,
 junctions, open ends) is corrected by the 3D solves; a few rounds are enough when the circuit has the right
 shape of response. **Tools › Filter Design › Tapped Hairpin** adds the filter as a circuit
