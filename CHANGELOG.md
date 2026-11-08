@@ -18,6 +18,10 @@ the GitHub release notes.
   also creates the filter as a circuit (coupled lines, taps, bends; within about 1 % of the 3D response) and the
   optimization *HairpinSM*. On the third-order example it reached the circuit optimum in three 3D solves, about
   13 minutes on 4 cores, instead of 4.5 hours with the Derivative Trust Region.
+- **Hairpin filter: one gap per pair of neighbours** (g in the middle, g2, g3 ... outwards, symmetric), each
+  from its own coupling of the Chebyshev prototype and included in the optimizations. With one common gap,
+  four or more resonators could not reach a Chebyshev response; the fifth-order circuit now reaches a return
+  loss of 18 dB in the passband.
 
 ### Changed
 - **Faster circuit analysis**: expressions are parsed once and the line and junction models are cached; the

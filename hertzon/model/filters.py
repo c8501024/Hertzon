@@ -102,7 +102,8 @@ def synthesis(spec: "HairpinSpec", trace: float, length: float, s_arm: float, ga
 
     - gap: the arms of neighbouring hairpins form a coupled line of about a quarter wavelength, so
       k = (2 / pi) (Zoe - Zoo) / (Zoe + Zoo) with the even and odd mode impedances of the pair (Garg-Bahl);
-      one gap for all resonators: the coupling of the middle pair (the largest of a symmetric filter);
+      one gap per pair of neighbours (symmetric: see gap_names); `gap` is the one of the middle pair (the
+      largest coupling of a symmetric filter);
     - tap: a half-wave resonator of impedance Zr loaded with the feed impedance R at the distance l from its
       open end has Qe = pi R / (2 Zr cos^2(pi l / L)); l is measured along the arm from the open end."""
     n = spec.n
@@ -120,20 +121,23 @@ def synthesis(spec: "HairpinSpec", trace: float, length: float, s_arm: float, ga
         ze, zo, _, _ = coupled_lines(trace * 1e-3, s * 1e-3, h * 1e-3, er)
         return 2 / math.pi * (ze - zo) / (ze + zo)
     g_lo, g_hi = gap_range
-    a, b = max(g_lo, 1e-4), max(g_hi, 1e-4)
-    if kc(a) <= k:
-        gap = a
-    elif kc(b) >= k:
-        gap = b
-    else:
+
+    def gap_for(k):
+        a, b = max(g_lo, 1e-4), max(g_hi, 1e-4)
+        if kc(a) <= k:
+            return a
+        if kc(b) >= k:
+            return b
         for _ in range(100):                      # k falls with the gap
             m = 0.5 * (a + b)
             a, b = (m, b) if kc(m) > k else (a, m)
-        gap = 0.5 * (a + b)
+        return 0.5 * (a + b)
+    gap = gap_for(k)
+    gaps = [gap_for(kk) for kk in ks]             # one per neighbouring pair (gap_names)
     c2 = math.pi * spec.z_feed / (2 * spec.z_res * qe)
     l_open = length / math.pi * math.acos(min(1.0, math.sqrt(min(max(c2, 0.0), 1.0))))
     yp = min(max(s_arm / 2 - l_open, -tap), tap)
-    return {"gap": gap, "yP": yp, "k": ks, "Qe": qe, "g": g, "ripple": ripple}
+    return {"gap": gap, "gaps": gaps, "yP": yp, "k": ks, "Qe": qe, "g": g, "ripple": ripple}
 
 
 # range of dL, the length offset of the outer (tapped) resonators, in % of the length: the tap pulls them about
@@ -143,6 +147,18 @@ DL_PCT = 3.0
 
 def _r(v: float, nd: int = 4) -> float:
     return float(f"{v:.{nd}f}")
+
+
+def gap_names(n: int) -> list[str]:
+    """Design variable of the gap between hairpin j and j+1 (j = 0 .. n-2). The filter is symmetric, so pairs at
+    the same distance from the middle share a gap: g in the middle, g2, g3 ... outwards (n = 3: g, g; n = 4:
+    g2, g, g2; n = 5: g2, g, g, g2)."""
+    m = (n - 1 + 1) // 2
+    out = []
+    for j in range(n - 1):
+        c = m - 1 - min(j, n - 2 - j)
+        out.append("g" if c == 0 else f"g{c + 1}")
+    return out
 
 
 def nominal(spec: HairpinSpec) -> dict:
@@ -199,14 +215,19 @@ def nominal(spec: HairpinSpec) -> dict:
         arm = (length - b - 2 * dep) / 2
         syn = synthesis(spec, trace, length, arm, (g_lo, g_hi), tap)
         gap = syn["gap"]
+    names = gap_names(n)
+    gaps = {name: _r(syn["gaps"][j] if syn else gap) for j, name in enumerate(names)}
+    gap = gaps["g"]
     row = n * wo + (n - 1) * g_hi
     if row > spec.board - 2 * margin:
         raise ValueError(f"The row of hairpins ({row:.2f} mm at the largest gap) does not fit on the {spec.board:g} mm board")
     return {"feed": _r(feed), "trace": _r(trace), "lambda_g": lam, "length": _r(length), "inner": _r(b),
-            "gap": _r(gap), "miter": _r(miter), "tap": _r(tap), "yP": _r(syn["yP"]) if syn else 0.0,
+            "gap": _r(gap), "gaps": gaps, "miter": _r(miter), "tap": _r(tap), "yP": _r(syn["yP"]) if syn else 0.0,
             "prototype": syn,
             "ranges": {"L": (_r(l_lo), _r(l_hi)), "dL": (-_r(DL_PCT / 100 * length), _r(DL_PCT / 100 * length)), "w": (_r(w_lo), _r(w_hi)), "b": (_r(b_lo), _r(b_hi)),
-                       "g": (_r(g_lo), _r(g_hi)), "yP": (-_r(tap), _r(tap)), "M": (_r(m_lo), _r(m_hi))},
+                       "g": (_r(g_lo), _r(g_hi)),
+                       **{name: (_r(g_lo), _r(g_hi)) for name in sorted(set(names) - {"g"})},
+                       "yP": (-_r(tap), _r(tap)), "M": (_r(m_lo), _r(m_hi))},
             "warnings": warnings, "synthesis": engine()}
 
 
@@ -245,16 +266,19 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
     """The parametrized filter design and the nominal values it starts from."""
     nom = nominal(spec)
     n = spec.n
+    gn = gap_names(n)
     d = Design(name=spec.name or f"Hairpin_N{n}", units="mm")
     d.variables.update({
         "h": _mm(spec.h), "t_cu": f"{spec.t:g}um", "Wsub": _mm(spec.board), "wf": _mm(nom["feed"]),
         "L": _mm(nom["length"]), "dL": "0mm", "w": _mm(nom["trace"]), "b": _mm(nom["inner"]), "g": _mm(nom["gap"]),
         "yP": _mm(nom["yP"]), "M": f"{nom['miter']:g}", "dmin": _mm(spec.min_feature),
-        # derived: outer width, effective miter, corner cut and depth, straight arm, pitch, row edge, tap
+        # derived: outer width, effective miter, corner cut and depth, straight arm, row edge, tap
         "wo": "b+2*w", "Me": "min(M, 1-dmin/(sqrt(2)*w), (wo/2-dmin)/(2*w))", "cut": "2*Me*w",
-        "dep": "max(w, cut)", "s": "(L-b-2*dep)/2", "so": "(L+dL-b-2*dep)/2", "pitch": "wo+g",
-        "xe": f"({n}*wo+{n - 1}*g)/2", "ycap": "max(0mm, so/2-wf/2-dmin)", "yt": "max(-ycap, min(ycap, yP))",
+        "dep": "max(w, cut)", "s": "(L-b-2*dep)/2", "so": "(L+dL-b-2*dep)/2",
+        "xe": f"({n}*wo+{'+'.join(gn)})/2", "ycap": "max(0mm, so/2-wf/2-dmin)", "yt": "max(-ycap, min(ycap, yP))",
     })
+    for name in sorted(set(gn) - {"g"}):                 # the gaps of the outer pairs (n >= 4)
+        d.variables[name] = _mm(nom["gaps"][name])
     d.settings["AutoOpen"] = "Auto Open - Filter"
     d.settings["FilterAirMargin"] = "12mm"
     d.add_object("CreateBox", name="Substrate", material=spec.material, Position="-Wsub/2,-Wsub/2,0",
@@ -263,8 +287,8 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
                        YSize="Wsub")
     pins = []
     for i in range(n):
-        k = i - (n - 1) / 2
-        cx = "" if k == 0 else f"{k:g}*pitch+"
+        # centre: from the left edge of the row, i hairpins and the gaps between them
+        cx = f"-xe+{2 * i + 1:g}*wo/2" + "".join(f"+{x}" for x in gn[:i]) + "+"
         sign = "" if i % 2 == 0 else "-"
         ys = _Y if 0 < i < n - 1 else [y.replace("s/2", "so/2") for y in _Y]   # the outer, tapped ones: L+dL
         pts = [f"{cx}({x}),{sign}({y}),h" for x, y in zip(_X, ys)]
@@ -321,8 +345,11 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
         # where the memory allows (the volume matrices grow with the square of the number of variables)
         dtr = Optimization("HairpinDTR", "Setup1 : Sweep",
                            props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer="Derivative Trust Region"))
+        outer_gaps = sorted(set(gap_names(n)) - {"g"})
         for v in op.variables:
-            dtr.variables.append(dict(v, include=v["name"] in DTR_VARIABLES))
+            # the gaps of the outer pairs too, as far as the tuning model allows (at most 6 variables)
+            extra = v["name"] in outer_gaps and len(DTR_VARIABLES) + len(outer_gaps) <= 6
+            dtr.variables.append(dict(v, include=v["name"] in DTR_VARIABLES or extra))
         dtr.goals = [dict(g) for g in op.goals]
         d.optimetrics.append(dtr)
         # the same goals by space mapping with the circuit of the filter (hairpin_circuit) as the coarse model:
@@ -331,7 +358,7 @@ def hairpin_design(spec: HairpinSpec) -> tuple[Design, dict]:
                           props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer="Space Mapping",
                                      CoarseModel=circuit_name(d.name)))
         for v in op.variables:
-            sm.variables.append(dict(v, include=v["name"] in SM_VARIABLES))
+            sm.variables.append(dict(v, include=v["name"] in SM_VARIABLES or v["name"] in outer_gaps))
         sm.goals = [dict(g) for g in op.goals]
         d.optimetrics.append(sm)
     return d, nom
@@ -418,7 +445,7 @@ def hairpin_circuit(spec: HairpinSpec, name: str = "") -> Design:
         a, b = arm(i), arm(i + 1)
         lc = f"min({a},{b})"
         # line 1: right arm of hairpin i, line 2: left arm of hairpin i+1; pins 1/3 at the top, 2/4 at the bottom
-        place("MCLIN", f"C{i + 1}", {**sub, "W": "w", "S": "g", "L": lc},
+        place("MCLIN", f"C{i + 1}", {**sub, "W": "w", "S": gap_names(n)[i], "L": lc},
               [f"H{i}R_t", f"H{i}R_b", f"H{i + 1}L_t", f"H{i + 1}L_b"])
         for j, side, other in ((i, "R", b), (i + 1, "L", a)):
             # the longer arm reaches beyond the coupled part by half the difference at both ends
@@ -459,8 +486,8 @@ def hairpin_circuit(spec: HairpinSpec, name: str = "") -> Design:
     if spec.optimization:
         op = Optimization("HairpinCircuitOpt", "Setup1 : Sweep",
                           props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer="Conjugate Gradient"))
-        for v in d3.optimetrics[0].variables:
-            op.variables.append(dict(v, include=v["name"] in SM_VARIABLES))
+        for v in d3.optimetrics[2].variables:
+            op.variables.append(dict(v))
         op.goals = [dict(g) for g in d3.optimetrics[0].goals]
         d.optimetrics.append(op)
     return d
