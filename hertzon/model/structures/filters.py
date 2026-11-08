@@ -232,6 +232,27 @@ def coupled_lines(sub: Substrate, z0e: float, z0o: float, f_ghz: float) -> tuple
     return 1e3 * math.exp(x[0]), 1e3 * math.exp(x[1]), ee
 
 
+def coupled_gap(sub: Substrate, w_mm: float, kc: float, f_ghz: float) -> tuple[float, float]:
+    """Gap (mm) of coupled microstrip of width w_mm with the coupling (Z0e - Z0o) / (Z0e + Z0o) = kc, and the mean
+    effective permittivity."""
+    from scipy.optimize import brentq
+
+    from ...solver.tlines import coupled_microstrip
+    h, t, f, w = sub.h * 1e-3, sub.t * 1e-6, f_ghz * 1e9, w_mm * 1e-3
+
+    def modes(s):
+        return coupled_microstrip(f, w, s, h, t, sub.er, 0.0, sub.sigma)
+
+    def err(ls):
+        (ze, _), (zo, _) = modes(math.exp(ls))
+        return (ze - zo) / (ze + zo) - kc
+    lo, hi = math.log(1e-3 * h), math.log(20 * h)
+    ls = brentq(err, lo, hi) if err(lo) > 0 > err(hi) else (lo if err(lo) <= 0 else hi)
+    (_, ge), (_, go) = modes(math.exp(ls))
+    beta = (ge.imag + go.imag) / 2
+    return 1e3 * math.exp(ls), (beta * C0 / (2 * math.pi * f)) ** 2
+
+
 class EdgeCoupledBandpass(Structure):
     """Parallel coupled half-wave resonators (Pozar 8.8): N+1 coupled sections of a quarter wavelength with
     Z0e,o = Z0 (1 +- J Z0 + (J Z0)^2). Symmetric: section k and N+2-k share their variables."""
@@ -241,6 +262,7 @@ class EdgeCoupledBandpass(Structure):
     description = "Parallel coupled half-wave resonators"
     use = "The textbook bandpass, 5 to 20 % bandwidth"
     status = AVAILABLE
+    optimizer = "Latin Hypercube + Nelder-Mead"     # the passband ripple has local minima for gradients
     ports = 2
     fields = (
         Field("f0", "Centre frequency", 5.0, "GHz", 0.3, 60),
@@ -270,21 +292,24 @@ class EdgeCoupledBandpass(Structure):
         f0, n, z0 = spec["f0"], int(spec["n"]), spec["z0"]
         js = self.inverters(n, spec["ripple"], spec["bw"] / 100)
         syn = Synthesis()
-        zs = []
-        for k in range(1, (n + 2) // 2 + 1):
-            jz = js[k - 1]
-            ze, zo = z0 * (1 + jz + jz * jz), z0 * (1 - jz + jz * jz)
-            zs.append((ze, zo))
-            w, s, ee = coupled_lines(sub, ze, zo, f0)
+        m = (n + 2) // 2                                 # sections up to the middle (the others mirror them)
+        zs = [(z0 * (1 + j + j * j), z0 * (1 - j + j * j)) for j in js[:m]]
+        # one width for all sections, from the strongest (outer) coupling: with different widths the corner of a
+        # wide resonator would touch the end of the narrower line before it (the gap between them is
+        # S + (W_k - W_k+1)/2); the coupling of each section is set by its gap
+        w = coupled_lines(sub, *zs[0], f0)[0]
+        syn.variables.append(Variable("W", w, "width of all resonators"))
+        for k, (ze, zo) in enumerate(zs, 1):
+            s_k, ee = coupled_gap(sub, w, (ze - zo) / (ze + zo), f0)
             # a quarter wavelength of the mean phase constant, less the open end extension of the free ends
             lq = C0 / (f0 * 1e9) / math.sqrt(ee) * 1e3 / 4 - 1e3 * open_end_extension(
                 w * 1e-3, sub.h * 1e-3, sub.t * 1e-6, sub.er)
             pair = f" and {n + 2 - k}" if n + 2 - k != k else ""
-            syn.variables.append(Variable(f"W{k}", w, f"section {k}{pair}: width, Z0e/Z0o {ze:.1f}/{zo:.1f} ohm"))
-            syn.variables.append(Variable(f"S{k}", s, f"section {k}: gap"))
+            syn.variables.append(Variable(f"S{k}", s_k, f"section {k}{pair}: gap, coupling {(ze - zo) / (ze + zo):.3f} "
+                                          f"(Z0e/Z0o {ze:.1f}/{zo:.1f} ohm)"))
             syn.variables.append(Variable(f"L{k}", lq, f"section {k}: length, a quarter wavelength"))
-            if s < sub.min_feature:
-                syn.warnings.append(f"S{k} = {s:.3f} mm is below the smallest gap: use fewer resonators, a smaller "
+            if s_k < sub.min_feature:
+                syn.warnings.append(f"S{k} = {s_k:.3f} mm is below the smallest gap: use fewer resonators, a smaller "
                                     "bandwidth or a thinner substrate")
         wf = sub.width(z0, f0)
         syn.variables.append(Variable("Wf", wf, f"feed width, {z0:g} ohm", include=False))
@@ -292,8 +317,8 @@ class EdgeCoupledBandpass(Structure):
                                       include=False))
         syn.note = (f"Chebyshev {spec['ripple']:g} dB, N = {n}: J Z0 = " + ", ".join(f"{j:.3f}" for j in js) +
                     "; Z0e/Z0o = " + ", ".join(f"{a:.1f}/{b:.1f}" for a, b in zs) + " ohm (the outer sections "
-                    "first). Each section is a quarter wavelength at f0 of the mean of the even and odd mode; the "
-                    "width steps to the feed lines are left to the 3D layout.")
+                    "first), realized with one width and the gap of each section. Each section is a quarter wavelength "
+                    "at f0 of the mean of the even and odd mode, less the open end.")
         return syn
 
     def circuit(self, spec: dict, sub: Substrate, syn: Synthesis, name: str):
@@ -306,7 +331,7 @@ class EdgeCoupledBandpass(Structure):
         prev, x, y = s.pin(feed1, "right"), 140, 10
         for k in range(1, n + 2):
             j = min(k, n + 2 - k)
-            c = s.add(f"CL{k}", "MCLIN", x, y, 0, **sp, W=f"W{j}", S=f"S{j}", L=f"L{j}")
+            c = s.add(f"CL{k}", "MCLIN", x, y, 0, **sp, W="W", S=f"S{j}", L=f"L{j}")
             s.net(f"a{k}", prev, s.pin(c, 0))
             prev, x, y = s.pin(c, 3), x + 120, y + 20
         feed2 = s.add("Feed2", "MLIN", x, y - 10, 0, **sp, W="Wf", L="lf")

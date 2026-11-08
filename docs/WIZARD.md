@@ -46,7 +46,7 @@ the next structure.
 | Stub matching | f, port impedance, load R + jX, bandwidth, return loss | distance `d` from the load and length `l` of the open stub | S11 in the band |
 | Stepped-impedance lowpass | cutoff, order, ripple, high and low impedance, stopband start and rejection | section lengths `L1..LN` (the widths stay) | S11 below the cutoff, S21 in the stopband |
 | Shorted-stub bandpass | f0, bandwidth (30 to 80 %), stubs, ripple, rejection and distance of the stopbands | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..` (symmetric) | S11 in the band, S21 in both stopbands |
-| Edge-coupled bandpass | f0, bandwidth (2 to 30 %), resonators, ripple, rejection and distance of the stopbands | width `W1..`, gap `S1..` and length `L1..` of each coupled section (symmetric) | S11 in the band, S21 in both stopbands |
+| Edge-coupled bandpass | f0, bandwidth (2 to 30 %), resonators, ripple, rejection and distance of the stopbands | width `W` of all resonators, gap `S1..` and length `L1..` of each coupled section (symmetric) | S11 in the band, S21 in both stopbands |
 | Open-stub bandstop | f0, width of the stopband with the rejection, stubs, ripple, rejection | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..`, line width `Wu` | S21 in the stopband, S11 in both passbands |
 | Coupled-line coupler | f0, coupling, port impedance, bandwidth, return loss, isolation, coupling tolerance | width `W`, gap `S`, length `L` | S11, S41 (isolation), S31 within the tolerance |
 | Branchline coupler | f0, coupling (3 dB or unequal), port impedance, bandwidth, return loss and isolation, amplitude and phase tolerance | series arms `Ws`, `Ls`, shunt arms `Wp`, `Lp` | S11 and S41 (isolation), S21 and S31 within the tolerance, S31/S21 at −90° |
@@ -67,10 +67,11 @@ impedance; the stubs are synthesized for a 1.4 times wider band because the conn
 symmetric stubs share their variables.
 
 The edge-coupled bandpass has N+1 coupled sections with J Z0 from the Chebyshev prototype and
-Z0e,o = Z0 (1 ± J Z0 + (J Z0)²); width and gap are solved from the coupled-line model of the circuit, the length
-is a quarter wavelength of the mean phase constant. The open ends of the resonators shift the 3D response down
-by a few %, which the multi-fidelity rounds correct. Wide bands need gaps below the smallest feature (the wizard
-warns): on 0.508 mm RO4350B about 7 % for three resonators.
+Z0e,o = Z0 (1 ± J Z0 + (J Z0)²). All resonators have one width (from the outer section) and each section its
+gap for the coupling (Z0e − Z0o)/(Z0e + Z0o): with different widths the corner of a wide resonator would touch the
+end of the narrower line before it. The length is a quarter wavelength of the mean phase constant less the open
+end. Wide bands need gaps below the smallest feature (the wizard warns): on 0.508 mm RO4350B about 7 % for three
+resonators. The optimization starts from a Latin hypercube sample with Nelder-Mead chains.
 
 The open-stub bandstop has quarter-wave open stubs 4 Z0/(π g FBW) joined by quarter-wave lines. FBW is the
 bandwidth between the ripple edges; the rejection holds over FBW/Ω_s of it (Ω_s where the Chebyshev response
