@@ -97,6 +97,23 @@ Circuits
   copies 3D designs from another file. circuit_layout(action='create') turns the schematic, blocks
   included, into a 3D design; 'to_schematic' copies tuned layout dimensions back.
 
+Interpreting results (before you name a cause)
+- Total efficiency = mismatch efficiency (Pacc/Pinc) x radiation efficiency (Prad/Pacc). get_results kind
+  efficiency gives both factors per frequency and which one limits; look at both before naming a cause.
+- "Mismatch" is a claim that the structure radiates well but is badly matched. It needs: radiation
+  efficiency high at that frequency, and a matching network or tuned element that actually recovers the
+  efficiency. If a reasonable matching network gains nothing, the cause is not (only) mismatch.
+- Strong reflection with a high Q_Z (get_results kind impedance; Q_Z >> 10) and no resonance (X = 0) nearby
+  usually means the structure has no radiating mode there: the current circulates on parts that store energy
+  but radiate little. Look at the surface currents or the near field (set_field_plot) and compare with a
+  frequency where it radiates well. Fixes are geometric (add or retune a radiating branch), not matching.
+- Separate dissipation from radiation with a counter test: solve once lossless (PEC metal, tan d = 0). If the
+  total efficiency barely changes, losses are not the cause.
+- Check mesh convergence first. If the adaptive solve did not reach its Delta S target, S11 and the accepted
+  power are uncertain, most of all near high-Q points and deep dips; refine (more passes, adaptive frequencies at
+  the critical points) before drawing conclusions. A power balance far from 0 is a warning sign too.
+- State a cause as confirmed only after a test that could have refuted it; otherwise call it a hypothesis.
+
 Files and boards
 - export: Touchstone, STEP, Gerber (with drills) or a stand-alone EMerge script. import_pcb reads Gerber,
   Excellon and job files into the design; set_stackup defines the PCB layer stack (stk_ variables, one
@@ -1968,6 +1985,57 @@ def sp_table(f, Sm, args: dict, ev) -> list[dict]:
     return table
 
 
+def _conv_note(d, setup: str, st) -> dict | None:
+    from .diagnostics import convergence_note
+    conv = st.read_json("convergence.json") or {}
+    if not conv:
+        return None
+    target = None
+    su = next((x for x in d.setups if x.name == setup), None)
+    try:
+        target = float(su.props.get("MaximumDeltaS")) if su is not None else None
+    except (TypeError, ValueError):
+        target = None
+    return convergence_note(conv, target)
+
+
+def _sweep_solution(st, sols):
+    """A solution with at least 3 frequencies (a sweep), else None."""
+    for sol in [s for s in sols if s != "LastAdaptive"] + ["LastAdaptive"]:
+        data = st.sparams(sol)
+        if data is not None and len(np.atleast_1d(data["freq"])) >= 3:
+            return sol, data
+    return None
+
+
+def _port_diagnostics(data: dict) -> dict:
+    from .diagnostics import port_impedance, resonances, band_hints
+    out = {}
+    n = np.asarray(data["S"]).shape[1]
+    for i in range(n):
+        f, Z, Q, _ = port_impedance(data, i)
+        res = resonances(f, Z)
+        hints = band_hints(f, np.asarray(data["S"])[:, i, i], Z, Q, res)
+        out[f"port{i + 1}"] = {"resonances": res[:12], **({"hints": hints[:6]} if hints else {})}
+    return out
+
+
+def _efficiency_with_q(q: dict, fq: float, sweep) -> dict:
+    from .diagnostics import efficiency_breakdown, port_impedance, HIGH_Q
+    eb = efficiency_breakdown(float(q["_Pinc"][0]), float(q["_Pacc"][0]), float(q["_Prad"][0]),
+                              float(q["_Ploss"][0]) if "_Ploss" in q else None)
+    if sweep is not None:
+        f, Z, Q, _ = port_impedance(sweep[1], 0)
+        if f.min() <= fq <= f.max():
+            qq = float(np.interp(fq, f, Q))
+            if math.isfinite(qq):
+                eb["Q_Z"] = _r(qq, 3)
+                if qq > HIGH_Q and eb["limited_by"] != "radiation efficiency":
+                    eb["hint"] = (f"Q_Z ~ {qq:.3g} is high: the port sees mostly stored energy. If no resonance is "
+                                  "near, the structure likely has no radiating mode here; matching cannot fix that.")
+    return eb
+
+
 def t_get_results(args):
     from ..solver.results import ResultStore
     ctx = load(args)
@@ -1996,10 +2064,15 @@ def t_get_results(args):
                 ts = out / f"{sol}.s{n}p"
                 if ts.exists():
                     res["solutions"][sol]["touchstone"] = str(ts)
-        conv = st.read_json("convergence.json") or {}
-        if conv:
-            res["convergence"] = {"passes": len(conv.get("passes", [])), "converged": bool(conv.get("converged")),
-                                  "final_tets": conv.get("final_tets")}
+        cn = _conv_note(d, setup, st)
+        if cn:
+            res["convergence"] = cn
+        sw = _sweep_solution(st, sols)
+        if sw is not None:
+            try:
+                res["port_diagnostics"] = {"solution": sw[0], **_port_diagnostics(sw[1])}
+            except Exception as e:  # noqa: BLE001
+                res["port_diagnostics"] = f"not available: {e}"
         pw = any(e.kind == "Incident Plane Wave" and e.enabled for e in d.excitations) and not d.ports()
         for sph in d.spheres:
             try:
@@ -2013,9 +2086,13 @@ def t_get_results(args):
                     from ..solver.ffquant import antenna_parameters
                     _, q, fq = _ff_quantities(st, d, ev, sph.name, "LastAdaptive", None, 0)
                     res.setdefault("far_field", {})[sph.name] = {"freq_GHz": _r(fq / 1e9),
-                                                                 **dict(antenna_parameters(q))}
+                                                                 **dict(antenna_parameters(q)),
+                                                                 "efficiency": _efficiency_with_q(q, fq, sw)}
             except Exception as e:  # noqa: BLE001
                 res.setdefault("far_field", {})[sph.name] = f"not available: {e}"
+        if sw is not None or res.get("far_field"):
+            from .diagnostics import DIAGNOSIS_GUIDE
+            res["reading_guide"] = DIAGNOSIS_GUIDE
         return res
     if kind == "sparameters":
         sol = args.get("solution") or next((s for s in sols if s != "LastAdaptive"), "LastAdaptive")
@@ -2024,7 +2101,68 @@ def t_get_results(args):
             raise ToolError(f"No S-parameters for '{sol}'; solutions: {sols}")
         f = np.asarray(data["freq"], float)
         Sm = np.asarray(data["S"])
-        return {"solution": sol, "ports": Sm.shape[1], "rows": sp_table(f, Sm, args, ev)}
+        out_ = {"solution": sol, "ports": Sm.shape[1], "rows": sp_table(f, Sm, args, ev)}
+        cn = _conv_note(d, setup, st)
+        if cn and cn.get("warning"):
+            out_["convergence_warning"] = cn["warning"]
+        return out_
+    if kind == "impedance":
+        from .diagnostics import port_impedance, resonances, band_hints, impedance_rows, DIAGNOSIS_GUIDE
+        sol = args.get("solution")
+        if sol:
+            data = st.sparams(sol)
+            if data is None:
+                raise ToolError(f"No S-parameters for '{sol}'; solutions: {sols}")
+        else:
+            sw = _sweep_solution(st, sols)
+            if sw is None:
+                raise ToolError("No solution with 3 or more frequencies: add a sweep (Q needs the slope of Z)")
+            sol, data = sw
+        port = int(args.get("port", 1))
+        n = np.asarray(data["S"]).shape[1]
+        if not 1 <= port <= n:
+            raise ToolError(f"port: 1..{n}")
+        f, Z, Q, z0 = port_impedance(data, port - 1)
+        S11 = np.asarray(data["S"])[:, port - 1, port - 1]
+        if args.get("frequencies"):
+            idx = [int(np.argmin(np.abs(f - ev.freq(_s(v))))) for v in args["frequencies"]]
+        else:
+            m = int(args.get("max_points", 41))
+            idx = list(np.unique(np.linspace(0, len(f) - 1, min(m, len(f))).astype(int)))
+        res_ = resonances(f, Z)
+        out_ = {"solution": sol, "port": port, "rows": impedance_rows(f, S11, Z, Q, z0, idx),
+                "resonances": res_, "hints": band_hints(f, S11, Z, Q, res_),
+                "notes": "Q_Z: Yaghjian-Best from the slope of Z (single resonance assumed; unreliable on a coarse "
+                         "frequency grid). Matched fractional bandwidth (VSWR 2) ~ 0.71/Q_Z. " + DIAGNOSIS_GUIDE}
+        cn = _conv_note(d, setup, st)
+        if cn and cn.get("warning"):
+            out_["convergence_warning"] = cn["warning"]
+        return out_
+    if kind == "efficiency":
+        from .diagnostics import DIAGNOSIS_GUIDE
+        sph = args.get("sphere") or (d.spheres[0].name if d.spheres else None)
+        if sph is None:
+            raise ToolError("No far-field sphere (set_far_field_sphere)")
+        label = args.get("solution") or "LastAdaptive"
+        from ..solver.farfield_post import farfield
+        ff = farfield(st, d, sph, label, ev)
+        if ff is None:
+            raise ToolError(f"No far field '{sph}' for {label}")
+        nk = len({int(x.split("_")[1]) for x in ff if x.startswith("E_")})
+        sw = _sweep_solution(st, sols)
+        rows = []
+        for k in range(nk):
+            _, q, fq = _ff_quantities(st, d, ev, sph, label, int(args["port"]) if args.get("port") else None, k)
+            e = _efficiency_with_q(q, fq, sw)
+            e.pop("definition", None)
+            rows.append({"freq_GHz": _r(fq / 1e9), **e})
+        out_ = {"sphere": sph, "solution": label, "rows": rows,
+                "definition": "total = Prad/Pinc = mismatch (Pacc/Pinc) x radiation (Prad/Pacc); "
+                              "limited_by names the factor that is >1 dB worse (reflection is a symptom: see the note and Q_Z)", "reading_guide": DIAGNOSIS_GUIDE}
+        cn = _conv_note(d, setup, st)
+        if cn and cn.get("warning"):
+            out_["convergence_warning"] = cn["warning"]
+        return out_
     if kind == "convergence":
         return _status(ctx, setup)
     if kind in ("farfield", "rcs"):
@@ -2057,9 +2195,10 @@ def t_get_results(args):
         if qty not in q:
             raise ToolError(f"quantity must be one of {[k for k in q if not k.startswith('_')]}")
         return {"sphere": sph, "freq_GHz": _r(fq / 1e9), "antenna_parameters": dict(antenna_parameters(q)),
+                "efficiency": _efficiency_with_q(q, fq, _sweep_solution(st, sols)),
                 "cuts": [_cut(q, qty, ph, to_db, n) for ph in args.get("phi_cuts", [0, 90])],
                 "unit": "dBi" if qty.startswith(("Gain", "Dir", "Realized")) else "dB"}
-    raise ToolError("kind must be summary, sparameters, convergence, farfield or rcs")
+    raise ToolError("kind must be summary, sparameters, impedance, efficiency, convergence, farfield or rcs")
 
 
 # ------------------------------------------------------------------------------------------------
@@ -2354,12 +2493,14 @@ TOOLS = [
     Tool("abort_simulation", "Stop a running analysis.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string"}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_abort_simulation),
-    Tool("get_results", "Results of a setup. kind: summary (all solutions: resonances, -10 dB bands, peak "
-         "gain or RCS), sparameters (table in dB/deg; params like ['S11','S21'], frequencies or max_points), "
-         "convergence, farfield (antenna parameters and pattern cuts; quantity GainTotal, DirTotal, "
+    Tool("get_results", "Results of a setup. kind: summary (all solutions: -10 dB bands, port resonances and "
+         "hints, mesh convergence with warnings, peak gain or RCS with the efficiency split), sparameters (table in "
+         "dB/deg; params like ['S11','S21'], frequencies or max_points), impedance (R, X, Q_Z, mismatch "
+         "efficiency and resonances of one port over a sweep), efficiency (per far-field frequency: total = "
+         "mismatch x radiation efficiency, the limiting factor and Q_Z), convergence, farfield (antenna parameters and pattern cuts; quantity GainTotal, DirTotal, "
          "RealizedGainTotal ...), rcs (monostatic over frequency and bistatic cuts). With parametric=...: the "
          "variations and their calculations; with optimization=...: best values, cost and the last evaluations.",
-         _schema({"setup": {"type": "string"}, "kind": {"type": "string", "enum": ["summary", "sparameters",
+         _schema({"setup": {"type": "string"}, "kind": {"type": "string", "enum": ["summary", "sparameters", "impedance", "efficiency",
                                                                                  "convergence", "farfield", "rcs"]},
                   "solution": {"type": "string"}, "params": {"type": "array", "items": {"type": "string"}},
                   "frequencies": {"type": "array", "items": {"type": ["string", "number"]}},
