@@ -38,6 +38,17 @@ the GitHub release notes.
   simulation and optimization step. On an assembly with 800 bodies that took 0.4 s instead of 13 s. A changed
   file is translated again.
 
+## Unreleased
+
+### Fixed
+- **Install Update closed Hertzon and then nothing happened**: the installer is started by a small script
+  without a window after Hertzon has closed. When the downloaded installer was gone by then (virus protection
+  may remove a freshly downloaded program, cleaning tools empty the temporary folder) or could not be
+  started, nothing was shown. Hertzon now downloads to %LOCALAPPDATA%\Hertzon\Updates instead of the
+  temporary folder, checks after the download that the installer is still there (if not, Hertzon stays open
+  and offers the release page), and the script checks the file again, writes update.log next to the
+  installer and shows a message with the path and the release page when the installer cannot be started.
+
 ## 0.3.4 (2026-11-07)
 
 ### Added
