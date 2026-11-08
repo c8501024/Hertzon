@@ -180,17 +180,48 @@ def installer_waiter(installer: Path, pid: int, timeout_s: int = 120, page: str 
             f"if ($a -eq 6) {{ Start-Process {_ps_quote(page)} }} }}")
 
 
-def start_installer_after_exit(installer: Path, pid: int | None = None, page: str = RELEASES_PAGE) -> None:
+def powershell_exe() -> str | None:
+    """Full path of Windows PowerShell. Started by the bare name "powershell.exe", Windows looks for it in
+    PATH only, and when PATH lacks the PowerShell folder (changed by other software or a policy) starting
+    it fails with "[WinError 2] The system cannot find the file specified"; the update then never ran."""
+    root = os.environ.get("SystemRoot") or os.environ.get("windir") or r"C:\Windows"
+    for p in (Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe",
+              Path(root) / "Sysnative" / "WindowsPowerShell" / "v1.0" / "powershell.exe"):
+        if p.is_file():
+            return str(p)
+    import shutil
+    return shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+
+
+def start_installer_after_exit(installer: Path, pid: int | None = None, page: str = RELEASES_PAGE) -> str:
     """Start `installer` once this process has exited, through a hidden PowerShell that does not belong
-    to Hertzon (raises OSError when it cannot be started)."""
+    to Hertzon. Without PowerShell (or when it cannot be started) the installer is started directly; it
+    opens with its welcome page, by then Hertzon has closed. Returns "waiter" or "direct"; raises OSError
+    only when neither works."""
+    if not installer.is_file():
+        raise FileNotFoundError(2, "The downloaded installer is no longer there", str(installer))
     script = installer_waiter(installer, os.getpid() if pid is None else pid, page=page)
     enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     kw: dict = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
                 "close_fds": True}
     if sys.platform == "win32":
         kw["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000   # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
-    subprocess.Popen(["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-                      "-EncodedCommand", enc], **kw)
+    ps = powershell_exe() if sys.platform == "win32" else "powershell.exe"
+    first: OSError | None = None
+    if ps:
+        try:
+            subprocess.Popen([ps, "-NoProfile", "-NonInteractive",
+                              "-WindowStyle", "Hidden", "-EncodedCommand", enc], **kw)
+            return "waiter"
+        except OSError as e:
+            first = e
+    if sys.platform != "win32":
+        raise first or FileNotFoundError(2, "PowerShell not found", "powershell.exe")
+    try:
+        os.startfile(str(installer))  # type: ignore[attr-defined]
+    except OSError as e:
+        raise OSError(f"{e} (PowerShell: {first or 'not found'})") from e
+    return "direct"
 
 
 def download_dir() -> Path:
