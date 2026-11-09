@@ -6,6 +6,8 @@ the GitHub release notes.
 ## Unreleased
 
 ### Changed
+- **MCP clients**: the docs and the AI Assistants dialog now say that MCP is supported with Claude Code using
+  Opus 5.5; all other clients (Claude desktop app, Codex, VS Code and others) are experimental.
 - **Hairpin diplexer layout**: the two filters are stacked as in most published hairpin diplexers: the common port
   at the left edge, the T-junction right behind it, channel A above and channel B below, Ports 2 and 3 at the right
   edge. Each junction line goes up or down to its row and turns towards it (both bends mitered; the circuit has the

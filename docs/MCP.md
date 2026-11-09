@@ -19,6 +19,10 @@ that offers it, without custom code on either side.
 
 ## What MCP does in Hertzon
 
+> **Supported client:** MCP is currently tested and supported with **Claude Code using Opus 5.5**.
+> All other clients (Claude desktop app, Codex, VS Code and others) are experimental and are being
+> debugged step by step.
+
 Hertzon ships an MCP server. Once it is registered with your assistant
 ([set it up once](TUTORIAL.md#51-set-it-up-once)), you can write a request in plain language, for example
 *"build a 2.45 GHz patch antenna on FR4 with a lumped port, solve it and give me S11 and the gain"*, and the

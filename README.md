@@ -274,6 +274,10 @@ What MCP is and how Hertzon uses it for co-design: [docs/MCP.md](docs/MCP.md). T
 Hertzon ships an MCP server, so Claude Code, Codex or VS Code (Copilot agent mode) can build and run
 simulations: "build a 2.45 GHz patch on FR4 with a lumped port, solve it and give me S11 and the gain".
 
+> **Supported client:** MCP is currently tested and supported with **Claude Code using Opus 5.5**.
+> All other clients (Claude desktop app, Codex, VS Code and others) are experimental and are being
+> debugged step by step.
+
 1. **Tools > AI Assistants (MCP)...**: press *Register* next to your assistant (Claude Code gets an
    entry in `~/.claude.json`, the Claude desktop app in `claude_desktop_config.json`, Codex in
    `~/.codex/config.toml`, VS Code in its user `mcp.json`).

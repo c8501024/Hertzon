@@ -278,7 +278,9 @@ class AiAssistantsDialog(QDialog):
         intro = QLabel(
             "Hertzon includes an MCP server. Registered with Claude Code, Codex or VS Code, the assistant can "
             "build models, assign ports and boundaries, run analyses and read the results, for example "
-            "\"build a 2.45 GHz patch antenna on FR4 and give me S11 and the gain\".")
+            "\"build a 2.45 GHz patch antenna on FR4 and give me S11 and the gain\".\n\n"
+            "Supported client: Claude Code with Opus 5.5. All other clients (Claude desktop app, Codex, "
+            "VS Code and others) are experimental and are being debugged step by step.")
         intro.setWordWrap(True)
         lay.addWidget(intro)
         self.live = QCheckBox("Let AI assistants work in this window (live link: changes appear here, Ctrl+Z undoes "

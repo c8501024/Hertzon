@@ -32,7 +32,8 @@ plots ready: **Analyze All** (F5), then double-click a report or a field plot in
 > *Register* next to Claude Code, Claude desktop, Codex or VS Code and tick **Let AI assistants work in
 > this window**. Then ask: *"Draw a half-wave dipole for 1 GHz with a lumped port, solve it and give me
 > the input impedance and the gain."* The model appears in the open window while the assistant builds it.
-> Details in [section 5](#5-let-an-ai-assistant-build-and-run-it-mcp).
+> Details in [section 5](#5-let-an-ai-assistant-build-and-run-it-mcp). Currently supported: Claude Code with
+> Opus 5.5; other clients are experimental.
 
 Every step below uses menu names as they appear in Hertzon. Most commands are on the ribbon too
 (tabs **Desktop**, **View**, **Draw**, **Model**, **Simulation**, **Lumped Elements**, **Results**; a circuit
@@ -504,6 +505,10 @@ Hertzon includes an MCP server, a standard interface through which AI assistants
 Claude Code, the Claude desktop app, Codex or VS Code (Copilot agent mode) can build every model of this
 tutorial for you, run it and read the results. They can also explain them and change the design until a
 goal is met.
+
+> **Supported client:** MCP is currently tested and supported with **Claude Code using Opus 5.5**.
+> All other clients (Claude desktop app, Codex, VS Code and others) are experimental and are being
+> debugged step by step.
 
 ### 5.1 Set it up once
 
