@@ -884,6 +884,22 @@ class Bridge:
         h = float(ext[hdir])
         return area / h, h, tuple(d)
 
+    def lumped_voltage_line(self, a: Assignment, tags: list[int]):
+        """The voltage line of a lumped port: its Integration Line. Without one (or with one away from the sheet)
+        None, and EMerge takes a line from the sheet's lowest node, along the edge of the sheet."""
+        import gmsh
+        from emerge._emerge.coord import Line
+        from ..model.objframe import global_points
+        if not a.props.get("IntegrationLine", "").strip():
+            return None
+        pts = global_points(self.design, a, "IntegrationLine", self.ev)
+        boxes = np.array([gmsh.model.getBoundingBox(2, t) for t in tags])
+        if not line_on_sheet(pts[0], pts[1], boxes[:, :3].min(axis=0), boxes[:, 3:].max(axis=0)):
+            warn(f"{a.name}: the Integration Line does not cross the port sheet; the port voltage is taken along "
+                 "the edge of the sheet")
+            return None
+        return Line.from_points(np.asarray(pts[0], float), np.asarray(pts[1], float), 21)
+
     def assign_excitations(self) -> None:
         em, mw = self.em, self.m.mw
         ev = self.ev
@@ -934,6 +950,9 @@ class Bridge:
             elif e.kind == "Lumped Port":
                 w, h, d = self.port_geometry(e, tags)
                 port = mw.bc.LumpedPort(sel, num, width=w, height=h, direction=d, Z0=ev.value(p["Impedance"]))
+                line = self.lumped_voltage_line(e, tags)
+                if line is not None:
+                    port.voltage_integration_line.append(line)
                 info(f"Lumped port {num}: width {w * 1e3:.4g} mm, height {h * 1e3:.4g} mm, direction {d}")
             else:  # Floquet
                 port = self.floquet_port(e, sel, tags, num)
@@ -2613,6 +2632,14 @@ def _save_amr_state(out: Path, key: str, amr, ratio: float, passes: list, fa, m=
         os.replace(tmp, out / AMR_STATE)
     except Exception as e:  # noqa: BLE001
         warn(f"Could not store the adaptive mesh state: {e}")
+
+
+def line_on_sheet(start, end, lo, hi) -> bool:
+    """Does the middle of the line start-end lie inside the bounding box lo-hi of a sheet? A tenth of the line
+    length is allowed as margin (a sheet parallel to an axis has a flat box)."""
+    start, end = np.asarray(start, float), np.asarray(end, float)
+    mid, pad = (start + end) / 2, 0.1 * float(np.linalg.norm(end - start))
+    return bool(np.all(mid >= np.asarray(lo, float) - pad) and np.all(mid <= np.asarray(hi, float) + pad))
 
 
 def _material_of_tet(field, t: int) -> str:
