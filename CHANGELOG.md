@@ -19,13 +19,22 @@ the GitHub release notes.
   circuit).
   The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
   `list_structures`, `create_structure`. See [Design Wizard](docs/WIZARD.md).
-
+- **MCP: diagnostics that keep an AI from wrong conclusions.** `get_results` now splits total efficiency into
+  mismatch efficiency (Pacc/Pinc) and radiation efficiency (Prad/Pacc) and names the limiting factor (new
+  `kind="efficiency"`: the split at every far-field frequency, with Q_Z). New `kind="impedance"`: R, X, Q_Z
+  (Yaghjian–Best) and the resonances (X = 0) of a port over a sweep. The summary lists the port resonances, hints
+  for strongly reflecting ranges (e.g. high Q without a resonance: likely no radiating mode, matching cannot fix
+  it) and a clear warning when the adaptive mesh did not reach its Delta S target. The server instructions gain
+  an *Interpreting results* section: when a dip may be called a mismatch, how to separate loss from radiation
+  (lossless counter test), check convergence first, and call a cause confirmed only after a test that could have
+  refuted it.
 
 ### Changed
 - A mesh with flat (zero-volume) tetrahedra is meshed again with another seed of the mesher: such slivers made
   the solution void and stopped the analysis with "NaN detected in the a-posteriori error estimate".
 - Circuit: a free end of a coupled microstrip line (a pin on no other part) now carries the open end capacitance,
   as its layout does; coupled-line filters agree with the 3D design within about 1 %.
+
 ## 0.3.10 (2026-11-08)
 
 ### Added
