@@ -160,15 +160,27 @@ try {
     }
     Write-Host 'Installing Hertzon and its packages (EMerge, Qt, VTK) ...'
     & $venvPy -m pip install --upgrade pip
-    & $venvPy -m pip install -e ".[test]"
-    if ($LASTEXITCODE -ne 0 -and @(Get-HertzonProcesses)) {
-        # an AI app may have started its MCP server again during the installation
-        Write-Host 'Hertzon processes were started again during the installation; closing them and installing again ...'
-        @(Get-HertzonProcesses) | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        & $venvPy -m pip install -e ".[test]"
+    # GitHub sometimes answers a download with a server error (504 Gateway Time-out) for a while, and pip
+    # does not retry that one itself; so the whole installation is tried again a few times with a pause
+    $waits = @(0, 15, 45, 90)
+    for ($i = 0; $i -lt $waits.Count; $i++) {
+        if ($i -gt 0) {
+            Write-Host "Package installation failed; trying again in $($waits[$i]) s (attempt $($i + 1) of $($waits.Count)) ..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $waits[$i]
+        }
+        if (@(Get-HertzonProcesses)) {
+            # an AI app may have started its MCP server again during the installation
+            Write-Host 'Hertzon processes were started again during the installation; closing them ...'
+            @(Get-HertzonProcesses) | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+        }
+        & $venvPy -m pip install --retries 10 --timeout 60 -e ".[test]"
+        if ($LASTEXITCODE -eq 0) { break }
     }
-    if ($LASTEXITCODE -ne 0) { throw 'Package installation failed (see messages above).' }
+    if ($LASTEXITCODE -ne 0) {
+        throw ('Package installation failed (see messages above). If a download failed with a server error ' +
+               '(5xx), GitHub was not reachable for a while: start the installer again later.')
+    }
     Write-Host 'Preparing the solver (first-time compilation, can take a few minutes) ...'
     # stdin from a pipe: the setup runs unattended (release check) and must never wait for input
     '' | & $venvPy -c "import emerge; print('EMerge', getattr(emerge, '__version__', 'ok'))"

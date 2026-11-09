@@ -3,6 +3,13 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Installer: temporary GitHub server errors**: when a package download failed with a server error (such as
+  504 Gateway Time-out for the EMerge wheel), the setup stopped at once. It now tries the installation again up
+  to three times with a pause and says to start the installer again later if GitHub stays unreachable.
+
 ## 0.3.11 (2026-11-09)
 
 ### Added
