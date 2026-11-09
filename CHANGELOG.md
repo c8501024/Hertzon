@@ -26,6 +26,17 @@ the GitHub release notes.
   on a board edge square to it, where the connector goes. The board is cut to fit the feeds (chamfers at ports 1
   and 3). With the default specification (2.45 GHz) the 3D model before any optimization gives S11 −30 dB, isolation −35 dB and −3.2 dB to ports 2 and 3, in phase within 2 degrees.
 
+### Fixed
+- **Update from a Hertzon window that does not close:** when the Hertzon window from which Install was clicked
+  was still open after two minutes (for example because a second window asked to save and the save was
+  cancelled), the setup did not notice that window, since it had started the installer, and updated the
+  Python packages under it. The setup now lists that window and closes it after asking, like any other open
+  Hertzon window.
+- **Update of an installation in `%LOCALAPPDATA%\Hertzon`:** Install downloads the update into the Updates folder,
+  which then lies inside the installation, and the installer stopped itself together with the background
+  processes that use the installation, so the update ended without replacing anything. The installer now
+  leaves itself out (also when it is started from inside the installation folder by hand).
+
 ## 0.3.13 (2026-11-09)
 
 ### Added

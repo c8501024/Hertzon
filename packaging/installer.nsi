@@ -195,7 +195,10 @@ Section "!$(SecApp)" SEC_APP
     InitPluginsDir
     ; (a path relative to this script: makensis works in its folder)
     File "/oname=$PLUGINSDIR\stop_background.ps1" "stop_background.ps1"
-    nsExec::ExecToLog '"${POWERSHELL}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop_background.ps1" -Root "$INSTDIR"'
+    ; this installer may run from inside $INSTDIR (Updates folder of an installation in %LOCALAPPDATA%\Hertzon):
+    ; its process id keeps the script from stopping it
+    System::Call 'kernel32::GetCurrentProcessId() i .r0'
+    nsExec::ExecToLog '"${POWERSHELL}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop_background.ps1" -Root "$INSTDIR" -Keep $0'
     Pop $0
     nobackground:
     ; an update replaces the program files completely; the Python environment (.venv) stays
