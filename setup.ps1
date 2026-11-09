@@ -174,10 +174,22 @@ try {
     }
     Write-Host 'Installing Hertzon and its packages (EMerge, Qt, VTK) ...'
     & $venvPy -m pip install --upgrade pip
+    # pip downloads a requirement given by URL (the EMerge wheel) on every installation, even when exactly
+    # that wheel is installed already. So when the installed EMerge came from the wheel this version requires,
+    # only Hertzon itself is installed, and pip check confirms that everything else it needs is there; the
+    # full installation (with downloads) runs only when something is missing or EMerge changed.
+    $done = $false
+    '' | & $venvPy -c $emergeCheck
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host 'The required EMerge is installed already; updating Hertzon only ...'
+        & $venvPy -m pip install --no-deps -e .
+        if ($LASTEXITCODE -eq 0) { & $venvPy -m pip check }
+        if ($LASTEXITCODE -eq 0) { $done = $true } else { Write-Host 'Some packages are missing or outdated; running the full installation ...' -ForegroundColor Yellow }
+    }
     # GitHub sometimes answers a download with a server error (504 Gateway Time-out) for a while, and pip
-    # does not retry that one itself; so the whole installation is tried again a few times with a pause
+    # does not retry that one itself; so the full installation is tried again a few times with a pause
     $waits = @(0, 15, 45, 90)
-    for ($i = 0; $i -lt $waits.Count; $i++) {
+    for ($i = 0; -not $done -and $i -lt $waits.Count; $i++) {
         if ($i -gt 0) {
             Write-Host "Package installation failed; trying again in $($waits[$i]) s (attempt $($i + 1) of $($waits.Count)) ..." -ForegroundColor Yellow
             Start-Sleep -Seconds $waits[$i]
@@ -189,21 +201,9 @@ try {
             Start-Sleep -Seconds 2
         }
         & $venvPy -m pip install --retries 10 --timeout 60 -e ".[test]"
-        if ($LASTEXITCODE -eq 0) { break }
+        if ($LASTEXITCODE -eq 0) { $done = $true }
     }
-    if ($LASTEXITCODE -ne 0) {
-        # pip downloads a requirement given by URL (the EMerge wheel) on every installation, even when exactly
-        # that wheel is installed already. When the download keeps failing and the installed EMerge is the
-        # required one, an update only needs Hertzon itself: install it without its dependencies and check
-        # that everything it needs is there.
-        '' | & $venvPy -c $emergeCheck
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host 'The required EMerge is installed already; installing Hertzon without downloading it again ...' -ForegroundColor Yellow
-            & $venvPy -m pip install --no-deps -e .
-            if ($LASTEXITCODE -eq 0) { & $venvPy -m pip check }
-        }
-    }
-    if ($LASTEXITCODE -ne 0) {
+    if (-not $done) {
         throw ('Package installation failed (see messages above). If a download failed with a server error ' +
                '(5xx), GitHub was not reachable for a while: start the installer again later.')
     }
