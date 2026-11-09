@@ -1,12 +1,22 @@
-# Meta AI-glasses antenna benchmark, Example 2, solved through the Hertzon MCP interface
+# Meta AI-glasses antenna benchmark, Example 2
+
+**Current solution: [Run 3](run3/README.md)** (no high-band dip, 68.6 % equal-weighted in the reference solver).
+
+> **This run (Run 2) is faulty and superseded by [Run 3](run3/README.md).** It was made with Hertzon versions that had MCP bugs and
+> weak points, since found and fixed. Lumped ports could jump between adaptive passes, so S11 and accepted power were wrong at badly
+> matched frequencies (#336; 6.55 GHz: 43 % accepted against 24 % in the reference solver). The MCP interface offered no split into
+> mismatch and radiation efficiency, no Q and no convergence warning, so the agent called the 6.2–6.85 GHz dip a mismatch, which was
+> wrong (#333). Displayed loss power and radiation efficiency were far too large or too small (fixed, see the changelog), and meshing and
+> MCP hangs cost hours (#298, #291). Radiated power and total efficiency of this run agree with the reference solver;
+> the design decisions built on the other values do not hold. The text below is kept as a record.
+
+## Run 2, solved through the Hertzon MCP interface
 
 Meta Reality Labs published two antenna design benchmarks based on AI-glasses temple arms in
 *IEEE Antennas and Propagation Magazine*, vol. 68, no. 5, Oct. 2026, Industry Activities
 ([IEEE Xplore 11775874](https://ieeexplore.ieee.org/document/11775874)). This folder holds a solution of
 Example 2, found by a general-purpose LLM agent (Claude in Claude Code) that drove Hertzon only
 through its MCP interface, and cross-checked with a commercial FEM reference solver.
-
-**Newer run:** [run3/](run3/README.md) is an independent design without the high-band dip (68.6 % equal-weighted in the reference solver).
 
 **Full report:** [REPORT.md](REPORT.md) (setup, design path, reference comparison, timing and token usage).
 
