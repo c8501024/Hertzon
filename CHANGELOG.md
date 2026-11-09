@@ -13,6 +13,10 @@ the GitHub release notes.
   wave port stops with a message that gives the cutoff frequency (instead of "no modes"). De-embedding below
   cutoff uses the decaying port mode (exp(alpha d)), and the fit of the propagation constant over frequency keeps
   its cutoff term.
+- **Wave ports below cutoff give the decaying mode** (EMerge `a92bf13`, FennisRobert/EMerge#96): below the cutoff
+  of its mode a wave port sometimes absorbed a growing instead of a decaying mode (WR-90, 40 mm, 5 GHz: S21
+  −105.7 dB instead of −30.9 dB); now S21 = exp(−αL), also in filled guides. An adaptive frequency below the
+  cutoff no longer stops with "no modes": the port takes its mode shape from a higher frequency and warns.
 
 ### Changed
 - **Hairpin diplexer layout**: the two filters are stacked as in most published hairpin diplexers: the common port
