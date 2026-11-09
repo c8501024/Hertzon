@@ -207,7 +207,7 @@ def codex_install() -> str:
     text = _strip_codex(text).rstrip()
     text = (text + "\n\n" if text else "") + codex_block()
     p.write_text(text, encoding="utf-8")
-    return f"Registered for Codex in {p}. Start a new Codex session to use it."
+    return f"Registered for Codex in {p}. Quit the Codex app completely and start it again (CLI / VS Code: start a new session) to use it."
 
 
 def codex_remove() -> str:
@@ -309,7 +309,11 @@ RESTART = {
               "/mcp then lists hertzon.",
     "desktop": "Claude desktop app: quit it completely (also the Claude icon in the taskbar tray: right click > "
                "Quit) and start it again.",
-    "codex": "Codex: start a new Codex session.",
+    "codex": "Codex: the Codex app reads its MCP servers only when it starts, so quit it completely (also the "
+             "Codex icon in the taskbar tray: right click > Quit) and start it again; the Codex CLI and the VS Code "
+             "extension need a new session. Then hertzon is listed in Codex's MCP settings. In the ChatGPT app, switch "
+             "from ChatGPT to Codex (top left) and work in a local folder: ChatGPT chats do not load local MCP "
+             "servers.",
     "vscode": "VS Code: reload the window (Ctrl+Shift+P > Developer: Reload Window), choose Agent mode in the chat "
               "and allow the hertzon server when asked.",
 }
