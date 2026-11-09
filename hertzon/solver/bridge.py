@@ -264,6 +264,7 @@ class Bridge:
         emit("progress", value=8, text="Mapping boundaries to the solver model")
         self.samples = facematch.final_face_samples()
         self.assign_mesh_ops()
+        self.limit_thin_layers()
         self.set_frequencies_for_mesh()
         self.assign_boundaries()
         self.assign_excitations()
@@ -274,6 +275,7 @@ class Bridge:
         emit("progress", value=10, text="Initial mesh (lambda refinement)")
         keep_global_max_size(m)
         m.generate_mesh()
+        remesh_degenerate(m)
         info(f"Initial mesh: {m.mesh.n_tets} tetrahedra")
         from .port_lines import spread_lumped_port_lines
         spread_lumped_port_lines(m)       # port voltage averaged over the width, not taken at a corner
@@ -883,6 +885,22 @@ class Bridge:
         h = float(ext[hdir])
         return area / h, h, tuple(d)
 
+    def lumped_voltage_line(self, a: Assignment, tags: list[int]):
+        """The voltage line of a lumped port: its Integration Line. Without one (or with one away from the sheet)
+        None, and EMerge takes a line from the sheet's lowest node, along the edge of the sheet."""
+        import gmsh
+        from emerge._emerge.coord import Line
+        from ..model.objframe import global_points
+        if not a.props.get("IntegrationLine", "").strip():
+            return None
+        pts = global_points(self.design, a, "IntegrationLine", self.ev)
+        boxes = np.array([gmsh.model.getBoundingBox(2, t) for t in tags])
+        if not line_on_sheet(pts[0], pts[1], boxes[:, :3].min(axis=0), boxes[:, 3:].max(axis=0)):
+            warn(f"{a.name}: the Integration Line does not cross the port sheet; the port voltage is taken along "
+                 "the edge of the sheet")
+            return None
+        return Line.from_points(np.asarray(pts[0], float), np.asarray(pts[1], float), 21)
+
     def assign_excitations(self) -> None:
         em, mw = self.em, self.m.mw
         ev = self.ev
@@ -933,6 +951,9 @@ class Bridge:
             elif e.kind == "Lumped Port":
                 w, h, d = self.port_geometry(e, tags)
                 port = mw.bc.LumpedPort(sel, num, width=w, height=h, direction=d, Z0=ev.value(p["Impedance"]))
+                line = self.lumped_voltage_line(e, tags)
+                if line is not None:
+                    port.voltage_integration_line.append(line)
                 info(f"Lumped port {num}: width {w * 1e3:.4g} mm, height {h * 1e3:.4g} mm, direction {d}")
             else:  # Floquet
                 port = self.floquet_port(e, sel, tags, num)
@@ -1192,6 +1213,39 @@ class Bridge:
                     continue
                 mesher.set_face_size(sel, size)
             info(f"Mesh operation '{op.name}' applied")
+
+    def limit_thin_layers(self) -> None:
+        """Element size in a thin dielectric layer (a substrate) at most THIN_LAYER_SIZE times its thickness.
+        The wavelength rule alone gives elements many times wider than a 0.5 mm board is thick: the tetrahedra
+        through it are flat (a third of them had a quality below 0.01 on a microstrip filter), and among them
+        gmsh now and then leaves slivers of no volume whose matrix entries are NaN. With the limit the flat
+        ones are gone and the mesh grows only a little (+7 % on that filter). A layer whose limited mesh would
+        exceed THIN_LAYER_TETS elements gets a coarser limit."""
+        import gmsh
+        for obj in self.design.objects:
+            g = self.geos.get(obj.name)
+            if g is None or getattr(g, "dim", 0) != 3:
+                continue
+            if obj.history and obj.history[0].kind == "CreateRegion":
+                continue
+            try:
+                if is_conductor(self.project.material(obj.material)):
+                    continue
+                boxes = [gmsh.model.occ.getBoundingBox(3, t) for t in g.tags]
+            except Exception:  # noqa: BLE001, S112
+                continue
+            if not boxes:
+                continue
+            lo = np.min([b[:3] for b in boxes], axis=0)
+            hi = np.max([b[3:] for b in boxes], axis=0)
+            t, a, b = sorted(hi - lo)
+            if t <= 0 or t > THIN_LAYER_RATIO * a:
+                continue
+            size = THIN_LAYER_SIZE * t
+            # about 6 tetrahedra per cube of the element size: keep the layer within THIN_LAYER_TETS
+            size = max(size, (6 * a * b * t / THIN_LAYER_TETS) ** (1 / 3))
+            self.m.mesher.set_domain_size(g, size)
+            info(f"Thin layer '{obj.name}' ({t * 1e3:.4g} mm): elements at most {size * 1e3:.4g} mm")
 
     def _match_edges(self, op) -> list[tuple[int, float]]:
         """gmsh curve tags (with lengths) whose end points and midpoint lie on the selected tess edges."""
@@ -2614,6 +2668,14 @@ def _save_amr_state(out: Path, key: str, amr, ratio: float, passes: list, fa, m=
         warn(f"Could not store the adaptive mesh state: {e}")
 
 
+def line_on_sheet(start, end, lo, hi) -> bool:
+    """Does the middle of the line start-end lie inside the bounding box lo-hi of a sheet? A tenth of the line
+    length is allowed as margin (a sheet parallel to an axis has a flat box)."""
+    start, end = np.asarray(start, float), np.asarray(end, float)
+    mid, pad = (start + end) / 2, 0.1 * float(np.linalg.norm(end - start))
+    return bool(np.all(mid >= np.asarray(lo, float) - pad) and np.all(mid <= np.asarray(hi, float) + pad))
+
+
 def _material_of_tet(field, t: int) -> str:
     """'er = ..., ur = ...' of tetrahedron t: one value when the material is isotropic, else the diagonal."""
     def one(a):
@@ -2972,6 +3034,48 @@ def scattered_energy(fld, m) -> tuple[float, float]:
     _interp_known_tets(fld, c[0], c[1], c[2], mapping)
     e2 = np.abs(fld.Ex) ** 2 + np.abs(fld.Ey) ** 2 + np.abs(fld.Ez) ** 2
     return ws, float(np.nansum(np.real(fld.er) * e2 * vol))
+
+
+THIN_LAYER_RATIO = 0.25       # a dielectric whose smallest extent is below this share of the next one is a layer
+THIN_LAYER_SIZE = 6.0         # element size in a layer at most this many times its thickness
+THIN_LAYER_TETS = 400_000     # but a layer gets no more elements than about this from the limit
+DEGENERATE_QUALITY = 1e-6      # a tet below this quality has no volume: its matrix entries overflow to NaN
+
+
+def remesh_degenerate(m, tries: int = 5) -> None:
+    """Mesh again when the mesh has flat (zero-volume) tetrahedra. gmsh now and then leaves a few slivers on a
+    conductor face (found on an edge-coupled filter: 35 tets of 1e-25 m3 on a trace edge); their element
+    matrices hold NaN, the solution is void (S11 = -1) and the error estimate stops the analysis. A different
+    random seed of the mesher gives a sound mesh of the same density. (gmsh's Netgen optimizer removes them
+    too, but it crashed the process on a patch with a copper ground solid.) Since thin layers are limited
+    (limit_thin_layers) this is rare: slivers at the large faces of the air box."""
+    from .bisect import mesh_quality
+    try:
+        import gmsh
+    except Exception:  # noqa: BLE001
+        return
+    for k in range(1, tries + 1):
+        try:
+            bad = int((mesh_quality(m) < DEGENERATE_QUALITY).sum())
+        except Exception:  # noqa: BLE001
+            return
+        if not bad:
+            return
+        warn(f"The mesh has {bad} tetrahedra without volume; meshing again with another seed ({k} of {tries})")
+        try:
+            gmsh.option.setNumber("Mesh.RandomSeed", 1 + 7 * k)
+            m._reset_mesh()
+            keep_global_max_size(m)
+            m.generate_mesh()
+        except Exception as ex:  # noqa: BLE001
+            warn(f"Meshing again failed ({ex})")
+            return
+    try:
+        bad = int((mesh_quality(m) < DEGENERATE_QUALITY).sum())
+        if bad:
+            warn(f"The mesh still has {bad} tetrahedra without volume; the solution may fail")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def keep_global_max_size(m) -> None:

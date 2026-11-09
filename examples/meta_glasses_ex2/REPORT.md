@@ -1,5 +1,13 @@
 # Meta AI-glasses benchmark, Example 2: rerun with the fixed Hertzon MCP
 
+> **This run (Run 2) is faulty and superseded by [Run 3](run3/README.md).** It was made with Hertzon versions that had MCP bugs and
+> weak points, since found and fixed. Lumped ports could jump between adaptive passes, so S11 and accepted power were wrong at badly
+> matched frequencies (#336; 6.55 GHz: 43 % accepted against 24 % in the reference solver). The MCP interface offered no split into
+> mismatch and radiation efficiency, no Q and no convergence warning, so the agent called the 6.2–6.85 GHz dip a mismatch, which was
+> wrong (#333). Displayed loss power and radiation efficiency were far too large or too small (fixed, see the changelog), and meshing and
+> MCP hangs cost hours (#298, #291). Radiated power and total efficiency of this run agree with the reference solver;
+> the design decisions built on the other values do not hold. The text below is kept as a record.
+
 November 2026
 
 ## Result
@@ -47,7 +55,7 @@ What the comparison shows:
 - **Total efficiency agrees well between the solvers.** Shape and dip match, and Hertzon is on average 6 points lower on identical geometry, comparable to the 2 to 7 points in Example 1. Radiated power is within 1 to 4 points at most frequencies (for example 5.5 and 6.55 GHz); the largest differences are 2.401 GHz (49.5 against 61.4 %) and 6.85 and 7.125 GHz (about 9 to 10 points).
 - **The sheet loss model explains part of it.** Zero-thickness sheets with one-sided surface impedance count the conductor loss on one side. With two-sided sheets (35 µm) the 2.4 GHz mean rises from 66.5 to 69.8 % and the high band from 49.8 to 50.8 %, so about 40 % of the gap at 2.4 GHz.
 - **Two other quantities do not match, but they do not change the result.** Accepted power from 1 − |S11|² in Hertzon is too high at badly matched frequencies (6.55 GHz: 43 % against 24 %; the Hertzon changelog also calls this quantity inaccurate there), and the displayed Radiation Efficiency is wrong (below). Total efficiency Prad/Pinc does not use either of them.
-- **The dip at 6.2–6.85 GHz is real** and confirmed by the reference solver. Its radiated power agrees between both solvers; it is a mismatch problem, see Limits.
+- **The dip at 6.2–6.85 GHz is real** and confirmed by the reference solver. Its radiated power agrees between both solvers. The cause is currently being investigated, see Limits.
 - **The definition of total efficiency is the same in both solvers** (Prad/Pinc with 1 W incident). Hertzon's displayed "Radiation Efficiency" is not comparable: since #231 it is Prad/(Prad+Ploss), and Ploss is several times too large in this model (Power Balance +150 to +1200 %). The radiation efficiencies in the Design table below are Prad/(1−|S11|²), not that display, and are too pessimistic at mismatched points (6.55 GHz: 34 %, reference 67 %).
 
 ## Setup
@@ -109,8 +117,12 @@ Iteration table and plot: `results/iterations.csv`, `results/Ex2_Run2_progress.p
 
 ## Limits
 
-- The high band has a dip around 6.2–6.85 GHz that both solvers confirm. It is mainly a mismatch: in a lossless Hertzon run the antenna accepts only 19 % of the power at 6.55 GHz (S11 −0.9 dB), against 97 % at 5.5 GHz, and the input impedance is strongly inductive there (about 22+105j Ω). It sits between the resonances of the feed branch (5.5 GHz) and the right branch (7.1 GHz). A third branch on the bottom layer, a shorter feed branch and a shorter right branch did not remove it, so a further radiating resonance near 6.4 GHz is still missing. Part of the reactance comes from the fixed feed path (via, trace and feed pin).
-- High band mismatch dominates; a broadband match at 5–7 GHz could add a few points, but in this search the 3-part network did not improve the equal-weight mean.
+- The high band has a dip around 6.2–6.85 GHz that both solvers confirm. **Its cause is currently being investigated**; an earlier version of this report called it a mismatch, and that explanation is under review. The findings so far are from the reference solver. At 6.55 GHz, 23.7 % of the incident power is accepted (−6.3 dB) and 66.7 % of that is radiated (−1.8 dB), so total efficiency is 15.8 %. With PEC metal and tan δ = 0 the total is 16.1 %, against 15.8 % with all losses (`results/Ex2_dip_decomposition.csv`), so dissipation is not what limits it there. Almost all dissipation is in the antenna copper and the FPC; PCB, chassis and the stainless section together take about 1 % of it at 6.55 GHz.
+- Working hypothesis, not yet confirmed: the design has no radiating resonance in this range. The dip sits between the resonances of the feed branch (5.5 GHz) and the right branch (7.1 GHz), and at 6.55 GHz strong current is present on the long low-band arms. Per accepted watt the magnetic field 0.05 mm above the antenna is 1.5 to 3 times stronger than at 5.5 GHz on the top arm, lower arm, inner return, feed stem and shorting stub, while the field 4.5 mm above the temple arm beyond x = 16 mm is about half as strong (figure below). The input impedance of the lossless model is 15.6+125j Ω with a Q of about 58 from its slope, against 16 at 5.5 GHz and 14 at 7.1 GHz. Radiation efficiency falls from 92 % to 67 % at an almost unchanged absolute loss per incident watt. Run 1, on the same chassis, radiates 74.8 % at 6.55 GHz in the reference solver with 97 % radiation efficiency, so the dip appears to belong to this design and not to the benchmark. A third branch on the bottom layer, a shorter feed branch and a shorter right branch did not remove it. Part of the reactance comes from the fixed feed path (via, trace and feed pin). Hertzon 0.3.10 with two-sided sheets gives radiated power within 2 points of the reference between 6.2 and 6.6 GHz, but its accepted power is still higher there (33.6 % against 23.7 % at 6.55 GHz) and its adaptive mesh did not converge (ΔS 0.28 in the last pass), so the Hertzon S-parameters near the dip need more care.
+
+![Magnetic field per square root of accepted power, 0.05 mm above the antenna, reference solver](results/Ex2_dip_H_field.png)
+
+- In the reference solver most power is reflected in the dip, but so far nothing suggests a matching network can remove it: a Q of about 58 would allow roughly 1 % bandwidth at VSWR 2 from a single-tuned match, against a 5170–7125 MHz band, and in this search the 3-part network did not improve the equal-weight mean. The topology of the design may need to change; this is part of the ongoing investigation.
 - Matching parts use a generic loss model (L: Q 35 at 2.4 GHz rising with √f, C: Q 120), not a vendor catalog.
 - The matched values are checked in a Hertzon Circuits schematic (`Match` design with the 3D result as a block), but the final design is quoted without matching parts.
 - The Hertzon power balance is unreliable, so radiation efficiency is taken as Prad/Pacc, and Hertzon's far-field loss power has been reported as a bug.

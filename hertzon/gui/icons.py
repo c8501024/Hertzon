@@ -207,6 +207,20 @@ def _antenna(p):
         p.drawArc(QRectF(46 - r, 14 - r, 2 * r, 2 * r), 0 * 16, 90 * 16)
 
 
+def _wizard(p):
+    # design wizard: a branchline square of copper traces and a wand with a spark
+    p.setPen(_pen(QColor("#7a5216"), 1.2))
+    p.setBrush(QColor("#c8892b"))
+    for r in (QRectF(8, 14, 30, 5), QRectF(8, 41, 30, 5), QRectF(8, 14, 5, 32), QRectF(33, 14, 5, 32),
+              QRectF(2, 15.5, 6, 2), QRectF(38, 15.5, 6, 2), QRectF(2, 42.5, 6, 2), QRectF(38, 42.5, 6, 2)):
+        p.drawRect(r)
+    p.setPen(_pen(QColor("#14213a"), 4))
+    p.drawLine(QPointF(30, 58), QPointF(52, 30))
+    p.setPen(_pen(QColor("#c9952f"), 2))
+    for dx, dy in ((0, -8), (0, 8), (-8, 0), (8, 0), (-5, -5), (5, 5), (-5, 5), (5, -5)):
+        p.drawLine(QPointF(55, 26), QPointF(55 + dx * 0.9, 26 + dy * 0.9))
+
+
 def _boolean(p, kind):
     a, b = QRectF(6, 14, 32, 32), QRectF(26, 18, 32, 32)
     pa, pb = QPainterPath(), QPainterPath()
@@ -1253,7 +1267,7 @@ _DRAW = {
     "field": _field, "calculator": _calculator, "field_vec": lambda p: _field(p, "vec"), "field_h": lambda p: _field(p, "h"),
     "animate": _animate, "clear": _clear, "soldata": _soldata, "export": _export, "design": _design, "layout_back": _layout_back, "layout_fwd": _layout_fwd,
     "variables": _variables, "screenshot": _screenshot, "help": _help, "projection": _projection,
-    "byname": _byname, "selall": _selall, "group": _group, "ungroup": lambda p: _group(p, True), "exit": _exit, "filter": _filter, "antenna": _antenna,
+    "byname": _byname, "selall": _selall, "group": _group, "ungroup": lambda p: _group(p, True), "exit": _exit, "filter": _filter, "antenna": _antenna, "wizard": _wizard,
     "resistor": _resistor, "inductor": _inductor, "capacitor": _capacitor, "chip": _chip,
 }
 

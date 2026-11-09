@@ -43,6 +43,27 @@ def apply() -> None:
         logger.warning(f"Reduced basis for the interpolating sweep not available ({ex})")
     if not native("mesh_fallback"):
         apply_mesh_fallback()
+    if not native("port_field_lookup"):
+        apply_port_field_lookup()
+
+
+def apply_port_field_lookup() -> None:
+    """EMerge evaluates the field for the S-parameters only in the tetrahedra that share a triangle with the port
+    face; a sample outside them finds no tetrahedron and counts as zero field. The voltage line of a lumped port
+    runs along the edge of its sheet, where refinement moves samples into neighbouring tetrahedra: the port voltage
+    then fell by the share of those samples, S jumped from pass to pass and the accepted power was too high while
+    the radiated power stayed right. Such samples are now looked up in the whole mesh."""
+    from emerge._emerge.elements.nedelec2 import Nedelec2
+    plain = Nedelec2.interpolate_index
+
+    def interpolate_index(self, xs, ys, zs, tetids=None, usenan=True):
+        vals = plain(self, xs, ys, zs, tetids, usenan)
+        if tetids is not None:
+            miss = np.flatnonzero(vals < 0)
+            if miss.size:
+                vals[miss] = plain(self, xs[miss], ys[miss], zs[miss], None, usenan)
+        return vals
+    Nedelec2.interpolate_index = interpolate_index
 
 
 # ------------------------------------------------------------------------------------------------

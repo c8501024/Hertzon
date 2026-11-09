@@ -162,6 +162,8 @@ excitations in one pass over the tetrahedra (geometry and neighbour data once).
 
 - `apply_mesh_fallback`: when gmsh fails on trimmed B-spline faces of CAD files, mesh again without
   curvature based sizing.
+- `apply_port_field_lookup`: a sample of a port integral outside the tetrahedra next to the port is looked up in
+  the whole mesh instead of counting as zero field. **Proposal:** the same fallback in `interpolate_Ef`.
 
 ## Removed
 
