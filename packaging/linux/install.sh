@@ -9,7 +9,7 @@ DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 DEST="$DATA/hertzon"
 BIN="$HOME/.local/bin"
 
-echo "Hertzon wird installiert nach $DEST"
+echo "Installing Hertzon to $DEST"
 
 # ---- Python 3.10 or newer with venv ---------------------------------------------------------------
 PY=""
@@ -20,44 +20,66 @@ for c in python3.13 python3.12 python3.11 python3.10 python3; do
     fi
 done
 if [ -z "$PY" ]; then
-    echo "Python 3.10 oder neuer mit venv fehlt. Zum Beispiel unter Ubuntu/Debian:" >&2
+    echo "Python 3.10 or newer with venv is missing. For example on Ubuntu/Debian:" >&2
     echo "  sudo apt install python3 python3-venv" >&2
     exit 1
 fi
 echo "Python: $PY ($("$PY" --version 2>&1))"
 
-# ---- system libraries for gmsh (meshing) and Qt (window) --------------------------------------------
-missing=()
-for lib in libGLU.so.1 libXcursor.so.1 libXinerama.so.1 libXft.so.2 libxkbcommon-x11.so.0 libxcb-cursor.so.0 libEGL.so.1; do
-    ldconfig -p 2>/dev/null | grep -q "$lib" || missing+=("$lib")
-done
-if [ ${#missing[@]} -gt 0 ]; then
-    echo "Hinweis: diese Systembibliotheken fehlen vermutlich: ${missing[*]}"
-    echo "Unter Ubuntu/Debian installierst du sie mit:"
-    echo "  sudo apt install libglu1-mesa libxcursor1 libxinerama1 libxft2 libxkbcommon-x11-0 libxcb-cursor0 libegl1"
-fi
-
 # ---- program files (an update replaces them; .venv stays) -------------------------------------------
 mkdir -p "$DEST"
 rm -rf "$DEST/hertzon" "$DEST/examples" "$DEST/docs"
-cp -r "$SRC/hertzon" "$SRC/examples" "$SRC/docs" "$SRC/pyproject.toml" "$SRC/README.md" "$SRC/LICENSE" "$SRC/uninstall.sh" "$DEST/"
+cp -r "$SRC/hertzon" "$SRC/examples" "$SRC/docs" "$SRC/pyproject.toml" "$SRC/README.md" "$SRC/LICENSE" "$SRC/uninstall.sh" "$SRC/syscheck.sh" "$DEST/"
 
 # ---- Python environment -----------------------------------------------------------------------------
 if [ ! -x "$DEST/.venv/bin/python" ]; then
     "$PY" -m venv "$DEST/.venv"
 fi
-echo "Pakete werden installiert (EMerge, Qt, VTK; beim ersten Mal ca. 1 GB) ..."
+echo "Installing packages (EMerge, Qt, VTK; about 1 GB the first time) ..."
 "$DEST/.venv/bin/python" -m pip install --upgrade pip -q
 "$DEST/.venv/bin/python" -m pip install -e "$DEST" -q
-echo "Solver wird vorbereitet (einmalig, einige Minuten) ..."
+echo "Preparing the solver (once, a few minutes) ..."
 (cd "$DEST" && "$DEST/.venv/bin/python" -m hertzon.solver.warmup) ||
-    echo "Die Solver-Kernel werden stattdessen bei der ersten Simulation kompiliert."
+    echo "The solver kernels will be compiled at the first simulation instead."
+
+# ---- system libraries for the window (Qt) and the mesher (gmsh) -------------------------------------
+# without them Qt stops with "no Qt platform plugin could be initialized" and nothing opens
+chmod +x "$DEST/syscheck.sh"
+if ! "$DEST/syscheck.sh"; then
+    cmd="$("$DEST/syscheck.sh" --command)"
+    if [ -n "$cmd" ] && [ -t 0 ]; then
+        printf "Install them now (asks for the sudo password)? [Y/n] "
+        read -r a || a=n
+        case "$a" in [nN]*) ;; *) $cmd || true;; esac
+        "$DEST/syscheck.sh" >/dev/null || echo "System libraries are still missing; Hertzon starts only once they are installed: $DEST/syscheck.sh"
+    fi
+fi
 
 # ---- command, menu entry, icon, .hzn files ----------------------------------------------------------
 mkdir -p "$BIN"
 cat > "$BIN/hertzon" <<EOS
 #!/bin/sh
-cd "$DEST" && exec "$DEST/.venv/bin/python" -m hertzon "\$@"
+# Started from the application menu there is no terminal: missing system libraries are shown in a message
+# window instead of Qt stopping silently, and the output goes to hertzon.log.
+cd "$DEST" || exit 1
+if [ ! -t 2 ]; then
+    cmd="\$("$DEST/syscheck.sh" --command 2>/dev/null)" || {
+        msg="Hertzon cannot start: system libraries for its window (Qt) are missing.
+Please install them in a terminal:
+
+\$cmd
+
+Then start Hertzon again."
+        if command -v zenity >/dev/null 2>&1; then zenity --error --no-wrap --title=Hertzon --text="\$msg"
+        elif command -v kdialog >/dev/null 2>&1; then kdialog --title Hertzon --error "\$msg"
+        elif command -v notify-send >/dev/null 2>&1; then notify-send -u critical Hertzon "\$msg"
+        elif command -v xmessage >/dev/null 2>&1; then xmessage -center "\$msg"
+        fi
+        exit 1
+    }
+    exec "$DEST/.venv/bin/python" -m hertzon "\$@" >"$DEST/hertzon.log" 2>&1
+fi
+exec "$DEST/.venv/bin/python" -m hertzon "\$@"
 EOS
 chmod +x "$BIN/hertzon"
 
@@ -92,6 +114,6 @@ command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$DAT
 command -v xdg-mime >/dev/null && xdg-mime default hertzon.desktop application/x-hertzon-project >/dev/null 2>&1 || true
 
 echo
-echo "Hertzon ist installiert. Du findest es im Anwendungsmenü oder startest es mit: hertzon"
-case ":$PATH:" in *":$BIN:"*) ;; *) echo "($BIN ist nicht im PATH; dann mit $BIN/hertzon starten.)";; esac
-echo "Deinstallieren: $DEST/uninstall.sh"
+echo "Hertzon is installed. Find it in the application menu or start it with: hertzon"
+case ":$PATH:" in *":$BIN:"*) ;; *) echo "($BIN is not in PATH; start it with $BIN/hertzon)";; esac
+echo "Uninstall: $DEST/uninstall.sh"
