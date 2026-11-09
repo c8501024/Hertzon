@@ -251,3 +251,222 @@ class PrintedIFA(Structure):
 
     def sweep(self, spec: dict) -> tuple[float, float, int]:
         return 0.8 * spec["f0"], 1.2 * spec["f0"], 201
+
+
+# ---- patches fed by a probe ---------------------------------------------------------------------------------------
+# The probe is a lumped port: a vertical sheet through the substrate from the ground to the patch, as wide as a
+# probe (the current runs up the sheet). The substrate is the wizard's board.
+
+PROBE = 1.0                             # mm, width of the probe sheet (about a 50 ohm SMA pin)
+
+
+def _patch_losses(f: float, h: float, sub: Substrate) -> tuple[float, float]:
+    """(Q of the dielectric, Q of the copper) of a patch cavity: 1/tan d and h sqrt(pi f mu0 sigma)."""
+    mu0 = 4e-7 * math.pi
+    return 1 / max(sub.tand, 1e-6), h * math.sqrt(math.pi * f * mu0 * sub.sigma)
+
+
+def _patch_board(spec: dict, sub: Substrate) -> float:
+    """Ground margin beyond the patch (mm): max(6 h, lambda0 / 10), as the rectangular patch designer."""
+    return max(6 * sub.h, C0 / (spec["f0"] * 1e9) * 1e3 / 10)
+
+
+class _Patch(Structure):
+    kind = "3d"
+    coarse = ""
+    optimizer = "Derivative Trust Region"
+    status = AVAILABLE
+    ports = 1
+
+    def materials3d(self, spec: dict, sub: Substrate) -> list:
+        from ..materials import Material
+        return [Material(f"Patch_Er{sub.er:g}", permittivity=f"{sub.er:g}", loss_tangent=f"{sub.tand:g}",
+                         color="#2e7d32", description="Substrate of a patch antenna")]
+
+    def sweep(self, spec: dict) -> tuple[float, float, int]:
+        return 0.9 * spec["f0"], 1.1 * spec["f0"], 201
+
+    def _start(self, name: str, syn: Synthesis, sub: Substrate, half: str) -> tuple[Design, object]:
+        """Design with the substrate (a square of side 2 half), the ground below and the variables."""
+        d = Design(name=name, units="mm")
+        d.settings.update(AutoOpen="Auto Open", AutoOpenBoundary="Auto")
+        d.variables.update({v.name: v.text() for v in syn.variables})
+        d.variables.update(h=f"{sub.h:g}mm", t_cu=f"{sub.t:g}um", Bs=half)
+        d.add_object("CreateBox", name="Substrate", material=f"Patch_Er{sub.er:g}", Position="-Bs,-Bs,0",
+                     XSize="2*Bs", YSize="2*Bs", ZSize="h")
+        gnd = d.add_object("CreateRectangle", name="Ground", Position="-Bs,-Bs,0", Axis="Z", XSize="2*Bs",
+                           YSize="2*Bs")
+        return d, gnd
+
+    def _finish(self, d: Design, spec: dict, sub: Substrate, gnd, patch, xf: str) -> Design:
+        """Copper on the ground and the patch, the probe at (xf, 0), setup and far field."""
+        port = d.add_object("CreateRectangle", name="Probe", Position=f"{xf},-wp/2,0", Axis="X", YSize="wp",
+                            ZSize="h")
+        _assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper", [gnd.name, patch.name],
+                UseMaterial="False", Conductivity=f"{sub.sigma:g}", UseThickness="True", Thickness="t_cu",
+                TwoSided="False")
+        _assign(d.excitations, schema.EXCITATIONS, "Lumped Port", "1", [port.name], PortNumber="1",
+                Impedance=f"{spec['z0']:g}ohm", IntegrationLine=f"{xf},0,0;{xf},0,h")
+        _setup(d, spec["f0"], 10.0)
+        return d
+
+
+def circular_patch(f_ghz: float, sub: Substrate) -> dict:
+    """Circular patch in the TM11 mode (Balanis, Antenna Theory 14.3): physical radius a, effective radius ae,
+    the conductance of radiation, copper and dielectric, and the input resistance at the edge."""
+    from scipy.integrate import quad
+    from scipy.special import jv
+    f, h_cm, er = f_ghz * 1e9, sub.h / 10, sub.er
+    F = 8.791e9 / (f * math.sqrt(er))
+    a = F / math.sqrt(1 + 2 * h_cm / (math.pi * er * F) * (math.log(math.pi * F / (2 * h_cm)) + 1.7726))
+    ae = a * math.sqrt(1 + 2 * h_cm / (math.pi * a * er) * (math.log(math.pi * a / (2 * h_cm)) + 1.7726))
+    k0 = 2 * math.pi * f / C0
+    x0 = k0 * ae / 100
+
+    def integrand(t):
+        x = x0 * math.sin(t)
+        return ((jv(0, x) - jv(2, x)) ** 2 + math.cos(t) ** 2 * (jv(0, x) + jv(2, x)) ** 2) * math.sin(t)
+    g_rad = x0 ** 2 / 480 * quad(integrand, 0, math.pi / 2)[0]
+    mu0, h = 4e-7 * math.pi, sub.h * 1e-3
+    chi = 1.84118 ** 2 - 1
+    g_cu = math.pi * (math.pi * f * mu0) ** -1.5 / (4 * h * h * math.sqrt(sub.sigma)) * chi
+    g_d = sub.tand / (4 * mu0 * h * f) * chi
+    gt = g_rad + g_cu + g_d
+    return {"a": a * 10, "ae": ae * 10, "g_rad": g_rad, "gt": gt, "r_edge": 1 / gt,
+            "efficiency": g_rad / gt}
+
+
+class CircularPatch(_Patch):
+    """Circular microstrip patch in the TM11 mode, fed by a probe on the x axis at the radius where the input
+    resistance is the port impedance."""
+    key = "cpatch"
+    title = "Circular patch"
+    category = "antenna"
+    description = "Probe fed, TM11 cavity model"
+    use = "Compact, symmetric pattern"
+    fields = (
+        Field("f0", "Frequency", 2.45, "GHz", 0.3, 40),
+        Field("z0", "Port impedance", 50.0, "ohm", 10, 300, 1),
+        Field("rl", "Return loss at the frequency", 15.0, "dB", 3, 40, 1),
+    )
+
+    def default_name(self, spec: dict) -> str:
+        return f"CircularPatch_{spec['f0']:g}GHz"
+
+    def synthesis(self, spec: dict, sub: Substrate) -> Synthesis:
+        from scipy.optimize import brentq
+        from scipy.special import jv
+        c = circular_patch(spec["f0"], sub)
+        a, ae, z0 = c["a"], c["ae"], spec["z0"]
+        warnings = []
+        # R(rho) = R_edge J1(k rho)^2 / J1(k ae)^2, k ae = 1.841 (J1 rises monotonically up to there)
+        if z0 >= c["r_edge"]:
+            rho = 0.95 * a
+            warnings.append(f"The edge resistance {c['r_edge']:.0f} ohm is below the port impedance: probe at the "
+                            "edge (use a thicker substrate or a lower port impedance)")
+        else:
+            target = jv(1, 1.84118) * math.sqrt(z0 / c["r_edge"])
+            rho = brentq(lambda r: jv(1, 1.84118 * r / ae) - target, 1e-6, ae) if target > 0 else 0.1 * a
+        rho = max(rho, PROBE)
+        syn = Synthesis([
+            Variable("a", a, f"patch radius (effective {ae:.2f} mm with the fringing field)", lo=0.94 * a, hi=1.06 * a),
+            Variable("rho", rho, "probe distance from the centre", lo=max(PROBE, 0.5 * rho), hi=min(0.9 * a, 1.6 * rho)),
+            Variable("wp", PROBE, "probe width", include=False),
+        ])
+        syn.note = (f"TM11 cavity: radius {a:.2f} mm on er {sub.er:g}, h {sub.h:g} mm; input resistance "
+                    f"{c['r_edge']:.0f} ohm at the edge (radiation efficiency about {100 * c['efficiency']:.0f} %), "
+                    f"{z0:g} ohm at {rho:.2f} mm from the centre. The optimization tunes the radius and the probe "
+                    "on the adaptive solution at the frequency.")
+        syn.warnings += warnings
+        return syn
+
+    def model3d(self, spec: dict, sub: Substrate, syn: Synthesis, name: str) -> Design:
+        d, gnd = self._start(name, syn, sub, f"a + {_patch_board(spec, sub):.4g}mm")
+        patch = d.add_object("CreateCircle", name="Patch", CenterPosition="0,0,h", Axis="Z", Radius="a",
+                             NumberOfSegments="0")
+        return self._finish(d, spec, sub, gnd, patch, "rho")
+
+    def goals(self, spec: dict) -> list[dict]:
+        return [goal("dB(S(1,1))", spec["f0"], spec["f0"], "<=", -spec["rl"])]
+
+
+def square_patch(f_ghz: float, sub: Substrate) -> dict:
+    """Square patch (transmission line model, W = L): side, total Q (radiation from the Jackson-Alexopoulos
+    bandwidth, dielectric and copper) and the input resistance at the edge (slot conductances, losses
+    included)."""
+    from ..antennas import _slot_conductances
+    f, h, er = f_ghz * 1e9, sub.h * 1e-3, sub.er
+    length = C0 / (2 * f * math.sqrt(er))
+    for _ in range(20):
+        ee = (er + 1) / 2 + (er - 1) / 2 / math.sqrt(1 + 12 * h / length)
+        dl = 0.412 * h * (ee + 0.3) * (length / h + 0.264) / ((ee - 0.258) * (length / h + 0.8))
+        length = C0 / (2 * f * math.sqrt(ee)) - 2 * dl
+    lam0 = C0 / f
+    bw = 3.77 * (er - 1) / er ** 2 * h / lam0                   # VSWR 2, W = L
+    q_rad = 1 / (math.sqrt(2) * bw)
+    q_d, q_c = _patch_losses(f, h, sub)
+    q = 1 / (1 / q_rad + 1 / q_d + 1 / q_c)
+    g1, g12 = _slot_conductances(length, length, f)
+    r_edge = 1 / (2 * (g1 + g12)) * q / q_rad
+    return {"L": length * 1e3, "q": q, "q_rad": q_rad, "r_edge": r_edge, "efficiency": q / q_rad}
+
+
+class CPPatch(_Patch):
+    """Circularly polarized square patch with one probe: two corners on a diagonal cut off, so that the two
+    orthogonal modes split around the frequency and add up 90 degrees apart (truncated area / patch area =
+    1 / (2 Q))."""
+    key = "cppatch"
+    title = "Circularly polarized patch"
+    category = "antenna"
+    description = "Truncated corners, one probe"
+    use = "GNSS, satellite links"
+    fields = (
+        Field("f0", "Frequency", 2.45, "GHz", 0.3, 40),
+        Field("z0", "Port impedance", 50.0, "ohm", 10, 300, 1),
+        Field("rl", "Return loss at the frequency", 15.0, "dB", 3, 40, 1),
+        Field("ar", "Axial ratio at the frequency", 3.0, "dB", 0.5, 10, 1, help="In the direction of the maximum"),
+    )
+
+    def default_name(self, spec: dict) -> str:
+        return f"CPPatch_{spec['f0']:g}GHz"
+
+    def synthesis(self, spec: dict, sub: Substrate) -> Synthesis:
+        s = square_patch(spec["f0"], sub)
+        L, q, z0 = s["L"], s["q"], spec["z0"]
+        c = L / math.sqrt(2 * q)
+        # both modes take the probe: at the frequency each is 45 degrees off resonance and the two halves of
+        # the admittance add up to about the single mode resistance
+        warnings = []
+        if z0 >= s["r_edge"]:
+            y0 = 0.0
+            warnings.append(f"The edge resistance {s['r_edge']:.0f} ohm is below the port impedance: probe at the "
+                            "edge")
+        else:
+            y0 = L / math.pi * math.acos(math.sqrt(z0 / s["r_edge"]))
+        xf = max(L / 2 - y0, PROBE)
+        syn = Synthesis([
+            Variable("L", L, "side of the square patch", lo=0.94 * L, hi=1.06 * L),
+            Variable("c", c, f"cut of the two corners (legs of the triangles), area ratio 1/(2 Q), Q = {q:.0f}",
+                     lo=0.5 * c, hi=min(1.8 * c, 0.3 * L)),
+            Variable("xf", xf, "probe distance from the centre on the x axis", lo=max(PROBE, 0.5 * xf),
+                     hi=min(0.45 * L, 1.6 * xf)),
+            Variable("wp", PROBE, "probe width", include=False),
+        ])
+        syn.note = (f"Square patch {L:.2f} mm (W = L), total Q {q:.0f} with the losses: the corners on one diagonal "
+                    f"are cut by {c:.2f} mm, so the two modes split by about 1/Q and are 90 degrees apart at the "
+                    f"frequency. Edge resistance {s['r_edge']:.0f} ohm, probe {xf:.2f} mm from the centre. The "
+                    "optimization tunes the side, the cut and the probe on return loss and axial ratio.")
+        syn.warnings += warnings
+        return syn
+
+    def model3d(self, spec: dict, sub: Substrate, syn: Synthesis, name: str) -> Design:
+        d, gnd = self._start(name, syn, sub, f"L/2 + {_patch_board(spec, sub):.4g}mm")
+        # counter-clockwise, the corners at (+,+) and (-,-) cut
+        pts = ["-L/2+c,-L/2", "L/2,-L/2", "L/2,L/2-c", "L/2-c,L/2", "-L/2,L/2", "-L/2,-L/2+c"]
+        patch = d.add_object("CreatePolyline", name="Patch", Points=";".join(f"{p},h" for p in pts), Closed="True",
+                             Covered="True")
+        return self._finish(d, spec, sub, gnd, patch, "xf")
+
+    def goals(self, spec: dict) -> list[dict]:
+        f0 = spec["f0"]
+        return [goal("dB(S(1,1))", f0, f0, "<=", -spec["rl"]), goal("dB(AxialRatioAtMax)", f0, f0, "<=", spec["ar"])]

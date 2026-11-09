@@ -571,9 +571,8 @@ class DesignWizard(QDialog):
             self.fields[fld.key] = w
             self.spec_form.addRow(fld.label, w)
         self.spec_box.setTitle(f"Specification: {s.title}")
-        wired = s.kind == "3d"                  # antennas without a substrate (wires in free space)
-        self.sub_box.setVisible(not wired)
-        self.mf.setEnabled(not wired)
+        self.sub_box.setVisible(s.view != "side")   # wire antennas have no substrate
+        self.mf.setEnabled(s.kind != "3d")          # no circuit: nothing to fit
         self.setWindowTitle(f"Design Wizard: {s.title}")
         self.refresh()
 

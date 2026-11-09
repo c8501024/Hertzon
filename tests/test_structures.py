@@ -132,6 +132,42 @@ def test_printed_ifa():
     assert float(d3.variables["L"].removesuffix("mm")) + 4 == pytest.approx(lam / 4 / math.sqrt(ifa_eeff(3.66)))
 
 
+def test_circular_patch_radius_and_probe():
+    from scipy.special import jv
+    from hertzon.model.structures.antennas import circular_patch
+    sub = ST.Substrate(er=2.2, h=1.588, tand=0.0009)
+    c = circular_patch(10, sub)
+    # TM11 resonance of the effective radius: f = 1.8412 c0 / (2 pi ae sqrt(er))
+    assert 1.84118 * 299.792458 / (2 * math.pi * c["ae"] * math.sqrt(2.2)) == pytest.approx(10, rel=0.015)
+    assert c["a"] < c["ae"] < 1.2 * c["a"] and c["efficiency"] > 0.9
+    p, r = _made("cpatch")
+    (d3,) = r.designs
+    op = d3.optimetrics[0]
+    assert [v["name"] for v in op.variables if v["include"]] == ["a", "rho"]
+    assert r.materials[0].name == "Patch_Er3.66" and op.props["Optimizer"] == "Derivative Trust Region"
+    c = circular_patch(2.45, ST.Substrate())
+    rho = float(d3.variables["rho"].removesuffix("mm"))
+    assert c["r_edge"] * (jv(1, 1.84118 * rho / c["ae"]) / jv(1, 1.84118)) ** 2 == pytest.approx(50, rel=1e-3)
+    board, copper = ST.base.top_view(d3, p)
+    assert board and len(copper) == 1 and len(copper[0]) == 72
+
+
+def test_cp_patch_cuts_two_corners():
+    from hertzon.model.structures.antennas import square_patch
+    p, r = _made("cppatch")
+    (d3,) = r.designs
+    op = d3.optimetrics[0]
+    assert [v["name"] for v in op.variables if v["include"]] == ["L", "c", "xf"]
+    assert [g["calc"] for g in op.goals] == ["dB(S(1,1))", "dB(AxialRatioAtMax)"]
+    s = square_patch(2.45, ST.Substrate())
+    L, c = (float(d3.variables[k].removesuffix("mm")) for k in ("L", "c"))
+    assert c * c / (L * L) == pytest.approx(1 / (2 * s["q"]), rel=1e-3)
+    board, copper = ST.base.top_view(d3, p)
+    (poly,) = copper
+    area = 0.5 * sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1]))
+    assert area == pytest.approx(L * L - c * c, rel=1e-6)     # counter-clockwise, two triangles cut
+
+
 @pytest.mark.parametrize("key,var", [("dipole", "Larm"), ("monopole", "L")])
 def test_wire_antennas_are_3d_designs_with_a_tuning(key, var):
     from hertzon.model.structures.antennas import resonant_fraction

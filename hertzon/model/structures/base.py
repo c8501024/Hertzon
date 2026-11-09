@@ -289,20 +289,32 @@ def substrate_part(sub: Substrate, x: int = -100, y: int = -200):
 
 
 def top_view(design: Design, project: Project | None = None) -> tuple[list, list]:
-    """Top view of a planar 3D design (mm) for the wizard preview: (board outline, copper rectangles), from the
-    rectangles in the xy plane (the traces of a layout); the ground plane is the board."""
+    """Top view of a planar 3D design (mm) for the wizard preview: (board outline, copper polygons), from the
+    rectangles, circles and covered polylines in the xy plane (the traces of a layout, patches); the ground plane is
+    the board."""
     ev = design.evaluator(project)
     board, copper = [], []
     for o in design.objects:
-        if not o.history or o.history[0].kind != "CreateRectangle" or o.history[0].props.get("Axis") != "Z":
+        if not o.history:
             continue
-        p = o.history[0].props
+        h = o.history[0]
+        p = h.props
         try:
-            x, y, _ = ev.point(p["Position"])
-            dx, dy = ev.length(p["XSize"]), ev.length(p["YSize"])
-        except Exception:  # noqa: BLE001
+            if h.kind == "CreateRectangle" and p.get("Axis") == "Z":
+                x, y, _ = ev.point(p["Position"])
+                dx, dy = ev.length(p["XSize"]), ev.length(p["YSize"])
+                pts = ((x, y), (x + dx, y), (x + dx, y + dy), (x, y + dy))
+            elif h.kind == "CreateCircle" and p.get("Axis") == "Z":
+                x, y, _ = ev.point(p["CenterPosition"])
+                r = ev.length(p["Radius"])
+                pts = [(x + r * math.cos(t), y + r * math.sin(t)) for t in (2 * math.pi * i / 72 for i in range(72))]
+            elif h.kind == "CreatePolyline" and str(p.get("Covered")) == "True":
+                pts = [ev.point(q)[:2] for q in str(p["Points"]).split(";")]
+            else:
+                continue
+        except Exception:  # noqa: BLE001, S112  (an expression the preview cannot evaluate: left out)
             continue
-        rect = [(1e3 * a, 1e3 * b) for a, b in ((x, y), (x + dx, y), (x + dx, y + dy), (x, y + dy))]
+        rect = [(1e3 * a, 1e3 * b) for a, b in pts]
         if o.name.startswith("Ground"):
             board = rect
         else:

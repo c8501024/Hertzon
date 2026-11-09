@@ -14,13 +14,16 @@ the GitHub release notes.
   **coupled-line coupler**, the **Wilkinson divider**, the **T-junction divider** (equal or unequal), **stub matching** of a complex load, the **stepped-impedance
   lowpass** (Chebyshev), the **shorted-stub bandpass** (wideband, quarter-wave stubs with vias), the
   **edge-coupled bandpass** (parallel coupled half-wave resonators), the **open-stub bandstop** and the first
-  antennas, the **dipole**, the **monopole** and the printed **inverted-F antenna** (a 3D design tuned on its
-  adaptive solution, no circuit).
+  antennas, the **dipole**, the **monopole**, the printed **inverted-F antenna**, the probe-fed **circular patch**
+  and the **circularly polarized patch** with truncated corners (a 3D design tuned on its adaptive solution, no
+  circuit).
   The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
   `list_structures`, `create_structure`. See [Design Wizard](docs/WIZARD.md).
 
 
 ### Changed
+- A mesh with flat (zero-volume) tetrahedra is meshed again with another seed of the mesher: such slivers made
+  the solution void and stopped the analysis with "NaN detected in the a-posteriori error estimate".
 - Circuit: a free end of a coupled microstrip line (a pin on no other part) now carries the open end capacitance,
   as its layout does; coupled-line filters agree with the 3D design within about 1 %.
 ## 0.3.10 (2026-11-08)

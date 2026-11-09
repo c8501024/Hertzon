@@ -41,6 +41,8 @@ the next structure.
 | Dipole | f, wire radius, port impedance, return loss | arm length `Larm` | S11 at the frequency |
 | Monopole | f, wire radius, ground plane side, port impedance, return loss | wire length `L` | S11 at the frequency |
 | Inverted-F (IFA) | f, board width, ground length, arm height, trace width, port impedance, return loss | radiating arm `L`, feed position `s` | S11 at the frequency |
+| Circular patch | f, port impedance, return loss | radius `a`, probe distance `rho` | S11 at the frequency |
+| Circularly polarized patch | f, port impedance, return loss, axial ratio | side `L`, corner cut `c`, probe distance `xf` | S11 and the axial ratio at the frequency |
 | Quarter-wave transformer | f0, port and load impedance, 1 to 4 sections, bandwidth, return loss | width `W1..WN` and length `L1..LN` of each section | S11 in the band |
 | Wilkinson divider | f0, port impedance, bandwidth, return loss, isolation, split tolerance | arm width `Wa` and run `Lb` | S11, S22, S33 and S32 (isolation), S21 and S31 within the tolerance |
 | T-junction divider | f0, power ratio P3/P2, port impedance, bandwidth, return loss, split tolerance | quarter-wave transformers `Wt2`, `Lt2`, `Wt3`, `Lt3` | S11, S21 and S31 within the tolerance of the split |
@@ -97,6 +99,16 @@ fed by a lumped port across a gap at the ground edge. L + H starts at a quarter 
 permittivity of 1 + 0.15 (εr − 1) (the field runs mostly in air); s sets the input resistance. The ground length
 is part of the antenna and a specification, not a variable.
 
+The two patches stand on the wizard's substrate and are fed by a probe: a lumped port on a vertical sheet through
+the substrate, 1 mm wide, from the ground to the patch. The circular patch works in the TM11 mode of the cavity
+model: its radius comes from the resonance of the effective radius (with the fringing field), the input
+resistance at the edge from the conductance of radiation, copper and dielectric, and the probe sits where
+R_edge·J1²(kρ)/J1²(ka) is the port impedance. The circularly polarized patch is a square (W = L, transmission line
+model) with two corners on one diagonal cut off: the cut area over the patch area is 1/(2Q), with Q from the
+radiation (the bandwidth formula of Jackson and Alexopoulos), the dielectric and the copper; the two orthogonal
+modes then split around the frequency and are 90° apart there. Its optimization has a second goal on the axial
+ratio in the direction of the maximum (`dB(AxialRatioAtMax)`).
+
 The quarter-wave transformer is binomial (maximally flat): ln(Z[k+1]/Z[k]) = 2^−N C(N,k) ln(ZL/Z0); port 2 has
 the load impedance. The branchline coupler has series arms Z0·√(1−k²) and shunt arms Z_series/k with
 k = 10^(−C/20); port 1 is the input, 2 through, 3 coupled, 4 isolated. The line lengths are a quarter guided
@@ -110,5 +122,5 @@ optimization="MultiFidelity1")` and `apply_optimization`.
 
 ## What comes next
 
-The plan follows the order of the cards: the circular and the circularly polarized patch, then the
-rat-race (after a curved line part) and the others.
+The plan follows the order of the cards: the rat-race (after a curved line part), the hairpin and interdigital
+filters and the others.
