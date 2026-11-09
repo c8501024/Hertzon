@@ -434,27 +434,29 @@ class CPPatch(_Patch):
         s = square_patch(spec["f0"], sub)
         L, q, z0 = s["L"], s["q"], spec["z0"]
         c = L / math.sqrt(2 * q)
-        # both modes take the probe: at the frequency each is 45 degrees off resonance and the two halves of
-        # the admittance add up to about the single mode resistance
+        # the probe on the x axis drives the two diagonal modes with half the power each (cos^2 45 degrees); at the
+        # frequency they are 45 degrees off resonance on either side, R/2 (1 - j)/2 + R/2 (1 + j)/2 = R/2: the input
+        # resistance is half the one of the x-polarized patch at the same point, so the probe sits where that is 2 Z0
         warnings = []
-        if z0 >= s["r_edge"]:
+        if 2 * z0 >= s["r_edge"]:
             y0 = 0.0
-            warnings.append(f"The edge resistance {s['r_edge']:.0f} ohm is below the port impedance: probe at the "
-                            "edge")
+            warnings.append(f"The edge resistance {s['r_edge']:.0f} ohm is below twice the port impedance: probe at "
+                            "the edge")
         else:
-            y0 = L / math.pi * math.acos(math.sqrt(z0 / s["r_edge"]))
+            y0 = L / math.pi * math.acos(math.sqrt(2 * z0 / s["r_edge"]))
         xf = max(L / 2 - y0, PROBE)
         syn = Synthesis([
             Variable("L", L, "side of the square patch", lo=0.94 * L, hi=1.06 * L),
             Variable("c", c, f"cut of the two corners (legs of the triangles), area ratio 1/(2 Q), Q = {q:.0f}",
                      lo=0.5 * c, hi=min(1.8 * c, 0.3 * L)),
-            Variable("xf", xf, "probe distance from the centre on the x axis", lo=max(PROBE, 0.5 * xf),
-                     hi=min(0.45 * L, 1.6 * xf)),
+            Variable("xf", xf, "probe distance from the centre on the x axis", lo=max(PROBE, 0.6 * xf),
+                     hi=min(0.47 * L, 1.4 * xf)),
             Variable("wp", PROBE, "probe width", include=False),
         ])
         syn.note = (f"Square patch {L:.2f} mm (W = L), total Q {q:.0f} with the losses: the corners on one diagonal "
                     f"are cut by {c:.2f} mm, so the two modes split by about 1/Q and are 90 degrees apart at the "
-                    f"frequency. Edge resistance {s['r_edge']:.0f} ohm, probe {xf:.2f} mm from the centre. The "
+                    f"frequency. Edge resistance {s['r_edge']:.0f} ohm; the probe drives both modes, so it sits where the "
+                    f"linear patch would have {2 * z0:g} ohm, {xf:.2f} mm from the centre. The "
                     "optimization tunes the side, the cut and the probe on return loss and axial ratio.")
         syn.warnings += warnings
         return syn

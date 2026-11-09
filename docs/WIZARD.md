@@ -107,7 +107,12 @@ R_edge·J1²(kρ)/J1²(ka) is the port impedance. The circularly polarized patch
 model) with two corners on one diagonal cut off: the cut area over the patch area is 1/(2Q), with Q from the
 radiation (the bandwidth formula of Jackson and Alexopoulos), the dielectric and the copper; the two orthogonal
 modes then split around the frequency and are 90° apart there. Its optimization has a second goal on the axial
-ratio in the direction of the maximum (`dB(AxialRatioAtMax)`).
+ratio in the direction of the maximum (`dB(AxialRatioAtMax)`). Its probe on the x axis drives both diagonal modes
+with half the power each; at the frequency they are 45° off resonance on either side and the input resistance is
+half the one of a linearly polarized patch at the same point, so the probe sits where that one would have 2 Z0.
+In 3D the start designs (RO4350B 0.508 mm, 2.45 GHz) come out close: the circular patch at −22 dB at 2.45 GHz, the
+CP patch matched at 2.444 GHz; its optimization met S11 ≤ −15 dB and an axial ratio ≤ 3 dB at 2.45 GHz after
+4 solves (about 4 minutes on 4 cores).
 
 The quarter-wave transformer is binomial (maximally flat): ln(Z[k+1]/Z[k]) = 2^−N C(N,k) ln(ZL/Z0); port 2 has
 the load impedance. The branchline coupler has series arms Z0·√(1−k²) and shunt arms Z_series/k with
