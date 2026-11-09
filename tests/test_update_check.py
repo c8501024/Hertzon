@@ -181,6 +181,8 @@ class _FakeProc:
         _FakeProc.calls.append(self)
 
     def wait(self, timeout=None):
+        # the installer waits for Hertzon: Hertzon must never wait for it without a short limit (deadlock)
+        assert timeout is not None and 0 < timeout <= 5
         if self.alive:
             raise U.subprocess.TimeoutExpired(self.args, timeout)
         return 1
@@ -228,6 +230,14 @@ def test_installer_started_directly_without_powershell(monkeypatch, tmp_path):
     assert p.kw["close_fds"] and "stdin" not in p.kw and "stdout" not in p.kw    # no handles of Hertzon
     log = (inst.parent / "update.log").read_text(encoding="utf-8")
     assert "starting Hertzon-Setup-9.9.9.exe /WAITPID=77" in log and "running as process 4242" in log
+
+
+def test_installer_waits_for_this_process_by_default(monkeypatch, tmp_path):
+    # Hertzon.exe runs Python in its own process: without `pid` the installer waits for the running Hertzon
+    _windows(monkeypatch)
+    inst = _installer(tmp_path)
+    assert U.start_installer_after_exit(inst) == "process"
+    assert _FakeProc.calls[0].args[1] == f"/WAITPID={U.os.getpid()}"
 
 
 def test_breakaway_refused(monkeypatch, tmp_path):
