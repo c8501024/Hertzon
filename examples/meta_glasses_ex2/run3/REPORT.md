@@ -98,4 +98,4 @@ Hertzon 0.3.11 (lumped-port voltage fix, MCP diagnostics), first-order elements,
 
 ## Effort
 
-About 65 minutes wall time for the design, including 4 minutes waiting for the Hertzon update, 13 full-wave solves with 46 minutes of solver time, plus one reference-solver run of 5 minutes. The agent wrote about 73k output tokens up to the final design. See `Timing_Log.md`.
+About 67 minutes wall time from the prompt to the final design, including 4 minutes waiting for the Hertzon update, 13 full-wave solves with 46 minutes of solver time, plus one reference-solver run of 5 minutes. The agent wrote about 74k output tokens up to the final design. See `Timing_Log.md`.
