@@ -6,6 +6,12 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Hairpin diplexer and triplexer**: Tools › Filter Design › Hairpin Diplexer (and MCP
+  `create_hairpin_diplexer`) builds hairpin filters for two or three channel specifications: the 3D design, the
+  same diplexer as a circuit and the space mapping optimization *DiplexerSM* on all channel masks and the
+  isolation of every pair of ports. Junctions: a T-junction (the lines start where each filter looks open in the
+  band of the other channel), a common resonator shared by both filters (about half the board), or for three
+  channels a star junction with the third filter turned downwards.
 - **MCP: port and power-balance checks in the result hints.** The efficiency split reports the power balance
   (Prad + Ploss − Pacc) and warns above 10 % of the incident power; the convergence block warns when Delta S rises
   again instead of settling (as with the lumped-port voltage samples fixed in 0.3.11). The server instructions

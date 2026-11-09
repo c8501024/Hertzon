@@ -44,7 +44,8 @@ iterate by hand, and the fewer tokens and the smaller the models it needs:
 
 - **Solving**: 3D full-wave FEM with adaptive meshing, fast and interpolating sweeps, solving on remote and
   cloud machines.
-- **Design assistants**: the patch antenna and hairpin filter assistants turn a specification into a model.
+- **Design assistants**: the patch antenna, hairpin filter and hairpin diplexer assistants turn a specification
+  into a model.
 - **Optimizers**: three optimizers for design variables, among them a derivative trust region on the
   adaptive mesh, so the AI states the goal and Hertzon does the iterations in one call.
 - **Derivative tuning**: sensitivities from mesh morphing tell how S-parameters change with each variable

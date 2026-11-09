@@ -1,7 +1,7 @@
 """MCP tools for the design assistants, the optimizers, derivative tuning and circuit designs.
 
-- create_patch_antenna / create_hairpin_filter: the designs of Tools > Antenna Design and Tools > Filter Design,
-  with setup, sweep and optimization, as a new design of the project
+- create_patch_antenna / create_hairpin_filter / create_hairpin_diplexer: the designs of Tools > Antenna Design
+  and Tools > Filter Design, with setup, sweep and optimization, as a new design of the project
 - apply_optimization: the best (or a chosen) evaluation of an optimization into the design variables, its
   solution taken over as the setup's solution (as 'Apply to Design')
 - compute_tuning / get_tuning: the derivative tuning model of a solved setup and the S-parameters at other
@@ -161,6 +161,73 @@ def t_create_hairpin_filter(args):
                     "Fastest: HairpinSM (space mapping: the circuit model is optimized in seconds, then a few 3D "
                     "solves correct it). Near the goal, the Derivative Trust Region on 3 to 4 variables needs far "
                     "fewer solves than the conjugate gradient on all six"}
+
+
+def t_create_hairpin_diplexer(args):
+    from ..model.diplexer import ChannelSpec, DiplexerSpec, circuit_name, diplexer_circuit, diplexer_design
+    ctx = load(args, design_required=False)
+    mat, er, tand = _substrate(ctx, args.get("material"), DiplexerSpec.material)
+    chans = []
+    for key in ("channel_a", "channel_b", "channel_c"):
+        c = args.get(key) or {}
+        if key == "channel_c" and not c:
+            continue
+        if "passband_ghz" not in c:
+            raise ToolError(f"{key}: give passband_ghz [start, stop]")
+        chans.append(ChannelSpec(n=int(c.get("resonators", 3)), passband=_pair(c["passband_ghz"], "passband_ghz"),
+                                 insertion_loss=float(c.get("insertion_loss_db", 2.0)),
+                                 return_loss=float(c.get("return_loss_db", 12.0)),
+                                 ripple=float(c.get("ripple_db", 1.0)), rejection=float(c.get("rejection_db", 15.0))))
+    junction = args.get("junction", "tee")
+    if junction not in ("tee", "resonator"):
+        raise ToolError("junction must be 'tee' or 'resonator'")
+    kw = dict(channels=chans, isolation=float(args.get("isolation_db", 25.0)), material=mat, er=er, tand=tand,
+              optimization=bool(args.get("optimization", True)), name=args.get("name") or "", junction=junction)
+    for key, attr in (("height_mm", "h"), ("copper_um", "t"), ("resonator_impedance", "z_res"),
+                      ("feed_impedance", "z_feed"), ("inner_width_mm", "inner"), ("feed_mm", "feed"),
+                      ("margin_mm", "margin"), ("min_feature_mm", "min_feature")):
+        if args.get(key) is not None:
+            kw[attr] = float(args[key])
+    if args.get("gap_mm") is not None:
+        kw["gap"] = _pair(args["gap_mm"], "gap_mm")
+    if args.get("sweep_ghz") is not None:
+        sw = [float(x) for x in args["sweep_ghz"]]
+        if len(sw) != 3 or not sw[1] > sw[0] or sw[2] <= 0:
+            raise ToolError("sweep_ghz: [start, stop, step] with start < stop")
+        kw["sweep"] = tuple(sw)
+    try:
+        spec = DiplexerSpec(**kw)
+        d, nom = diplexer_design(spec)
+    except ValueError as e:
+        raise ToolError(str(e)) from None
+    circ = None
+    if spec.optimization:
+        # the diplexer as a circuit, the coarse model of DiplexerSM; added first, so that the 3D design is shown
+        taken = {x.name for x in ctx.proj.designs}
+        base, i = d.name, 1
+        while d.name in taken:
+            i += 1
+            d.name = f"{base}_{i}"
+        circ = diplexer_circuit(spec, circuit_name(d.name))
+        k, stem = 1, circ.name
+        while circ.name in taken:
+            k += 1
+            circ.name = f"{stem}_{k}"
+        for o in d.optimetrics:
+            if o.props.get("CoarseModel"):
+                o.props["CoarseModel"] = circ.name
+        ctx.proj.designs.append(circ)
+    errors = _new_design_ctx(ctx, d, f"hairpin {'triplexer' if len(chans) == 3 else 'diplexer'} {d.name}")
+    return {"design": d.name, **({"circuit_model": circ.name} if circ else {}), "variables": d.variables,
+            "sweep_ghz": spec.sweep, **({"junction_lines_mm": nom["j"]} if "j" in nom else {}),
+            "ranges_mm": nom["ranges"],
+            "warnings": [w for n in nom["channels"] for w in n["warnings"]],
+            **({"geometry_errors": errors} if errors else {}),
+            "optimizations": [{"name": o.name, "optimizer": o.props.get("Optimizer", "Conjugate Gradient"),
+                               "variables": [v["name"] for v in o.variables if v.get("include")],
+                               "goals": len(o.goals)} for o in d.optimetrics],
+            "next": "run_simulation for the start design; run_simulation(optimization='DiplexerSM') (space mapping: "
+                    "the circuit is optimized first, then a few 3D solves correct it) and apply_optimization"}
 
 
 # ------------------------------------------------------------------------------------------------
@@ -850,6 +917,27 @@ TOOLS = [
                                                        "description": "[start, stop, step]; default from the passband"},
                   "design_frequency_ghz": NUM, "optimization": {"type": "boolean"}, "name": {"type": "string"}},
                  ["passband_ghz"]), t_create_hairpin_filter),
+    Tool("create_hairpin_diplexer", "Tools > Filter Design > Hairpin Diplexer: two tapped hairpin filters on a "
+         "T-junction (or a common resonator) as a new parametrized design, or with channel_c a triplexer on a star "
+         "junction (common Port 1; channel A to Port 2, B to Port 3, C to Port 4; variables L_A, g_A, yP_A, j_A ... "
+         "per channel), with the same design as a circuit and the space mapping optimization 'DiplexerSM' on the "
+         "channel masks and the isolation.",
+         _schema({"channel_a": {"type": "object", "description": "passband_ghz [start, stop] (required), resonators, "
+                                "insertion_loss_db, return_loss_db, ripple_db, rejection_db"},
+                  "channel_b": {"type": "object", "description": "as channel_a"},
+                  "channel_c": {"type": "object", "description": "as channel_a; makes a triplexer (star junction, "
+                                                                 "channel C to Port 4)"},
+                  "isolation_db": NUM,
+                  "junction": {"type": "string", "enum": ["tee", "resonator"],
+                               "description": "tee (default): T-junction and lines; resonator: a common hairpin "
+                                              "between the channels, tapped by Port 1 (smaller)"},
+                  "material": {"type": "string", "description": "substrate (default Rogers RO4350B (tm))"},
+                  "height_mm": NUM, "copper_um": NUM, "resonator_impedance": NUM, "feed_impedance": NUM,
+                  "inner_width_mm": NUM, "gap_mm": RANGE, "feed_mm": NUM, "margin_mm": NUM, "min_feature_mm": NUM,
+                  "sweep_ghz": {"type": "array", "items": NUM,
+                                "description": "[start, stop, step]; default from the passbands"},
+                  "optimization": {"type": "boolean"}, "name": {"type": "string"}},
+                 ["channel_a", "channel_b"]), t_create_hairpin_diplexer),
     Tool("list_structures", "Tools > Design Wizard: the catalogue of structures (couplers, dividers, matching "
          "networks, filters, antennas) with their status, and for the available ones the fields of the "
          "specification.", _schema({}), t_list_structures),

@@ -668,3 +668,55 @@ def hairpin_circuit(spec: HairpinSpec, name: str = "") -> Design:
         op.goals = [dict(g) for g in d3.optimetrics[0].goals]
         d.optimetrics.append(op)
     return d
+
+
+def hairpin_parts(place, sub: dict, n: int, var, pfx: str, taps) -> None:
+    """The parts of a row of n tapped hairpins (as in hairpin_circuit) placed with place(type, name, props, nets).
+    var maps the variable names of a single filter (si, sx, w, b, dep, wf, yt and the gaps) to those of the
+    design; pfx goes in front of every part and net name (several rows in one circuit). taps: (hairpin, side
+    'L'/'R', tag, feed) for the two tapped arms; feed(tag, net) connects the tap's feed net."""
+    gn = [var(x) for x in gap_names(n)]
+    w, wf, b, dep = var("w"), var("wf"), var("b"), var("dep")
+
+    def arm(i):
+        return var("sx") if i in (0, n - 1) else var("si")
+    # the open end of hairpin i is at the top (+y) for even i, at the bottom for odd i (flipped)
+    for i in range(n - 1):
+        a, bb = arm(i), arm(i + 1)
+        lc = f"min({a},{bb})"
+        # line 1: right arm of hairpin i, line 2: left arm of hairpin i+1; pins 1/3 at the top, 2/4 at the bottom
+        place("MCLIN", f"{pfx}C{i + 1}", {**sub, "W": w, "S": gn[i], "L": lc},
+              [f"{pfx}H{i}R_t", f"{pfx}H{i}R_b", f"{pfx}H{i + 1}L_t", f"{pfx}H{i + 1}L_b"])
+        for j, side, other in ((i, "R", bb), (i + 1, "L", a)):
+            # the longer arm reaches beyond the coupled part by half the difference at both ends
+            ext = f"max({_MIN_LINE}, ({arm(j)}-{other})/2)"
+            top_open = j % 2 == 0
+            for end in ("t", "b"):
+                is_open = (end == "t") == top_open
+                if is_open:
+                    place("MLOC", f"{pfx}E{j}{side}{end}", {**sub, "W": w, "L": ext}, [f"{pfx}H{j}{side}_{end}"])
+                else:
+                    place("MLIN", f"{pfx}E{j}{side}{end}", {**sub, "W": w, "L": ext},
+                          [f"{pfx}H{j}{side}_{end}", f"{pfx}H{j}{side}_bend"])
+    # the tapped arms of the outer hairpins and the feeds
+    yt = var("yt")
+    for i, side, tag, feed in taps:
+        top_open = i % 2 == 0
+        # tap height from the open end (yt is measured from the arm centre, +y up; a flipped hairpin is mirrored)
+        y_tap = yt if top_open else f"(-{yt})"
+        place("MLOC", f"{pfx}A{i}{side}o", {**sub, "W": w, "L": f"max({_MIN_LINE}, {arm(i)}/2-{y_tap}-{wf}/2)"},
+              [f"{pfx}T{tag}_open"])
+        place("MLIN", f"{pfx}A{i}{side}b", {**sub, "W": w, "L": f"max({_MIN_LINE}, {arm(i)}/2+{y_tap}-{wf}/2)"},
+              [f"{pfx}T{tag}_bend", f"{pfx}H{i}{side}_bend"])
+        place("MTEE", f"{pfx}T{tag}", {**sub, "W1": w, "W2": w, "W3": wf},
+              [f"{pfx}T{tag}_open", f"{pfx}T{tag}_bend", f"{pfx}T{tag}_feed"])
+        feed(tag, f"{pfx}T{tag}_feed")
+    # the bends: arm end - line of the corner depth - mitered bend - line b - mitered bend - line - arm end
+    for i in range(n):
+        place("MLIN", f"{pfx}V{i}L", {**sub, "W": w, "L": f"max({_MIN_LINE}, {dep}-{w})"},
+              [f"{pfx}H{i}L_bend", f"{pfx}B{i}_l"])
+        place("MMBEND", f"{pfx}M{i}L", {**sub, "W": w}, [f"{pfx}B{i}_l", f"{pfx}B{i}_lh"])
+        place("MLIN", f"{pfx}U{i}", {**sub, "W": w, "L": b}, [f"{pfx}B{i}_lh", f"{pfx}B{i}_rh"])
+        place("MMBEND", f"{pfx}M{i}R", {**sub, "W": w}, [f"{pfx}B{i}_rh", f"{pfx}B{i}_r"])
+        place("MLIN", f"{pfx}V{i}R", {**sub, "W": w, "L": f"max({_MIN_LINE}, {dep}-{w})"},
+              [f"{pfx}B{i}_r", f"{pfx}H{i}R_bend"])
