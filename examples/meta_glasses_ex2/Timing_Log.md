@@ -1,5 +1,13 @@
 # Example 2 rerun (Run 2): timing log
 
+> **This run (Run 2) is faulty and superseded by [Run 3](run3/README.md).** It was made with Hertzon versions that had MCP bugs and
+> weak points, since found and fixed. Lumped ports could jump between adaptive passes, so S11 and accepted power were wrong at badly
+> matched frequencies (#336; 6.55 GHz: 43 % accepted against 24 % in the reference solver). The MCP interface offered no split into
+> mismatch and radiation efficiency, no Q and no convergence warning, so the agent called the 6.2–6.85 GHz dip a mismatch, which was
+> wrong (#333). Displayed loss power and radiation efficiency were far too large or too small (fixed, see the changelog), and meshing and
+> MCP hangs cost hours (#298, #291). Radiated power and total efficiency of this run agree with the reference solver;
+> the design decisions built on the other values do not hold. The text below is kept as a record.
+
 All times UTC, 8 November 2026. Hertzon 0.3.5 with the MCP hang fix (PR #291), one 64-core workstation. No model, geometry or results from Run 1 were reused.
 
 ## Steps

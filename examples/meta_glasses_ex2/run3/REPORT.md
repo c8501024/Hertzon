@@ -17,6 +17,19 @@ Run 1 and Run 2 values are from their own reports and used older Hertzon version
 
 ![Total efficiency of Run 3 in Hertzon and the reference solver, with the Run 2 dip for reference](results/Ex2_Run3_hertzon_vs_reference.png)
 
+## Why this run replaces Run 2
+
+Run 2 is kept in the parent folder but is marked as faulty. It was made with Hertzon versions that had MCP bugs and weak points, all found through this benchmark and fixed before this run:
+
+| Problem in the earlier run | Effect | Fix |
+| --- | --- | --- |
+| Lumped-port voltage counted samples outside the port tetrahedra as zero field | S11 jumped between adaptive passes; accepted power too high at mismatch (6.55 GHz: 43 % against 24 %) | #336 |
+| MCP gave no efficiency split, Q, resonances or convergence warning | The agent called the 6.2–6.85 GHz dip a mismatch. The cause is still being investigated; the working hypothesis is a missing radiating mode, and matching did not recover it | #333 |
+| Loss power of copper solids counted wrongly | Displayed power balance and radiation efficiency unusable | changelog, loss power fix |
+| `facematch` crash and MCP calls without an answer | Hours lost, no effect on results | #298, #291 |
+
+Radiated power and total efficiency of Run 2 agree with the reference solver, so its curves are correct; its diagnosis and the design decisions based on it were not. This run used the fixed version from the first solve, and the efficiency split decided every design step below.
+
 ## Band by band
 
 Total efficiency is Prad / Pinc with 1 W incident in both solvers. Hertzon radiation efficiency is Prad / Pacc from the 0.3.11 efficiency split.
@@ -81,4 +94,4 @@ Hertzon 0.3.11 (lumped-port voltage fix, MCP diagnostics), first-order elements,
 
 ## Effort
 
-About 63 minutes wall time for the design, including 4 minutes waiting for the Hertzon update, 13 full-wave solves with 46 minutes of solver time, plus one reference-solver run of 5 minutes. Context use at the end was about 331k tokens, most of it tool output. See `Timing_Log.md`.
+About 65 minutes wall time for the design, including 4 minutes waiting for the Hertzon update, 13 full-wave solves with 46 minutes of solver time, plus one reference-solver run of 5 minutes. The agent wrote about 73k output tokens up to the final design. See `Timing_Log.md`.

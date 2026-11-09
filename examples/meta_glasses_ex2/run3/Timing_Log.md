@@ -2,7 +2,7 @@
 
 All times UTC, 9 November 2026. Hertzon 0.3.11 with the lumped-port fix (#336) and MCP diagnostics (#333), one workstation. No antenna geometry or results from Run 1 or Run 2 were reused. The fixed benchmark environment (FPC, PCB, chassis, feed parts) was rebuilt from Meta's STEP data with the same simplifications as Run 2, because those were needed for meshing.
 
-Tokens: only the total was measured (about 331k context tokens at the end of the run, most of them tool output); per-step tokens were not recorded.
+Tokens: about 73k output tokens of the agent from the first prompt to the final design (from the session log; 37k of them before the first solve). Per-step tokens were not recorded.
 
 ## Steps
 
@@ -18,6 +18,6 @@ Tokens: only the total was measured (about 331k context tokens at the end of the
 | A13: 0.1 mm clearance, final Hertzon run | 07:57 | 08:02 | 5 min | 1 | 2 min | 71.0 % / 62.3 %, converged at 33.6k tets. |
 | Reference-solver check on Meta's STEP | 08:03 | 08:08 | 5 min | 1 (reference) | 5 min | 70.7 % / 66.5 %. |
 | Report and files | 08:08 | 08:10 | 2 min | 0 | | |
-| **Total design (06:57–08:02)** | | | **about 63 min** | **13 Hertzon + 1 reference** | **46 min Hertzon** | |
+| **Total design (06:57–08:02)** | | | **about 65 min** | **13 Hertzon + 1 reference** | **46 min Hertzon** | |
 
 Intermediate times are from the solver status and the log marks at A8 (07:38) and A13 (08:00); per-step boundaries are approximate to about 1 minute.

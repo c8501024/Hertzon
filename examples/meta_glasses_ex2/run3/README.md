@@ -2,7 +2,7 @@
 
 A third, independent solution of Example 2, found by Claude in Claude Code driving Hertzon only through its MCP
 interface. The goal of this run: an antenna with no part of the high band where nothing radiates, which Run 2 (one folder up)
-still had around 6.5 GHz. The antenna was designed from scratch; the fixed benchmark environment comes from Meta's STEP.
+still had around 6.5 GHz. **Run 2 is faulty** because of MCP bugs and weak points that were found and fixed since; see [REPORT.md](REPORT.md#why-this-run-replaces-run-2). The antenna was designed from scratch; the fixed benchmark environment comes from Meta's STEP.
 
 **Full report:** [REPORT.md](REPORT.md) (result, band table, design path, setup, limits). Timing: [Timing_Log.md](Timing_Log.md).
 
@@ -16,8 +16,8 @@ still had around 6.5 GHz. The antenna was designed from scratch; the fixed bench
 | 5170–7125 MHz | 37–86 %, average 62.3 % | 44–89 %, average 66.5 % |
 | Equal weight | 66.6 % | 68.6 % |
 
-At 6.55 GHz the reference solver gives 64.8 % instead of the 15.8 % of Run 2. Effort: about 1.1 h for the design, 13 Hertzon solves
-(46 min solver time), and one run of the reference solver (5 min). The band edges at 5.17 and 7.125 GHz are still limited by reflection.
+At 6.55 GHz the reference solver gives 64.8 % instead of the 15.8 % of Run 2. Effort: about 1 h 05 min for the design, 13 Hertzon solves
+(46 min solver time), 73k output tokens, and one run of the reference solver (5 min). The band edges at 5.17 and 7.125 GHz are still limited by reflection.
 
 ![Hertzon and the reference solver](results/Ex2_Run3_hertzon_vs_reference.png)
 
