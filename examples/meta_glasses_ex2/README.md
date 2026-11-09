@@ -6,6 +6,8 @@ Meta Reality Labs published two antenna design benchmarks based on AI-glasses te
 Example 2, found by a general-purpose LLM agent (Claude in Claude Code) that drove Hertzon only
 through its MCP interface, and cross-checked with a commercial FEM reference solver.
 
+**Newer run:** [run3/](run3/README.md) is an independent design without the high-band dip (68.6 % equal-weighted in the reference solver).
+
 **Full report:** [REPORT.md](REPORT.md) (setup, design path, reference comparison, timing and token usage).
 
 ![Layout of the final antenna on the FPC](results/Ex2_final_layout.png)
