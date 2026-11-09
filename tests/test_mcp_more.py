@@ -41,7 +41,7 @@ def error(srv, _tool, **args) -> str:
 
 def test_new_tools_are_listed(server):
     names = {t["name"] for t in server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]}
-    assert {"create_patch_antenna", "create_hairpin_filter", "apply_optimization", "compute_tuning", "get_tuning",
+    assert {"create_patch_antenna", "create_hairpin_filter", "create_hairpin_diplexer", "apply_optimization", "compute_tuning", "get_tuning",
             "create_circuit", "get_circuit", "edit_circuit", "circuit_layout", "import_3d_designs"} <= names
 
 
@@ -67,6 +67,22 @@ def test_patch_and_hairpin_assistants_and_optimizers(server, tmp_path):
     assert "at most 6" in error(server, "set_optimization", design="Hairpin_N3", name="HairpinCG", variables=rows)
     assert "optimizer must be" in error(server, "set_optimization", design="Hairpin_N3", name="HairpinCG",
                                         optimizer="Simplex")
+
+
+def test_diplexer_assistant(server, tmp_path):
+    call(server, "create_project", path=str(tmp_path / "d.hzn"))
+    r = call(server, "create_hairpin_diplexer", channel_a={"passband_ghz": [2.25, 2.45]},
+             channel_b={"passband_ghz": [2.65, 2.85], "resonators": 5}, isolation_db=30)
+    assert r["design"] == "Diplexer_N3_N5" and r["circuit_model"] == "Diplexer_N3_N5_Circuit"
+    assert [o["name"] for o in r["optimizations"]] == ["DiplexerSM", "DiplexerCG"]
+    assert "g2_B" in r["optimizations"][0]["variables"] and "j_A" in r["optimizations"][0]["variables"]
+    s = call(server, "get_project", design="Diplexer_N3_N5")
+    assert {"Diplexer_N3_N5", "Diplexer_N3_N5_Circuit"} <= {d if isinstance(d, str) else d["name"] for d in s["designs"]}
+    t = call(server, "create_hairpin_diplexer", channel_a={"passband_ghz": [2.0, 2.15]},
+             channel_b={"passband_ghz": [2.6, 2.75]}, channel_c={"passband_ghz": [2.3, 2.45]})
+    assert t["design"] == "Triplexer_N3_N3_N3" and "j_C" in t["optimizations"][0]["variables"]
+    assert "overlap" in error(server, "create_hairpin_diplexer", channel_a={"passband_ghz": [2.3, 2.5]},
+                              channel_b={"passband_ghz": [2.4, 2.6]})
 
 
 def test_apply_optimization_and_tuning_state(server, tmp_path):

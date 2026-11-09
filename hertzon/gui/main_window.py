@@ -477,6 +477,7 @@ class MainWindow(QMainWindow):
         m.addAction("Design Wizard...", self.design_wizard)
         fd = m.addMenu("Filter Design")
         fd.addAction("Tapped Hairpin...", self.filter_hairpin)
+        fd.addAction("Hairpin Diplexer...", self.filter_diplexer)
         ad = m.addMenu("Antenna Design")
         ad.addAction("Rectangular Patch...", self.antenna_patch)
         m.addSeparator()
@@ -545,7 +546,8 @@ class MainWindow(QMainWindow):
         g.large("Design Wizard", "wizard", self.design_wizard,
                 tip="Couplers, dividers, matching networks, filters and antennas from a specification: circuit, 3D "
                     "design and a multi-fidelity optimization")
-        g.large("Filter Design", "filter", self.filter_hairpin, menu=[("Tapped Hairpin...", self.filter_hairpin)],
+        g.large("Filter Design", "filter", self.filter_hairpin, menu=[("Tapped Hairpin...", self.filter_hairpin),
+                                                                       ("Hairpin Diplexer...", self.filter_diplexer)],
                 tip="Tapped hairpin band-pass filter as a parametrized design with optimization")
         g.large("Antenna Design", "antenna", self.antenna_patch, menu=[("Rectangular Patch...", self.antenna_patch)],
                 tip="Inset-fed patch antenna as a parametrized design with optimization")
@@ -6154,6 +6156,11 @@ class MainWindow(QMainWindow):
         # Create and Optimize: the new design is the current one; its optimization goes into the solve queue
         if dlg.result() == QDialog.Accepted and dlg.design is not None and dlg.run_optimization:
             self.analyze_optimization(dlg.run_optimization)
+
+    def filter_diplexer(self) -> None:
+        """Tools > Filter Design > Hairpin Diplexer: two hairpin filters on a T-junction as a new design."""
+        from .filter_tool import DiplexerDialog
+        self._insert_generated(DiplexerDialog(self, self.doc.project), "hairpin diplexer")
 
     def design_wizard(self) -> None:
         """Tools > Design Wizard: a structure of the catalogue as a circuit, its 3D design and a multi-fidelity
