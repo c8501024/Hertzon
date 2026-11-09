@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.14 (2026-11-09)
 
 ### Fixed
 - **Antenna goals on a frequency sweep:** an optimization with goals on antenna parameters (e.g. total efficiency
