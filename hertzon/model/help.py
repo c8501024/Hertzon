@@ -85,7 +85,7 @@ HELP: dict[str, str] = {
     "Roughness": "Surface roughness (RMS); increases the loss above the skin-depth model.",
     "UseThickness": "Take the conductor thickness into account: the surface impedance grows once the "
                     "thickness gets comparable to the skin depth ('Use thickness').",
-    "TwoSided": "On (default, as in HFSS): a sheet inside the model carries current on both sides, each "
+    "TwoSided": "On (default): a sheet inside the model carries current on both sides, each "
                 "with the surface impedance, and both sides dissipate. Off: one surface impedance for the "
                 "total current of both sides, which overestimates the conductor loss up to 2x (a strip or "
                 "dipole in air). Faces on the outer boundary of the model are always one-sided.",

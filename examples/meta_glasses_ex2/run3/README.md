@@ -1,12 +1,12 @@
 # Meta AI-glasses benchmark, Example 2, Run 3: no band without a radiating mode
 
 A third, independent solution of Example 2, found by Claude in Claude Code driving Hertzon only through its MCP
-interface. The goal of this run: an antenna with no part of the high band where nothing radiates, which Run 2 (one folder up)
+interface. The goal of this run: an antenna with no part of the high band where nothing radiates, which [Run 2](../run2/README.md)
 still had around 6.5 GHz. **Run 2 is faulty** because of MCP bugs and weak points that were found and fixed since; see [REPORT.md](REPORT.md#why-this-run-replaces-run-2). The antenna was designed from scratch; the fixed benchmark environment comes from Meta's STEP.
 
 **Full report:** [REPORT.md](REPORT.md) (result, band table, design path, setup, limits). Timing: [Timing_Log.md](Timing_Log.md).
 
-![Layout of the final antenna on the FPC](results/Ex2_Run3_layout.png)
+![Layout of the final antenna on the FPC](results/Ex2_Run3_layout_mm.png)
 
 ## Result, no matching components
 
@@ -28,7 +28,7 @@ At 6.55 GHz the reference solver gives 64.8 % instead of the 15.8 % of Run 2. Ef
 | `Meta_Ex2_Run3.hzn` | Hertzon project of the final design A13 (Setup1: adaptive at 2.45 + 6.1 GHz, S11 and efficiency sweeps) |
 | `reference/Meta_Ex2_Run3_reference.py` | IronPython script for the reference solver on Meta's STEP (set `STP_FILE`; the STEP is not included here) |
 | `results/` | S11 of A13, reference efficiency and S11, iteration table, comparison table and plot, layout |
-| `tools/` | Iteration table and comparison plot |
+| `tools/` | Iteration table, comparison plots, layout plot, and `make_overview.py`, which writes the Example 2 overview from this report |
 
 ## Reproduce
 

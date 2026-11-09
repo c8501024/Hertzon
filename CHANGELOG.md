@@ -28,6 +28,9 @@ the GitHub release notes.
   converges instead of running out of passes.
 - A mesh that still has tetrahedra without volume (now rare, e.g. at the faces of the air box) is meshed again
   with other seeds, as before.
+- **Example 2 of the Meta benchmark:** examples/meta_glasses_ex2 now opens with the full report of Run 3 (with
+  S11 and a layout plot in mm). The faulty Run 2 moved to `run2/` and is summed up in a short note: it was made with
+  Hertzon versions that still had bugs in the solver and in the MCP interface.
 
 ## 0.3.12 (2026-11-09)
 
@@ -165,7 +168,7 @@ the GitHub release notes.
   worked ("Invalid expression '2.45GHz;6.1GHz'"). Both work now, and the Validation Check names a bad entry.
 - **Conductor loss of sheets, radiation efficiency and gain**: Finite Conductivity sheets were one-sided by
   default: one surface impedance carried the current of both sides of the sheet, about twice the conductor loss
-  of a strip in air. They are two-sided now by default (as HFSS treats a sheet inside the model), also without
+  of a strip in air. They are two-sided now by default (like a sheet inside the model in common FEM solvers), also without
   "Use thickness"; a face on the outer boundary stays one-sided. The loss power of a two-sided sheet counted one
   side only (half its loss), so the radiation efficiency, GainTotal and the power balance were too optimistic;
   both sides count now. Lossy strip dipole (2e4 S/m, 1 GHz): one-sided efficiency 86.0 %, two-sided 91.9 %, a
