@@ -1,8 +1,8 @@
 # Meta AI-glasses benchmark, Example 2, Run 3: no band without a radiating mode
 
-A third, independent solution of Example 2, found by Claude in Claude Code driving Hertzon only through its MCP
+A third solution of Example 2, found by Claude in Claude Code driving Hertzon only through its MCP
 interface. The goal of this run: an antenna with no part of the high band where nothing radiates, which [Run 2](../run2/README.md)
-still had around 6.5 GHz. **Run 2 is faulty** because of MCP bugs and weak points that were found and fixed since; see [REPORT.md](REPORT.md#why-this-run-replaces-run-2). The antenna was designed from scratch; the fixed benchmark environment comes from Meta's STEP.
+still had around 6.5 GHz. **Run 2 is faulty** because of MCP bugs and weak points that were found and fixed since; see [REPORT.md](REPORT.md#why-this-run-replaces-run-2). The antenna is new, but the run started with the tool fixes and with knowledge from the earlier runs; see [what it started from](REPORT.md#starting-point-of-this-run). The fixed benchmark environment is the Run 2 model of Meta's STEP.
 
 **Full report:** [REPORT.md](REPORT.md) (result, band table, design path, setup, limits). Timing: [Timing_Log.md](Timing_Log.md).
 

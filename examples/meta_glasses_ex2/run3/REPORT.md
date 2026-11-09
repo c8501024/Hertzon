@@ -13,7 +13,7 @@ The new antenna, without matching parts, reaches a mean total efficiency of **70
 | **Run 3** | **Reference** | **70.7 %** | **66.5 %** | **68.6 %** | **64.8 %** | **about 1.1 h** | **13** |
 | Run 3 | Hertzon 0.3.11 | 71.0 % | 62.3 % | 66.6 % | 57.7 % | | |
 
-Run 1 and Run 2 values are from their own reports and used older Hertzon versions; only the reference rows compare directly.
+Run 1 and Run 2 values are from their own reports and used older Hertzon versions; only the reference rows compare directly. The design times are not comparable, because Run 3 started with fixes and with knowledge from the earlier runs (see the starting point below).
 
 ![Total efficiency of Run 3 in Hertzon and the reference solver, with the Run 2 dip for reference](results/Ex2_Run3_hertzon_vs_reference.png)
 
@@ -33,6 +33,22 @@ Run 2 is kept in [run2](../run2/README.md) but is marked as faulty. It was made 
 | `facematch` crash and MCP calls without an answer | Hours lost, no effect on results | #298, #291 |
 
 Radiated power and total efficiency of Run 2 agree with the reference solver, so its curves are correct; its diagnosis and the design decisions based on it were not. This run used the fixed version from the first solve, and the efficiency split decided every design step below.
+
+## Starting point of this run
+
+Run 3 did not start from zero. The session log shows what the agent had when it began. The result still comes from new solves, but the 1 h 07 min design time is not a from-zero effort and does not compare directly with Run 1 and Run 2.
+
+**Fixes in the tool.** Hertzon 0.3.11 with the lumped-port fix (#336) and the MCP diagnostics (#333), plus the earlier fixes for MCP hangs (#291), the meshing crash (#298) and the loss power. The later MCP hints of #339 were not available; they were merged after this run.
+
+**The goal, stated in the prompt.** The task was to redo Example 2 so that no band stays without radiation. This follows from the benchmark goal of maximizing efficiency over the whole band, and it corrects Run 2, which saw the dip but took it for a mismatch because of the port bug and the missing diagnostics. The prompt said so openly: it named the dip near 6.5 GHz, gave the working hypothesis (no radiating resonance, current circulating on the long low-band arms, Q about 58), said that a Meta author had pointed out it is not a mismatch, and asked to check radiation efficiency and current distribution rather than S11 alone.
+
+**Knowledge from earlier runs, in the agent's context.**
+
+- Project memory: the results of Run 1 and Run 2, the optimized variables of Run 1, the Run 2 finding that a short to the right of the feed raised 2.4 GHz radiation efficiency from about 50 to 77 %, the dip analysis, and the meshing and MCP pitfalls.
+- Files read before the first solve: the Run 2 report with its design path and final geometry, the Run 1 timing log, and the complete Run 2 Hertzon project including its antenna.
+- Taken over from Run 2: the environment model (FPC, PCB and chassis coordinates, feed parts, port and integration line), the setup with its adaptive frequencies and efficiency points, the STEP parser, and the reference-solver script as a template. This is why no mesh debugging was needed.
+
+**What is new.** No earlier antenna was opened or modified, and its coordinates were not copied as a whole. The wide top bar, the wide feed-stem branch, the short at x = 11 mm and the right-hand stub are new. The topology still shares elements with Run 2: a top arm, a left leg and a lower arm for 2.4 GHz, a short to the right of the feed, a branch on the feed stem and a right-hand arm around the slot. Meta's reference design was not used; the supplied files contain no antenna trace.
 
 ## Band by band
 
@@ -82,7 +98,7 @@ One feed through Meta's feed pin, one ground pin r = 0.15 mm, copper on the top 
 
 ![Layout of A13 on the FPC in mm, with feed pin and ground pin](results/Ex2_Run3_layout_mm.png)
 
-No part of Meta's reference design or of the Run 1 and Run 2 antennas was reused. The environment (FPC, PCB, chassis, feed parts, port) is Meta's benchmark geometry, rebuilt from the STEP data with the same meshing simplifications as Run 2. The benchmark itself (chassis, PCB, FPC, goal and rules) is described in the [Example 2 overview](../README.md#benchmark-example-2).
+The antenna coordinates are new, and Meta's reference design was not used; the section on the starting point lists what the agent knew from the earlier runs. The environment (FPC, PCB, chassis, feed parts, port) is Meta's benchmark geometry, taken over from the Run 2 model, which was built from the STEP data. The benchmark itself (chassis, PCB, FPC, goal and rules) is described in the [Example 2 overview](../README.md#benchmark-example-2).
 
 ## Setup
 
