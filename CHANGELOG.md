@@ -16,6 +16,14 @@ the GitHub release notes.
   (lossless counter test), check convergence first, and call a cause confirmed only after a test that could have
   refuted it.
 
+### Fixed
+- **Lumped ports: S-parameters jumped from pass to pass and the accepted power was too high.** Samples of the
+  port voltage line that fell outside the tetrahedra next to the port counted as zero field, so the port voltage
+  dropped by their share (about 5 to 15 %) in some passes. The radiated power stayed right, the power balance got
+  worse and Delta S did not settle at high Q. Those samples are now looked up in the whole mesh. The voltage is
+  now integrated along the port's Integration Line; before, only its direction and length were used and the line
+  ran along the edge of the sheet.
+
 ## 0.3.10 (2026-11-08)
 
 ### Added
