@@ -6,6 +6,11 @@ the GitHub release notes.
 ## Unreleased
 
 ### Fixed
+- **Antenna goals on a frequency sweep:** an optimization with goals on antenna parameters (e.g. total efficiency
+  `RadiatedPower/IncidentPower`, `RadiationEfficiency`) over a discrete sweep with Save fields failed in every
+  evaluation ("antenna parameters need the fields of 'Sweep'"): the evaluation copy switched Save fields off in
+  all sweeps, the goal sweep included. The goal sweep now keeps its fields; they are removed after the cost is
+  known, except for the best evaluation. Before, antenna goals only worked on LastAdaptive.
 - **Wave ports below the cutoff of their mode:** an interpolating sweep across the cutoff frequency of a wave port
   mode is now fitted separately below and above it (S has a square-root branch point there that no rational fit
   follows; across the WR-90 cutoff the sweep was up to 3 dB off below it and +0.05 dB above unity just above it,
