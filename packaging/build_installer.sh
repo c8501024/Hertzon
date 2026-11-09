@@ -19,7 +19,7 @@ makensis -V2 -DVERSION="$VER" -DSTAGE="$PWD/$STAGE/win" -DOUT="$PWD/dist/Hertzon
 L="$STAGE/linux/Hertzon-$VER"
 stage "$L" hertzon examples docs/FEATURE_MATRIX.md docs/THIRD_PARTY.md pyproject.toml README.md LICENSE
 rm -f "$L/hertzon/mesher/_bin/hzmesh.dll"
-cp packaging/linux/install.sh packaging/linux/uninstall.sh "$L/"
-chmod +x "$L/install.sh" "$L/uninstall.sh"
+cp packaging/linux/install.sh packaging/linux/uninstall.sh packaging/linux/syscheck.sh "$L/"
+chmod +x "$L/install.sh" "$L/uninstall.sh" "$L/syscheck.sh"
 tar -C "$STAGE/linux" -czf "dist/Hertzon-$VER-linux.tar.gz" "Hertzon-$VER"
 ls -la dist
