@@ -113,6 +113,10 @@ Interpreting results (before you name a cause)
 - Check mesh convergence first. If the adaptive solve did not reach its Delta S target, S11 and the accepted
   power are uncertain, most of all near high-Q points and deep dips; refine (more passes, adaptive frequencies at
   the critical points) before drawing conclusions. A power balance far from 0 is a warning sign too.
+- The mismatch factor rests on the port: S11 and the accepted power come from the port voltage and current.
+  If Delta S jumps between passes instead of falling, S11 changes a lot from pass to pass, or Prad + Ploss does
+  not match Pacc, check the port model first (Integration Line across the port sheet, port size against the
+  mesh, nothing else touching it) before reading physics into the numbers.
 - State a cause as confirmed only after a test that could have refuted it; otherwise call it a hypothesis.
 
 Files and boards
@@ -2106,6 +2110,8 @@ def t_get_results(args):
         cn = _conv_note(d, setup, st)
         if cn and cn.get("warning"):
             out_["convergence_warning"] = cn["warning"]
+        if cn and cn.get("drift_warning"):
+            out_["drift_warning"] = cn["drift_warning"]
         return out_
     if kind == "impedance":
         from .diagnostics import port_impedance, resonances, band_hints, impedance_rows, DIAGNOSIS_GUIDE
@@ -2138,6 +2144,8 @@ def t_get_results(args):
         cn = _conv_note(d, setup, st)
         if cn and cn.get("warning"):
             out_["convergence_warning"] = cn["warning"]
+        if cn and cn.get("drift_warning"):
+            out_["drift_warning"] = cn["drift_warning"]
         return out_
     if kind == "efficiency":
         from .diagnostics import DIAGNOSIS_GUIDE
@@ -2163,6 +2171,8 @@ def t_get_results(args):
         cn = _conv_note(d, setup, st)
         if cn and cn.get("warning"):
             out_["convergence_warning"] = cn["warning"]
+        if cn and cn.get("drift_warning"):
+            out_["drift_warning"] = cn["drift_warning"]
         return out_
     if kind == "convergence":
         return _status(ctx, setup)
