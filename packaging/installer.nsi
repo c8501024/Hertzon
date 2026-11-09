@@ -5,6 +5,11 @@
 ; Python environment .venv is created next to Hertzon.exe and must stay writable), adds Hertzon to the
 ; start menu, the desktop and Settings > Apps, opens .hzn projects with Hertzon, and prepares the Python
 ; environment (setup.ps1) at the end of the installation.
+;
+; Help > Check for Updates > Install starts this installer with /WAITPID=<process id of Hertzon> and then
+; closes Hertzon: the installer waits without a window until that process has ended (at most 2 minutes),
+; so no file of the program or of .venv is still in use, and writes what it does to update.log next to
+; itself.
 
 Unicode true
 SetCompressor /SOLID lzma
@@ -12,9 +17,14 @@ RequestExecutionLevel user
 
 !include "MUI2.nsh"
 !include "x64.nsh"
+!include "FileFunc.nsh"
+!include "LogicLib.nsh"
 
 !define APP "Hertzon"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Hertzon"
+; PowerShell by its full path (with the 64-bit file system view, see below): by its bare name Windows looks
+; for it in PATH only, which can lack its folder (the in-app update failed with "[WinError 2]" that way)
+!define POWERSHELL "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
 
 Name "${APP}"
 OutFile "${OUT}"
@@ -32,6 +42,7 @@ VIAddVersionKey "LegalCopyright" "GPL-2.0-or-later"
 !define MUI_ICON "${STAGE}\hertzon\gui\hertzon.ico"
 !define MUI_UNICON "${STAGE}\hertzon\gui\hertzon.ico"
 !define MUI_ABORTWARNING
+!define MUI_CUSTOMFUNCTION_ABORT LogCancel
 !define MUI_FINISHPAGE_RUN "$INSTDIR\Hertzon.exe"
 
 !insertmacro MUI_PAGE_WELCOME
@@ -61,8 +72,100 @@ LangString EnvFailed ${LANG_ENGLISH} "The Python environment could not be set up
 LangString Running ${LANG_GERMAN} "Hertzon läuft noch. Bitte schließe Hertzon und klicke dann auf OK."
 LangString Running ${LANG_ENGLISH} "Hertzon is still running. Please close it, then click OK."
 
+Var WaitPid
+
+; one line "<date>T<time> installer <version>: <text>" in update.log next to the installer (the folder Hertzon
+; downloaded it to; Hertzon writes its own lines there), only for an update started from Hertzon
+Function UpdateLog
+    Exch $R9
+    ${If} $WaitPid != ""
+        Push $R0
+        Push $R1
+        Push $R2
+        Push $R3
+        Push $R4
+        Push $R5
+        Push $R6
+        Push $R7
+        Push $R8
+        ${GetTime} "" "L" $R0 $R1 $R2 $R3 $R4 $R5 $R6
+        ; Hertzon may be writing its own line at the same moment (the file is then in use): a few tries
+        StrCpy $R8 0
+        ${Do}
+            ClearErrors
+            FileOpen $R7 "$EXEDIR\update.log" a
+            ${IfNot} ${Errors}
+                FileSeek $R7 0 END
+                FileWrite $R7 "$R2-$R1-$R0T$R4:$R5:$R6 installer ${VERSION}: $R9$\r$\n"
+                FileClose $R7
+                ${Break}
+            ${EndIf}
+            IntOp $R8 $R8 + 1
+            ${If} $R8 >= 10
+                ${Break}
+            ${EndIf}
+            Sleep 50
+        ${Loop}
+        Pop $R8
+        Pop $R7
+        Pop $R6
+        Pop $R5
+        Pop $R4
+        Pop $R3
+        Pop $R2
+        Pop $R1
+        Pop $R0
+    ${EndIf}
+    Pop $R9
+FunctionEnd
+
+!macro UpdateLog text
+    Push "${text}"
+    Call UpdateLog
+!macroend
+
+; started by Hertzon (/WAITPID=<process id>): wait until that Hertzon has closed, at most 2 minutes, before
+; anything is shown. Hertzon starts the installer itself and closes right after; before, a hidden PowerShell
+; did the waiting, and where it did not run Hertzon closed and nothing happened.
+Function WaitForHertzon
+    ${GetParameters} $R0
+    ClearErrors
+    ${GetOptions} $R0 "/WAITPID=" $WaitPid
+    ${If} ${Errors}
+    ${OrIf} $WaitPid == ""
+        Return
+    ${EndIf}
+    IntOp $WaitPid $WaitPid + 0
+    !insertmacro UpdateLog "started, waiting for Hertzon (process $WaitPid) to close"
+    System::Call 'kernel32::OpenProcess(i 0x00100000, i 0, i $WaitPid) p .R1'   ; SYNCHRONIZE
+    ${If} $R1 == 0
+        !insertmacro UpdateLog "Hertzon (process $WaitPid) has closed already"
+        Return
+    ${EndIf}
+    System::Call 'kernel32::WaitForSingleObject(p $R1, i 120000) i .R2'
+    System::Call 'kernel32::CloseHandle(p $R1)'
+    ${If} $R2 == 0
+        !insertmacro UpdateLog "Hertzon (process $WaitPid) has closed"
+    ${Else}
+        !insertmacro UpdateLog "Hertzon (process $WaitPid) is still running after 2 minutes (wait result $R2)"
+    ${EndIf}
+FunctionEnd
+
 Function .onInit
+    Call WaitForHertzon
     !insertmacro MUI_LANGDLL_DISPLAY
+FunctionEnd
+
+Function .onInstSuccess
+    !insertmacro UpdateLog "installed"
+FunctionEnd
+
+Function .onInstFailed
+    !insertmacro UpdateLog "installation failed"
+FunctionEnd
+
+Function LogCancel
+    !insertmacro UpdateLog "cancelled"
 FunctionEnd
 
 ; Hertzon must not run while its files are replaced: the launcher holds Hertzon.exe open
@@ -92,7 +195,7 @@ Section "!$(SecApp)" SEC_APP
     InitPluginsDir
     ; (a path relative to this script: makensis works in its folder)
     File "/oname=$PLUGINSDIR\stop_background.ps1" "stop_background.ps1"
-    nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop_background.ps1" -Root "$INSTDIR"'
+    nsExec::ExecToLog '"${POWERSHELL}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop_background.ps1" -Root "$INSTDIR"'
     Pop $0
     nobackground:
     ; an update replaces the program files completely; the Python environment (.venv) stays
@@ -138,7 +241,8 @@ SectionEnd
 Section "$(SecEnv)" SEC_ENV
     DetailPrint "$(EnvRunning)"
     ${DisableX64FSRedirection}   ; the 64-bit PowerShell (see above)
-    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1"' $0
+    ExecWait '"${POWERSHELL}" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1"' $0
+    !insertmacro UpdateLog "setup.ps1 ended (exit code $0)"
     IfFileExists "$INSTDIR\.venv\hertzon_installed.txt" +2 0
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(EnvFailed)" /SD IDOK
 SectionEnd

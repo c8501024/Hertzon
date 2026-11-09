@@ -36,6 +36,15 @@ the GitHub release notes.
   S11 and a layout plot in mm). The faulty Run 2 moved to `run2/` and is summed up in a short note: it was made with
   Hertzon versions that still had bugs in the solver and in the MCP interface.
 
+### Fixed
+- **Install Update on Windows did nothing:** Hertzon closed and the installer never came up. The hidden
+  PowerShell that was to start the installer once Hertzon had closed was started without a console, and on some
+  Windows versions Windows PowerShell then ends at once, without running anything and without an error. Hertzon
+  now starts the installer itself; the installer waits until Hertzon has closed and then opens. Each step is
+  written to `update.log` in `%LOCALAPPDATA%\Hertzon\Updates`, and when the installer cannot be started or ends
+  right away, Hertzon stays open and says so. The installer also starts PowerShell (for the Python environment)
+  by its full path. Computers on which Install did nothing install this version once from the release page.
+
 ## 0.3.12 (2026-11-09)
 
 ### Fixed

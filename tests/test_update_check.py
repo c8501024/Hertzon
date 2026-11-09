@@ -2,6 +2,8 @@
 release notes over several versions, the installer download and the update dialog."""
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 pytest.importorskip("PySide6")
@@ -153,28 +155,6 @@ def test_disabled_by_env(monkeypatch):
     assert not U.disabled_by_env()
 
 
-def test_installer_waits_for_hertzon_to_exit(tmp_path):
-    # started by Hertzon itself the installer came up while Hertzon was still closing and still held files of
-    # .venv open; it now starts only once the Hertzon process is gone (or after the timeout)
-    inst = tmp_path / "it's here" / "Hertzon-Setup-0.2.14.exe"
-    s = U.installer_waiter(inst, 4321, timeout_s=90)
-    assert "Get-Process -Id 4321" in s and "WaitForExit(90000)" in s
-    assert s.index("WaitForExit") < s.index("Start-Process")
-    assert "'" + str(inst).replace("'", "''") + "'" in s     # quotes in the path are escaped
-
-
-def test_waiter_reports_a_missing_installer(tmp_path):
-    # Hertzon closed and nothing happened when virus protection had removed the downloaded installer: the
-    # script checks the file, logs to update.log next to it and shows a message with the release page
-    inst = tmp_path / "Hertzon-Setup-0.3.5.exe"
-    s = U.installer_waiter(inst, 1, page="https://example.org/rel")
-    assert "Test-Path -LiteralPath $inst" in s
-    assert s.index("Test-Path") < s.index("Start-Process -FilePath $inst")
-    assert "-ErrorAction Stop" in s and "Popup(" in s
-    assert "Join-Path (Split-Path -Parent $inst) 'update.log'" in s
-    assert "Start-Process 'https://example.org/rel'" in s
-
-
 def test_still_there(tmp_path):
     f = tmp_path / "Hertzon-Setup-0.3.5.exe"
     assert not U.still_there(f, 3, wait_s=0)
@@ -192,53 +172,135 @@ def test_download_dir_not_in_temp_on_windows(monkeypatch, tmp_path):
     assert U.download_dir().name == "Hertzon-Update"
 
 
-def _fake_windows(monkeypatch, tmp_path, with_ps=True):
-    root = tmp_path / "Windows"
-    ps = root / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-    if with_ps:
-        ps.parent.mkdir(parents=True)
-        ps.write_bytes(b"")
+class _FakeProc:
+    """subprocess.Popen stand-in: `alive` says whether the started installer is still running after the check."""
+    calls: ClassVar[list] = []
+
+    def __init__(self, args, alive=True, **kw):
+        self.args, self.kw, self.alive, self.pid = args, kw, alive, 4242
+        _FakeProc.calls.append(self)
+
+    def wait(self, timeout=None):
+        if self.alive:
+            raise U.subprocess.TimeoutExpired(self.args, timeout)
+        return 1
+
+
+def _windows(monkeypatch, alive=True, refuse=0):
+    """Pretend to run on Windows; the first `refuse` starts fail like a job object that forbids breakaway."""
     monkeypatch.setattr(U.sys, "platform", "win32")
-    monkeypatch.setenv("SystemRoot", str(root))
-    monkeypatch.setenv("PATH", "")  # PATH without the PowerShell folder: "[WinError 2]" before
-    return ps
+    _FakeProc.calls = []
+    left = [refuse]
+
+    def popen(args, **kw):
+        if left[0]:
+            left[0] -= 1
+            raise PermissionError(5, "Access is denied")
+        return _FakeProc(args, alive=alive, **kw)
+    monkeypatch.setattr(U.subprocess, "Popen", popen)
+    monkeypatch.setattr(U, "_allow_foreground", lambda: None)
 
 
-def test_powershell_found_without_path(monkeypatch, tmp_path):
-    ps = _fake_windows(monkeypatch, tmp_path)
-    assert U.powershell_exe() == str(ps)
-
-
-def test_installer_started_through_full_powershell_path(monkeypatch, tmp_path):
-    ps = _fake_windows(monkeypatch, tmp_path)
-    inst = tmp_path / "Hertzon-Setup-9.9.9.exe"
+def _installer(tmp_path):
+    inst = tmp_path / "Updates" / "Hertzon-Setup-9.9.9.exe"
+    inst.parent.mkdir()
     inst.write_bytes(b"x")
-    calls = []
-    monkeypatch.setattr(U.subprocess, "Popen", lambda args, **kw: calls.append(args))
-    assert U.start_installer_after_exit(inst, pid=1) == "waiter"
-    assert calls[0][0] == str(ps)
+    return inst
+
+
+def test_installer_command_waits_for_hertzon():
+    # the installer itself waits until Hertzon has ended; /D= (install folder) must stay the last argument
+    cmd = U.installer_command(U.Path("C:/x/Hertzon-Setup-9.9.9.exe"), 4321, ("/S", "/D=C:\\H"))
+    assert cmd[1:] == ["/WAITPID=4321", "/S", "/D=C:\\H"]
 
 
 def test_installer_started_directly_without_powershell(monkeypatch, tmp_path):
-    _fake_windows(monkeypatch, tmp_path, with_ps=False)
-    monkeypatch.setattr("shutil.which", lambda name: None)
-    inst = tmp_path / "Hertzon-Setup-9.9.9.exe"
-    inst.write_bytes(b"x")
+    # Hertzon closed and nothing happened: the hidden PowerShell that was to start the installer ended at
+    # once on some computers. The installer is now started directly, as a process of its own
+    _windows(monkeypatch)
+    inst = _installer(tmp_path)
+    assert U.start_installer_after_exit(inst, pid=77) == "process"
+    (p,) = _FakeProc.calls
+    assert p.args == [str(inst), "/WAITPID=77"]
+    assert not any("powershell" in str(a).lower() for a in p.args)
+    flags = p.kw["creationflags"]
+    assert flags & 0x00000008 and flags & 0x00000200 and flags & 0x01000000   # detached, own group, breakaway
+    assert p.kw["close_fds"] and "stdin" not in p.kw and "stdout" not in p.kw    # no handles of Hertzon
+    log = (inst.parent / "update.log").read_text(encoding="utf-8")
+    assert "starting Hertzon-Setup-9.9.9.exe /WAITPID=77" in log and "running as process 4242" in log
+
+
+def test_breakaway_refused(monkeypatch, tmp_path):
+    # in a job object that does not allow breaking away, CreateProcess refuses the flag: started without it
+    _windows(monkeypatch, refuse=1)
+    inst = _installer(tmp_path)
+    assert U.start_installer_after_exit(inst, pid=77) == "process"
+    assert not _FakeProc.calls[0].kw["creationflags"] & 0x01000000
+    assert "direct start refused" in (inst.parent / "update.log").read_text(encoding="utf-8")
+
+
+def test_started_through_the_shell_when_refused(monkeypatch, tmp_path):
+    _windows(monkeypatch, refuse=2)
+    inst = _installer(tmp_path)
     started = []
-    monkeypatch.setattr(U.os, "startfile", started.append, raising=False)
-    assert U.start_installer_after_exit(inst, pid=1) == "direct"
-    assert started == [str(inst)]
+    monkeypatch.setattr(U.os, "startfile", lambda path, **kw: started.append((path, kw)), raising=False)
+    assert U.start_installer_after_exit(inst, pid=77) == "shell"
+    assert started == [(str(inst), {"arguments": "/WAITPID=77", "cwd": str(inst.parent)})]
 
-    # PowerShell there but refused to start: also started directly
-    _fake_windows(monkeypatch, tmp_path / "b")
+    def fail(path, **kw):
+        raise OSError(1223, "cancelled")
+    monkeypatch.setattr(U.os, "startfile", fail, raising=False)
+    _windows(monkeypatch, refuse=2)
+    with pytest.raises(OSError):
+        U.start_installer_after_exit(inst, pid=77)
 
-    def refuse(args, **kw):
-        raise FileNotFoundError(2, "not found")
-    monkeypatch.setattr(U.subprocess, "Popen", refuse)
-    assert U.start_installer_after_exit(inst, pid=1) == "direct"
+
+def test_installer_that_ends_at_once(monkeypatch, tmp_path):
+    # it waits for Hertzon, so it must still run a second later; if not, Hertzon stays open and says so
+    _windows(monkeypatch, alive=False)
+    inst = _installer(tmp_path)
+    with pytest.raises(OSError, match="ended right away"):
+        U.start_installer_after_exit(inst, pid=77)
+    assert "ended right away" in (inst.parent / "update.log").read_text(encoding="utf-8")
 
 
 def test_missing_installer_is_an_error(monkeypatch, tmp_path):
-    _fake_windows(monkeypatch, tmp_path)
+    _windows(monkeypatch)
     with pytest.raises(OSError):
         U.start_installer_after_exit(tmp_path / "gone.exe", pid=1)
+    assert _FakeProc.calls == []
+
+
+def test_only_on_windows(monkeypatch, tmp_path):
+    monkeypatch.setattr(U.sys, "platform", "linux")
+    with pytest.raises(OSError):
+        U.start_installer_after_exit(_installer(tmp_path), pid=1)
+
+
+def test_update_log_waits_while_the_installer_writes(monkeypatch, tmp_path):
+    # the installer writes to the same update.log; while it has the file open, Windows refuses a second writer
+    real, tries = open, []
+
+    def busy_once(*a, **k):
+        tries.append(1)
+        if len(tries) == 1:
+            raise PermissionError(13, "The process cannot access the file because it is being used")
+        return real(*a, **k)
+    monkeypatch.setattr(U, "open", busy_once, raising=False)
+    U.update_log(tmp_path, "starting")
+    U.update_log(tmp_path, "running")
+    lines = (tmp_path / "update.log").read_text(encoding="utf-8").splitlines()
+    assert len(tries) == 3 and [ln.split(": ", 1)[1] for ln in lines] == ["starting", "running"]
+    assert all(f"Hertzon (process {U.os.getpid()})" in ln for ln in lines)
+
+
+def test_installer_script_waits_for_hertzon():
+    # the other half of the update start: the installer waits for /WAITPID before it shows anything, and it
+    # starts PowerShell (stop_background.ps1, setup.ps1) by its full path
+    from pathlib import Path
+    nsi = (Path(__file__).resolve().parents[1] / "packaging" / "installer.nsi").read_text(encoding="utf-8")
+    assert '"' + U.WAIT_OPTION + '"' in nsi
+    assert "kernel32::OpenProcess(i 0x00100000" in nsi and f"WaitForSingleObject(p $R1, i {U.WAIT_S * 1000})" in nsi
+    assert nsi.index("Call WaitForHertzon") < nsi.index("MUI_LANGDLL_DISPLAY\nFunctionEnd")
+    code = [ln.split(";")[0] for ln in nsi.splitlines()]
+    assert not any("'powershell.exe" in ln or '"powershell.exe' in ln for ln in code)
