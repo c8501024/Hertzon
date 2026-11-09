@@ -1,6 +1,6 @@
 # Example 2 (Run 3): timing log
 
-All times UTC, 9 November 2026, from the session log. Hertzon 0.3.11 with the lumped-port fix (#336) and MCP diagnostics (#333), one workstation. No antenna geometry or results from Run 1 or Run 2 were reused. The fixed benchmark environment (FPC, PCB, chassis, feed parts) was rebuilt from Meta's STEP data with the same simplifications as Run 2, because those were needed for meshing. Output tokens are the agent's own, from the session log.
+All times UTC, 9 November 2026, from the session log. Hertzon 0.3.11 with the lumped-port fix (#336) and MCP diagnostics (#333), one workstation. The antenna coordinates are new. The fixed benchmark environment (FPC, PCB, chassis, feed parts) was taken over from the Run 2 model of Meta's STEP data. The agent knew the earlier runs, see "Starting point of this run" in the report, so the times are not a from-zero effort. Output tokens are the agent's own, from the session log.
 
 ## Steps
 
