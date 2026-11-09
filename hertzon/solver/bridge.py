@@ -32,6 +32,7 @@ from .sweeps import sweep_frequencies  # noqa: F401  (re-exported: bridge.sweep_
 from .emerge_compat import amr as _amr
 
 C0 = 299792458.0
+CUTOFF_PROBES, CUTOFF_PROBE_STEP = 8, 1.5     # wave port without modes: mode analyses up to 1.5^8 = 26x higher
 FLOQUET_MODES = ["TE00", "TM00"]     # modes of a Floquet port in S-parameter order
 FF_OFFSET = 1 / 8     # far-field box of a scattering problem: distance from the scatterers in wavelengths
 TAG = "@@HZN "
@@ -285,7 +286,7 @@ class Bridge:
         try:
             self._solve()
         except Exception as exc:
-            missing = self.missing_port_modes()
+            missing = self.missing_port_modes() or self.ports_below_cutoff()
             if missing:
                 raise RuntimeError("; ".join(missing)) from exc
             raise
@@ -309,6 +310,56 @@ class Bridge:
                            f"(the others are below cutoff or excluded by the mode type); set Number of modes "
                            f"to {have} or widen the port")
         return out
+
+    def ports_below_cutoff(self) -> list[str]:
+        """Wave ports without a single mode at the adaptive frequency: the frequency lies below the cutoff of
+        the port's first mode, and the mode analysis keeps propagating modes only. One message per such port,
+        with the cutoff frequency found by solving the port modes at higher frequencies."""
+        out = []
+        try:
+            ports = [(q, bc) for q, bc in self.wave_ports() if not getattr(bc, "available_modes", None)]
+            fa = adaptive_frequencies(self.setup, self.ev)
+        except Exception:  # noqa: BLE001
+            return out
+        for q, bc in ports:
+            fc = self.probe_cutoff(bc, min(fa))
+            where = (f"its first mode propagates above {fc / 1e9:.4g} GHz" if fc
+                     else "the port face carries no propagating mode below "
+                          f"{min(fa) * CUTOFF_PROBE_STEP ** CUTOFF_PROBES / 1e9:.4g} GHz")
+            out.append(f"Wave port '{q['name']}': no mode propagates at the adaptive frequency "
+                       f"{min(fa) / 1e9:.4g} GHz, {where}. Set the solution frequency above the cutoff; a sweep "
+                       f"may still start below it (the port mode then decays)")
+        return out
+
+    def probe_cutoff(self, bc, f: float) -> float | None:
+        """Cutoff frequency of the first mode of wave port bc, from mode analyses at frequencies above f
+        (beta^2 = a k0^2 - kc^2 through two of them: exact for a uniformly filled guide)."""
+        mw = self.m.mw
+        TEM = getattr(bc, "forced_modetype", None) == "TEM"
+        n = max(1, int(getattr(bc, "_desired_number_of_modes", 1) or 1))
+        pts = []
+        try:
+            for _ in range(CUTOFF_PROBES):
+                f *= CUTOFF_PROBE_STEP
+                bc.clear_modes()
+                mw.modal_analysis(bc, n, direct=False, freq=f, TEM=TEM)
+                if bc.available_modes:
+                    k0 = 2 * np.pi * f / C0
+                    pts.append((k0 ** 2, float(np.real(bc.get_modes(k0)[0].beta)) ** 2))
+                    if len(pts) == 2:
+                        break
+        except Exception:  # noqa: BLE001
+            return None
+        finally:
+            bc.clear_modes()
+        if len(pts) < 2:
+            return None
+        (x1, y1), (x2, y2) = pts
+        a = (y2 - y1) / (x2 - x1)
+        kc2 = a * x1 - y1
+        if a <= 0 or kc2 <= 0:
+            return None
+        return float(np.sqrt(kc2 / a) * C0 / (2 * np.pi))
 
     def _solve(self) -> None:
         if self.setup.eigen or self.design.settings.get("SolutionType") == "Eigenmode":
@@ -2220,22 +2271,49 @@ class Bridge:
         # empty round: 6 instead of 5 start points with 2, validation points in rounds of k)
         k = _parallel_workers(m, 64, nw) if par else 1
         n_start, n_check = -(-(5 if hyb else 7) // k) * k, -(-4 // k) * k
-        fs: list[float] = list(np.linspace(f1, f2, n_start))
+        # S has a branch point (square root) at the cutoff of a wave port mode inside the band, which no
+        # rational function follows: each side of a cutoff is fitted on its own
+        cuts = wave_port_cutoffs(m, f1, f2)
+        for fc, labels in cuts:
+            info(f"Sweep '{name}': {', '.join(labels)} {'is' if len(labels) == 1 else 'are'} cut off at "
+                 f"{fc / 1e9:.5g} GHz; the frequencies below and above it are interpolated separately")
+        bands = split_at(fr, [fc for fc, _ in cuts])
         S_all: dict[float, np.ndarray] = {}
         errs: list[float] = []
         prog = prog or SweepProgress(name, 65, 30)
-        prog.plan(len(fs), errs, tol, 0, nmax)
+        prog.plan(sum(min(len(b), n_start) for b in bands), errs, tol, 0, nmax)
+        dense = []
+        z0 = None
         hybrid_sweep.ACTIVE = hyb
         try:
-            self._interpolate(name, fr, nmax, tol, fs, S_all, errs, n_check, par, nw, prog, hyb)
+            for band in bands:
+                if len(band) <= n_start:
+                    # as many frequencies as start points: solved directly
+                    gf, Sm, z0, _ = solve_at(m, list(band), parallel=par, n_workers=nw, on_solved=prog.solved)
+                    Sm = align_batch(S_all, gf, Sm)
+                    for f in band:
+                        S_all[float(f)] = Sm[int(np.argmin(np.abs(gf - f)))]
+                    dense.append(np.array([S_all[float(f)] for f in band]))
+                    continue
+                part: dict[float, np.ndarray] = {}
+                fs: list[float] = list(np.linspace(band.min(), band.max(), n_start))
+                z0 = self._interpolate(name, band, nmax, tol, fs, part, errs, n_check, par, nw, prog, hyb,
+                                       known=S_all)
+                ff = np.array(sorted(part))
+                dense.append(_fit(_sparam_model(), ff, np.array([part[f] for f in ff]))(band))
+                S_all.update(part)
         finally:
             hybrid_sweep.ACTIVE = None
         if hyb is not None:
             info(f"Sweep '{name}': {hyb.summary()}")
+        self.save_s(name, fr, np.concatenate(dense), z0, solved=np.array(sorted(S_all)))
 
-    def _interpolate(self, name, fr, nmax, tol, fs, S_all, errs, n_check, par, nw, prog, hyb) -> None:
-        from emerge._emerge.physics.microwave.adaptive_freq import SparamModel
+    def _interpolate(self, name, fr, nmax, tol, fs, S_all, errs, n_check, par, nw, prog, hyb, known=None):
+        """Solves start and check frequencies into S_all until the rational fit of S_all meets tol; returns the
+        port impedances. known: solutions of other bands of the same sweep (mode alignment)."""
+        SparamModel = _sparam_model()
         m = self.m
+        known = known or {}
         z0 = None
         passes_ok = 0
         it = 0
@@ -2246,13 +2324,13 @@ class Bridge:
                 if hyb is not None:
                     hyb.reduced = False             # start points: direct (in parallel when switched on)
                 gf, Sm, z0, _ = solve_at(m, todo, parallel=par, n_workers=nw, on_solved=prog.solved)
-                Sm = align_batch(S_all, gf, Sm)
+                Sm = align_batch({**known, **S_all}, gf, Sm)
                 for f in todo:
                     k = int(np.argmin(np.abs(gf - f)))
                     S_all[f] = Sm[k]
             ff = np.array(sorted(S_all))
             SS = np.array([S_all[f] for f in ff])
-            if len(ff) >= nmax:
+            if len(ff) + len(known) >= nmax:
                 warn(f"Sweep '{name}': maximum number of solutions ({nmax}) reached")
                 break
             # validation: fit on all but every other new candidate, check midpoints of the largest gaps
@@ -2260,16 +2338,17 @@ class Bridge:
             cand = sorted(((ff[i] + ff[i + 1]) / 2 for i in np.argsort(gaps)[::-1][:n_check]))
             model = _fit(SparamModel, ff, SS)
             if hyb is not None and hyb.V is not None:
-                gf, Sm = self._check_points(m, cand, S_all, par, nw, prog, hyb)
+                gf, Sm = self._check_points(m, cand, {**known, **S_all}, par, nw, prog, hyb)
             else:
                 gf, Sm, _, _ = solve_at(m, cand, parallel=par, n_workers=nw, on_solved=prog.solved)
-                Sm = align_batch(S_all, gf, Sm)
+                Sm = align_batch({**known, **S_all}, gf, Sm)
             err = 0.0
             for f in cand:
                 k = int(np.argmin(np.abs(gf - f)))
                 S_all[f] = Sm[k]
                 err = max(err, float(np.max(np.abs(model(np.array([f]))[0] - Sm[k]))))
-            emit("log", level="info", msg=f"Sweep '{name}': {len(S_all)} solutions, max interpolation error {err:.2e}")
+            emit("log", level="info", msg=f"Sweep '{name}': {len(S_all) + len(known)} solutions, max interpolation "
+                                          f"error {err:.2e}")
             if err <= tol:
                 passes_ok += 1
                 if passes_ok >= 2:
@@ -2277,13 +2356,9 @@ class Bridge:
             else:
                 passes_ok = 0
             errs.append(err)
-            prog.plan(len(S_all), errs, tol, passes_ok, nmax)
+            prog.plan(len(S_all) + len(known), errs, tol, passes_ok, nmax)
             fs = sorted(S_all)
-        ff = np.array(sorted(S_all))
-        SS = np.array([S_all[f] for f in ff])
-        model = _fit(SparamModel, ff, SS)
-        dense = model(fr)
-        self.save_s(name, fr, dense, z0, solved=ff)
+        return z0
 
     @staticmethod
     def _check_points(m, cand, S_all, par, nw, prog, hyb):
@@ -3618,6 +3693,73 @@ def port_data(freq) -> tuple[np.ndarray | None, np.ndarray | None]:
     return interp_records(PORT_RECORDS, freq)
 
 
+def decaying_root(beta2):
+    """Propagation constant beta from beta^2 on the branch of a wave travelling away from the port, exp(-j beta z):
+    Re(beta) >= 0 and Im(beta) <= 0, so that below cutoff gamma = j beta = alpha > 0 (decaying), not growing."""
+    b = np.emath.sqrt(np.asarray(beta2, complex))
+    return np.abs(b.real) - 1j * np.abs(b.imag)
+
+
+def _sparam_model():
+    from emerge._emerge.physics.microwave.adaptive_freq import SparamModel
+    return SparamModel
+
+
+def wave_port_cutoffs(m, f1: float, f2: float) -> list[tuple[float, list[str]]]:
+    """Cutoff frequencies strictly between f1 and f2 of the modes of the wave ports, from the propagation
+    constant the solver uses for each (bisection on propagating |Re beta| > |Im beta| against decaying),
+    with the port modes cut off there; sorted, cutoffs closer than 1 ppm merged."""
+    try:
+        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort, MultiModeWavePort
+        ports = [bc for bc in m.mw.bc.oftype(ModalPort) if getattr(bc, "available_modes", None)]
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for bc in sorted(ports, key=lambda b: b.port_number):
+        nrs = sorted(getattr(bc, "port_modes", None) or [1])
+        for nr in nrs:
+            def beta(f, bc=bc, nr=nr):
+                k0 = 2 * np.pi * f / C0
+                return complex(bc.get_beta(k0, nr) if isinstance(bc, MultiModeWavePort) else bc.get_beta(k0))
+
+            def propagates(f):
+                b = beta(f)
+                return abs(b.real) > abs(b.imag)
+            try:
+                lo, hi = float(f1), float(f2)
+                p_lo, p_hi = propagates(lo), propagates(hi)
+                if p_lo == p_hi:
+                    continue
+                for _ in range(60):
+                    mid = 0.5 * (lo + hi)
+                    if propagates(mid) == p_lo:
+                        lo = mid
+                    else:
+                        hi = mid
+                    if hi - lo <= 1e-9 * hi:
+                        break
+            except Exception:  # noqa: BLE001
+                continue
+            label = f"wave port {bc.port_number}" + (f" mode {nr}" if len(nrs) > 1 else "")
+            out.append((0.5 * (lo + hi), len(out), label))
+    out.sort()
+    merged: list[tuple[float, list]] = []
+    for fc, i, label in out:
+        if merged and fc - merged[-1][0] <= 1e-6 * fc:
+            merged[-1][1].append((i, label))
+        else:
+            merged.append((fc, [(i, label)]))
+    return [(fc, [label for _, label in sorted(labels)]) for fc, labels in merged]
+
+
+def split_at(fr, cuts) -> list[np.ndarray]:
+    """The frequencies fr (ascending) in bands between the cutoffs; empty bands are left out."""
+    fr = np.asarray(fr, float)
+    edges = [-np.inf, *sorted(cuts), np.inf]
+    bands = [fr[(fr >= lo) & (fr < hi)] for lo, hi in zip(edges[:-1], edges[1:])]
+    return [b for b in bands if len(b)]
+
+
 def port_beta(freq: np.ndarray, nports: int) -> np.ndarray:
     """Propagation constant per port at arbitrary frequencies (beta^2 linear in f^2, exact for uniform ports)."""
     fs = np.array(sorted(BETA))
@@ -3629,9 +3771,10 @@ def port_beta(freq: np.ndarray, nports: int) -> np.ndarray:
         if len(fs) == 1:
             out[:, i] = B[0, i]
             continue
-        A = np.c_[fs ** 2, np.ones_like(fs)]
+        # in GHz: with f^2 in Hz^2 next to a column of ones, lstsq drops the constant (cutoff) term
+        A = np.c_[(fs / 1e9) ** 2, np.ones_like(fs)]
         coef, *_ = np.linalg.lstsq(A, B[:, i] ** 2, rcond=None)
-        out[:, i] = np.emath.sqrt(coef[0] * freq ** 2 + coef[1])
+        out[:, i] = decaying_root(coef[0] * (np.asarray(freq, float) / 1e9) ** 2 + coef[1])
     return out
 
 
