@@ -28,7 +28,7 @@ from typing import Any, Callable
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 KEEP_LOGS = 20                 # server logs kept in ~/.hertzon/logs
 WATCHDOG_S = 300.0             # a request running longer: the stacks of all threads go to the log (and again)
-MAX_WAIT_S = 50.0              # longest wait of one get_status / get_tuning call (HERTZON_MCP_MAX_WAIT)
+MAX_WAIT_S = 120.0             # longest wait of one get_status / get_tuning call (HERTZON_MCP_MAX_WAIT)
 
 
 @dataclass

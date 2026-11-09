@@ -969,7 +969,7 @@ TOOLS = [
                                                                "interpolating sweep (default 51)"},
                   "cores": {"type": "integer"}}, ["variables"]), t_compute_tuning),
     Tool("get_tuning", "State of a tuning model and, when it is there, the S-parameters at the variable values "
-         "given (default: the solved values), with the tuning range of every variable. wait_seconds waits (up to 50 s) while "
+         "given (default: the solved values), with the tuning range of every variable. wait_seconds waits (up to 120 s) while "
          "it is computed.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string"}, "values": VALUES,
                   "params": {"type": "array", "items": {"type": "string"}},
