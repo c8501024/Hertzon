@@ -17,15 +17,19 @@ Run 1 and Run 2 values are from their own reports and used older Hertzon version
 
 ![Total efficiency of Run 3 in Hertzon and the reference solver, with the Run 2 dip for reference](results/Ex2_Run3_hertzon_vs_reference.png)
 
+![S11 of A13 in Hertzon and the reference solver](results/Ex2_Run3_S11.png)
+
+S11 of the two solvers agrees closely: both reach about −10 dB at 2.45 GHz and near 6 GHz, Hertzon's high-band minimum is about 0.6 dB deeper (`results/A13.s1p`, `results/reference_S11.csv`).
+
 ## Why this run replaces Run 2
 
-Run 2 is kept in the parent folder but is marked as faulty. It was made with Hertzon versions that had MCP bugs and weak points, all found through this benchmark and fixed before this run:
+Run 2 is kept in [run2](../run2/README.md) but is marked as faulty. It was made with Hertzon versions that had MCP bugs and weak points, all found through this benchmark and fixed before this run:
 
 | Problem in the earlier run | Effect | Fix |
 | --- | --- | --- |
 | Lumped-port voltage counted samples outside the port tetrahedra as zero field | S11 jumped between adaptive passes; accepted power too high at mismatch (6.55 GHz: 43 % against 24 %) | #336 |
 | MCP gave no efficiency split, Q, resonances or convergence warning | The agent called the 6.2–6.85 GHz dip a mismatch. The cause is still being investigated; the working hypothesis is a missing radiating mode, and matching did not recover it | #333 |
-| Loss power of copper solids counted wrongly | Displayed power balance and radiation efficiency unusable | changelog, loss power fix |
+| Loss power of copper solids counted wrongly | Displayed power balance and radiation efficiency unusable | #311 |
 | `facematch` crash and MCP calls without an answer | Hours lost, no effect on results | #298, #291 |
 
 Radiated power and total efficiency of Run 2 agree with the reference solver, so its curves are correct; its diagnosis and the design decisions based on it were not. This run used the fixed version from the first solve, and the efficiency split decided every design step below.
@@ -49,9 +53,9 @@ Total efficiency is Prad / Pinc with 1 W incident in both solvers. Hertzon radia
 
 ## Why there is no dip now
 
-Radiation efficiency stays between 86 and 95 % across the whole high band in Hertzon. In the reference solver the radiated power equals the accepted power to within a few percent from 5.5 GHz up. What is left at the band edges is reflection: the high band is served by one broad, low-Q series resonance near 5.8 GHz (R about 28 Ω, Q about 8.7 in A9), not by a gap between two narrow modes. Its Q_Z is 5 to 12 from 5.17 to 7.125 GHz; Run 2 had about 58 at the dip.
+Radiation efficiency stays between 86 and 95 % across the whole high band in Hertzon. In the reference solver the radiated power equals the accepted power to within a few percent from 5.5 GHz up. What is left at the band edges is reflection: the high band is served by one broad, low-Q series resonance near 5.8 GHz (R about 28 Ω, Q about 8.7 in A9), not by a gap between two narrow modes. From `results/A13.s1p` its Q_Z stays below about 15 from 5.17 to 7.125 GHz (highest at the lower band edge); Run 2 had about 58 at the dip.
 
-The path to this shape (`results/iterations.csv`):
+The path to this shape (`results/iterations.csv` holds the total efficiency of every iteration; the radiation efficiencies and Q values quoted for the iterations were read from the MCP efficiency split during the run and are not stored as files):
 
 1. A1, A3 and A4 used a shorted arm and a wide top bar. The upper band end radiated well, but 5.17–5.85 GHz had radiation efficiency of only 32 to 77 % and high Q wherever the short was placed. A short anywhere on the driven structure produced this.
 2. A2 removed the short: radiation efficiency 82–97 % over the whole high band, but 2.4 GHz had R of only 5 Ω and did not match.
@@ -76,9 +80,9 @@ One feed through Meta's feed pin, one ground pin r = 0.15 mm, copper on the top 
 | Right lobe | 11.5–13.3 | 4.45–4.7 |
 | Right lobe, wide part | 12.1–13.3 | 3.7–4.45 |
 
-![Layout on the FPC](results/Ex2_Run3_layout.png)
+![Layout of A13 on the FPC in mm, with feed pin and ground pin](results/Ex2_Run3_layout_mm.png)
 
-No part of Meta's reference design or of the Run 1 and Run 2 antennas was reused. The environment (FPC, PCB, chassis, feed parts, port) is Meta's benchmark geometry, rebuilt from the STEP data with the same meshing simplifications as Run 2.
+No part of Meta's reference design or of the Run 1 and Run 2 antennas was reused. The environment (FPC, PCB, chassis, feed parts, port) is Meta's benchmark geometry, rebuilt from the STEP data with the same meshing simplifications as Run 2. The benchmark itself (chassis, PCB, FPC, goal and rules) is described in the [Example 2 overview](../README.md#benchmark-example-2).
 
 ## Setup
 
