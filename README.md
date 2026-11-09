@@ -84,7 +84,8 @@ Python environment. The check can be switched off in Tools > Options > General, 
 
 **Linux:** unpack `Hertzon-<version>-linux.tar.gz` and run `./install.sh`. It installs for your user
 into `~/.local/share/hertzon`, adds Hertzon to the application menu, the command `hertzon` and the
-`.hzn` file type. Run `install.sh` of a newer package to update, `~/.local/share/hertzon/uninstall.sh`
+`.hzn` file type. It checks the system libraries the window needs (Qt's X11 platform plugin, OpenGL) and
+offers to install missing ones with your package manager (apt, dnf, pacman or zypper). Run `install.sh` of a newer package to update, `~/.local/share/hertzon/uninstall.sh`
 to remove it.
 
 Both are built with `packaging/build_installer.sh` (needs NSIS for the Windows installer); GitHub Actions
