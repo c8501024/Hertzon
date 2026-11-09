@@ -74,6 +74,61 @@ jobs:
           $root = $dir.TrimEnd('\') + '\'
           $left = @(Get-Process python* | Where-Object { try { @($_.Modules | Where-Object { $_.FileName -and $_.FileName.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) }).Count } catch { 0 } })
           if (-not $bg.HasExited -or $left) { throw "background processes still running: $($left.Id -join ', ')" }
+      - name: Update from Hertzon (Help > Check for Updates > Install)
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          # Hertzon starts the downloaded installer with /WAITPID=<its process id> and closes; the installer waits
+          # until that process has ended, then updates. A Python of the installation stands in for Hertzon: it
+          # starts the installer with the same function and exits only 15 seconds later.
+          $dir = "$env:RUNNER_TEMP\Hertzon"
+          $dl = "$env:RUNNER_TEMP\HertzonUpdates"
+          New-Item -ItemType Directory -Force $dl | Out-Null
+          Copy-Item (Get-ChildItem dist\Hertzon-Setup-*.exe).FullName $dl
+          $inst = (Get-ChildItem "$dl\Hertzon-Setup-*.exe").FullName
+          # in a folder of its own: the folder of a script is the first place Python imports from
+          $standin = "$env:RUNNER_TEMP\standin\update_from_hertzon.py"
+          New-Item -ItemType Directory -Force (Split-Path $standin) | Out-Null
+          @'
+          import sys, time
+          from pathlib import Path
+          from hertzon.gui.update_check import start_installer_after_exit, update_log
+          inst, target = Path(sys.argv[1]), sys.argv[2]
+          print("installer started:", start_installer_after_exit(inst, extra=("/S", "/D=" + target)), flush=True)
+          time.sleep(15)   # Hertzon takes a moment to close; the installer must wait for it
+          update_log(inst.parent, "stand-in for Hertzon exits now")
+          '@ | Set-Content -Encoding utf8 $standin
+          & "$dir\.venv\Scripts\python.exe" $standin $inst $dir
+          if ($LASTEXITCODE -ne 0) { throw 'Hertzon could not start the installer' }
+          $log = "$dl\update.log"
+          $name = [IO.Path]::GetFileNameWithoutExtension($inst)
+          $end = (Get-Date).AddMinutes(25)
+          do {
+              Start-Sleep -Seconds 5
+              $done = Select-String -LiteralPath $log -Pattern 'installer [\d.]+: (installed|installation failed|cancelled)$' -Quiet -ErrorAction SilentlyContinue
+          } until ($done -or -not (Get-Process -Name $name -ErrorAction SilentlyContinue) -or (Get-Date) -gt $end)
+          Get-Content $log
+          Get-Content "$dir\setup.log" -Tail 15 -ErrorAction SilentlyContinue
+          $lines = @(Get-Content $log)
+          if (-not (($lines -join "`n") -match '/WAITPID=(\d+)')) { throw 'Hertzon did not start the installer' }
+          $hz = $Matches[1]
+          # in this order: Hertzon starts the installer, the installer waits, Hertzon exits, the installer goes on
+          $order = @(
+              ('Hertzon \(process ' + $hz + '\): starting Hertzon-Setup-[\d.]+\.exe /WAITPID=' + $hz + ' /S /D='),
+              ('installer [\d.]+: started, waiting for Hertzon \(process ' + $hz + '\) to close$'),
+              ('Hertzon \(process ' + $hz + '\): stand-in for Hertzon exits now$'),
+              ('installer [\d.]+: Hertzon \(process ' + $hz + '\) has closed$'),
+              'installer [\d.]+: setup\.ps1 ended \(exit code 0\)$',
+              'installer [\d.]+: installed$')
+          $at = -1
+          foreach ($p in $order) {
+              $i = -1
+              for ($k = $at + 1; $k -lt $lines.Count; $k++) { if ($lines[$k] -match $p) { $i = $k; break } }
+              if ($i -lt 0) { throw "update.log: missing or out of order: $p" }
+              $at = $i
+          }
+          if (-not ($lines -match ('Hertzon \(process ' + $hz + '\): installer running as process \d+'))) { throw 'Hertzon did not see the installer running' }
+          if (-not (Test-Path "$dir\.venv\hertzon_installed.txt")) { throw 'the update did not finish' }
       - name: Warm-up log
         if: always()
         shell: pwsh

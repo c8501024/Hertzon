@@ -176,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     from .main_window import MainWindow
     win = MainWindow()
     win.prepare_equations()   # before the window is shown: opening the Equations tab later does not rebuild it
+    #                           (the tab and its web engine are made when it is first opened)
     files = [a for a in argv[1:] if a.lower().endswith(".hzn")]
     # always maximized: a restored maximized geometry (or a resize on top of it) left the window a bit wider
     # than the screen on Windows, so its right edge was cut off until it was restored and maximized again

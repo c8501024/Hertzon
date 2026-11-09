@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.13 (2026-11-09)
 
 ### Added
 - **Hairpin diplexer and triplexer**: Tools › Filter Design › Hairpin Diplexer (and MCP
@@ -18,6 +18,10 @@ the GitHub release notes.
   say to check the port model first when S11 jumps between passes or the power balance is off.
 
 ### Changed
+- **Less memory after start:** the formula editor of the Fields Calculator (a web view, which runs a browser in
+  processes of its own) starts when the Equations tab is first opened, not with Hertzon. An empty 3D project
+  now takes about 0.9 GB instead of about 1.4 GB (measured on Linux, all Hertzon processes together); opening
+  the Equations tab the first time takes a moment longer.
 - **Design Wizard pictures:** the structure pictures on the cards are redrawn from common building blocks, so
   lines join cleanly. The rat-race ports sit on the ring, and the branchline, coupled-line, Lange, T-junction,
   edge-coupled and other pictures follow the real layout.
@@ -32,15 +36,24 @@ the GitHub release notes.
   S11 and a layout plot in mm). The faulty Run 2 moved to `run2/` and is summed up in a short note: it was made with
   Hertzon versions that still had bugs in the solver and in the MCP interface.
 
-## 0.3.12 (2026-11-09)
-
 ### Fixed
+- **Install Update on Windows did nothing:** Hertzon closed and the installer never came up. The hidden
+  PowerShell that was to start the installer once Hertzon had closed was started without a console, and on some
+  Windows versions Windows PowerShell then ends at once, without running anything and without an error. Hertzon
+  now starts the installer itself; the installer waits until Hertzon has closed and then opens. Each step is
+  written to `update.log` in `%LOCALAPPDATA%\Hertzon\Updates`, and when the installer cannot be started or ends
+  right away, Hertzon stays open and says so. The installer also starts PowerShell (for the Python environment)
+  by its full path. Computers on which Install did nothing install this version once from the release page.
 - **Linux: Hertzon did not start from the application menu** when system libraries for Qt's X11 platform plugin
   (e.g. `libxcb-cursor0`) were missing: Qt stopped with "no Qt platform plugin could be initialized" and the menu
   entry showed nothing. The installer now checks the libraries Qt and gmsh are linked against, prints the install
   command for apt, dnf, pacman or zypper and offers to run it; the menu entry shows a message with that command
   instead of failing silently and writes the output to `~/.local/share/hertzon/hertzon.log`. The Linux
   installer is in English.
+
+## 0.3.12 (2026-11-09)
+
+### Fixed
 - **Installer: temporary GitHub server errors**: when a package download failed with a server error (such as
   504 Gateway Time-out for the EMerge wheel), the setup stopped at once. It now tries the installation again up
   to three times with a pause. pip downloaded the EMerge wheel on every update even when exactly that wheel was
