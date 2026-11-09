@@ -140,6 +140,20 @@ function Stop-HertzonProcesses {
     while (@(Get-HertzonProcesses) -and (Get-Date) -lt $end) { Start-Sleep -Seconds 1 }
 }
 
+# exit code 0 when the installed EMerge came from the very wheel URL that pyproject.toml requires on this machine
+$emergeCheck = @'
+import json, sys, tomllib
+from importlib import metadata
+from pip._vendor.packaging.requirements import Requirement
+reqs = [Requirement(r) for r in tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']]
+want = [r.url for r in reqs if r.name == 'emerge' and r.url and (r.marker is None or r.marker.evaluate())]
+try:
+    have = json.loads(metadata.distribution('emerge').read_text('direct_url.json') or '{}').get('url')
+except metadata.PackageNotFoundError:
+    have = None
+sys.exit(0 if want and have == want[0] else 1)
+'@
+
 try {
     $venvPy = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
     Write-Host 'Checking for running Hertzon processes ...'
@@ -160,15 +174,39 @@ try {
     }
     Write-Host 'Installing Hertzon and its packages (EMerge, Qt, VTK) ...'
     & $venvPy -m pip install --upgrade pip
-    & $venvPy -m pip install -e ".[test]"
-    if ($LASTEXITCODE -ne 0 -and @(Get-HertzonProcesses)) {
-        # an AI app may have started its MCP server again during the installation
-        Write-Host 'Hertzon processes were started again during the installation; closing them and installing again ...'
-        @(Get-HertzonProcesses) | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        & $venvPy -m pip install -e ".[test]"
+    # pip downloads a requirement given by URL (the EMerge wheel) on every installation, even when exactly
+    # that wheel is installed already. So when the installed EMerge came from the wheel this version requires,
+    # only Hertzon itself is installed, and pip check confirms that everything else it needs is there; the
+    # full installation (with downloads) runs only when something is missing or EMerge changed.
+    $done = $false
+    '' | & $venvPy -c $emergeCheck
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host 'The required EMerge is installed already; updating Hertzon only ...'
+        & $venvPy -m pip install --no-deps -e .
+        if ($LASTEXITCODE -eq 0) { & $venvPy -m pip check }
+        if ($LASTEXITCODE -eq 0) { $done = $true } else { Write-Host 'Some packages are missing or outdated; running the full installation ...' -ForegroundColor Yellow }
     }
-    if ($LASTEXITCODE -ne 0) { throw 'Package installation failed (see messages above).' }
+    # GitHub sometimes answers a download with a server error (504 Gateway Time-out) for a while, and pip
+    # does not retry that one itself; so the full installation is tried again a few times with a pause
+    $waits = @(0, 15, 45, 90)
+    for ($i = 0; -not $done -and $i -lt $waits.Count; $i++) {
+        if ($i -gt 0) {
+            Write-Host "Package installation failed; trying again in $($waits[$i]) s (attempt $($i + 1) of $($waits.Count)) ..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $waits[$i]
+        }
+        if (@(Get-HertzonProcesses)) {
+            # an AI app may have started its MCP server again during the installation
+            Write-Host 'Hertzon processes were started again during the installation; closing them ...'
+            @(Get-HertzonProcesses) | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+        }
+        & $venvPy -m pip install --retries 10 --timeout 60 -e ".[test]"
+        if ($LASTEXITCODE -eq 0) { $done = $true }
+    }
+    if (-not $done) {
+        throw ('Package installation failed (see messages above). If a download failed with a server error ' +
+               '(5xx), GitHub was not reachable for a while: start the installer again later.')
+    }
     Write-Host 'Preparing the solver (first-time compilation, can take a few minutes) ...'
     # stdin from a pipe: the setup runs unattended (release check) and must never wait for input
     '' | & $venvPy -c "import emerge; print('EMerge', getattr(emerge, '__version__', 'ok'))"
