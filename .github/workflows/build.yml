@@ -138,8 +138,10 @@ jobs:
           # goes on after 2 minutes; setup.ps1 must then close that window before pip runs, although the window
           # started the installer. The stand-in is the pythonw of the installation; "-m hertzon" after the script
           # only goes to sys.argv and makes the installer and setup.ps1 take it for a window.
+          # The installer runs from inside the installation here (an installation in %LOCALAPPDATA%\Hertzon gets
+          # its updates in the Updates folder below it): it must not stop itself with the background processes.
           $dir = "$env:RUNNER_TEMP\Hertzon"
-          $dl = "$env:RUNNER_TEMP\HertzonUpdatesOpen"
+          $dl = "$dir\Updates"
           New-Item -ItemType Directory -Force $dl | Out-Null
           Copy-Item (Get-ChildItem dist\Hertzon-Setup-*.exe).FullName $dl
           $inst = (Get-ChildItem "$dl\Hertzon-Setup-*.exe").FullName
@@ -168,6 +170,9 @@ jobs:
           Get-Content $log
           Get-Content "$dir\setup.log" -Tail 25 -ErrorAction SilentlyContinue
           $open = -not $win.HasExited
+          # the stand-in's processes found by their command line (a process id may have been given out again)
+          $left = @(Get-CimInstance Win32_Process -OperationTimeoutSec 60 | Where-Object { $_.CommandLine -like '*window_stays_open.py*' })
+          foreach ($p in $left) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
           if ($open) { Stop-Process -Id $win.Id -Force -ErrorAction SilentlyContinue }
           $lines = @(Get-Content $log)
           if (-not (($lines -join "`n") -match '/WAITPID=(\d+)')) { throw 'the window did not start the installer' }
@@ -184,7 +189,7 @@ jobs:
               if ($i -lt 0) { throw "update.log: missing or out of order: $p" }
               $at = $i
           }
-          if ($open -or (Get-Process -Id ([int]$hz) -ErrorAction SilentlyContinue)) { throw 'setup.ps1 left the Hertzon window that started the installer running' }
+          if ($open -or $left) { throw "setup.ps1 left the Hertzon window that started the installer running: $($left.ProcessId -join ', ')" }
           if (-not (Select-String -LiteralPath "$dir\setup.log" -Pattern 'A Hertzon window is open' -Quiet)) { throw 'setup.ps1 did not say that a Hertzon window is open' }
           if (-not (Test-Path "$dir\.venv\hertzon_installed.txt")) { throw 'the update did not finish' }
       - name: Warm-up log

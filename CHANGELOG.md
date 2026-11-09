@@ -11,6 +11,10 @@ the GitHub release notes.
   cancelled), the setup did not notice that window, since it had started the installer, and updated the
   Python packages under it. The setup now lists that window and closes it after asking, like any other open
   Hertzon window.
+- **Update of an installation in `%LOCALAPPDATA%\Hertzon`:** Install downloads the update into the Updates folder,
+  which then lies inside the installation, and the installer stopped itself together with the background
+  processes that use the installation, so the update ended without replacing anything. The installer now
+  leaves itself out (also when it is started from inside the installation folder by hand).
 
 ## 0.3.13 (2026-11-09)
 

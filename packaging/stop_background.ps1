@@ -3,7 +3,9 @@
 # 'hertzon.remote serve', solver processes, Qt helper processes). They keep files of the program
 # (hertzon\mesher\_bin\hzmesh.dll) and of .venv in use, so the update could not replace them until the next
 # restart of the computer. A Hertzon window is not touched: the installer asks to close it.
-param([Parameter(Mandatory = $true)][string]$Root)
+# -Keep is the installer's own process id: the installer can run from inside the folder (an installation in
+# %LOCALAPPDATA%\Hertzon gets its updates in the Updates folder below it) and must not be stopped here.
+param([Parameter(Mandatory = $true)][string]$Root, [int]$Keep = 0)
 $ErrorActionPreference = 'SilentlyContinue'
 $root = $Root.TrimEnd('\') + '\'
 
@@ -27,7 +29,7 @@ function Test-UsesFolder($p) {
 }
 
 function Get-Background {
-    Get-Process | Where-Object { $_.Id -ne $PID -and (Test-UsesFolder $_) } | Where-Object {
+    Get-Process | Where-Object { $_.Id -ne $PID -and $_.Id -ne $Keep -and (Test-UsesFolder $_) } | Where-Object {
         $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)").CommandLine
         $_.ProcessName -ine 'Hertzon' -and -not ($cmd -and $cmd -match '\s-m\s+hertzon(\s|"|$)')
     }
