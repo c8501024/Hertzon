@@ -5,6 +5,15 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- **Wave ports below the cutoff of their mode:** an interpolating sweep across the cutoff frequency of a wave port
+  mode is now fitted separately below and above it (S has a square-root branch point there that no rational fit
+  follows; across the WR-90 cutoff the sweep was up to 3 dB off below it and +0.05 dB above unity just above it,
+  now within 0.01 dB of the solved points). The log names the cutoff. An adaptive frequency below the cutoff of a
+  wave port stops with a message that gives the cutoff frequency (instead of "no modes"). De-embedding below
+  cutoff uses the decaying port mode (exp(alpha d)), and the fit of the propagation constant over frequency keeps
+  its cutoff term.
+
 ### Changed
 - **Hairpin diplexer layout**: the two filters are stacked as in most published hairpin diplexers: the common port
   at the left edge, the T-junction right behind it, channel A above and channel B below, Ports 2 and 3 at the right
