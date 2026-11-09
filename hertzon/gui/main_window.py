@@ -5019,10 +5019,12 @@ class MainWindow(QMainWindow):
         self.report_tabs.clear()
 
     def prepare_equations(self) -> None:
-        """Make the Equations tab (hidden) before the window is shown. Its formula editor is a web view, drawn
-        by the graphics card like the 3D view: a window gets that way of drawing when it is made, so adding
-        the first such view later rebuilt the whole window (it flickered closed and open) and the start of the
-        web engine held the GUI on the first click."""
+        """Before the window is shown: the window draws with the graphics card from the start. The formula
+        editor of the Equations tab is a web view drawn that way like the 3D view, and a window gets its way of
+        drawing when it is made, so adding the first such view later rebuilt the whole window (it flickered
+        closed and open). The Equations tab itself is made when it is first opened: its web engine (a browser
+        in a few processes of its own) took about 0.5 GB of memory from the start, also for users who never
+        open it."""
         try:
             from PySide6.QtOpenGLWidgets import QOpenGLWidget
             self._gl_marker = QOpenGLWidget(self)        # the window draws with the graphics card from the start
@@ -5030,12 +5032,16 @@ class MainWindow(QMainWindow):
             self._gl_marker.hide()
         except Exception:  # noqa: BLE001
             pass
-        self._make_equations()
 
     def _make_equations(self) -> None:
         if self.calc_window is None:
+            from PySide6.QtGui import QGuiApplication, QCursor
             from .calculator import EquationsTab
-            self.calc_window = EquationsTab(self)
+            QGuiApplication.setOverrideCursor(QCursor(Qt.WaitCursor))   # the web engine starts (a second or two)
+            try:
+                self.calc_window = EquationsTab(self)
+            finally:
+                QGuiApplication.restoreOverrideCursor()
             self.calc_window.hide()
             self.calc_window.build_ribbon(self.ribbon.page("Equation"))
             self._eq_page = self.ribbon.count() - 1
