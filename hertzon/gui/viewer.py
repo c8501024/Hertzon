@@ -324,6 +324,49 @@ class WorkingCSActor:
             cam.SetClippingRange(min(near, lo), max(far, hi))
 
 
+def focal_plane_point(cam, size, origin, fp, pos) -> np.ndarray:
+    """Point under the display position pos (pixels in the render window) on the plane through fp normal
+    to the view direction of cam; the renderer has the given size and origin in pixels."""
+    fp = np.asarray(fp, float)
+    w, h = size
+    if w <= 0 or h <= 0:
+        return fp
+    nx = 2.0 * (pos[0] - origin[0]) / w - 1.0
+    ny = 2.0 * (pos[1] - origin[1]) / h - 1.0
+    cp = np.array(cam.GetPosition())
+    dop = np.array(cam.GetDirectionOfProjection())
+    up = np.array(cam.GetViewUp())
+    up = up - dop * np.dot(up, dop)
+    up /= np.linalg.norm(up) or 1.0
+    right = np.cross(dop, up)
+    if cam.GetParallelProjection():
+        sy = cam.GetParallelScale()
+        c = cp + dop * float(np.dot(fp - cp, dop))
+    else:
+        depth = float(np.dot(fp - cp, dop))
+        sy = depth * math.tan(math.radians(cam.GetViewAngle() / 2))
+        c = cp + dop * depth
+    if cam.GetUseHorizontalViewAngle() and not cam.GetParallelProjection():
+        sx, sy = sy, sy * h / w
+    else:
+        sx = sy * w / h
+    P = c + right * nx * sx + up * ny * sy
+    return P if np.all(np.isfinite(P)) else fp
+
+
+def keep_focal_plane_in_view(ren) -> None:
+    """After a clipping range reset: keep the near plane in front of the focal point. The reset puts the near
+    plane at a fixed fraction of the far distance, so with the camera zoomed close to a surface (the focal
+    point sits on it) the surface itself was clipped away."""
+    cam = ren.GetActiveCamera()
+    if cam.GetParallelProjection():
+        return
+    d = cam.GetDistance()
+    near, far = cam.GetClippingRange()
+    if d > 0 and near > 0.5 * d:
+        cam.SetClippingRange(0.5 * d, max(far, 2 * d))
+
+
 def nice_length(x: float) -> float:
     """Largest 1/2/2.5/5 x 10^n not above x."""
     if not (x > 0 and math.isfinite(x)):
@@ -452,6 +495,7 @@ class ModelerView(QWidget):
         self._cube_widget = self._view_cube()
         self._cube_press = False
         self.scale_bar = ScaleBar(p.renderer, lambda: self.length_unit)
+        p.renderer.AddObserver("ResetCameraClippingRangeEvent", lambda *a: keep_focal_plane_in_view(p.renderer))
         self.working_cs = WorkingCSActor(p.renderer)
         self.actors: dict[str, ObjActors] = {}
         self.highlight_actors: list = []
@@ -777,26 +821,74 @@ class ModelerView(QWidget):
     def _event_pos(self):
         return self.plotter.iren.interactor.GetEventPosition()
 
+    def _focal_plane_point(self, ren, fp, pos) -> np.ndarray:
+        """The point under the display position pos on the plane through fp normal to the view direction,
+        from the camera alone (view angle, aspect, view up). Mapping the display depth of fp back through
+        the renderer instead broke down with fp outside the clipping range: that depth is then outside 0..1
+        and the point came out far off or NaN."""
+        return focal_plane_point(ren.GetActiveCamera(), ren.GetSize(), ren.GetOrigin(), fp, pos)
+
+    # closest zoom: the camera stays this fraction of the model size away from the point it zooms to;
+    # farthest zoom out: this multiple of the model size
+    MIN_ZOOM_DISTANCE = 1e-4
+    MAX_ZOOM_DISTANCE = 1e4
+
+    def _zoom_limits(self) -> tuple[float, float]:
+        try:
+            b = np.asarray(self.view_bbox(), float)
+            size = float(np.linalg.norm(b[3:] - b[:3]))
+        except Exception:  # noqa: BLE001
+            size = 0.0
+        size = size if size > 0 and math.isfinite(size) else 0.1
+        return self.MIN_ZOOM_DISTANCE * size, self.MAX_ZOOM_DISTANCE * size
+
+    @staticmethod
+    def _limit_zoom(factor: float, d: float, dmin: float, dmax: float) -> float:
+        """The zoom factor that keeps the distance d / factor within dmin..dmax (1: no zoom)."""
+        if factor > 1:
+            return max(1.0, min(factor, d / dmin))
+        if factor < 1:
+            return min(1.0, max(factor, d / dmax))
+        return 1.0
+
     def zoom_at_cursor(self, factor: float, pos=None) -> None:
-        """Zoom in (factor > 1) or out about the point under the mouse, which stays fixed on screen."""
+        """Zoom in (factor > 1) or out about the point under the mouse, which stays fixed on screen.
+
+        The zoom goes toward the object surface under the cursor: the focal plane is first moved to its depth
+        (the view does not change), so the camera approaches the object and the scale bar, which measures at
+        the focal distance, shows the scale of the object under the cursor. Zooming toward a point of the old
+        focal plane instead let the camera close in on empty space in front of or behind the model: the scale
+        bar ran down to 1e-11 mm while the model stopped growing. Zooming in stops at a small fraction of the
+        model size, zooming out at a large multiple of it."""
         ren = self.plotter.renderer
         cam = ren.GetActiveCamera()
         pos = pos or self._event_pos()
         fp = np.array(cam.GetFocalPoint())
-        ren.SetWorldPoint(*fp, 1.0)
-        ren.WorldToDisplay()
-        zf = ren.GetDisplayPoint()[2]
-        ren.SetDisplayPoint(pos[0], pos[1], zf)
-        ren.DisplayToWorld()
-        w = np.array(ren.GetWorldPoint())
-        P = w[:3] / (w[3] or 1.0)
         cp = np.array(cam.GetPosition())
+        dmin, dmax = self._zoom_limits()
         if cam.GetParallelProjection():
-            cam.SetParallelScale(cam.GetParallelScale() / factor)
+            P = self._focal_plane_point(ren, fp, pos)
+            s = cam.GetParallelScale()
+            factor = self._limit_zoom(factor, s, dmin, dmax)
+            if factor == 1:
+                return
+            cam.SetParallelScale(s / factor)
             shift = (P - fp) * (1 - 1 / factor)
             cam.SetFocalPoint(*(fp + shift))
             cam.SetPosition(*(cp + shift))
         else:
+            dop = np.array(cam.GetDirectionOfProjection())
+            S = self._surface_point(pos)
+            depth = float(np.dot(S - cp, dop)) if S is not None else 0.0
+            if S is not None and depth > 0:
+                fp = cp + dop * depth           # focal plane through the surface point: same view
+                P = S
+            else:
+                P = self._focal_plane_point(ren, fp, pos)
+                depth = float(np.dot(fp - cp, dop))
+            factor = self._limit_zoom(factor, depth, dmin, dmax)
+            if factor == 1:
+                return
             cam.SetFocalPoint(*(P + (fp - P) / factor))
             cam.SetPosition(*(P + (cp - P) / factor))
         ren.ResetCameraClippingRange()
