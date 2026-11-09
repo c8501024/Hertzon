@@ -365,3 +365,13 @@ def test_main_window_inserts_the_wizard_designs(monkeypatch):
     assert any(m.name.startswith("Sub1") for m in w.doc.project.materials)
     w.doc.dirty = False
     w.close()
+
+
+def test_every_card_has_a_well_formed_picture():
+    import xml.etree.ElementTree as ET
+    from hertzon.model.structures import CATALOG, icon
+    for s in CATALOG:
+        pic = icon(s)
+        assert pic, f"{s.key} has no picture"
+        root = ET.fromstring(pic)
+        assert root.get("viewBox") == "0 0 120 80"

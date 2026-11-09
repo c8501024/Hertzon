@@ -11,6 +11,27 @@ the GitHub release notes.
   again instead of settling (as with the lumped-port voltage samples fixed in 0.3.11). The server instructions
   say to check the port model first when S11 jumps between passes or the power balance is off.
 
+### Changed
+- **Design Wizard pictures:** the structure pictures on the cards are redrawn from common building blocks, so
+  lines join cleanly. The rat-race ports sit on the ring, and the branchline, coupled-line, Lange, T-junction,
+  edge-coupled and other pictures follow the real layout.
+- **Mesh of thin substrates:** the elements in a thin dielectric layer are at most six times as wide as the
+  layer is thick. The wavelength rule alone made them up to twenty times wider than a 0.5 mm board: a third of
+  the tetrahedra were flat, and a few had no volume at all, which stopped the analysis with "NaN detected in the
+  a-posteriori error estimate". The initial mesh grows by about 7 % on a microstrip filter; a patch antenna now
+  converges instead of running out of passes.
+- A mesh that still has tetrahedra without volume (now rare, e.g. at the faces of the air box) is meshed again
+  with other seeds, as before.
+
+## 0.3.12 (2026-11-09)
+
+### Fixed
+- **Installer: temporary GitHub server errors**: when a package download failed with a server error (such as
+  504 Gateway Time-out for the EMerge wheel), the setup stopped at once. It now tries the installation again up
+  to three times with a pause. pip downloaded the EMerge wheel on every update even when exactly that wheel was
+  installed; an update now downloads EMerge only when it is missing or a different one is required, and
+  otherwise installs only Hertzon.
+
 ## 0.3.11 (2026-11-09)
 
 ### Added
