@@ -20,8 +20,9 @@ def _db(x):
 
 
 def test_diplexer_geometry_builds_and_validates():
-    """Two rows of hairpins, the junction and three feeds: every port on y = 0, the common one at the top edge,
-    the copper of the junction united with the last hairpin of A and the first of B."""
+    """Two rows of hairpins stacked (A above, B below) to the right of the T-junction, the common port at the left
+    edge, Ports 2 and 3 at the right edge on the tap lines of their rows; the copper of the junction united with
+    the first hairpin of A and of B; the rows gr apart; each junction line (up/down, then across) is j long."""
     p = diplexer_project(DiplexerSpec())
     d, c = p.designs
     assert d.name == "Diplexer_N3_N3" and c.name == "Diplexer_N3_N3_Circuit" and c.kind == "circuit"
@@ -30,18 +31,24 @@ def test_diplexer_geometry_builds_and_validates():
     ctx = K.build_design(d, ev)
     assert not ctx.errors
     for name in ("HairpinA1", "HairpinA3", "HairpinB2", "HairpinB3", "Port1", "Port2", "Port3"):
-        assert len(ctx.built[name]) == 1                     # feeds, junction and HairpinB1 united into HairpinA3
+        assert len(ctx.built[name]) == 1                     # feeds, junction and HairpinB1 united into HairpinA1
     assert not ctx.built.get("HairpinB1") and not ctx.built.get("Junction")
     tess = K.tessellate(ctx)
     assert not [c for c in validate(p, d, tess, ctx.errors) if c.level == "error"]
     ol = outlines(d, p)
-    a_right = max(x for x, _ in ol["HairpinA3"])
-    b_left = min(x for x, _ in ol["HairpinB1"])
-    assert np.isclose(b_left - a_right, ev.length("j_A") * 1e3 + ev.length("j_B") * 1e3 + ev.length("wf") * 1e3)
-    # the taps of both rows are on the line of the ports (rows shifted by their tap height)
-    for name in ("Feed2", "Feed3", "Junction"):
-        ys = [y for _, y in ol[name]]
-        assert np.isclose(min(ys) + max(ys), 0, atol=1e-9)
+    mm = lambda k: ev.length(k) * 1e3
+    a_low = min(y for n in ("HairpinA1", "HairpinA2", "HairpinA3") for _, y in ol[n])
+    b_high = max(y for n in ("HairpinB1", "HairpinB2", "HairpinB3") for _, y in ol[n])
+    assert np.isclose(a_low - b_high, mm("gr"), atol=1e-6) and a_low > 0 > b_high
+    for ch, row in (("A", "HairpinA1"), ("B", "HairpinB1")):
+        assert np.isclose(mm(f"v_{ch}") + mm(f"ja_{ch}"), mm(f"j_{ch}"))
+        assert np.isclose(min(x for x, _ in ol[row]), mm("wf") / 2 + mm(f"ja_{ch}"))
+    # the outer feeds on the tap lines of their rows, the common feed on y = 0
+    for name, y in (("Feed1", 0), ("Feed2", mm("v_A")), ("Feed3", -mm("v_B"))):
+        ys = [b for _, b in ol[name]]
+        assert np.isclose((min(ys) + max(ys)) / 2, y, atol=1e-9)
+    xs = [x for pts in ol.values() for x, _ in pts]
+    assert np.isclose(min(xs), -mm("Wl")) and np.isclose(max(xs), mm("Wr"))
     assert all(c.variables[k] == d.variables[k] for k in d.variables)
     q = project_from_dict(p.to_dict())
     assert q.designs[0].optimetrics[0].props["CoarseModel"] == c.name
@@ -75,7 +82,7 @@ def test_diplexer_goals_and_optimizations():
     assert ("dB(S(3,2))", "1.8GHz", "<=") in calcs and ("dB(S(3,2))", "2.1GHz", "<=") in calcs
     for k in range(2):
         lo, hi = nom["ranges"][f"j_{'AB'[k]}"]
-        assert lo <= nom["j"][k] <= hi and nom["j"][k] >= nom["jmin"]
+        assert lo <= nom["j"][k] <= hi and nom["j"][k] >= nom["jmin"][k]
     ev = d.evaluator()
     assert ev.length("g2_A") < ev.length("g_A")                    # one gap per pair of neighbours
 
@@ -132,7 +139,7 @@ def test_common_resonator_diplexer():
     t = diplexer_project(DiplexerSpec())
     et = t.designs[0].evaluator(t)
     area_t = (et.length("Wl") + et.length("Wr")) * et.length("Wy")
-    assert area_r < 0.6 * area_t
+    assert area_r < 0.7 * area_t
     sm = d.optimetrics[0]
     inc = [v["name"] for v in sm.variables if v["include"]]
     assert {"L_0", "g_0A", "g_0B", "yP_0", "L_A", "g_A", "yP_B"} <= set(inc) and "j_A" not in inc
