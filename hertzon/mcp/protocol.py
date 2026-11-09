@@ -28,6 +28,7 @@ from typing import Any, Callable
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 KEEP_LOGS = 20                 # server logs kept in ~/.hertzon/logs
 WATCHDOG_S = 300.0             # a request running longer: the stacks of all threads go to the log (and again)
+MAX_WAIT_S = 50.0              # longest wait of one get_status / get_tuning call (HERTZON_MCP_MAX_WAIT)
 
 
 @dataclass
@@ -75,6 +76,36 @@ def cancelled() -> bool:
     """The client cancelled the running tool call (notifications/cancelled)."""
     s = _SERVER
     return bool(s is not None and s.current is not None and s.current in s.cancelled_ids)
+
+
+def max_wait(requested) -> float:
+    """The wait of a status call, in seconds: what the model asked for, at most MAX_WAIT_S.
+
+    The server answers one call after the other. A get_status that waited 300 s (and up to 600 s) outlived the
+    time limit of the client (4 min in the Claude app linked to Claude Desktop): the client gave up, and the
+    calls it sent next (get_schema, run_python) queued behind the wait and timed out as well. Short waits keep
+    every call well inside any client's limit; the model simply asks again."""
+    try:
+        cap = float(os.environ.get("HERTZON_MCP_MAX_WAIT", MAX_WAIT_S))
+    except ValueError:
+        cap = MAX_WAIT_S
+    try:
+        want = float(requested or 0)
+    except (TypeError, ValueError):
+        want = 0.0
+    return max(0.0, min(want, cap)) if math.isfinite(want) else 0.0
+
+
+def pause(seconds: float) -> bool:
+    """Sleep up to `seconds` in short steps; False as soon as the client cancelled the running call."""
+    end = time.monotonic() + max(0.0, seconds)
+    while True:
+        if cancelled():
+            return False
+        left = end - time.monotonic()
+        if left <= 0:
+            return True
+        time.sleep(min(0.2, left))
 
 
 def _content(result: Any) -> list[dict]:
@@ -177,6 +208,12 @@ class Server:
             m = self._inbox.get()
             if m is None:
                 break
+            if m.get("id") is not None and m.get("id") in self.cancelled_ids:
+                # cancelled while it waited behind another call (the client gave up on it): no answer
+                self.cancelled_ids.discard(m.get("id"))
+                print(f"[hertzon mcp] {time.strftime('%H:%M:%S')} skipped {_describe(m)} (cancelled by the client)",
+                      file=sys.stderr, flush=True)
+                continue
             self.current = m.get("id")
             self.token = ((m.get("params") or {}).get("_meta") or {}).get("progressToken") \
                 if isinstance(m.get("params"), dict) else None
