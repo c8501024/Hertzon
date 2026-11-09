@@ -189,23 +189,22 @@ the feeds at the taps. The dialog shows, while the values change, the ideal Cheb
 with the loss of the board, the circuit of the start design and the mask; its table of N and **Suggest N** help
 choosing the number of resonators, and **Create and Optimize** creates the design and starts *HairpinSM*.
 
-**Tools › Filter Design › Hairpin Diplexer** builds two hairpin filters on a T-junction, stacked as in
-most published hairpin diplexers: the common Port 1 at the left edge, the T right behind it, channel A above and
-channel B below, Port 2 and Port 3 at the right edge on the tap lines of their rows. Each channel has its own
-length, outer length offset, gaps, tap and junction line (`L_A`, `dL_A`, `g_A`, `g2_A`, `yP_A`, `j_A`, ...);
-trace width, inner width and miter are shared. Each junction line runs up (A) or down (B) to the tap line of its
-row (`v_A`, which keeps the rows `gr` apart), turns and runs `ja_A` to the row, `v_A + ja_A = j_A`; the circuit
-has the same line, corner and line. When both lines are long enough, the rows hang from their tap lines towards
-the middle and the lines climb along them (a narrower board), otherwise they stand away from the middle. The
-junction lines start where each filter looks like an open circuit at the
-junction in the band of the other channel (from the circuit of that channel alone). The diplexer comes with its
-circuit (`Diplexer_N3_N3_Circuit`) and the optimization *DiplexerSM* on both channel masks (insertion loss,
-ripple, return loss at the common and the channel port, rejection in the other channel and in the outer
-stopband) and the isolation S32 in both passbands. *Junction: Common resonator* replaces the T-junction by a
-hairpin shared by both filters (`L_0`, `g_0A`, `g_0B`, `yP_0`), tapped by Port 1 from inside its U: one row of
-hairpins on a smaller board. *Third channel* makes a triplexer: A and B hang below the line of the
-ports, the third filter is turned downwards on a cross junction to Port 4, with isolation goals for every pair
-of channel ports.
+**Tools › Filter Design › Hairpin Diplexer** builds two hairpin filters on a T-junction, stacked as in most
+published hairpin diplexers: the common Port 1 at the left edge, the T right behind it, channel A above and channel
+B below, Port 2 and Port 3 at the right edge on the tap lines of their rows. Each channel has its own length, outer
+length offset, gaps, tap and junction line (`L_A`, `dL_A`, `g_A`, `g2_A`, `yP_A`, `j_A`, ...); trace width, inner
+width and miter are shared. Each junction line runs up (A) or down (B) to the tap line of its row (`v_A`, which
+keeps the rows `gr` apart), turns and runs `ja_A` to the row, `v_A + ja_A = j_A`; the circuit has the same line,
+mitered bend and line. When both lines are long enough, the rows hang from their tap lines towards the middle and
+the lines climb along them (a narrower board), otherwise they stand away from the middle. The junction lines start
+where each filter looks like an open circuit at the junction in the band of the other channel (from the circuit of
+that channel alone). The diplexer comes with its circuit (`Diplexer_N3_N3_Circuit`) and the optimization
+*DiplexerSM* on both channel masks (insertion loss, ripple, return loss at the common and the channel port,
+rejection in the other channel and in the outer stopband) and the isolation S32 in both passbands. *Junction:
+Common resonator* replaces the T-junction by a hairpin shared by both filters (`L_0`, `g_0A`, `g_0B`, `yP_0`),
+tapped by Port 1 from inside its U: one row of hairpins on a smaller board. *Third channel* makes a triplexer: A
+and B hang below the line of the ports, the third filter is turned downwards on a cross junction to Port 4, with
+isolation goals for every pair of channel ports.
 
 A round whose 3D solve is worse than the best one goes back to it with half the step (at most three times in a
 row), so a circuit that is only roughly right does not lead the 3D design away.

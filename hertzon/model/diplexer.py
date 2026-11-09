@@ -422,16 +422,15 @@ def diplexer_design(spec: DiplexerSpec) -> tuple[Design, dict]:
         pin.history.append(Command.new("Unite", Tools=f.name))
         f.consumed_by = pin.name
     # the junction: the common feed from the left edge to the T, the vertical line from row B up to row A and the
-    # two lines from its ends to the first hairpins
+    # two lines from its ends to the first hairpins, one outline with both outer corners mitered by 50 % (cut wf
+    # on both edges, as the mitered bends MMBEND of the circuit)
     f1 = d.add_object("CreateRectangle", name="Feed1", Position="-Wl,-wf/2,h", Axis="Z", XSize="Wl", YSize="wf")
-    jv = d.add_object("CreateRectangle", name="Junction", Position="-wf/2,-v_B-wf/2,h", Axis="Z", XSize="wf",
-                      YSize="v_A+v_B+wf")
-    ja = d.add_object("CreateRectangle", name="JunctionA", Position="-wf/2,v_A-wf/2,h", Axis="Z",
-                      XSize="xl_A+w/2+wf/2", YSize="wf")
-    jb = d.add_object("CreateRectangle", name="JunctionB", Position="-wf/2,-v_B-wf/2,h", Axis="Z",
-                      XSize="xl_B+w/2+wf/2", YSize="wf")
-    a_in.history.append(Command.new("Unite", Tools=f"{f1.name},{jv.name},{ja.name},{jb.name},{b_in.name}"))
-    for o in (f1, jv, ja, jb, b_in):
+    jpts = ["xl_B+w/2,-v_B-wf/2", "xl_B+w/2,-v_B+wf/2", "wf/2,-v_B+wf/2", "wf/2,v_A-wf/2", "xl_A+w/2,v_A-wf/2",
+            "xl_A+w/2,v_A+wf/2", "wf/2,v_A+wf/2", "-wf/2,v_A-wf/2", "-wf/2,-v_B+wf/2", "wf/2,-v_B-wf/2"]
+    jv = d.add_object("CreatePolyline", name="Junction", material="vacuum", Points=";".join(f"{q},h" for q in jpts),
+                      Closed="True", Covered="True")
+    a_in.history.append(Command.new("Unite", Tools=f"{f1.name},{jv.name},{b_in.name}"))
+    for o in (f1, jv, b_in):
         o.consumed_by = a_in.name
     p1 = d.add_object("CreateRectangle", name="Port1", Position="-Wl,-wf/2,0", Axis="X", YSize="wf", ZSize="h")
     p2 = d.add_object("CreateRectangle", name="Port2", Position="Wr,v_A-wf/2,0", Axis="X", YSize="wf", ZSize="h")
@@ -511,9 +510,9 @@ def diplexer_circuit(spec: DiplexerSpec, name: str = "") -> Design:
 
     def junction(ch):
         def feed(tag, net):
-            # from the row to the corner, the corner, up or down to the T
+            # from the row to the corner, the mitered bend, up or down to the T
             place("MLIN", f"J{ch}h", {**sub, "W": "wf", "L": f"ja_{ch}"}, [net, f"K{ch}_h"])
-            place("MCORN", f"K{ch}", {**sub, "W": "wf"}, [f"K{ch}_h", f"K{ch}_v"])
+            place("MMBEND", f"K{ch}", {**sub, "W": "wf"}, [f"K{ch}_h", f"K{ch}_v"])
             place("MLIN", f"J{ch}v", {**sub, "W": "wf", "L": f"max({_MIN_LINE}, v_{ch}-wf)"},
                   [f"K{ch}_v", f"TJ_{ch}"])
         return feed
@@ -551,7 +550,7 @@ def outlines(design: Design, project: Project | None = None) -> dict[str, list[t
     out = {}
     for o in design.objects:
         p = o.history[0].props if o.history else {}
-        if o.name.startswith("Hairpin"):
+        if o.name.startswith("Hairpin") or "Points" in p:
             out[o.name] = [(x * 1e3, y * 1e3) for x, y, _ in ev.points(p["Points"])]
         elif o.name.startswith(("Feed", "Junction")):
             x, y, _ = ev.point(p["Position"])
