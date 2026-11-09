@@ -142,17 +142,15 @@ def _hairpins(x0: float, n: int, pitch: float, leg: float, top: float, bottom: f
 
 def _ratrace() -> str:
     import math
-    cx, cy, r = 60, 42, 22
-    items = [ring(cx, cy, r, 4)]
-    # four ports 60 degrees apart on one side; the remaining arc is 180 degrees (3/4 wavelength).
-    # Each port leaves the ring horizontally (or vertically at the top) towards the edge.
-    for ang in (210, 150, 90, 30):
+    cx, cy, r = 60, 34, 22
+    items = [ring(cx, cy, r, 3)]
+    # four ports 60 degrees apart (2 left, 1 and 3 below, 4 right); the arc over the top is 180 degrees
+    # (3/4 wavelength). The short feeds leave the ring radially.
+    for ang in (180, 240, 300, 0):
         a = math.radians(ang)
-        x, y = cx + (r - 1) * math.cos(a), cy - (r - 1) * math.sin(a)
-        if ang == 90:
-            items.append(line(f"M{x:.2f} {y:.2f} V6", 4))
-        else:
-            items.append(line(f"M{x:.2f} {y:.2f} H{8 if x < cx else 112}", 4))
+        x0, y0 = cx + (r - 1) * math.cos(a), cy - (r - 1) * math.sin(a)
+        x1, y1 = cx + (r + 13) * math.cos(a), cy - (r + 13) * math.sin(a)
+        items.append(line(f"M{x0:.2f} {y0:.2f} L{x1:.2f} {y1:.2f}", 4))
     return svg(*items)
 
 

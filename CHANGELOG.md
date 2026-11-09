@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Design Wizard rat-race coupler looks like a real board:** the four feeds leave the ring radially, 60 degrees
+  apart (port 2 left, ports 1 and 3 below, port 4 right, the three-quarter-wave arc over the top), and each ends
+  on a board edge square to it, where the connector goes. The board is cut to fit the feeds (chamfers at ports 1
+  and 3). With the default specification (2.45 GHz) the 3D model before any optimization gives S11 −30 dB, isolation −35 dB and −3.2 dB to ports 2 and 3, in phase within 2 degrees.
+
 ## 0.3.13 (2026-11-09)
 
 ### Added
