@@ -4135,8 +4135,9 @@ class MainWindow(QMainWindow):
 
     def _install_update(self, release: dict) -> None:
         """Download the installer (with progress, cancelable, checksum checked), ask to save open changes,
-        close Hertzon and start the installer once this process has exited, so that no file of the program
-        or of .venv is still in use when the installer replaces them."""
+        start the installer and close Hertzon. The installer waits until this process has exited before it
+        opens, so that no file of the program or of .venv is still in use when it replaces them; when it
+        cannot be started, Hertzon stays open and says so."""
         import threading
         from PySide6.QtCore import QObject, Signal
         from PySide6.QtWidgets import QApplication, QProgressDialog
@@ -4200,14 +4201,23 @@ class MainWindow(QMainWindow):
         if not path.is_file():  # removed while the save question was open
             self._update_installer_gone(path, release)
             return
-        self.doc.dirty = False  # answered above; closing must not ask again
         try:
-            how = start_installer_after_exit(path, page=release["url"])
+            start_installer_after_exit(path)
         except OSError as e:
-            QMessageBox.warning(self, "Install Update", f"The installer could not be started:\n{e}\n\n{path}")
+            self.msgs.add("error", f"Update: the installer {path} could not be started: {e}")
+            if QMessageBox.warning(
+                    self, "Install Update",
+                    f"The installer could not be started:\n{e}\n\n{path}\n\nHertzon stays open. Start the "
+                    f"installer from that folder yourself, or download it from the release page.\n\n"
+                    f"Open the release page?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
+                from PySide6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
+                QDesktopServices.openUrl(QUrl(release["url"]))
             return
-        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes, then the installer starts"
-                              + (" (started directly, PowerShell was not available)." if how == "direct" else "."))
+        # the installer waits (without a window) until this process has ended, then opens
+        self.doc.dirty = False  # answered above; closing must not ask again
+        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes, then the installer opens.")
         self.close()
         QApplication.quit()
 

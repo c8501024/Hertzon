@@ -6,7 +6,6 @@ the environment variable HERTZON_NO_UPDATE_CHECK=1 (which also blocks Help > Che
 Nothing is installed without a click on Install."""
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import os
@@ -147,81 +146,92 @@ def download(url: str, dest: Path, digest: str = "", progress=None, cancelled=la
     return dest
 
 
-def _ps_quote(s: str) -> str:
-    return "'" + str(s).replace("'", "''") + "'"
+WAIT_OPTION = "/WAITPID="   # installer.nsi: wait until this process has ended, then open
+WAIT_S = 120                # how long the installer waits for Hertzon at most (installer.nsi: WaitForHertzon)
+
+# CreateProcess flags: no console, own process group, out of a job object of Hertzon (where Windows allows it)
+_DETACHED, _NEW_GROUP, _BREAKAWAY = 0x00000008, 0x00000200, 0x01000000
 
 
-def installer_waiter(installer: Path, pid: int, timeout_s: int = 120, page: str = RELEASES_PAGE) -> str:
-    """PowerShell script that waits until the Hertzon process `pid` has exited (at most `timeout_s`
-    seconds) and then starts `installer`. Started by Hertzon itself, the installer would otherwise come up
-    while Hertzon is still closing and still holds files of .venv open, and it would run as a child of
-    that process.
-
-    The script runs without a window, so it writes what it does to update.log next to the installer. When
-    the installer is gone (virus protection may remove a freshly downloaded program) or cannot be started,
-    it says so in a message box with the path and offers the release page; before, Hertzon simply closed
-    and nothing happened."""
-    path = _ps_quote(installer)
-    return (f"$inst = {path}; $log = Join-Path (Split-Path -Parent $inst) 'update.log'; "
-            "function L($m) { try { Add-Content -LiteralPath $log -Value ((Get-Date -Format s) + ' ' + $m) } catch {} }; "
-            f"L ('waiting for Hertzon (process {int(pid)}) to close'); "
-            f"$p = Get-Process -Id {int(pid)} -ErrorAction SilentlyContinue; "
-            f"if ($p) {{ $null = $p.WaitForExit({int(timeout_s) * 1000}) }}; "
-            "$err = $null; "
-            "if (-not (Test-Path -LiteralPath $inst)) { "
-            "$err = 'The downloaded installer is no longer there (virus protection may have removed it):' } "
-            "else { try { Start-Process -FilePath $inst -ErrorAction Stop; L ('started ' + $inst) } "
-            "catch { $err = 'The installer could not be started: ' + $_.Exception.Message } }; "
-            "if ($err) { L ($err + ' ' + $inst); "
-            "$msg = $err + [char]10 + $inst + [char]10 + [char]10 + "
-            "'Open the release page to download the installer there?'; "
-            "try { $a = (New-Object -ComObject WScript.Shell).Popup($msg, 0, 'Hertzon Update', 0x34) } "
-            "catch { $a = 6 }; "
-            f"if ($a -eq 6) {{ Start-Process {_ps_quote(page)} }} }}")
+def update_log(folder: Path, text: str) -> None:
+    """One line in update.log next to the downloaded installer; the installer adds its own lines (waiting for
+    Hertzon, Hertzon closed), so a failed update leaves a trace."""
+    import time
+    line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} Hertzon (process {os.getpid()}): {text}\n"
+    for _ in range(10):   # the installer may be writing its own line at the same moment (file in use)
+        try:
+            with open(Path(folder) / "update.log", "a", encoding="utf-8") as f:
+                f.write(line)
+            return
+        except PermissionError:
+            time.sleep(0.05)
+        except OSError:
+            return
 
 
-def powershell_exe() -> str | None:
-    """Full path of Windows PowerShell. Started by the bare name "powershell.exe", Windows looks for it in
-    PATH only, and when PATH lacks the PowerShell folder (changed by other software or a policy) starting
-    it fails with "[WinError 2] The system cannot find the file specified"; the update then never ran."""
-    root = os.environ.get("SystemRoot") or os.environ.get("windir") or r"C:\Windows"
-    for p in (Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe",
-              Path(root) / "Sysnative" / "WindowsPowerShell" / "v1.0" / "powershell.exe"):
-        if p.is_file():
-            return str(p)
-    import shutil
-    return shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+def installer_command(installer: Path, pid: int, extra: tuple[str, ...] = ()) -> list[str]:
+    """The installer with /WAITPID=<pid>: it waits, without a window, until the Hertzon process `pid` has
+    ended (at most WAIT_S seconds), so that no file of the program or of .venv is still in use when it
+    replaces them, and only then opens. `extra` (e.g. /S /D=...) goes last: NSIS wants /D= at the end."""
+    return [str(installer), f"{WAIT_OPTION}{int(pid)}", *extra]
 
 
-def start_installer_after_exit(installer: Path, pid: int | None = None, page: str = RELEASES_PAGE) -> str:
-    """Start `installer` once this process has exited, through a hidden PowerShell that does not belong
-    to Hertzon. Without PowerShell (or when it cannot be started) the installer is started directly; it
-    opens with its welcome page, by then Hertzon has closed. Returns "waiter" or "direct"; raises OSError
-    only when neither works."""
+def _allow_foreground() -> None:
+    """Hertzon is the window in front when Install is clicked; the installer it starts may come to the front
+    as well once Hertzon has closed (otherwise Windows may open it behind other windows)."""
+    import ctypes
+    user32 = getattr(getattr(ctypes, "windll", None), "user32", None)
+    if user32 is not None:   # Windows
+        user32.AllowSetForegroundWindow(ctypes.c_uint32(0xFFFFFFFF))   # ASFW_ANY
+
+
+def start_installer_after_exit(installer: Path, pid: int | None = None, extra: tuple[str, ...] = (),
+                               check_s: float = 1.0) -> str:
+    """Start the downloaded installer for the update; it waits until this process (or `pid`) has exited
+    before it opens. Returns "process" (started as a process of its own that keeps running when Hertzon
+    exits) or "shell" (started through the Windows shell, when a direct start was refused). Raises OSError
+    when the installer cannot be started or ends right away, so that Hertzon stays open and says so.
+
+    Before, a hidden PowerShell started by Hertzon waited for Hertzon to close and then started the
+    installer. Windows PowerShell started without a console (DETACHED_PROCESS) ends at once on some Windows
+    versions, without running the script and without an error (and, started by the bare name powershell.exe,
+    it was not found at all on some computers): Hertzon closed and nothing happened. Hertzon now starts the
+    installer itself, a window program for which DETACHED_PROCESS only means "no console", writes each step
+    to update.log and checks that the installer is still running before it closes."""
     if not installer.is_file():
         raise FileNotFoundError(2, "The downloaded installer is no longer there", str(installer))
-    script = installer_waiter(installer, os.getpid() if pid is None else pid, page=page)
-    enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
-    kw: dict = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
-                "close_fds": True}
-    if sys.platform == "win32":
-        kw["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000   # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
-    ps = powershell_exe() if sys.platform == "win32" else "powershell.exe"
-    first: OSError | None = None
-    if ps:
-        try:
-            subprocess.Popen([ps, "-NoProfile", "-NonInteractive",
-                              "-WindowStyle", "Hidden", "-EncodedCommand", enc], **kw)
-            return "waiter"
-        except OSError as e:
-            first = e
     if sys.platform != "win32":
-        raise first or FileNotFoundError(2, "PowerShell not found", "powershell.exe")
+        raise OSError("the Windows installer can only be started on Windows")
+    pid = os.getpid() if pid is None else int(pid)
+    cmd = installer_command(installer, pid, extra)
+    folder = installer.parent
+    update_log(folder, f"starting {installer.name} {' '.join(cmd[1:])}")
+    _allow_foreground()
+    errors: list[str] = []
+    # no standard handles and no inherited handles: the installer is a window program of its own
+    for flags in (_DETACHED | _NEW_GROUP | _BREAKAWAY, _DETACHED | _NEW_GROUP):
+        try:
+            p = subprocess.Popen(cmd, cwd=str(folder), creationflags=flags, close_fds=True)
+        except OSError as e:     # a job object that does not allow breaking away: ERROR_ACCESS_DENIED
+            errors.append(f"{e}")
+            update_log(folder, f"direct start refused (flags {flags:#x}): {e}")
+            continue
+        try:
+            code = p.wait(timeout=check_s)
+        except subprocess.TimeoutExpired:
+            update_log(folder, f"installer running as process {p.pid}, Hertzon closes now")
+            return "process"
+        # it waits for Hertzon, so it must still be running: virus protection or a policy ended it
+        update_log(folder, f"installer process {p.pid} ended right away (exit code {code:#x})")
+        raise OSError(f"The installer ended right away (exit code {code:#x}); virus protection or a policy "
+                      f"may have stopped it.")
     try:
-        os.startfile(str(installer))  # type: ignore[attr-defined]
+        os.startfile(str(installer), arguments=" ".join(cmd[1:]), cwd=str(folder))  # type: ignore[attr-defined]
     except OSError as e:
-        raise OSError(f"{e} (PowerShell: {first or 'not found'})") from e
-    return "direct"
+        update_log(folder, f"start through the Windows shell failed: {e}")
+        raise OSError(f"{e} (direct start: {'; '.join(errors) or 'refused'})") from e
+    update_log(folder, "installer started through the Windows shell, Hertzon closes now")
+    return "shell"
 
 
 def download_dir() -> Path:
