@@ -119,3 +119,15 @@ def test_impedance_and_summary_on_a_circuit(server, tmp_path):
     assert z["hints"] == []                       # a matched line reflects nothing
     s = call(server, "get_results")
     assert "port1" in s["port_diagnostics"] and "reading_guide" in s
+
+
+def test_power_balance_and_delta_s_drift():
+    e = dg.efficiency_breakdown(1.0, 0.34, 0.20, Ploss=0.04)
+    assert e["power_balance"] == pytest.approx(-0.10) and "balance_warning" not in e
+    e = dg.efficiency_breakdown(1.0, 0.34, 0.20, Ploss=0.30)
+    assert "port" in e["balance_warning"]
+    conv = {"passes": [{"delta_s": 0.3}, {"delta_s": 0.04}, {"delta_s": 0.28}], "converged": False}
+    n = dg.convergence_note(conv, 0.02)
+    assert "drift_warning" in n and n["delta_s_history"] == [0.3, 0.04, 0.28]
+    conv = {"passes": [{"delta_s": 0.3}, {"delta_s": 0.1}, {"delta_s": 0.05}], "converged": False}
+    assert "drift_warning" not in dg.convergence_note(conv, 0.02)

@@ -17,6 +17,8 @@ import numpy as np
 HIGH_Q = 20.0               # Q_Z above this: narrow band, a match holds only over ~1/Q fractional bandwidth
 STRONG_REFLECTION = 0.5     # mismatch efficiency below this (|S11| above -3 dB) counts as strong reflection
 LIMIT_MARGIN_DB = 1.0       # the other factor must be this much better to call one factor "limiting"
+BALANCE_LIMIT = 0.10        # |Prad + Ploss - Pacc| / Pinc above this: the split is not trustworthy
+DRIFT_FACTOR = 2.0          # last Delta S this many times above the best pass: the passes are not settling
 
 
 def _r(x, n=4):
@@ -106,6 +108,13 @@ def efficiency_breakdown(Pinc: float, Pacc: float, Prad: float, Ploss: float | N
         out["limited_by"] = "both"
     if Ploss is not None:
         out["radiation_efficiency_from_loss"] = _r(float(Prad) / max(float(Prad) + float(Ploss), 1e-300))
+        bal = (float(Prad) + float(Ploss) - float(Pacc)) / Pinc
+        out["power_balance"] = _r(bal, 3)
+        if abs(bal) > BALANCE_LIMIT:
+            out["balance_warning"] = (
+                f"Prad + Ploss differs from Pacc by {100 * bal:+.0f} % of Pinc: the accepted power (from S11 at the "
+                "port), the loss power or the far field is wrong. Check the port (Integration Line across the "
+                "sheet, port size against the mesh) and convergence before trusting either factor.")
     if rad > 1.05:
         out["warning"] = ("Prad > Pacc: the power balance is off (unconverged mesh, far-field sphere too coarse or "
                           "too close); do not draw conclusions from the split until it is fixed.")
@@ -123,6 +132,10 @@ def convergence_note(conv: dict, target: float | None = None) -> dict:
         out["target_delta_s"] = _r(target)
     if conv.get("final_tets"):
         out["final_tets"] = conv["final_tets"]
+    ds = [p.get("delta_s") for p in passes if p.get("delta_s") is not None]
+    drift = len(ds) >= 3 and last is not None and last > DRIFT_FACTOR * min(ds[:-1])
+    if drift:
+        out["delta_s_history"] = [_r(x, 3) for x in ds]
     if not out["converged"]:
         out["warning"] = (
             "The adaptive mesh did NOT converge" + (f" (last Delta S {last:.3g}" if last is not None else " (")
@@ -131,6 +144,12 @@ def convergence_note(conv: dict, target: float | None = None) -> dict:
             "efficiency, Q) are uncertain, most of all near high-Q points and deep dips. Refine (more passes, "
             "mesh operations, adaptive frequencies at the critical points) or confirm with a finer solve before "
             "drawing conclusions.")
+    if drift:
+        out["drift_warning"] = (
+            f"Delta S rose again from {min(ds[:-1]):.3g} to {last:.3g}: the passes are not settling. Physics rarely "
+            "does that; suspect the port model (voltage line, port sheet meshed coarsely or touching other "
+            "metal), very small features or a resonance next to the adaptive frequency. Check S11 of the last "
+            "passes and the port before refining further.")
     return out
 
 
