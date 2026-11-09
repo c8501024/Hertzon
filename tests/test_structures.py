@@ -119,6 +119,21 @@ def test_rat_race_splits_in_phase_and_isolates():
     assert {"Wr", "Rm"} <= set(d3.variables) and len(d3.excitations) == 4
     board, copper = ST.base.top_view(d3, p)
     assert len(copper) == 5 and len(copper[0]) == 146          # the ring (outer + inner + slit) and four feeds
+    # the feeds leave the ring radially at 180, 240, 300 and 0 degrees and end on the board edge, square to it
+    ev = d3.evaluator(p)
+    rp = ev.length("Rp") * 1e3
+    for a in d3.excitations:
+        x, y = (v * 1e3 for v in ev.points(a.props["IntegrationLine"])[0][:2])
+        ang = {"2": 180, "1": 240, "3": 300, "4": 0}[a.name]
+        assert (x, y) == pytest.approx((rp * math.cos(math.radians(ang)), rp * math.sin(math.radians(ang))), abs=1e-6)
+        assert any(_on_segment((x, y), board[i - 1], board[i]) for i in range(len(board)))
+
+
+def _on_segment(q, a, b, tol=1e-6):
+    (x, y), (x1, y1), (x2, y2) = q, a, b
+    cross = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
+    dot = (x - x1) * (x2 - x1) + (y - y1) * (y2 - y1)
+    return abs(cross) < tol * math.hypot(x2 - x1, y2 - y1) and 0 <= dot <= (x2 - x1) ** 2 + (y2 - y1) ** 2
 
 
 def test_coupled_line_coupler_couples_as_asked():
