@@ -21,7 +21,7 @@ import numpy as np
 
 from ..model.design import Design
 from . import live
-from .protocol import Image, ToolError
+from .protocol import Image, ToolError, max_wait, pause
 from .tools import (ROOT, S, Ctx, _abspath, _r, _s, _schema, commit, load, sp_table)
 
 
@@ -449,13 +449,14 @@ def t_get_tuning(args):
     ctx = load(args)
     d = ctx.des
     setup, sweep, path = _tuning_target(ctx, args)
-    wait = min(float(args.get("wait_seconds") or 0), 600.0)
+    wait = max_wait(args.get("wait_seconds"))
     t0 = time.time()
     while True:
         state = _tuning_state(ctx, setup, sweep, path)
         if state not in ("running", "queued") or time.time() - t0 >= wait:
             break
-        time.sleep(min(3.0, max(0.2, wait - (time.time() - t0))))
+        if not pause(min(3.0, max(0.2, wait - (time.time() - t0)))):
+            break
     if state != "done":
         res = {"setup": setup, "sweep": sweep, "state": state}
         logf = path.parent / "tuning.log"
@@ -968,7 +969,7 @@ TOOLS = [
                                                                "interpolating sweep (default 51)"},
                   "cores": {"type": "integer"}}, ["variables"]), t_compute_tuning),
     Tool("get_tuning", "State of a tuning model and, when it is there, the S-parameters at the variable values "
-         "given (default: the solved values), with the tuning range of every variable. wait_seconds waits while "
+         "given (default: the solved values), with the tuning range of every variable. wait_seconds waits (up to 25 min in Claude Code, 2 min in Claude Desktop, 9 min otherwise) while "
          "it is computed.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string"}, "values": VALUES,
                   "params": {"type": "array", "items": {"type": "string"}},
