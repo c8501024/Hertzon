@@ -44,16 +44,16 @@ the GitHub release notes.
   written to `update.log` in `%LOCALAPPDATA%\Hertzon\Updates`, and when the installer cannot be started or ends
   right away, Hertzon stays open and says so. The installer also starts PowerShell (for the Python environment)
   by its full path. Computers on which Install did nothing install this version once from the release page.
-
-## 0.3.12 (2026-11-09)
-
-### Fixed
 - **Linux: Hertzon did not start from the application menu** when system libraries for Qt's X11 platform plugin
   (e.g. `libxcb-cursor0`) were missing: Qt stopped with "no Qt platform plugin could be initialized" and the menu
   entry showed nothing. The installer now checks the libraries Qt and gmsh are linked against, prints the install
   command for apt, dnf, pacman or zypper and offers to run it; the menu entry shows a message with that command
   instead of failing silently and writes the output to `~/.local/share/hertzon/hertzon.log`. The Linux
   installer is in English.
+
+## 0.3.12 (2026-11-09)
+
+### Fixed
 - **Installer: temporary GitHub server errors**: when a package download failed with a server error (such as
   504 Gateway Time-out for the EMerge wheel), the setup stopped at once. It now tries the installation again up
   to three times with a pause. pip downloaded the EMerge wheel on every update even when exactly that wheel was
