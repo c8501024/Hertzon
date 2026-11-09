@@ -17,6 +17,15 @@ the GitHub release notes.
 - A mesh that still has tetrahedra without volume (now rare, e.g. at the faces of the air box) is meshed again
   with other seeds, as before.
 
+## 0.3.12 (2026-11-09)
+
+### Fixed
+- **Installer: temporary GitHub server errors**: when a package download failed with a server error (such as
+  504 Gateway Time-out for the EMerge wheel), the setup stopped at once. It now tries the installation again up
+  to three times with a pause. pip downloaded the EMerge wheel on every update even when exactly that wheel was
+  installed; an update now downloads EMerge only when it is missing or a different one is required, and
+  otherwise installs only Hertzon.
+
 ## 0.3.11 (2026-11-09)
 
 ### Added

@@ -37,6 +37,13 @@ jobs:
             libdbus-1-3 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
             libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
       - name: Install Hertzon with the test extras
-        run: pip install -e ".[test]"
+        # GitHub release downloads (the EMerge wheel) sometimes answer 504 for a while; pip does not retry that
+        run: |
+          for wait in 0 20 60 120; do
+            sleep $wait
+            pip install --retries 10 --timeout 60 -e ".[test]" && exit 0
+            echo "pip install failed; trying again"
+          done
+          exit 1
       - name: Run the tests
         run: xvfb-run -a -s "-screen 0 1920x1080x24" python -m pytest tests -ra --durations=20

@@ -14,7 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt/hertzon
 COPY pyproject.toml packaging/docker/solver_requirements.py ./
 RUN python solver_requirements.py pyproject.toml > /tmp/req.txt \
-    && pip install --no-cache-dir -r /tmp/req.txt psutil \
+    && for wait in 0 20 60 120; do sleep $wait; \
+         pip install --no-cache-dir --retries 10 --timeout 60 -r /tmp/req.txt psutil && break; \
+         [ $wait = 120 ] && exit 1; done \
     && rm /tmp/req.txt solver_requirements.py
 
 ENV PYTHONPATH=/opt/hertzon \
