@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **MCP: port and power-balance checks in the result hints.** The efficiency split reports the power balance
+  (Prad + Ploss − Pacc) and warns above 10 % of the incident power; the convergence block warns when Delta S rises
+  again instead of settling (as with the lumped-port voltage samples fixed in 0.3.11). The server instructions
+  say to check the port model first when S11 jumps between passes or the power balance is off.
+
 ## 0.3.11 (2026-11-09)
 
 ### Added
