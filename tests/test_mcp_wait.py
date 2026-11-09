@@ -19,12 +19,18 @@ from hertzon.mcp import protocol  # noqa: E402
 from hertzon.mcp.protocol import max_wait  # noqa: E402
 
 
-def test_max_wait_is_capped(monkeypatch):
+def test_max_wait_is_capped_per_client(monkeypatch):
     monkeypatch.delenv("HERTZON_MCP_MAX_WAIT", raising=False)
-    assert max_wait(600) == protocol.MAX_WAIT_S
-    assert max_wait(300) == protocol.MAX_WAIT_S < 240          # Claude Desktop link: 4 min per call
+    srv = protocol.Server("t", "0", "", [])
+    monkeypatch.setattr(protocol, "_SERVER", srv)
+    srv.dispatch("initialize", {"clientInfo": {"name": "claude-code", "version": "2"}})
+    assert max_wait(3600) == protocol.LONG_WAIT_S < 1800         # Claude Code: 30 min per call, few polls
     assert max_wait(10) == 10
+    srv.dispatch("initialize", {"clientInfo": {"name": "codex-mcp-client"}})
+    assert max_wait(3600) == protocol.MAX_WAIT_S < 600           # Codex as Hertzon registers it: 600 s
     assert max_wait(None) == 0 and max_wait("x") == 0 and max_wait(-5) == 0 and max_wait(float("nan")) == 0
+    srv.dispatch("initialize", {"clientInfo": {"name": "claude-ai", "version": "0.1"}})
+    assert max_wait(300) == protocol.SHORT_WAIT_S < 240           # Claude Desktop: 4 min per call
     monkeypatch.setenv("HERTZON_MCP_MAX_WAIT", "2")
     assert max_wait(600) == 2
 

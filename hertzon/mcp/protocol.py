@@ -28,7 +28,12 @@ from typing import Any, Callable
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 KEEP_LOGS = 20                 # server logs kept in ~/.hertzon/logs
 WATCHDOG_S = 300.0             # a request running longer: the stacks of all threads go to the log (and again)
-MAX_WAIT_S = 120.0             # longest wait of one get_status / get_tuning call (HERTZON_MCP_MAX_WAIT)
+# longest wait of one get_status / get_tuning call, by the time limit of the client (HERTZON_MCP_MAX_WAIT: all)
+MAX_WAIT_S = 540.0             # other clients; Codex as registered by Hertzon gives up after 600 s
+LONG_WAIT_S = 1500.0           # Claude Code: gives up after 30 min, so 2 h of solving cost ~5 polls
+SHORT_WAIT_S = 120.0           # Claude Desktop (and the Claude app linked to it): gives up after 4 min
+SHORT_LIMIT_CLIENTS = ("claude-ai", "claude desktop", "claude-desktop")   # clientInfo.name at initialize
+LONG_LIMIT_CLIENTS = ("claude-code",)
 
 
 @dataclass
@@ -78,17 +83,27 @@ def cancelled() -> bool:
     return bool(s is not None and s.current is not None and s.current in s.cancelled_ids)
 
 
-def max_wait(requested) -> float:
-    """The wait of a status call, in seconds: what the model asked for, at most MAX_WAIT_S.
+def client_name() -> str:
+    """clientInfo.name the client sent at initialize ('' before that or in tests)."""
+    s = _SERVER
+    return (s.client if s is not None else "") or ""
 
-    The server answers one call after the other. A get_status that waited 300 s (and up to 600 s) outlived the
-    time limit of the client (4 min in the Claude app linked to Claude Desktop): the client gave up, and the
-    calls it sent next (get_schema, run_python) queued behind the wait and timed out as well. Short waits keep
-    every call well inside any client's limit; the model simply asks again."""
+
+def max_wait(requested) -> float:
+    """The wait of a status call, in seconds: what the model asked for, at most the cap of the client.
+
+    The server answers one call after the other. Claude Desktop (and the Claude app linked to it) gives up on a
+    call after 4 min: a get_status that waited 300 s outlived it, and the calls sent next (get_schema,
+    run_python) queued behind the wait and timed out as well. For such clients the cap is SHORT_WAIT_S; Claude
+    Code (30 min) waits up to LONG_WAIT_S, so a long analysis costs few polls; others MAX_WAIT_S.
+    HERTZON_MCP_MAX_WAIT sets the cap for every client."""
+    name = client_name().lower()
+    default = SHORT_WAIT_S if any(k in name for k in SHORT_LIMIT_CLIENTS) else \
+        LONG_WAIT_S if any(k in name for k in LONG_LIMIT_CLIENTS) else MAX_WAIT_S
     try:
-        cap = float(os.environ.get("HERTZON_MCP_MAX_WAIT", MAX_WAIT_S))
+        cap = float(os.environ.get("HERTZON_MCP_MAX_WAIT", default))
     except ValueError:
-        cap = MAX_WAIT_S
+        cap = default
     try:
         want = float(requested or 0)
     except (TypeError, ValueError):
@@ -173,6 +188,7 @@ class Server:
         self.token = None              # progressToken of the running call
         self.current = None            # id of the running call
         self.cancelled_ids: set = set()
+        self.client = ""               # clientInfo.name of the client (initialize)
         self._lock = threading.Lock()
         self._inbox: queue.Queue = queue.Queue()
 
@@ -292,6 +308,9 @@ class Server:
 
     def dispatch(self, method: str, params: dict) -> dict:
         if method == "initialize":
+            info = params.get("clientInfo") if isinstance(params.get("clientInfo"), dict) else {}
+            self.client = str(info.get("name") or "")
+            print(f"[hertzon mcp] client {self.client!r} {info.get('version') or ''}", file=sys.stderr, flush=True)
             want = params.get("protocolVersion", PROTOCOL_VERSIONS[0])
             return {"protocolVersion": want if want in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
                     "capabilities": {"tools": {"listChanged": False}},

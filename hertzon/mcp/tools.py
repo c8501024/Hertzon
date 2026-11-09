@@ -49,7 +49,9 @@ Workflow
 4. get_geometry to see face indices, centres and normals; render_image to look at the model.
 5. assign boundaries, excitations (ports, plane wave) and mesh operations to objects or faces.
 6. set_setup (solution frequency, passes) with sweeps; set_far_field_sphere for gain/RCS.
-7. validate, then run_simulation; get_status(wait_seconds=120) again and again until done; get_results.
+7. validate, then run_simulation; get_status(wait_seconds=...) until done; get_results. Each get_status costs a
+   turn: when the answer says the analysis will take long (more than ~10 min), tell the user and stop instead of
+   asking again and again; the user asks for the results later.
 8. Optional: set_report and set_field_plot (shown in the window), set_equation (Fields Calculator),
    set_parametric / set_optimization, run with run_simulation(parametric=... or optimization=...).
 
@@ -2502,8 +2504,8 @@ TOOLS = [
                   "skip_validation": {"type": "boolean"}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_run_simulation),
     Tool("get_status", "State of a setup's analysis (queued, running, done, failed), adaptive passes with "
-         "tetrahedra and Delta S, and the last log lines. wait_seconds waits (up to 120 s per call) while it runs; "
-         "call it again until the state is done or failed.",
+         "tetrahedra and Delta S, and the last log lines. wait_seconds waits while it runs (up to 25 min in "
+         "Claude Code, 2 min in Claude Desktop, 9 min otherwise); for long analyses tell the user and stop rather than polling.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string"},
                   "wait_seconds": {"type": "number"}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_get_status, True),
