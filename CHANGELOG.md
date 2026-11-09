@@ -3,6 +3,17 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Mesh of thin substrates:** the elements in a thin dielectric layer are at most six times as wide as the
+  layer is thick. The wavelength rule alone made them up to twenty times wider than a 0.5 mm board: a third of
+  the tetrahedra were flat, and a few had no volume at all, which stopped the analysis with "NaN detected in the
+  a-posteriori error estimate". The initial mesh grows by about 7 % on a microstrip filter; a patch antenna now
+  converges instead of running out of passes.
+- A mesh that still has tetrahedra without volume (now rare, e.g. at the faces of the air box) is meshed again
+  with other seeds, as before.
+
 ## 0.3.11 (2026-11-09)
 
 ### Added
