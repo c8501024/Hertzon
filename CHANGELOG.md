@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.12 (2026-11-09)
 
 ### Fixed
 - **Installer: temporary GitHub server errors**: when a package download failed with a server error (such as
