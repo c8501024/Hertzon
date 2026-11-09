@@ -53,6 +53,7 @@ the next structure.
 | Open-stub bandstop | f0, width of the stopband with the rejection, stubs, ripple, rejection | stub widths `Ws1..` and lengths `Ls1..`, line lengths `Lc1..`, line width `Wu` | S21 in the stopband, S11 in both passbands |
 | Coupled-line coupler | f0, coupling, port impedance, bandwidth, return loss, isolation, coupling tolerance | width `W`, gap `S`, length `L` | S11, S41 (isolation), S31 within the tolerance |
 | Branchline coupler | f0, coupling (3 dB or unequal), port impedance, bandwidth, return loss and isolation, amplitude and phase tolerance | series arms `Ws`, `Ls`, shunt arms `Wp`, `Lp` | S11 and S41 (isolation), S21 and S31 within the tolerance, S31/S21 at −90° |
+| Rat-race coupler | f0, port impedance, bandwidth, return loss and isolation, amplitude tolerance | ring width `Wr`, mean radius `Rm` | S11, S44 and S41 (isolation), S21 and S31 at −3.01 dB within the tolerance |
 
 The Wilkinson divider has arms of Z0·√2 and a resistor of 2 Z0. The arms rise from the input tee by `La`, turn and
 run in parallel to the resistor; in the 3D design the resistor is a lumped RLC sheet of length 2 La + Wa between
@@ -119,6 +120,12 @@ the load impedance. The branchline coupler has series arms Z0·√(1−k²) and 
 k = 10^(−C/20); port 1 is the input, 2 through, 3 coupled, 4 isolated. The line lengths are a quarter guided
 wavelength between the tee centres.
 
+The rat-race is a ring of Z0·√2, 1.5 guided wavelengths around (mean radius 3λg/4π). Going round: port 2,
+port 1, port 3 and port 4 a quarter wave apart, three quarters from 4 back to 2; port 1 splits in phase to 2 and 3,
+port 4 is isolated. In the circuit the ring is four lines with the arc lengths between the tees (no curved part is
+needed: a line does not know it is bent); the 3D design draws the ring as an annulus with vertical feeds to the
+top and bottom board edges and shares the variables `Wr` and `Rm`.
+
 ## AI assistants (MCP)
 
 `list_structures` returns the catalogue with the fields of every available structure; `create_structure(key,
@@ -127,5 +134,5 @@ optimization="MultiFidelity1")` and `apply_optimization`.
 
 ## What comes next
 
-The plan follows the order of the cards: the rat-race (after a curved line part), the hairpin and interdigital
-filters and the others.
+The plan follows the order of the cards: the hairpin and interdigital filters, the matching networks with lumped
+parts and the others.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 
+from .. import schema
 from ..microstrip import C0
 from .base import (
     AVAILABLE,
@@ -208,3 +209,160 @@ class CoupledLineCoupler(Structure):
     def sweep(self, spec: dict) -> tuple[float, float, int]:
         a, b = band(spec["f0"], max(3 * spec["bw"], 60))
         return a, b, 201
+
+
+class RatRace(Structure):
+    """180 degree hybrid (Pozar 7.8): a ring of Z0 sqrt(2), 1.5 guided wavelengths around. Going round: port 2,
+    port 1, port 3 and port 4 a quarter wave apart, three quarters from 4 back to 2. Port 1 splits in phase to
+    2 and 3, port 4 is isolated (the difference port). The ring is drawn as a ring in 3D (no curved line part in
+    the circuit: its lines are the arc lengths between the tees)."""
+    key = "ratrace"
+    title = "Rat-race coupler"
+    category = "coupler"
+    description = "180 degree hybrid, 1.5 wavelength ring"
+    use = "Balanced mixers, sum and difference networks"
+    status = AVAILABLE
+    ports = 4
+    fields = (
+        Field("f0", "Centre frequency", 2.45, "GHz", 0.05, 60),
+        Field("z0", "Port impedance", 50.0, "ohm", 5, 300, 1),
+        Field("bw", "Bandwidth", 10.0, "%", 1, 40, 1),
+        Field("rl", "Return loss and isolation", 20.0, "dB", 6, 50, 1),
+        Field("tol", "Amplitude tolerance", 0.5, "dB", 0.05, 3, 2, help="Around -3.01 dB, the losses included"),
+    )
+    # angles of the ports on the ring (degrees): 2, 1, 3 on the top, 4 on the lower right
+    ANGLES = {2: 150, 1: 90, 3: 30, 4: -30}
+    # extra feed length of a port whose vertical feed leaves the ring at 30 degrees (from the ring's outer edge)
+    SLANT = "Rm + Wr/2 - sqrt(pow(Rm + Wr/2, 2) - 0.75*pow(Rm, 2))"
+
+    def default_name(self, spec: dict) -> str:
+        return f"RatRace_{spec['f0']:g}GHz"
+
+    def synthesis(self, spec: dict, sub: Substrate) -> Synthesis:
+        f0, z0 = spec["f0"], spec["z0"]
+        zr = z0 * math.sqrt(2)
+        wr, wf = sub.width(zr, f0), sub.width(z0, f0)
+        rm = 3 * sub.lambda_g(wr, f0) / (4 * math.pi)
+        syn = Synthesis([
+            Variable("Wr", wr, f"ring width, {zr:.1f} ohm"),
+            Variable("Rm", rm, "mean ring radius: 1.5 lambda_g around"),
+            Variable("Wf", wf, f"feed width, {z0:g} ohm", include=False),
+            Variable("lf", max(sub.lambda_g(wf, f0) / 8, 2 * sub.h), "feed line length beyond the ring",
+                     include=False),
+        ])
+        syn.note = (f"Ring of Z0 sqrt(2) = {zr:.1f} ohm and 1.5 guided wavelengths, mean radius {rm:.2f} mm: port 1 "
+                    "(top) splits in phase to 2 and 3 (a quarter wave on either side), port 4 (lower right) is "
+                    "isolated. The feeds leave the ring vertically to the board edge.")
+        if wr > rm / 3:
+            syn.warnings.append("The ring is wide for its radius: use a thinner substrate")
+        return syn
+
+    def circuit(self, spec: dict, sub: Substrate, syn: Synthesis, name: str):
+        from ..circuit import AUTO
+        d = new_circuit(name, sub, syn)
+        d.settings[AUTO] = "False"
+        s = Schematic()
+        s.parts.append(substrate_part(sub, -300, -200))
+        sp = {"Subst": "Sub1"}
+        tw = {"W1": "Wr", "W2": "Wr", "W3": "Wf"}
+        # top row 2 - 1 - 3 with the feeds up, 4 at the lower right with its feed down
+        t = {2: s.add("T2", "MTEE", 0, 0, 0, True, **sp, **tw), 1: s.add("T1", "MTEE", 200, 0, 0, True, **sp, **tw),
+             3: s.add("T3", "MTEE", 400, 0, 0, True, **sp, **tw), 4: s.add("T4", "MTEE", 400, 300, 0, False, **sp, **tw)}
+        quarter = "Rm*pi/3 - Wf"                 # arc between tee centres less half a tee at each end
+        a = s.add("MS21", "MLIN", 100, 0, 0, **sp, W="Wr", L=quarter)
+        b = s.add("MS13", "MLIN", 300, 0, 0, **sp, W="Wr", L=quarter)
+        c = s.add("MS34", "MLIN", 500, 150, 90, **sp, W="Wr", L=quarter)
+        e = s.add("MS4a", "MLIN", 200, 300, 0, **sp, W="Wr", L="Rm*pi/2 - Wf/2")
+        g = s.add("MS4b", "MLIN", -100, 150, 90, **sp, W="Wr", L="Rm*pi/2 - Wf/2")
+        s.net("n21", s.pin(t[2], 1), s.pin(a, "left"))
+        s.net("n12", s.pin(a, "right"), s.pin(t[1], 0))
+        s.net("n13", s.pin(t[1], 1), s.pin(b, "left"))
+        s.net("n31", s.pin(b, "right"), s.pin(t[3], 0))
+        s.net("n34", s.pin(t[3], 1), s.pin(c, "top"))
+        s.net("n43", s.pin(c, "bottom"), s.pin(t[4], 1))
+        s.net("n4a", s.pin(t[4], 0), s.pin(e, "right"))
+        s.net("nab", s.pin(e, "left"), s.pin(g, "bottom"))
+        s.net("n2b", s.pin(g, "top"), s.pin(t[2], 0))
+        z0 = f"{spec['z0']:g}ohm"
+        for n in (2, 1, 3, 4):
+            up = n != 4
+            length = "lf" if n == 1 else f"lf + {self.SLANT}"
+            tee = t[n]
+            feed = s.add(f"Feed{n}", "MLIN", tee.x, tee.y + (-110 if up else 110), 90, **sp, W="Wf", L=length)
+            s.net(f"f{n}", s.pin(tee, 2), s.pin(feed, "bottom" if up else "top"))
+            s.port(n, z0, s.pin(feed, "top" if up else "bottom"), "left" if n == 2 else "right")
+        s.build(d)
+        return d
+
+    def design3d(self, project, circuit, spec: dict, sub: Substrate, name: str):
+        """The ring as an annulus with four vertical feeds to the top and bottom board edges, lumped ports there.
+        The variables are the circuit's (same names), so multi-fidelity needs no mapping."""
+        from ..design import Command, Design, Setup, Sweep
+        from ..materials import Material
+        d = Design(name=name, units="mm")
+        d.variables = dict(circuit.variables)
+        d.variables.update(Margin="5mm", Yt="Rm + Wr/2 + lf", Xb="Rm + Wr/2 + Margin")
+        d.settings.update(AutoOpen="Auto Open - Filter", FilterAirMargin="10mm", MaterialOverride="True")
+        mat = f"Sub1_Er{sub.er:g}"
+        d.add_object("CreateBox", name="Substrate", material=mat, Position="-Xb,-Yt,0", XSize="2*Xb", YSize="2*Yt",
+                     ZSize="h")
+        gnd = d.add_object("CreateRectangle", name="Ground", Position="-Xb,-Yt,0", Axis="Z", XSize="2*Xb",
+                           YSize="2*Yt")
+        ring = d.add_object("CreateCircle", name="Ring", CenterPosition="0,0,h", Axis="Z", Radius="Rm + Wr/2",
+                            NumberOfSegments="0")
+        hole = d.add_object("CreateCircle", name="RingHole", CenterPosition="0,0,h", Axis="Z", Radius="Rm - Wr/2",
+                            NumberOfSegments="0")
+        ring.history.append(Command.new("Subtract", Tools=hole.name))
+        hole.consumed_by = ring.name
+        ports = []
+        for n, ang in self.ANGLES.items():
+            xc = {90: "0", 150: "-0.866025*Rm", 30: "0.866025*Rm", -30: "0.866025*Rm"}[ang]
+            y0 = "Rm" if ang == 90 else "Rm/2"
+            if ang > 0:          # from the ring centre line up to the top edge
+                pos, ys, edge = f"{xc} - Wf/2,{y0},h", f"Yt - {y0}", "Yt"
+            else:                # down to the bottom edge
+                pos, ys, edge = f"{xc} - Wf/2,-Yt,h", f"Yt - {y0}", "-Yt"
+            f = d.add_object("CreateRectangle", name=f"Feed{n}", Position=pos, Axis="Z", XSize="Wf", YSize=ys)
+            ring.history.append(Command.new("Unite", Tools=f.name))
+            f.consumed_by = ring.name
+            ports.append((n, d.add_object("CreateRectangle", name=f"Port{n}", Position=f"{xc} - Wf/2,{edge},0",
+                                          Axis="Y", XSize="Wf", ZSize="h"), xc, edge))
+        cu = {"UseMaterial": "False", "Conductivity": f"{sub.sigma:g}", "UseThickness": "True", "Thickness": "t_cu",
+              "TwoSided": "True"}
+        _assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Traces", [ring.name], **cu)
+        _assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Ground", [gnd.name], **cu)
+        for n, o, xc, edge in sorted(ports, key=lambda q: q[0]):
+            _assign(d.excitations, schema.EXCITATIONS, "Lumped Port", str(n), [o.name], PortNumber=str(n),
+                    Impedance=f"{spec['z0']:g}ohm", IntegrationLine=f"{xc},{edge},0;{xc},{edge},h")
+        _assign(d.mesh_ops, schema.MESH_OPS, "Length Based On Selection", "Length_Traces", [ring.name],
+                MaxLength="0.5*min(Wr, Wf)")
+        st = Setup("Setup1")
+        st.props.update(MaximumPasses="10", MaximumDeltaS="0.02")
+        st.sweeps.append(Sweep("Sweep"))
+        d.setups.append(st)
+        if not any(m.name == mat for m in project.materials):
+            project.materials.append(Material(mat, permittivity=f"{sub.er:g}", loss_tangent=f"{sub.tand:g}",
+                                              color="#2e7d32", description=f"Substrate of {circuit.name}"))
+        return d, []
+
+    def goals(self, spec: dict) -> list[dict]:
+        a, b = band(spec["f0"], spec["bw"])
+        tol, rl, p = spec["tol"], spec["rl"], -3.0103
+        return [goal("dB(S(1,1))", a, b, "<=", -rl), goal("dB(S(4,4))", a, b, "<=", -rl),
+                goal("dB(S(4,1))", a, b, "<=", -rl),
+                goal("dB(S(2,1))", a, b, ">=", p - tol), goal("dB(S(2,1))", a, b, "<=", p + tol),
+                goal("dB(S(3,1))", a, b, ">=", p - tol), goal("dB(S(3,1))", a, b, "<=", p + tol)]
+
+    def sweep(self, spec: dict) -> tuple[float, float, int]:
+        a, b = band(spec["f0"], max(3 * spec["bw"], 40))
+        return a, b, 201
+
+    def adapt(self, spec: dict) -> float | None:
+        return spec["f0"]
+
+
+def _assign(lst, table, kind, name, objects, **props):
+    from ..design import Assignment
+    p = schema.defaults(table[kind])
+    p.update(props)
+    lst.append(Assignment(name, kind, p, objects=list(objects)))

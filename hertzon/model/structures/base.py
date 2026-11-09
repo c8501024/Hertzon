@@ -293,7 +293,7 @@ def top_view(design: Design, project: Project | None = None) -> tuple[list, list
     rectangles, circles and covered polylines in the xy plane (the traces of a layout, patches); the ground plane is
     the board."""
     ev = design.evaluator(project)
-    board, copper = [], []
+    board, shapes = [], {}
     for o in design.objects:
         if not o.history:
             continue
@@ -318,7 +318,17 @@ def top_view(design: Design, project: Project | None = None) -> tuple[list, list
         if o.name.startswith("Ground"):
             board = rect
         else:
-            copper.append(rect)
+            shapes[o.name] = rect
+    # a hole cut out of a shape (a ring): one outline, outer and inner joined by a slit, so a fill leaves it open
+    cut = set()
+    for o in design.objects:
+        for c in o.history[1:]:
+            tool = c.props.get("Tools", "") if c.kind == "Subtract" else ""
+            if o.name in shapes and tool in shapes:
+                outer, inner = shapes[o.name], shapes[tool][::-1]
+                shapes[o.name] = outer + outer[:1] + inner + inner[:1]
+                cut.add(tool)
+    copper = [r for n, r in shapes.items() if n not in cut]
     return board, copper
 
 

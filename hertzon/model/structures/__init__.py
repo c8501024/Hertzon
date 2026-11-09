@@ -18,7 +18,7 @@ from .base import (
     Synthesis,
     Variable,
 )
-from .couplers import Branchline, CoupledLineCoupler
+from .couplers import Branchline, CoupledLineCoupler, RatRace
 from .dividers import TeeDivider, Wilkinson
 from .filters import (
     EdgeCoupledBandpass,
@@ -88,8 +88,7 @@ CATALOG: list[Structure] = [
             "Small boards, antennas in devices", "lump", priority=2, needs="discrete values in the optimizer"),
     # ---- couplers
     _built(Branchline, "branch"),
-    Planned("ratrace", "Rat-race coupler", "coupler", "180 degree hybrid, 1.5 wavelength ring",
-            "Balanced mixers, sum and difference", "ratrace", priority=2, needs="a curved line part", ports=4),
+    _built(RatRace, "ratrace"),
     _built(CoupledLineCoupler, "cpl"),
     Planned("lange", "Lange coupler", "coupler", "Interdigitated 3 dB, bond wires", "Octave-band 3 dB quadrature",
             "lange", priority=3, needs="multi-conductor coupled lines and bond wires", ports=4),

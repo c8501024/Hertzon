@@ -46,7 +46,7 @@ def test_catalogue_is_consistent():
     avail = {s.key for s in ST.CATALOG if s.status == ST.AVAILABLE}
     assert {"qwt", "branchline", "patch", "hairpin"} <= avail
     with pytest.raises(ValueError, match="not available"):
-        ST.structure("ratrace").create()
+        ST.structure("uwb").create()
     with pytest.raises(ValueError, match="own designer"):
         ST.create_structure("patch")
 
@@ -107,6 +107,18 @@ def test_wilkinson_isolates_the_outputs():
     assert db(s[0, 0]) < -25 and db(s[1, 1]) < -25 and db(s[2, 1]) < -25
     d3 = r.designs[1]
     assert d3.variables["R1_Gap"] == "2*La + Wa" and any(b.name == "R1" for b in d3.boundaries)
+
+
+def test_rat_race_splits_in_phase_and_isolates():
+    p, r = _made("ratrace")
+    circ, d3 = r.designs
+    s = _s(p, circ, 2.45)[0]
+    assert abs(db(s[1, 0]) + 3.2) < 0.3 and abs(db(s[2, 0]) + 3.2) < 0.3
+    assert db(s[0, 0]) < -30 and db(s[3, 0]) < -30 and db(s[3, 3]) < -30
+    assert abs(np.angle(s[2, 0] / s[1, 0], deg=True)) < 3
+    assert {"Wr", "Rm"} <= set(d3.variables) and len(d3.excitations) == 4
+    board, copper = ST.base.top_view(d3, p)
+    assert len(copper) == 5 and len(copper[0]) == 146          # the ring (outer + inner + slit) and four feeds
 
 
 def test_coupled_line_coupler_couples_as_asked():
@@ -302,7 +314,7 @@ def test_mcp_list_and_create(server, tmp_path):
     assert {"Branchline_5.8GHz_Circuit", "Branchline_5.8GHz"} <= set(json.loads(text)["designs"])
     err, text = _call(server, "create_structure", key="dipole", spec={"f0": 2.4})
     assert not err and json.loads(text)["design_3d"] == "Dipole_2.4GHz"
-    err, text = _call(server, "create_structure", key="ratrace")
+    err, text = _call(server, "create_structure", key="uwb")
     assert err and "not available" in text
 
 
@@ -320,7 +332,7 @@ def test_wizard_dialog_creates_a_structure(monkeypatch):
     assert dlg.table.rowCount() == 9
     dlg._create(True)
     assert dlg.result is not None and dlg.run == "MultiFidelity1"
-    dlg = DesignWizard(None, Project("t"), None, start="ratrace")
+    dlg = DesignWizard(None, Project("t"), None, start="uwb")
     assert not dlg.next_btn.isEnabled()
     dlg = DesignWizard(None, Project("t"), None, start="dipole")
     dlg._next()
