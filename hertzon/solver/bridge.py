@@ -274,6 +274,7 @@ class Bridge:
         emit("progress", value=10, text="Initial mesh (lambda refinement)")
         keep_global_max_size(m)
         m.generate_mesh()
+        remesh_degenerate(m)
         info(f"Initial mesh: {m.mesh.n_tets} tetrahedra")
         from .port_lines import spread_lumped_port_lines
         spread_lumped_port_lines(m)       # port voltage averaged over the width, not taken at a corner
@@ -883,6 +884,22 @@ class Bridge:
         h = float(ext[hdir])
         return area / h, h, tuple(d)
 
+    def lumped_voltage_line(self, a: Assignment, tags: list[int]):
+        """The voltage line of a lumped port: its Integration Line. Without one (or with one away from the sheet)
+        None, and EMerge takes a line from the sheet's lowest node, along the edge of the sheet."""
+        import gmsh
+        from emerge._emerge.coord import Line
+        from ..model.objframe import global_points
+        if not a.props.get("IntegrationLine", "").strip():
+            return None
+        pts = global_points(self.design, a, "IntegrationLine", self.ev)
+        boxes = np.array([gmsh.model.getBoundingBox(2, t) for t in tags])
+        if not line_on_sheet(pts[0], pts[1], boxes[:, :3].min(axis=0), boxes[:, 3:].max(axis=0)):
+            warn(f"{a.name}: the Integration Line does not cross the port sheet; the port voltage is taken along "
+                 "the edge of the sheet")
+            return None
+        return Line.from_points(np.asarray(pts[0], float), np.asarray(pts[1], float), 21)
+
     def assign_excitations(self) -> None:
         em, mw = self.em, self.m.mw
         ev = self.ev
@@ -933,6 +950,9 @@ class Bridge:
             elif e.kind == "Lumped Port":
                 w, h, d = self.port_geometry(e, tags)
                 port = mw.bc.LumpedPort(sel, num, width=w, height=h, direction=d, Z0=ev.value(p["Impedance"]))
+                line = self.lumped_voltage_line(e, tags)
+                if line is not None:
+                    port.voltage_integration_line.append(line)
                 info(f"Lumped port {num}: width {w * 1e3:.4g} mm, height {h * 1e3:.4g} mm, direction {d}")
             else:  # Floquet
                 port = self.floquet_port(e, sel, tags, num)
@@ -2614,6 +2634,14 @@ def _save_amr_state(out: Path, key: str, amr, ratio: float, passes: list, fa, m=
         warn(f"Could not store the adaptive mesh state: {e}")
 
 
+def line_on_sheet(start, end, lo, hi) -> bool:
+    """Does the middle of the line start-end lie inside the bounding box lo-hi of a sheet? A tenth of the line
+    length is allowed as margin (a sheet parallel to an axis has a flat box)."""
+    start, end = np.asarray(start, float), np.asarray(end, float)
+    mid, pad = (start + end) / 2, 0.1 * float(np.linalg.norm(end - start))
+    return bool(np.all(mid >= np.asarray(lo, float) - pad) and np.all(mid <= np.asarray(hi, float) + pad))
+
+
 def _material_of_tet(field, t: int) -> str:
     """'er = ..., ur = ...' of tetrahedron t: one value when the material is isotropic, else the diagonal."""
     def one(a):
@@ -2972,6 +3000,43 @@ def scattered_energy(fld, m) -> tuple[float, float]:
     _interp_known_tets(fld, c[0], c[1], c[2], mapping)
     e2 = np.abs(fld.Ex) ** 2 + np.abs(fld.Ey) ** 2 + np.abs(fld.Ez) ** 2
     return ws, float(np.nansum(np.real(fld.er) * e2 * vol))
+
+
+DEGENERATE_QUALITY = 1e-4      # a tet below this quality is flat: its matrix entries overflow to NaN
+
+
+def remesh_degenerate(m, tries: int = 5) -> None:
+    """Mesh again when the mesh has flat (zero-volume) tetrahedra. gmsh now and then leaves a few slivers on a
+    conductor face (found on an edge-coupled filter: 35 tets of 1e-25 m3 on a trace edge); their element
+    matrices hold NaN, the solution is void (S11 = -1) and the error estimate stops the analysis. A different
+    random seed of the mesher gives a sound mesh of the same density."""
+    from .bisect import mesh_quality
+    try:
+        import gmsh
+    except Exception:  # noqa: BLE001
+        return
+    for k in range(1, tries + 1):
+        try:
+            bad = int((mesh_quality(m) < DEGENERATE_QUALITY).sum())
+        except Exception:  # noqa: BLE001
+            return
+        if not bad:
+            return
+        warn(f"The mesh has {bad} flat tetrahedra; meshing again with another seed ({k} of {tries})")
+        try:
+            gmsh.option.setNumber("Mesh.RandomSeed", 1 + 7 * k)
+            m._reset_mesh()
+            keep_global_max_size(m)
+            m.generate_mesh()
+        except Exception as ex:  # noqa: BLE001
+            warn(f"Meshing again failed ({ex})")
+            return
+    try:
+        bad = int((mesh_quality(m) < DEGENERATE_QUALITY).sum())
+        if bad:
+            warn(f"The mesh still has {bad} flat tetrahedra; the solution may fail")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def keep_global_max_size(m) -> None:

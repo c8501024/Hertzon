@@ -474,6 +474,7 @@ class MainWindow(QMainWindow):
         m.addAction("Solver Benchmark...", self.solver_benchmark)
         m.addAction("Keyboard Shortcuts...", self.edit_shortcuts)
         m.addSeparator()
+        m.addAction("Design Wizard...", self.design_wizard)
         fd = m.addMenu("Filter Design")
         fd.addAction("Tapped Hairpin...", self.filter_hairpin)
         ad = m.addMenu("Antenna Design")
@@ -541,6 +542,9 @@ class MainWindow(QMainWindow):
         g = pg.group("Tools")
         g.large("Options", "options", self.options)
         g.large("Materials", "material", self.edit_materials)
+        g.large("Design Wizard", "wizard", self.design_wizard,
+                tip="Couplers, dividers, matching networks, filters and antennas from a specification: circuit, 3D "
+                    "design and a multi-fidelity optimization")
         g.large("Filter Design", "filter", self.filter_hairpin, menu=[("Tapped Hairpin...", self.filter_hairpin)],
                 tip="Tapped hairpin band-pass filter as a parametrized design with optimization")
         g.large("Antenna Design", "antenna", self.antenna_patch, menu=[("Rectangular Patch...", self.antenna_patch)],
@@ -1935,7 +1939,7 @@ class MainWindow(QMainWindow):
         self.set_project(p)
         if c.action == "template":
             before = list(p.designs)
-            (self.antenna_patch if c.template == "patch" else self.filter_hairpin)()
+            {"patch": self.antenna_patch, "wizard": self.design_wizard}.get(c.template, self.filter_hairpin)()
             if len(p.designs) > 1 and not before[0].objects:
                 # the template replaces the empty first design of the new project
                 p.designs.remove(before[0])
@@ -6150,6 +6154,33 @@ class MainWindow(QMainWindow):
         # Create and Optimize: the new design is the current one; its optimization goes into the solve queue
         if dlg.result() == QDialog.Accepted and dlg.design is not None and dlg.run_optimization:
             self.analyze_optimization(dlg.run_optimization)
+
+    def design_wizard(self) -> None:
+        """Tools > Design Wizard: a structure of the catalogue as a circuit, its 3D design and a multi-fidelity
+        optimization (or the structure's own designer)."""
+        from .design_wizard import DesignWizard
+        dlg = DesignWizard(self, self.doc.project, self.settings)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        if dlg.designer:
+            getattr(self, dlg.designer)()
+            return
+        r = dlg.result
+        if r is None:
+            return
+        self.doc.checkpoint()
+        known = {m.name for m in self.doc.project.materials}
+        self.doc.project.materials.extend(m for m in r.materials if m.name not in known)
+        self.doc.project.designs.extend(r.designs)
+        self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(r.main)
+        names = ", ".join(d.name for d in r.designs)
+        self.msgs.add("info", f"Design Wizard: created {names} with the optimization {r.optimization}")
+        for w in r.warnings:
+            self.msgs.add("warning", f"{r.main}: {w}")
+        if dlg.run:
+            self.analyze_optimization(dlg.run)
 
     def antenna_patch(self) -> None:
         """Tools > Antenna Design > Rectangular Patch: inserts the parametrized patch as a new design."""

@@ -313,7 +313,8 @@ class StartPageDialog(QDialog):
             it.setData(Qt.UserRole, ("example", str(p)))
             self.examples.addItem(it)
         self.templates = self._list(sl, "Start from a template")
-        for label, key in (("Rectangular patch antenna ...", "patch"), ("Tapped hairpin filter ...", "hairpin")):
+        for label, key in (("Design Wizard: couplers, filters, antennas ...", "wizard"),
+                           ("Rectangular patch antenna ...", "patch"), ("Tapped hairpin filter ...", "hairpin")):
             it = QListWidgetItem(label)
             it.setData(Qt.UserRole, ("template", key))
             self.templates.addItem(it)

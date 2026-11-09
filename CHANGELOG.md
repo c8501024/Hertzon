@@ -3,6 +3,46 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Design Wizard** (Tools › Design Wizard, the ribbon and the start page): one window for couplers, dividers,
+  matching networks, filters and antennas. Choose a structure from cards by category, enter the specification
+  and the substrate, and see the synthesized start values while typing. It creates the circuit, its 3D design
+  with the same variables and an optimization on the circuit with multi-fidelity switched on. First structures:
+  the **quarter-wave transformer** (1 to 4 binomial sections), the **branchline coupler** (3 dB or unequal), the **rat-race coupler**, the
+  **coupled-line coupler**, the **Wilkinson divider**, the **T-junction divider** (equal or unequal), **stub matching** of a complex load, the **stepped-impedance
+  lowpass** (Chebyshev), the **shorted-stub bandpass** (wideband, quarter-wave stubs with vias), the
+  **edge-coupled bandpass** (parallel coupled half-wave resonators), the **open-stub bandstop** and the first
+  antennas, the **dipole**, the **monopole**, the printed **inverted-F antenna**, the probe-fed **circular patch**
+  and the **circularly polarized patch** with truncated corners (a 3D design tuned on its adaptive solution, no
+  circuit).
+  The patch and hairpin designers open from their cards; the planned structures are shown greyed out. MCP:
+  `list_structures`, `create_structure`. See [Design Wizard](docs/WIZARD.md).
+- **MCP: diagnostics that keep an AI from wrong conclusions.** `get_results` now splits total efficiency into
+  mismatch efficiency (Pacc/Pinc) and radiation efficiency (Prad/Pacc) and names the limiting factor (new
+  `kind="efficiency"`: the split at every far-field frequency, with Q_Z). New `kind="impedance"`: R, X, Q_Z
+  (Yaghjian–Best) and the resonances (X = 0) of a port over a sweep. The summary lists the port resonances, hints
+  for strongly reflecting ranges (e.g. high Q without a resonance: likely no radiating mode, matching cannot fix
+  it) and a clear warning when the adaptive mesh did not reach its Delta S target. The server instructions gain
+  an *Interpreting results* section: when a dip may be called a mismatch, how to separate loss from radiation
+  (lossless counter test), check convergence first, and call a cause confirmed only after a test that could have
+  refuted it.
+
+### Changed
+- A mesh with flat (zero-volume) tetrahedra is meshed again with another seed of the mesher: such slivers made
+  the solution void and stopped the analysis with "NaN detected in the a-posteriori error estimate".
+- Circuit: a free end of a coupled microstrip line (a pin on no other part) now carries the open end capacitance,
+  as its layout does; coupled-line filters agree with the 3D design within about 1 %.
+
+### Fixed
+- **Lumped ports: S-parameters jumped from pass to pass and the accepted power was too high.** Samples of the
+  port voltage line that fell outside the tetrahedra next to the port counted as zero field, so the port voltage
+  dropped by their share (about 5 to 15 %) in some passes. The radiated power stayed right, the power balance got
+  worse and Delta S did not settle at high Q. Those samples are now looked up in the whole mesh. The voltage is
+  now integrated along the port's Integration Line; before, only its direction and length were used and the line
+  ran along the edge of the sheet.
+
 ## 0.3.10 (2026-11-08)
 
 ### Added
