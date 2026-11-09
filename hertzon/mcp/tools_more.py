@@ -164,6 +164,75 @@ def t_create_hairpin_filter(args):
 
 
 # ------------------------------------------------------------------------------------------------
+# design wizard (model/structures)
+# ------------------------------------------------------------------------------------------------
+def t_list_structures(args):
+    from ..model import structures as ST
+    out = []
+    for st in ST.CATALOG:
+        row = {"key": st.key, "title": st.title, "category": st.category, "status": st.status,
+               "description": st.description, "ports": st.ports}
+        if st.designer:
+            row["tool"] = {"antenna_patch": "create_patch_antenna",
+                           "filter_hairpin": "create_hairpin_filter"}.get(st.designer, "")
+        elif st.status == ST.AVAILABLE:
+            row["fields"] = [{"key": f.key, "label": f.label, "default": f.default, "unit": f.unit,
+                              "min": f.lo, "max": f.hi} for f in st.fields]
+        if st.needs:
+            row["needs"] = st.needs
+        out.append(row)
+    return {"categories": dict(ST.CATEGORIES), "structures": out,
+            "next": "create_structure(key=..., spec={field: value}) for an available structure; the ones with a "
+                    "'tool' have their own tool"}
+
+
+def t_create_structure(args):
+    from ..model import structures as ST
+    ctx = load(args, design_required=False)
+    try:
+        st = ST.structure(str(args["key"]))
+    except KeyError as e:
+        raise ToolError(str(e)) from None
+    if st.designer:
+        raise ToolError(f"{st.title} has its own tool: see list_structures")
+    sub = ST.Substrate()
+    mat, er, tand = _substrate(ctx, args.get("material"), sub.material)
+    sub = ST.Substrate(material=mat, er=er, tand=tand, h=float(args.get("height_mm", sub.h)),
+                       t=float(args.get("copper_um", sub.t)), min_feature=float(args.get("min_feature_mm",
+                                                                                           sub.min_feature)))
+    try:
+        r = st.create(args.get("spec") or {}, sub, name=args.get("name") or "",
+                      range_pct=float(args.get("range_pct", 20.0)),
+                      multi_fidelity=bool(args.get("multi_fidelity", True)), project=ctx.proj)
+    except ValueError as e:
+        raise ToolError(str(e)) from None
+    known = {m.name for m in ctx.proj.materials}
+    ctx.proj.materials.extend(m for m in r.materials if m.name not in known)
+    if len(r.designs) == 1:                    # an antenna: the 3D design holds the optimization
+        d3 = r.designs[0]
+        errors = _new_design_ctx(ctx, d3, f"{st.title} {d3.name}")
+        return {"design_3d": d3.name, "optimization": r.optimization,
+                "variables": [{"name": v.name, "start": v.text(), "min": v.text(v.lo), "max": v.text(v.hi),
+                               "meaning": v.meaning, "optimized": v.include} for v in r.synthesis.variables],
+                "synthesis": r.synthesis.note, "goals": d3.optimetrics[0].goals, "warnings": r.warnings,
+                **({"geometry_errors": errors} if errors else {}),
+                "next": f"run_simulation(design='{d3.name}', optimization='{r.optimization}') tunes the design on the "
+                        "adaptive solution at the frequency (a few 3D solves); then apply_optimization"}
+    circ, d3 = r.designs
+    ctx.proj.designs.append(d3)                # the circuit is added last: it holds the optimization, shown next
+    errors = _new_design_ctx(ctx, circ, f"{st.title} {circ.name}")
+    return {"circuit": circ.name, "design_3d": d3.name, "optimization": r.optimization,
+            "variables": [{"name": v.name, "start": v.text(), "min": v.text(v.lo), "max": v.text(v.hi),
+                           "meaning": v.meaning, "optimized": v.include} for v in r.synthesis.variables],
+            "synthesis": r.synthesis.note, "goals": circ.optimetrics[0].goals, "warnings": r.warnings,
+            **({"geometry_errors": errors} if errors else {}),
+            "next": f"run_simulation(design='{circ.name}') for the circuit start values; "
+                    f"run_simulation(design='{circ.name}', optimization='{r.optimization}') optimizes on the "
+                    "circuit and corrects with a few 3D solves of the 3D design (multi-fidelity); then "
+                    "apply_optimization"}
+
+
+# ------------------------------------------------------------------------------------------------
 # optimization result into the design
 # ------------------------------------------------------------------------------------------------
 def t_apply_optimization(args):
@@ -781,6 +850,21 @@ TOOLS = [
                                                        "description": "[start, stop, step]; default from the passband"},
                   "design_frequency_ghz": NUM, "optimization": {"type": "boolean"}, "name": {"type": "string"}},
                  ["passband_ghz"]), t_create_hairpin_filter),
+    Tool("list_structures", "Tools > Design Wizard: the catalogue of structures (couplers, dividers, matching "
+         "networks, filters, antennas) with their status, and for the available ones the fields of the "
+         "specification.", _schema({}), t_list_structures),
+    Tool("create_structure", "Tools > Design Wizard: an available structure of list_structures from its "
+         "specification, as a circuit with named design variables, its 3D design with the same variables and an "
+         "optimization on the circuit with multi-fidelity (the circuit is the coarse model, the 3D design the fine "
+         "one: a few 3D solves).",
+         _schema({"key": {"type": "string", "description": "e.g. 'branchline', 'qwt' (see list_structures)"},
+                  "spec": {"type": "object", "description": "field: value, e.g. {'f0': 2.45, 'c': 3}; missing "
+                                                            "fields keep their defaults"},
+                  "material": {"type": "string", "description": "substrate (default Rogers RO4350B (tm))"},
+                  "height_mm": NUM, "copper_um": NUM, "min_feature_mm": NUM,
+                  "range_pct": {"type": "number", "description": "variable ranges +- % (default 20)"},
+                  "multi_fidelity": {"type": "boolean", "description": "default true"},
+                  "name": {"type": "string"}}, ["key"]), t_create_structure),
     Tool("apply_optimization", "Set the design variables to the best evaluation of an optimization (or the "
          "evaluation given) and take its stored solution over as the solution of the setup (no new solve), as "
          "'Apply to Design'.",

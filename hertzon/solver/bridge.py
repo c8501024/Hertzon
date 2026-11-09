@@ -274,6 +274,7 @@ class Bridge:
         emit("progress", value=10, text="Initial mesh (lambda refinement)")
         keep_global_max_size(m)
         m.generate_mesh()
+        remesh_degenerate(m)
         info(f"Initial mesh: {m.mesh.n_tets} tetrahedra")
         from .port_lines import spread_lumped_port_lines
         spread_lumped_port_lines(m)       # port voltage averaged over the width, not taken at a corner
@@ -2999,6 +3000,43 @@ def scattered_energy(fld, m) -> tuple[float, float]:
     _interp_known_tets(fld, c[0], c[1], c[2], mapping)
     e2 = np.abs(fld.Ex) ** 2 + np.abs(fld.Ey) ** 2 + np.abs(fld.Ez) ** 2
     return ws, float(np.nansum(np.real(fld.er) * e2 * vol))
+
+
+DEGENERATE_QUALITY = 1e-4      # a tet below this quality is flat: its matrix entries overflow to NaN
+
+
+def remesh_degenerate(m, tries: int = 5) -> None:
+    """Mesh again when the mesh has flat (zero-volume) tetrahedra. gmsh now and then leaves a few slivers on a
+    conductor face (found on an edge-coupled filter: 35 tets of 1e-25 m3 on a trace edge); their element
+    matrices hold NaN, the solution is void (S11 = -1) and the error estimate stops the analysis. A different
+    random seed of the mesher gives a sound mesh of the same density."""
+    from .bisect import mesh_quality
+    try:
+        import gmsh
+    except Exception:  # noqa: BLE001
+        return
+    for k in range(1, tries + 1):
+        try:
+            bad = int((mesh_quality(m) < DEGENERATE_QUALITY).sum())
+        except Exception:  # noqa: BLE001
+            return
+        if not bad:
+            return
+        warn(f"The mesh has {bad} flat tetrahedra; meshing again with another seed ({k} of {tries})")
+        try:
+            gmsh.option.setNumber("Mesh.RandomSeed", 1 + 7 * k)
+            m._reset_mesh()
+            keep_global_max_size(m)
+            m.generate_mesh()
+        except Exception as ex:  # noqa: BLE001
+            warn(f"Meshing again failed ({ex})")
+            return
+    try:
+        bad = int((mesh_quality(m) < DEGENERATE_QUALITY).sum())
+        if bad:
+            warn(f"The mesh still has {bad} flat tetrahedra; the solution may fail")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def keep_global_max_size(m) -> None:

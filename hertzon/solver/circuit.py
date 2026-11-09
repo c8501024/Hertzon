@@ -399,6 +399,13 @@ def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) 
     inner = np.array(sorted(set(range(n)) - set(pidx.tolist())), int)
     sq = np.sqrt(np.array(z_ref))
     where = {c.name: np.ix_(nodes_of[c.name], nodes_of[c.name]) for c in comps}
+    # the free ends of coupled lines (a pin on no other part) carry the open end capacitance, as in the layout
+    uses: dict[int, int] = {}
+    for c in comps:
+        for x in nodes_of[c.name]:
+            uses[x] = uses.get(x, 0) + 1
+    open_ends = {c.name: [j for j, x in enumerate(nodes_of[c.name]) if x != 0 and uses[x] == 1]
+                 for c in comps if c.type == "MCLIN"}
     for k, f in enumerate(freqs):
         Y = np.zeros((n + 1, n + 1), complex)
         for c in comps:
@@ -419,6 +426,14 @@ def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) 
                 Ym = element_y(c, f, values[c.name], tables.get(c.name))
             if Ym is None:
                 continue
+            if open_ends.get(c.name):
+                q, sb = values[c.name]
+                om = 2 * np.pi * max(f, 1.0)
+                z0, g = TL.microstrip(max(f, 1.0), q["W"], sb["h"], sb["t"], sb["er"], sb["tand"], sb["cond"])
+                ce = g.imag / om / z0 * TL.open_end_dl(f, q["W"], sb["h"], sb["t"], sb["er"])
+                Ym = Ym.copy()
+                for j in open_ends[c.name]:
+                    Ym[j, j] += 1j * om * ce
             Y[where[c.name]] += Ym
         Y = Y[1:, 1:] + GMIN * np.eye(n)
         Ypp = Y[np.ix_(pidx, pidx)]

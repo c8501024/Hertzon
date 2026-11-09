@@ -88,7 +88,7 @@ click. While placing, **R** rotates and **M** mirrors; right-click or **Esc** en
 | Microstrip | Substrate | Er, H, T, TanD, Cond | used by every line that names it in *Subst*; several substrates per schematic are fine |
 | | Microstrip Line | W, L | Hammerstad-Jensen, dispersion after Kirschning-Jansen, conductor and dielectric loss |
 | | Microstrip Open Stub, Short Stub | W, L | as the line, open end with its length extension; the short includes the inductance of the via of line width that shorts it |
-| | Coupled Microstrip | W, S, L | symmetric pair, even and odd mode (Garg-Bahl), four pins |
+| | Coupled Microstrip | W, S, L | symmetric pair, even and odd mode (Garg-Bahl), four pins; a pin connected to nothing is an open end with its fringing capacitance |
 | Discontinuities | Tee, Cross, Corner, Mitered Bend (50 %), Step, Gap | W1..W4, S | closed-form junction models (Hammerstad, Kirschning-Jansen-Koster); the lines attach at their edges |
 | Other lines | Coplanar Line | W, S, L, Backed | coplanar waveguide, conformal mapping with the thickness correction after Gupta and the dispersion after Frankel; *Backed* adds a ground plane under the substrate |
 | | Via to Ground | D, N, P | N round vias of diameter D in a row at pitch P through the substrate: partial inductances with their images in the ground plane and the mutual coupling, skin-effect resistance of the barrels |
