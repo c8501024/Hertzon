@@ -241,8 +241,14 @@ SectionEnd
 Section "$(SecEnv)" SEC_ENV
     DetailPrint "$(EnvRunning)"
     ${DisableX64FSRedirection}   ; the 64-bit PowerShell (see above)
+    ClearErrors
     ExecWait '"${POWERSHELL}" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1"' $0
-    !insertmacro UpdateLog "setup.ps1 ended (exit code $0)"
+    ; ExecWait leaves $0 as it was when PowerShell cannot be started (blocked by a policy, missing)
+    ${If} ${Errors}
+        !insertmacro UpdateLog "PowerShell could not be started: ${POWERSHELL}"
+    ${Else}
+        !insertmacro UpdateLog "setup.ps1 ended (exit code $0)"
+    ${EndIf}
     IfFileExists "$INSTDIR\.venv\hertzon_installed.txt" +2 0
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(EnvFailed)" /SD IDOK
 SectionEnd
