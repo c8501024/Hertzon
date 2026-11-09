@@ -18,6 +18,10 @@ the GitHub release notes.
   say to check the port model first when S11 jumps between passes or the power balance is off.
 
 ### Changed
+- **Less memory after start:** the formula editor of the Fields Calculator (a web view, which runs a browser in
+  processes of its own) starts when the Equations tab is first opened, not with Hertzon. An empty 3D project
+  now takes about 0.9 GB instead of about 1.4 GB (measured on Linux, all Hertzon processes together); opening
+  the Equations tab the first time takes a moment longer.
 - **Design Wizard pictures:** the structure pictures on the cards are redrawn from common building blocks, so
   lines join cleanly. The rat-race ports sit on the ring, and the branchline, coupled-line, Lange, T-junction,
   edge-coupled and other pictures follow the real layout.
