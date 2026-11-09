@@ -1,16 +1,19 @@
 """Diplexer design: two tapped hairpin band-pass filters joined by a T-junction (Tools > Filter Design).
 
-Layout (top view): channel A to the left of the junction, channel B to the right, all ports on one line.
+Layout (top view): the common port at the left edge, the T-junction right behind it, channel A above and channel
+B below (stacked as in most published hairpin diplexers), Port 2 and Port 3 at the right edge.
 
-                                 Port 1 (common, at the top edge)
-                                       │
-    Port 2 ── [hairpins of A] ── j_A ──┴── j_B ── [hairpins of B] ── Port 3
+                    ┌──── ja_A ──── [hairpins of A] ──── Port 2
+                    │ v_A
+    Port 1 ─────────┤ (T)
+                    │ v_B
+                    └──── ja_B ──── [hairpins of B] ──── Port 3
 
 Each channel is the hairpin row of filters.hairpin_design with its own length L, outer length offset dL, gaps
 (g, g2, ...), tap yP and junction line j; the trace width w, inner width b and miter M are shared. The variables of
-channel X carry the suffix _X (L_A, g_A, yP_A, j_A ...). Each row is shifted vertically by its own tap height so
-that both taps and the three ports lie on y = 0. The junction lines start at the length that makes each filter look
-like an open circuit at the junction in the band of the other channel (computed with the circuit model).
+channel X carry the suffix _X (L_A, g_A, yP_A, j_A ...). Each junction line j_X goes up or down by v_X to the tap
+line of its row and across by ja_X to the row (_stack_variables). The junction lines start at the length that
+makes each filter look like an open circuit at the junction in the band of the other channel (circuit model).
 
 The project has the 3D design and the same diplexer as a circuit with the same variables: the coarse model of the
 space mapping optimization DiplexerSM.
@@ -189,7 +192,8 @@ def nominals(spec: DiplexerSpec) -> list[dict]:
     return [nominal(channel_spec(spec, k)) for k in range(len(spec.channels))]
 
 
-def _variables(spec: DiplexerSpec, noms: list[dict], j0: tuple = (0.0, 0.0, 0.0)) -> dict[str, str]:
+def _variables(spec: DiplexerSpec, noms: list[dict], j0: tuple = (0.0, 0.0, 0.0),
+               face: tuple[int, int] = (1, 1)) -> dict[str, str]:
     a = noms[0]
     v = {"h": _mm(spec.h), "t_cu": f"{spec.t:g}um", "wf": _mm(a["feed"]), "w": _mm(a["trace"]),
          "b": _mm(a["inner"]), "M": f"{a['miter']:g}", "dmin": _mm(spec.min_feature), "fl": _mm(spec.feed),
@@ -206,17 +210,54 @@ def _variables(spec: DiplexerSpec, noms: list[dict], j0: tuple = (0.0, 0.0, 0.0)
         v.update({x("s"): f"({x('L')}-b-2*dep)/2", x("so"): f"({x('L')}+{x('dL')}-b-2*dep)/2",
                   x("xe"): f"({n}*wo+{'+'.join(x(g) for g in gn)})/2",
                   x("ycap"): f"max(0mm, {x('so')}/2-wf/2-dmin)",
-                  x("yt"): f"max(-{x('ycap')}, min({x('ycap')}, {x('yP')}))"})
+                  x("yt"): f"max(-{x('ycap')}, min({x('ycap')}, {x('yP')}))",
+                  # half height of the row around its arm centre
+                  x("hh"): f"max({x('so')}, {x('s')})/2+dep"})
     if len(spec.channels) == 3:
         v.update(_star_variables())
         return v
-    # left edge of each row (junction at x = 0), board edges
-    v["xl_A"] = "-(wf/2+j_A)-2*xe_A"
-    v["xl_B"] = "wf/2+j_B"
-    v["Wl"] = "fl-xl_A"
-    v["Wr"] = "xl_B+2*xe_B+fl"
-    v["Wy"] = "2*(max(so_A/2+dep+abs(yt_A), so_B/2+dep+abs(yt_B))+mb)"
+    v.update(_stack_variables(face))
     return v
+
+
+def _stack_variables(face: tuple[int, int] = (1, 1)) -> dict[str, str]:
+    """The two rows stacked: A above, B below, both to the right of the T-junction at the origin. Each junction
+    line goes up (A) or down (B) by v_X to the tap line of its row, turns and runs ja_X to the row; the total
+    length v_X + ja_X is j_X. face[k] +1: the row stands away from the middle of its tap line (short v), -1: it
+    hangs from its tap line towards the middle (the junction line climbs along the row: long v, short ja). v_X
+    keeps the rows gr apart."""
+    v = {"gr": "max(6*h, 2*wf)"}
+    for ch, e in zip("AB", face):
+        near, far = (f"yt_{ch}+hh_{ch}", f"hh_{ch}-yt_{ch}") if e > 0 else (f"hh_{ch}-yt_{ch}", f"yt_{ch}+hh_{ch}")
+        v[f"v_{ch}"] = f"max(wf/2, {near})+gr/2"
+        v[f"far_{ch}"] = f"max(wf/2, {far})"
+        v[f"ja_{ch}"] = f"max(wf, j_{ch}-v_{ch})"
+        v[f"xl_{ch}"] = f"wf/2+ja_{ch}"
+    v.update({"Wl": "fl+wf/2", "Wr": "max(xl_A+2*xe_A, xl_B+2*xe_B)+fl",
+              "Wu": "v_A+far_A+mb", "Wd": "v_B+far_B+mb", "Wy": "Wu+Wd"})
+    return v
+
+
+def _stack_face(spec: DiplexerSpec, noms: list[dict], jmin: float) -> tuple[tuple[int, int], tuple, list[float]]:
+    """Orientation of the rows of the stacked diplexer and the start lengths of the junction lines (the shortest
+    line >= jmin that makes channel k look open in the other band). Both rows hang towards the middle (the lines
+    climb along the rows, short runs ja) when both lines are long enough for it, else both stand away from the
+    middle (symmetric either way). A line shorter than its climb gets half a wavelength more."""
+    j_open, lams = junction_lines(spec, noms, jmin)
+    for face in ((-1, -1), (1, 1)):
+        probe = Design(name="probe", units="mm")
+        probe.variables.update(_variables(spec, noms, face=face))
+        ev = probe.evaluator()
+        v = [ev.length(f"v_{ch}") * 1e3 for ch in "AB"]
+        if all(j >= vk + jmin for j, vk in zip(j_open, v)):
+            break
+    j0 = []
+    for k in range(2):
+        length = j_open[k]
+        while length < v[k] + jmin:
+            length += lams[k] / 2
+        j0.append(_r(length))
+    return face, tuple(j0), lams
 
 
 def _ranges(spec: DiplexerSpec, noms: list[dict], j0, jmin, lam_o) -> dict[str, tuple[float, float]]:
@@ -337,60 +378,70 @@ def diplexer_design(spec: DiplexerSpec) -> tuple[Design, dict]:
         return _star_design(spec)
     noms = nominals(spec)
     jmin = max(3 * spec.h, noms[0]["feed"], 1.0)
-    j0, lam_o = junction_lines(spec, noms, jmin)
+    face, j0, lam_o = _stack_face(spec, noms, jmin)
     na, nb = (c.n for c in spec.channels)
     d = Design(name=spec.name or f"Diplexer_N{na}_N{nb}", units="mm")
-    d.variables.update(_variables(spec, noms, j0))
+    d.variables.update(_variables(spec, noms, j0, face))
+    # every junction line climbs v_X to its row first: it is at least that plus jmin long
+    ev = d.evaluator()
+    jmins = [_r(ev.length(f"v_{ch}") * 1e3 + jmin) for ch in "AB"]
     d.settings["AutoOpen"] = "Auto Open - Filter"
     d.settings["FilterAirMargin"] = "12mm"
-    d.add_object("CreateBox", name="Substrate", material=spec.material, Position="-Wl,-Wy/2,0",
+    d.add_object("CreateBox", name="Substrate", material=spec.material, Position="-Wl,-Wd,0",
                  XSize="Wl+Wr", YSize="Wy", ZSize="h")
-    gnd = d.add_object("CreateRectangle", name="Ground", Position="-Wl,-Wy/2,0", Axis="Z", XSize="Wl+Wr",
+    gnd = d.add_object("CreateRectangle", name="Ground", Position="-Wl,-Wd,0", Axis="Z", XSize="Wl+Wr",
                        YSize="Wy")
     rows = []
     for k, ch in zip(range(len(spec.channels)), CHANNELS):
         n = spec.channels[k].n
         x = lambda s, ch=ch, n=n: _var(s, ch, n)
         gn = [x(g) for g in gap_names(n)]
+        up = 1 if ch == "A" else -1                      # A above the T, B below
+        e = face[k] * up                                 # +1: the hairpins as in the single filter, -1: mirrored
         pins = []
         for i in range(n):
             cx = f"{x('xl')}+{2 * i + 1:g}*wo/2" + "".join(f"+{g}" for g in gn[:i]) + "+"
-            flip = i % 2 == 1
+            sp = -e if i % 2 == 1 else e                 # sign of the outline (odd hairpins flipped)
             arm = x("s") if 0 < i < n - 1 else x("so")
             ys = [y.replace("s/2", f"{arm}/2") for y in _Y]
-            pts = [f"{cx}({px}),-{x('yt')}{'-' if flip else '+'}({py}),h" for px, py in zip(_X, ys)]
-            if flip:                                     # mirrored: keep the outline counter-clockwise (+z normal)
+            y0 = f"{'' if up > 0 else '-'}v_{ch}{'-' if e > 0 else '+'}{x('yt')}"
+            pts = [f"{cx}({px}),{y0}{'+' if sp > 0 else '-'}({py}),h" for px, py in zip(_X, ys)]
+            if sp < 0:                                   # mirrored: keep the outline counter-clockwise (+z normal)
                 pts = pts[:1] + pts[:0:-1]
             pins.append(d.add_object("CreatePolyline", name=f"Hairpin{ch}{i + 1}", material="vacuum",
                                      Points=";".join(pts), Closed="True", Covered="True"))
         rows.append(pins)
-    a_out, a_in = rows[0][0], rows[0][-1]
+    a_in, a_out = rows[0][0], rows[0][-1]
     b_in, b_out = rows[1][0], rows[1][-1]
     feeds = [
-        ("Feed2", "-Wl,-wf/2,h", "xl_A+w/2+Wl", a_out),
-        ("Feed3", "xl_B+2*xe_B-w/2,-wf/2,h", "Wr-(xl_B+2*xe_B-w/2)", b_out),
+        ("Feed2", "xl_A+2*xe_A-w/2,v_A-wf/2,h", "Wr-(xl_A+2*xe_A-w/2)", a_out),
+        ("Feed3", "xl_B+2*xe_B-w/2,-v_B-wf/2,h", "Wr-(xl_B+2*xe_B-w/2)", b_out),
     ]
     for name, pos, xs, pin in feeds:
         f = d.add_object("CreateRectangle", name=name, Position=pos, Axis="Z", XSize=xs, YSize="wf")
         pin.history.append(Command.new("Unite", Tools=f.name))
         f.consumed_by = pin.name
-    # the junction: the line from the last hairpin of A to the first of B, the common feed up to the top edge
-    jl = d.add_object("CreateRectangle", name="Junction", Position="xl_A+2*xe_A-w/2,-wf/2,h", Axis="Z",
-                      XSize="xl_B+w/2-(xl_A+2*xe_A-w/2)", YSize="wf")
-    f1 = d.add_object("CreateRectangle", name="Feed1", Position="-wf/2,-wf/2,h", Axis="Z", XSize="wf",
-                      YSize="Wy/2+wf/2")
-    a_in.history.append(Command.new("Unite", Tools=f"{jl.name},{f1.name},{b_in.name}"))
-    for o in (jl, f1, b_in):
+    # the junction: the common feed from the left edge to the T, the vertical line from row B up to row A and the
+    # two lines from its ends to the first hairpins
+    f1 = d.add_object("CreateRectangle", name="Feed1", Position="-Wl,-wf/2,h", Axis="Z", XSize="Wl", YSize="wf")
+    jv = d.add_object("CreateRectangle", name="Junction", Position="-wf/2,-v_B-wf/2,h", Axis="Z", XSize="wf",
+                      YSize="v_A+v_B+wf")
+    ja = d.add_object("CreateRectangle", name="JunctionA", Position="-wf/2,v_A-wf/2,h", Axis="Z",
+                      XSize="xl_A+w/2+wf/2", YSize="wf")
+    jb = d.add_object("CreateRectangle", name="JunctionB", Position="-wf/2,-v_B-wf/2,h", Axis="Z",
+                      XSize="xl_B+w/2+wf/2", YSize="wf")
+    a_in.history.append(Command.new("Unite", Tools=f"{f1.name},{jv.name},{ja.name},{jb.name},{b_in.name}"))
+    for o in (f1, jv, ja, jb, b_in):
         o.consumed_by = a_in.name
-    p1 = d.add_object("CreateRectangle", name="Port1", Position="-wf/2,Wy/2,0", Axis="Y", XSize="wf", ZSize="h")
-    p2 = d.add_object("CreateRectangle", name="Port2", Position="-Wl,-wf/2,0", Axis="X", YSize="wf", ZSize="h")
-    p3 = d.add_object("CreateRectangle", name="Port3", Position="Wr,-wf/2,0", Axis="X", YSize="wf", ZSize="h")
+    p1 = d.add_object("CreateRectangle", name="Port1", Position="-Wl,-wf/2,0", Axis="X", YSize="wf", ZSize="h")
+    p2 = d.add_object("CreateRectangle", name="Port2", Position="Wr,v_A-wf/2,0", Axis="X", YSize="wf", ZSize="h")
+    p3 = d.add_object("CreateRectangle", name="Port3", Position="Wr,-v_B-wf/2,0", Axis="X", YSize="wf", ZSize="h")
 
     copper = [p.name for row in rows for p in row if p is not b_in]
-    ports = ((1, p1, "0,Wy/2,0;0,Wy/2,h"), (2, p2, "-Wl,0,0;-Wl,0,h"), (3, p3, "Wr,0,0;Wr,0,h"))
-    ranges = _ranges(spec, noms, j0, jmin, lam_o)
+    ports = ((1, p1, "-Wl,0,0;-Wl,0,h"), (2, p2, "Wr,v_A,0;Wr,v_A,h"), (3, p3, "Wr,-v_B,0;Wr,-v_B,h"))
+    ranges = _ranges(spec, noms, j0, jmins, lam_o)
     _finish(d, spec, copper, gnd, ports, ranges)
-    return d, {"channels": noms, "j": j0, "jmin": jmin, "ranges": ranges, "synthesis": engine()}
+    return d, {"channels": noms, "j": j0, "jmin": jmins, "face": face, "ranges": ranges, "synthesis": engine()}
 
 
 def _assign(lst, table, kind, name, objects, **props):
@@ -452,23 +503,26 @@ def diplexer_circuit(spec: DiplexerSpec, name: str = "") -> Design:
     place = _placer(comps)
     sub = {"Subst": "Sub1"}
 
-    def outer(num):
+    def outer(num, ch):
         def feed(tag, net):
-            place("MLIN", f"F{num}", {**sub, "W": "wf", "L": "fl"}, [f"P{num}", net])
+            place("MLIN", f"F{num}", {**sub, "W": "wf", "L": f"Wr-(xl_{ch}+2*xe_{ch})"}, [f"P{num}", net])
             place("PORT", f"Port{num}", {"Num": str(num), "Z0": f"{spec.z_feed:g}ohm"}, [f"P{num}"])
         return feed
 
     def junction(ch):
         def feed(tag, net):
-            place("MLIN", f"J{ch}", {**sub, "W": "wf", "L": f"j_{ch}"}, [net, f"TJ_{ch}"])
+            # from the row to the corner, the corner, up or down to the T
+            place("MLIN", f"J{ch}h", {**sub, "W": "wf", "L": f"ja_{ch}"}, [net, f"K{ch}_h"])
+            place("MCORN", f"K{ch}", {**sub, "W": "wf"}, [f"K{ch}_h", f"K{ch}_v"])
+            place("MLIN", f"J{ch}v", {**sub, "W": "wf", "L": f"max({_MIN_LINE}, v_{ch}-wf)"},
+                  [f"K{ch}_v", f"TJ_{ch}"])
         return feed
     for k, ch in zip(range(len(spec.channels)), CHANNELS):
         n = spec.channels[k].n
-        taps = ((0, "L", "O", outer(2)), (n - 1, "R", "J", junction(ch))) if k == 0 else \
-            ((0, "L", "J", junction(ch)), (n - 1, "R", "O", outer(3)))
+        taps = ((0, "L", "J", junction(ch)), (n - 1, "R", "O", outer(k + 2, ch)))
         hairpin_parts(place, sub, n, lambda x, ch=ch, n=n: _var(x, ch, n), f"{ch}_", taps)
     place("MTEE", "TJ", {**sub, "W1": "wf", "W2": "wf", "W3": "wf"}, ["TJ_A", "TJ_B", "TJ_1"])
-    place("MLIN", "F1", {**sub, "W": "wf", "L": f"max({_MIN_LINE}, Wy/2-wf/2)"}, ["TJ_1", "P1"])
+    place("MLIN", "F1", {**sub, "W": "wf", "L": f"max({_MIN_LINE}, Wl-wf/2)"}, ["TJ_1", "P1"])
     place("PORT", "Port1", {"Num": "1", "Z0": f"{spec.z_feed:g}ohm"}, ["P1"])
     d.components = comps
     st = circuit_setup()
@@ -499,7 +553,7 @@ def outlines(design: Design, project: Project | None = None) -> dict[str, list[t
         p = o.history[0].props if o.history else {}
         if o.name.startswith("Hairpin"):
             out[o.name] = [(x * 1e3, y * 1e3) for x, y, _ in ev.points(p["Points"])]
-        elif o.name.startswith("Feed") or o.name == "Junction":
+        elif o.name.startswith(("Feed", "Junction")):
             x, y, _ = ev.point(p["Position"])
             dx, dy = ev.length(p["XSize"]), ev.length(p["YSize"])
             out[o.name] = [(1e3 * a, 1e3 * b) for a, b in ((x, y), (x + dx, y), (x + dx, y + dy), (x, y + dy))]
@@ -739,8 +793,9 @@ def _resonator_circuit(spec: DiplexerSpec, name: str = "") -> Design:
 # ---------------------------------------------------------------------------------------------
 # triplexer: three hairpin filters on a star (cross) junction
 # ---------------------------------------------------------------------------------------------
-# Channel A to the left (Port 2), B to the right (Port 3), C downwards (Port 4, its row turned by -90 degrees),
-# the common Port 1 at the top edge. The junction is a cross of the feed lines (MCROSS in the circuit).
+# Channel A to the left (Port 2), B to the right (Port 3), both hanging below the line of the ports, C downwards
+# (Port 4, its row turned by -90 degrees), the common Port 1 at the top edge. The junction is a cross of the feed
+# lines (MCROSS in the circuit).
 #
 #                              Port 1
 #                                |
@@ -754,8 +809,9 @@ def _resonator_circuit(spec: DiplexerSpec, name: str = "") -> Design:
 
 def _star_variables() -> dict[str, str]:
     return {"xl_A": "-(wf/2+j_A)-2*xe_A", "xl_B": "wf/2+j_B", "xl_C": "wf/2+j_C",
-            "Hrow": "max(so_A/2+dep+abs(yt_A), so_B/2+dep+abs(yt_B))", "Hc": "so_C/2+dep+abs(yt_C)",
-            "Wl": "max(fl-xl_A, Hc+mb)", "Wr": "max(xl_B+2*xe_B+fl, Hc+mb)", "Wu": "Hrow+mb",
+            "Hrow": "max(hh_A-yt_A, hh_B-yt_B)", "Hc": "so_C/2+dep+abs(yt_C)",
+            "Wl": "max(fl-xl_A, Hc+mb)", "Wr": "max(xl_B+2*xe_B+fl, Hc+mb)",
+            "Wu": "max(wf/2, hh_A+yt_A, hh_B+yt_B)+mb",
             "Wd": "max(Hrow+mb, xl_C+2*xe_C+fl)", "Wy": "Wu+Wd"}
 
 
@@ -795,11 +851,13 @@ def _star_design(spec: DiplexerSpec) -> tuple[Design, dict]:
             arm = x("s") if 0 < i < n - 1 else x("so")
             ys = [y.replace("s/2", f"{arm}/2") for y in _Y]
             pts = []
+            mirror = ch != "C"                           # A and B hang below the line of the ports
             for px, py in zip(_X, ys):
-                lx, ly = f"{cx}({px})", f"-{x('yt')}{'-' if flip else '+'}({py})"
+                lx = f"{cx}({px})"
+                ly = f"{x('yt')}{'+' if flip else '-'}({py})" if mirror else f"-{x('yt')}{'-' if flip else '+'}({py})"
                 # C: the row of a channel with the junction on the left, turned by -90 degrees
                 pts.append(f"{ly},-({lx}),h" if ch == "C" else f"{lx},{ly},h")
-            if flip:
+            if flip != mirror:
                 pts = pts[:1] + pts[:0:-1]
             pins.append(d.add_object("CreatePolyline", name=f"Hairpin{ch}{i + 1}", material="vacuum",
                                      Points=";".join(pts), Closed="True", Covered="True"))
