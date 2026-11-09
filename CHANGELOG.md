@@ -8,7 +8,9 @@ the GitHub release notes.
 ### Fixed
 - **Installer: temporary GitHub server errors**: when a package download failed with a server error (such as
   504 Gateway Time-out for the EMerge wheel), the setup stopped at once. It now tries the installation again up
-  to three times with a pause and says to start the installer again later if GitHub stays unreachable.
+  to three times with a pause. Since pip downloads the EMerge wheel on every update even when it is installed
+  already, an update whose download keeps failing now installs only Hertzon when the installed EMerge is the
+  required one.
 
 ## 0.3.11 (2026-11-09)
 

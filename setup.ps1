@@ -140,6 +140,20 @@ function Stop-HertzonProcesses {
     while (@(Get-HertzonProcesses) -and (Get-Date) -lt $end) { Start-Sleep -Seconds 1 }
 }
 
+# exit code 0 when the installed EMerge came from the very wheel URL that pyproject.toml requires on this machine
+$emergeCheck = @'
+import json, sys, tomllib
+from importlib import metadata
+from pip._vendor.packaging.requirements import Requirement
+reqs = [Requirement(r) for r in tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']]
+want = [r.url for r in reqs if r.name == 'emerge' and r.url and (r.marker is None or r.marker.evaluate())]
+try:
+    have = json.loads(metadata.distribution('emerge').read_text('direct_url.json') or '{}').get('url')
+except metadata.PackageNotFoundError:
+    have = None
+sys.exit(0 if want and have == want[0] else 1)
+'@
+
 try {
     $venvPy = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
     Write-Host 'Checking for running Hertzon processes ...'
@@ -176,6 +190,18 @@ try {
         }
         & $venvPy -m pip install --retries 10 --timeout 60 -e ".[test]"
         if ($LASTEXITCODE -eq 0) { break }
+    }
+    if ($LASTEXITCODE -ne 0) {
+        # pip downloads a requirement given by URL (the EMerge wheel) on every installation, even when exactly
+        # that wheel is installed already. When the download keeps failing and the installed EMerge is the
+        # required one, an update only needs Hertzon itself: install it without its dependencies and check
+        # that everything it needs is there.
+        '' | & $venvPy -c $emergeCheck
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host 'The required EMerge is installed already; installing Hertzon without downloading it again ...' -ForegroundColor Yellow
+            & $venvPy -m pip install --no-deps -e .
+            if ($LASTEXITCODE -eq 0) { & $venvPy -m pip check }
+        }
     }
     if ($LASTEXITCODE -ne 0) {
         throw ('Package installation failed (see messages above). If a download failed with a server error ' +
