@@ -686,7 +686,7 @@ class Bridge:
                                       name=b.name)
                 rough = ev.length(p.get("Roughness", "0") or "0")
                 thick = ev.length(p["Thickness"]) if p.get("UseThickness") == "True" else None
-                # two-sided (the default, as HFSS treats a sheet inside the model): current and loss on both sides
+                # two-sided (the default for a sheet inside the model): current and loss on both sides
                 # of the sheet, each with the surface impedance. A face on the outer boundary of the model has one
                 # side only and gets the one-sided impedance.
                 inner, outer = list(tags), []

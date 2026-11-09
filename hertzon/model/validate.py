@@ -206,8 +206,8 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
         if a.kind == "Finite Conductivity" and a.enabled and a.props.get("TwoSided", "True") != "True":
             add("Boundaries and Excitations", "warning",
                 f"'{a.name}' is one-sided: one surface impedance carries the current of both sides of the sheet, "
-                "which overestimates the conductor loss up to 2x for a strip or a sheet in air (HFSS treats a "
-                "sheet as two-sided). Switch on Two-sided unless the sheet lies on a ground or thin substrate.")
+                "which overestimates the conductor loss up to 2x for a strip or a sheet in air (a sheet in air "
+                "carries current on both sides). Switch on Two-sided unless the sheet lies on a ground or thin substrate.")
         if a.kind == "Lumped RLC" and a.enabled and a.props.get("Model") == "Touchstone":
             _check_touchstone(project, a, add)
         for k, v in a.props.items():
