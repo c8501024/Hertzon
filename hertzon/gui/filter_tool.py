@@ -656,8 +656,7 @@ class DiplexerDialog(QDialog):
         ev = self.design.evaluator(self.project)
         L = {k: ev.length(k) * 1e3 for k in ("Wl", "Wr", "Wy")}
         x0, x1 = -L["Wl"], L["Wr"]
-        star = "Wu" in self.design.variables
-        y1 = ev.length("Wu") * 1e3 if star else L["Wy"] / 2
+        y1 = ev.length("Wu") * 1e3 if "Wu" in self.design.variables else L["Wy"] / 2
         y0 = y1 - L["Wy"]
         ax.fill([x0, x1, x1, x0], [y0, y0, y1, y1], color="#c9d6a3", zorder=0)
         for name, pts in dx_outlines(self.design, self.project).items():
@@ -666,10 +665,14 @@ class DiplexerDialog(QDialog):
             if name.startswith("Hairpin"):
                 ax.text(sum(xs) / len(xs), max(ys) + 0.4, name.replace("Hairpin", ""), ha="center", fontsize=7,
                         color="#5a3a10")
-        ya = yb = 0.0
-        if s.junction == "resonator":
-            ya, yb = ev.length("yt_A") * 1e3, ev.length("yt_B") * 1e3
-        marks = [((0, y1), "1"), ((x0, ya), "2"), ((x1, yb), "3")] + ([((0, y0), "4")] if star else [])
+        marks = []
+        for o in self.design.objects:                     # the ports where the design puts them
+            if o.name.startswith("Port") and o.history:
+                p = o.history[0].props
+                x, y, _ = ev.point(p["Position"])
+                dx = ev.length(p["XSize"]) if "XSize" in p else 0.0
+                dy = ev.length(p["YSize"]) if "YSize" in p else 0.0
+                marks.append((((x + dx / 2) * 1e3, (y + dy / 2) * 1e3), o.name[4:]))
         for (x, y), lab in marks:
             ax.plot([x], [y], "s", color="#c0392b", ms=6, zorder=3)
             ax.annotate(f"Port {lab}", (x, y), xytext=(0, 8), textcoords="offset points", ha="center", fontsize=8,

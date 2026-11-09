@@ -230,10 +230,9 @@ class RatRace(Structure):
         Field("rl", "Return loss and isolation", 20.0, "dB", 6, 50, 1),
         Field("tol", "Amplitude tolerance", 0.5, "dB", 0.05, 3, 2, help="Around -3.01 dB, the losses included"),
     )
-    # angles of the ports on the ring (degrees): 2, 1, 3 on the top, 4 on the lower right
-    ANGLES = {2: 150, 1: 90, 3: 30, 4: -30}
-    # extra feed length of a port whose vertical feed leaves the ring at 30 degrees (from the ring's outer edge)
-    SLANT = "Rm + Wr/2 - sqrt(pow(Rm + Wr/2, 2) - 0.75*pow(Rm, 2))"
+    # angles of the ports on the ring (degrees), as on the usual boards: 2 left, 1 and 3 below (60 degrees = a
+    # quarter wave apart), 4 right; the three-quarter-wave arc from 4 back to 2 runs over the top
+    ANGLES = {2: 180, 1: 240, 3: 300, 4: 0}
 
     def default_name(self, spec: dict) -> str:
         return f"RatRace_{spec['f0']:g}GHz"
@@ -251,8 +250,9 @@ class RatRace(Structure):
                      include=False),
         ])
         syn.note = (f"Ring of Z0 sqrt(2) = {zr:.1f} ohm and 1.5 guided wavelengths, mean radius {rm:.2f} mm: port 1 "
-                    "(top) splits in phase to 2 and 3 (a quarter wave on either side), port 4 (lower right) is "
-                    "isolated. The feeds leave the ring vertically to the board edge.")
+                    "(lower left) splits in phase to 2 and 3 (a quarter wave on either side), port 4 (right) is "
+                    f"isolated. The four {z0:g} ohm feeds leave the ring radially, 60 degrees apart, and end at "
+                    "the board edges for the connectors.")
         if wr > rm / 3:
             syn.warnings.append("The ring is wide for its radius: use a thinner substrate")
         return syn
@@ -286,28 +286,34 @@ class RatRace(Structure):
         z0 = f"{spec['z0']:g}ohm"
         for n in (2, 1, 3, 4):
             up = n != 4
-            length = "lf" if n == 1 else f"lf + {self.SLANT}"
             tee = t[n]
-            feed = s.add(f"Feed{n}", "MLIN", tee.x, tee.y + (-110 if up else 110), 90, **sp, W="Wf", L=length)
+            feed = s.add(f"Feed{n}", "MLIN", tee.x, tee.y + (-110 if up else 110), 90, **sp, W="Wf", L="lf")
             s.net(f"f{n}", s.pin(tee, 2), s.pin(feed, "bottom" if up else "top"))
             s.port(n, z0, s.pin(feed, "top" if up else "bottom"), "left" if n == 2 else "right")
         s.build(d)
         return d
 
     def design3d(self, project, circuit, spec: dict, sub: Substrate, name: str):
-        """The ring as an annulus with four vertical feeds to the top and bottom board edges, lumped ports there.
-        The variables are the circuit's (same names), so multi-fidelity needs no mapping."""
+        """The ring as an annulus with four short feeds leaving it radially (ports 2, 1, 3, 4 at 180, 240, 300 and
+        0 degrees), each ending on a board edge square to it, where a lumped port sits (the connector). The board
+        follows the feeds: straight sides at 2 and 4, two chamfers at 1 and 3, a flat bottom between them. The
+        variables are the circuit's (same names), so multi-fidelity needs no mapping."""
         from ..design import Command, Design, Setup, Sweep
         from ..materials import Material
         d = Design(name=name, units="mm")
         d.variables = dict(circuit.variables)
-        d.variables.update(Margin="5mm", Yt="Rm + Wr/2 + lf", Xb="Rm + Wr/2 + Margin")
+        # Rp: distance of the ports (board edges) from the centre; Yt: top edge; Sb: board beyond the chamfer feeds
+        d.variables.update(Rp="Rm + Wr/2 + lf", Yt="Rm + Wr/2 + lf", Sb="min(Wf/2 + lf/2, 0.5*Rp)")
         d.settings.update(AutoOpen="Auto Open - Filter", FilterAirMargin="10mm", MaterialOverride="True")
         mat = f"Sub1_Er{sub.er:g}"
-        d.add_object("CreateBox", name="Substrate", material=mat, Position="-Xb,-Yt,0", XSize="2*Xb", YSize="2*Yt",
-                     ZSize="h")
-        gnd = d.add_object("CreateRectangle", name="Ground", Position="-Xb,-Yt,0", Axis="Z", XSize="2*Xb",
-                           YSize="2*Yt")
+        c30, s30 = "0.866025404", "0.577350269"
+        outline = ["-Rp,Yt", f"-Rp,-{s30}*Rp", f"-0.5*Rp + {c30}*Sb,-{c30}*Rp - 0.5*Sb",
+                   f"0.5*Rp - {c30}*Sb,-{c30}*Rp - 0.5*Sb", f"Rp,-{s30}*Rp", "Rp,Yt"]
+        board = d.add_object("CreatePolyline", name="Substrate", material=mat,
+                             Points=";".join(f"{q},0" for q in outline), Closed="True", Covered="True")
+        board.history.append(Command.new("SweepAlongVector", Vector="0,0,h"))
+        gnd = d.add_object("CreatePolyline", name="Ground", Points=";".join(f"{q},0" for q in outline),
+                           Closed="True", Covered="True")
         ring = d.add_object("CreateCircle", name="Ring", CenterPosition="0,0,h", Axis="Z", Radius="Rm + Wr/2",
                             NumberOfSegments="0")
         hole = d.add_object("CreateCircle", name="RingHole", CenterPosition="0,0,h", Axis="Z", Radius="Rm - Wr/2",
@@ -316,24 +322,25 @@ class RatRace(Structure):
         hole.consumed_by = ring.name
         ports = []
         for n, ang in self.ANGLES.items():
-            xc = {90: "0", 150: "-0.866025*Rm", 30: "0.866025*Rm", -30: "0.866025*Rm"}[ang]
-            y0 = "Rm" if ang == 90 else "Rm/2"
-            if ang > 0:          # from the ring centre line up to the top edge
-                pos, ys, edge = f"{xc} - Wf/2,{y0},h", f"Yt - {y0}", "Yt"
-            else:                # down to the bottom edge
-                pos, ys, edge = f"{xc} - Wf/2,-Yt,h", f"Yt - {y0}", "-Yt"
-            f = d.add_object("CreateRectangle", name=f"Feed{n}", Position=pos, Axis="Z", XSize="Wf", YSize=ys)
+            at = _turned(ang)
+            # from the ring's centre line out to the port, Wf wide
+            f = d.add_object("CreatePolyline", name=f"Feed{n}", Closed="True", Covered="True",
+                             Points=";".join(f"{at(r, t)},h" for r, t in (("Rm", "-Wf/2"), ("Rp", "-Wf/2"),
+                                                                         ("Rp", "Wf/2"), ("Rm", "Wf/2"))))
             ring.history.append(Command.new("Unite", Tools=f.name))
             f.consumed_by = ring.name
-            ports.append((n, d.add_object("CreateRectangle", name=f"Port{n}", Position=f"{xc} - Wf/2,{edge},0",
-                                          Axis="Y", XSize="Wf", ZSize="h"), xc, edge))
+            # the port: an upright sheet across the feed's end, from the ground to the trace
+            o = d.add_object("CreatePolyline", name=f"Port{n}", Closed="True", Covered="True",
+                             Points=f"{at('Rp', '-Wf/2')},0;{at('Rp', 'Wf/2')},0;{at('Rp', 'Wf/2')},h;"
+                                    f"{at('Rp', '-Wf/2')},h")
+            ports.append((n, o, at("Rp", "0")))
         cu = {"UseMaterial": "False", "Conductivity": f"{sub.sigma:g}", "UseThickness": "True", "Thickness": "t_cu",
               "TwoSided": "True"}
         _assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Traces", [ring.name], **cu)
         _assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Ground", [gnd.name], **cu)
-        for n, o, xc, edge in sorted(ports, key=lambda q: q[0]):
+        for n, o, xy in sorted(ports, key=lambda q: q[0]):
             _assign(d.excitations, schema.EXCITATIONS, "Lumped Port", str(n), [o.name], PortNumber=str(n),
-                    Impedance=f"{spec['z0']:g}ohm", IntegrationLine=f"{xc},{edge},0;{xc},{edge},h")
+                    Impedance=f"{spec['z0']:g}ohm", IntegrationLine=f"{xy},0;{xy},h")
         _assign(d.mesh_ops, schema.MESH_OPS, "Length Based On Selection", "Length_Traces", [ring.name],
                 MaxLength="0.5*min(Wr, Wf)")
         st = Setup("Setup1")
@@ -359,6 +366,25 @@ class RatRace(Structure):
 
     def adapt(self, spec: dict) -> float | None:
         return spec["f0"]
+
+
+def _turned(deg: float):
+    """Point (r along, t across) of a direction ``deg`` degrees from +x, as an "x,y" expression text."""
+    c, s = round(math.cos(math.radians(deg)), 9), round(math.sin(math.radians(deg)), 9)
+
+    def term(k: float, v: str) -> str:
+        if k == 0 or v == "0":
+            return ""
+        return f"({v})" if k == 1 else f"-({v})" if k == -1 else f"{k:.9g}*({v})"
+
+    def join(*parts: str) -> str:
+        out = ""
+        for q in parts:
+            if q:
+                out += q if not out or q.startswith("-") else "+" + q
+        return out or "0"
+
+    return lambda r, t: f"{join(term(c, r), term(-s, t))},{join(term(s, r), term(c, t))}"
 
 
 def _assign(lst, table, kind, name, objects, **props):

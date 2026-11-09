@@ -309,7 +309,12 @@ def top_view(design: Design, project: Project | None = None) -> tuple[list, list
                 r = ev.length(p["Radius"])
                 pts = [(x + r * math.cos(t), y + r * math.sin(t)) for t in (2 * math.pi * i / 72 for i in range(72))]
             elif h.kind == "CreatePolyline" and str(p.get("Covered")) == "True":
-                pts = [ev.point(q)[:2] for q in str(p["Points"]).split(";")]
+                if any(c.kind in ("SweepAlongVector", "ThickenSheet") for c in o.history[1:]):
+                    continue                     # a solid (a shaped board), not a trace
+                xyz = [ev.point(q) for q in str(p["Points"]).split(";")]
+                if max(q[2] for q in xyz) - min(q[2] for q in xyz) > 1e-12:
+                    continue                     # an upright sheet (a port), not in the xy plane
+                pts = [q[:2] for q in xyz]
             else:
                 continue
         except Exception:  # noqa: BLE001, S112  (an expression the preview cannot evaluate: left out)

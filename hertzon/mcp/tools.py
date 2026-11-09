@@ -25,9 +25,10 @@ from ..model.design import (Project, Design, Command, Assignment, FaceRef, Setup
 from ..model.expr import LENGTH_UNITS
 from ..model.materials import parse_color
 from . import live
-from .protocol import Tool, ToolError, Image
+from .protocol import Tool, ToolError, Image, max_wait, pause
 
 ROOT = Path(__file__).resolve().parents[2]
+LAUNCH_WAIT_S = 120.0     # wait for a new Hertzon window; well inside the clients' time limits (4 min and more)
 
 
 def window_mode() -> bool:
@@ -48,7 +49,9 @@ Workflow
 4. get_geometry to see face indices, centres and normals; render_image to look at the model.
 5. assign boundaries, excitations (ports, plane wave) and mesh operations to objects or faces.
 6. set_setup (solution frequency, passes) with sweeps; set_far_field_sphere for gain/RCS.
-7. validate, then run_simulation; get_status(wait_seconds=...) until done; get_results.
+7. validate, then run_simulation; get_status(wait_seconds=...) until done; get_results. Each get_status costs a
+   turn: when the answer says the analysis will take long (more than ~10 min), tell the user and stop instead of
+   asking again and again; the user asks for the results later.
 8. Optional: set_report and set_field_plot (shown in the window), set_equation (Fields Calculator),
    set_parametric / set_optimization, run with run_simulation(parametric=... or optimization=...).
 
@@ -190,15 +193,17 @@ def _launch_window(path: str | None):
     except OSError as e:
         raise ToolError(f"Hertzon could not be started ({e})") from None
     t0 = time.time()
-    while time.time() - t0 < 180:
+    while time.time() - t0 < LAUNCH_WAIT_S:
         for link, hello in live.windows():
             if link.pid not in before and (not path or live.same_path(hello.get("path"), path)):
                 return link, hello
         if proc.poll() not in (None, 0):
             raise ToolError(f"Hertzon could not be started (exit code {proc.returncode}); see the crash log in "
                             "~/.hertzon")
-        time.sleep(0.5)
-    raise ToolError("Hertzon did not open within 3 minutes")
+        if not pause(0.5):
+            raise ToolError("Cancelled while the Hertzon window was starting; it may still open, call get_context")
+    raise ToolError("Hertzon did not open within 2 minutes; it may still be starting: call get_context, then try "
+                    "again")
 
 
 def _window_with(path: str):
@@ -1814,25 +1819,27 @@ def t_get_status(args):
     if study:
         if not ctx.proj.path:
             raise ToolError("The project is not saved yet")
-        wait = min(float(args.get("wait_seconds") or 0), 600.0)
+        wait = max_wait(args.get("wait_seconds"))
         t0 = time.time()
         while True:
             s = _study_status(ctx, *study)
             if s["state"] not in ("running", "queued") or time.time() - t0 >= wait:
                 return s
-            time.sleep(min(3.0, max(0.2, wait - (time.time() - t0))))
+            if not pause(min(3.0, max(0.2, wait - (time.time() - t0)))):
+                return s
     if not d.setups:
         raise ToolError("The design has no analysis setup")
     if not ctx.proj.path:
         raise ToolError("The project is not saved yet")
     setup = args.get("setup") or d.setups[0].name
-    wait = min(float(args.get("wait_seconds") or 0), 600.0)
+    wait = max_wait(args.get("wait_seconds"))
     t0 = time.time()
     while True:
         s = _status(ctx, setup, args.get("sweep") or "")
         if s["state"] not in ("running", "queued") or time.time() - t0 >= wait:
             return s
-        time.sleep(min(3.0, max(0.2, wait - (time.time() - t0))))
+        if not pause(min(3.0, max(0.2, wait - (time.time() - t0)))):
+            return s
 
 
 def t_abort_simulation(args):
@@ -2497,7 +2504,8 @@ TOOLS = [
                   "skip_validation": {"type": "boolean"}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_run_simulation),
     Tool("get_status", "State of a setup's analysis (queued, running, done, failed), adaptive passes with "
-         "tetrahedra and Delta S, and the last log lines. wait_seconds waits (up to 600 s) while it runs.",
+         "tetrahedra and Delta S, and the last log lines. wait_seconds waits while it runs (up to 25 min in "
+         "Claude Code, 2 min in Claude Desktop, 9 min otherwise); for long analyses tell the user and stop rather than polling.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string"},
                   "wait_seconds": {"type": "number"}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_get_status, True),

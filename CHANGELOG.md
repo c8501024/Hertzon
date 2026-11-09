@@ -3,6 +3,49 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.14 (2026-11-09)
+
+### Fixed
+- **Antenna goals on a frequency sweep:** an optimization with goals on antenna parameters (e.g. total efficiency
+  `RadiatedPower/IncidentPower`, `RadiationEfficiency`) over a discrete sweep with Save fields failed in every
+  evaluation ("antenna parameters need the fields of 'Sweep'"): the evaluation copy switched Save fields off in
+  all sweeps, the goal sweep included. The goal sweep now keeps its fields; they are removed after the cost is
+  known, except for the best evaluation. Before, antenna goals only worked on LastAdaptive.
+- **Wave ports below the cutoff of their mode:** an interpolating sweep across the cutoff frequency of a wave port
+  mode is now fitted separately below and above it (S has a square-root branch point there that no rational fit
+  follows; across the WR-90 cutoff the sweep was up to 3 dB off below it and +0.05 dB above unity just above it,
+  now within 0.01 dB of the solved points). The log names the cutoff. An adaptive frequency below the cutoff of a
+  wave port stops with a message that gives the cutoff frequency (instead of "no modes"). De-embedding below
+  cutoff uses the decaying port mode (exp(alpha d)), and the fit of the propagation constant over frequency keeps
+  its cutoff term.
+- **Wave ports below cutoff give the decaying mode** (EMerge `a92bf13`, FennisRobert/EMerge#96): below the cutoff
+  of its mode a wave port sometimes absorbed a growing instead of a decaying mode (WR-90, 40 mm, 5 GHz: S21
+  −105.7 dB instead of −30.9 dB); now S21 = exp(−αL), also in filled guides. An adaptive frequency below the
+  cutoff no longer stops with "no modes": the port takes its mode shape from a higher frequency and warns.
+
+### Changed
+- **Hairpin diplexer layout**: the two filters are stacked as in most published hairpin diplexers: the common port
+  at the left edge, the T-junction right behind it, channel A above and channel B below, Ports 2 and 3 at the right
+  edge. Each junction line goes up or down to its row and turns towards it (both bends mitered; the circuit has the
+  same line, mitered bend and line); the rows keep a fixed distance and hang towards the middle when the lines are
+  long enough. The board of the default diplexer is about 40 % smaller (35 x 46 mm instead of 70 x 38 mm). In the
+  triplexer, the filters of A and B hang below the line of the ports, so the empty half above it is gone.
+- **Design Wizard rat-race coupler looks like a real board:** the four feeds leave the ring radially, 60 degrees
+  apart (port 2 left, ports 1 and 3 below, port 4 right, the three-quarter-wave arc over the top), and each ends
+  on a board edge square to it, where the connector goes. The board is cut to fit the feeds (chamfers at ports 1
+  and 3). With the default specification (2.45 GHz) the 3D model before any optimization gives S11 −30 dB, isolation −35 dB and −3.2 dB to ports 2 and 3, in phase within 2 degrees.
+
+### Fixed
+- **Update from a Hertzon window that does not close:** when the Hertzon window from which Install was clicked
+  was still open after two minutes (for example because a second window asked to save and the save was
+  cancelled), the setup did not notice that window, since it had started the installer, and updated the
+  Python packages under it. The setup now lists that window and closes it after asking, like any other open
+  Hertzon window.
+- **Update of an installation in `%LOCALAPPDATA%\Hertzon`:** Install downloads the update into the Updates folder,
+  which then lies inside the installation, and the installer stopped itself together with the background
+  processes that use the installation, so the update ended without replacing anything. The installer now
+  leaves itself out (also when it is started from inside the installation folder by hand).
+
 ## 0.3.13 (2026-11-09)
 
 ### Added
