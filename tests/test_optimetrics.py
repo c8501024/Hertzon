@@ -279,3 +279,30 @@ def test_running_evaluations_are_listed(tmp_path):
     rows = optimization_evaluations(p, d, "Setup1")
     assert [r["eval"] for _, r, _, _ in rows] == [1, 2]
     assert evaluation_label("Opt1", rows[1][1]) == "Opt1: evaluation 2 (solving)"
+
+
+def test_antenna_goals_on_a_sweep_keep_the_fields_of_the_goal_sweep(tmp_path):
+    """An evaluation copy switches Save fields off in the sweeps, but not in the goal sweep of an optimization
+    with antenna goals: the antenna parameters (e.g. total efficiency RadiatedPower/IncidentPower) are computed
+    from that sweep's fields. Before, every evaluation failed with 'antenna parameters need the fields'."""
+    from hertzon.model.design import Sweep
+    from hertzon.solver import optimize as O
+    from pathlib import Path
+    ex = Path(__file__).resolve().parents[1] / "examples"
+    p = Project.load(ex / "PatchAntenna.hzn")
+    d = p.designs[0]
+    st = d.setups[0]
+    st.sweeps[0].props.update(SweepType="Discrete", SaveFields="True")
+    other = Sweep("Wide")
+    other.props.update(SweepType="Discrete", SaveFields="True")
+    st.sweeps.append(other)
+    d.optimetrics.append(Optimization(
+        "Opt1", "Setup1 : Sweep", variables=[{"name": "Lp", "include": True, "min": "24mm", "max": "32mm"}],
+        goals=[{"calc": "RadiatedPower/IncidentPower", "start": "2.4GHz", "stop": "2.5GHz", "cond": ">=",
+                "value": "0.9"}]))
+    p.save(tmp_path / "p.hzn")
+    opt = O.Optimizer(str(tmp_path / "p.hzn"), d.name, "Opt1", tmp_path / "out")
+    assert opt.antenna_goals
+    sweeps = {sw.name: sw for sw in opt._project_for({"Lp": "28mm"}).designs[0].setup("Setup1").sweeps}
+    assert sweeps["Sweep"].props["SaveFields"] == "True"         # the goal sweep: fields for the antenna goals
+    assert sweeps["Wide"].props["SaveFields"] == "False"         # every other sweep: no fields
