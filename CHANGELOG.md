@@ -6,6 +6,12 @@ the GitHub release notes.
 ## Unreleased
 
 ### Changed
+- **Hairpin diplexer layout**: the two filters are stacked as in most published hairpin diplexers: the common port
+  at the left edge, the T-junction right behind it, channel A above and channel B below, Ports 2 and 3 at the right
+  edge. Each junction line goes up or down to its row and turns towards it (both bends mitered; the circuit has the
+  same line, mitered bend and line); the rows keep a fixed distance and hang towards the middle when the lines are
+  long enough. The board of the default diplexer is about 40 % smaller (35 x 46 mm instead of 70 x 38 mm). In the
+  triplexer, the filters of A and B hang below the line of the ports, so the empty half above it is gone.
 - **Design Wizard rat-race coupler looks like a real board:** the four feeds leave the ring radially, 60 degrees
   apart (port 2 left, ports 1 and 3 below, port 4 right, the three-quarter-wave arc over the top), and each ends
   on a board edge square to it, where the connector goes. The board is cut to fit the feeds (chamfers at ports 1
