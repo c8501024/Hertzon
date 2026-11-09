@@ -264,6 +264,7 @@ class Bridge:
         emit("progress", value=8, text="Mapping boundaries to the solver model")
         self.samples = facematch.final_face_samples()
         self.assign_mesh_ops()
+        self.limit_thin_layers()
         self.set_frequencies_for_mesh()
         self.assign_boundaries()
         self.assign_excitations()
@@ -1212,6 +1213,39 @@ class Bridge:
                     continue
                 mesher.set_face_size(sel, size)
             info(f"Mesh operation '{op.name}' applied")
+
+    def limit_thin_layers(self) -> None:
+        """Element size in a thin dielectric layer (a substrate) at most THIN_LAYER_SIZE times its thickness.
+        The wavelength rule alone gives elements many times wider than a 0.5 mm board is thick: the tetrahedra
+        through it are flat (a third of them had a quality below 0.01 on a microstrip filter), and among them
+        gmsh now and then leaves slivers of no volume whose matrix entries are NaN. With the limit the flat
+        ones are gone and the mesh grows only a little (+7 % on that filter). A layer whose limited mesh would
+        exceed THIN_LAYER_TETS elements gets a coarser limit."""
+        import gmsh
+        for obj in self.design.objects:
+            g = self.geos.get(obj.name)
+            if g is None or getattr(g, "dim", 0) != 3:
+                continue
+            if obj.history and obj.history[0].kind == "CreateRegion":
+                continue
+            try:
+                if is_conductor(self.project.material(obj.material)):
+                    continue
+                boxes = [gmsh.model.occ.getBoundingBox(3, t) for t in g.tags]
+            except Exception:  # noqa: BLE001, S112
+                continue
+            if not boxes:
+                continue
+            lo = np.min([b[:3] for b in boxes], axis=0)
+            hi = np.max([b[3:] for b in boxes], axis=0)
+            t, a, b = sorted(hi - lo)
+            if t <= 0 or t > THIN_LAYER_RATIO * a:
+                continue
+            size = THIN_LAYER_SIZE * t
+            # about 6 tetrahedra per cube of the element size: keep the layer within THIN_LAYER_TETS
+            size = max(size, (6 * a * b * t / THIN_LAYER_TETS) ** (1 / 3))
+            self.m.mesher.set_domain_size(g, size)
+            info(f"Thin layer '{obj.name}' ({t * 1e3:.4g} mm): elements at most {size * 1e3:.4g} mm")
 
     def _match_edges(self, op) -> list[tuple[int, float]]:
         """gmsh curve tags (with lengths) whose end points and midpoint lie on the selected tess edges."""
@@ -3002,14 +3036,19 @@ def scattered_energy(fld, m) -> tuple[float, float]:
     return ws, float(np.nansum(np.real(fld.er) * e2 * vol))
 
 
-DEGENERATE_QUALITY = 1e-4      # a tet below this quality is flat: its matrix entries overflow to NaN
+THIN_LAYER_RATIO = 0.25       # a dielectric whose smallest extent is below this share of the next one is a layer
+THIN_LAYER_SIZE = 6.0         # element size in a layer at most this many times its thickness
+THIN_LAYER_TETS = 400_000     # but a layer gets no more elements than about this from the limit
+DEGENERATE_QUALITY = 1e-6      # a tet below this quality has no volume: its matrix entries overflow to NaN
 
 
 def remesh_degenerate(m, tries: int = 5) -> None:
     """Mesh again when the mesh has flat (zero-volume) tetrahedra. gmsh now and then leaves a few slivers on a
     conductor face (found on an edge-coupled filter: 35 tets of 1e-25 m3 on a trace edge); their element
     matrices hold NaN, the solution is void (S11 = -1) and the error estimate stops the analysis. A different
-    random seed of the mesher gives a sound mesh of the same density."""
+    random seed of the mesher gives a sound mesh of the same density. (gmsh's Netgen optimizer removes them
+    too, but it crashed the process on a patch with a copper ground solid.) Since thin layers are limited
+    (limit_thin_layers) this is rare: slivers at the large faces of the air box."""
     from .bisect import mesh_quality
     try:
         import gmsh
@@ -3022,7 +3061,7 @@ def remesh_degenerate(m, tries: int = 5) -> None:
             return
         if not bad:
             return
-        warn(f"The mesh has {bad} flat tetrahedra; meshing again with another seed ({k} of {tries})")
+        warn(f"The mesh has {bad} tetrahedra without volume; meshing again with another seed ({k} of {tries})")
         try:
             gmsh.option.setNumber("Mesh.RandomSeed", 1 + 7 * k)
             m._reset_mesh()
@@ -3034,7 +3073,7 @@ def remesh_degenerate(m, tries: int = 5) -> None:
     try:
         bad = int((mesh_quality(m) < DEGENERATE_QUALITY).sum())
         if bad:
-            warn(f"The mesh still has {bad} flat tetrahedra; the solution may fail")
+            warn(f"The mesh still has {bad} tetrahedra without volume; the solution may fail")
     except Exception:  # noqa: BLE001
         pass
 
