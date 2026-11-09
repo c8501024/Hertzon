@@ -3,6 +3,15 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Update from a Hertzon window that does not close:** when the Hertzon window from which Install was clicked
+  was still open after two minutes (for example because a second window asked to save and the save was
+  cancelled), the setup did not notice that window, since it had started the installer, and updated the
+  Python packages under it. The setup now lists that window and closes it after asking, like any other open
+  Hertzon window.
+
 ## 0.3.13 (2026-11-09)
 
 ### Added

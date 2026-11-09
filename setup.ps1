@@ -48,13 +48,14 @@ function Get-ProcessTable {
 function Get-HertzonProcesses {
     $root = (Resolve-Path -LiteralPath $PSScriptRoot).Path.TrimEnd('\') + '\'
     $table = Get-ProcessTable
-    # this script and the processes that started it (Hertzon.exe runs it on the first start) do not count
+    # this script and the process that started it do not count: Hertzon.exe runs it on the first start and
+    # waits for it, the installer runs it at the end of an installation. The processes further up do count:
+    # an update started from Hertzon (Help > Check for Updates) has that Hertzon as the installer's parent,
+    # and when it is still running, it has to be closed like any other Hertzon window.
     $own = @{}
-    $id = $PID
-    while ($id -and -not $own.ContainsKey($id)) {
-        $own[$id] = $true
-        $id = if ($table.ContainsKey([int]$id)) { [int]$table[[int]$id].ParentProcessId } else { 0 }
-    }
+    $own[[int]$PID] = $true
+    $me = $table[[int]$PID]
+    if ($me -and $me.ParentProcessId) { $own[[int]$me.ParentProcessId] = $true }
     Get-Process -ErrorAction SilentlyContinue | Where-Object {
         -not $own.ContainsKey($_.Id) -and (Test-UsesFolder $_ $root $table)
     }
