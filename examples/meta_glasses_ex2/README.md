@@ -36,6 +36,13 @@ Runs 1 and 2.
 
 ![Final antennas of Runs 2, 3 and 4 on the FPC, to the same scale](run4/results/Ex2_layouts_run2_run4.png)
 
+![S11 of Runs 2, 3 and 4 in the reference solver](run4/results/Ex2_runs_S11_reference.png)
+
+In S11, Run 2 has two narrow, deep dips (2.45 and 5.5 GHz) and almost no match between 6 and 7 GHz. Run 3 has
+one broad dip across the middle of the high band. Run 4 keeps that dip and adds a narrow one at 7.19 GHz from the
+parasitic, which raises the match at 6.5–7.125 GHz. A deep dip alone is not efficiency: right at 7.19 GHz the
+parasitic also loses power, which is why the total efficiency plot above is the measure.
+
 1. **Run 1** found a folded IFA with about 65 % in both bands. Its reference check used its own feed model, not
    Meta's STEP. It is not kept in this folder.
 2. **Run 2** ([run2/](run2/README.md)) is **faulty**. It was made with Hertzon versions that still had bugs in the
