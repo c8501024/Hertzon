@@ -5,6 +5,14 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- **Broadband / Multi-Frequencies adaptive meshing:** every adaptive frequency now refines its own worst
+  tetrahedra. The error of each frequency is scaled to its own maximum before the frequencies are combined. Before,
+  the frequency with the larger error everywhere (in a plain WR-90 the highest one) chose all tetrahedra, and
+  Broadband 8–12 GHz gave exactly the mesh of a single solution at 12 GHz. Single-frequency setups are unchanged.
+  The label of the Multi-Frequencies list no longer claims a separate Max Delta S per frequency (one Max Delta S
+  applies to all).
+
 ### Changed
 - **Example 2 of the Meta benchmark:** Run 4 in `examples/meta_glasses_ex2/run4`, a refinement of Run 3 with a
   grounded parasitic next to the feed stem that adds a resonance near 7.2 GHz. Reference solver on Meta's STEP:
