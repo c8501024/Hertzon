@@ -1563,7 +1563,8 @@ class Bridge:
                 fl.set_field_vector()
                 err, lengths = fl._solution_quality(pec)
                 errors.append(err)
-            error = finite_error(np.max(errors, axis=0), fields[0] if fields else None, step)
+            error = finite_error(combine_frequency_errors(np.asarray(errors, float).T), fields[0] if fields else None,
+                                 step)
             if error is None:
                 break
             last_n = m.mesh.n_tets
@@ -2655,7 +2656,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         for i in range(len(fa)):
             err, lengths = fields[i]._solution_quality(solve_ids)
             errors[:, i] = err
-        error = finite_error(errors.max(axis=1), fields[0] if fields else None, step)
+        error = finite_error(combine_frequency_errors(errors), fields[0] if fields else None, step)
         info(f"Pass {step}: error estimate {time.time() - t_err:.2f} s ({m.mesh.n_tets} tetrahedra)")
         if error is None:
             break
@@ -2763,6 +2764,31 @@ def _material_of_tet(field, t: int) -> str:
             return f"{complex(d[0]):.4g}"
         return "[" + ", ".join(f"{complex(x):.4g}" for x in d) + "]"
     return f"er = {one(getattr(field, '_der', None))}, ur = {one(getattr(field, '_dur', None))}"
+
+
+def combine_frequency_errors(errors: np.ndarray) -> np.ndarray:
+    """One error per tetrahedron from the errors at several adaptive frequencies (columns of errors).
+
+    Each frequency's error is scaled to its own largest finite value before the maximum is taken, so every
+    frequency refines its own worst tetrahedra. Without the scaling the highest frequency (largest error
+    everywhere when the field has the same shape, as in a plain waveguide) chose every tetrahedron and
+    Broadband / Multi-Frequencies gave the mesh of a single solution at the highest frequency. The result
+    keeps the scale of the largest error. A single frequency is returned unchanged."""
+    errors = np.asarray(errors, float)
+    if errors.ndim == 1:
+        return errors
+    if errors.shape[1] == 1:
+        return errors[:, 0]
+    scaled = errors.copy()
+    top = 0.0
+    for i in range(errors.shape[1]):
+        col = errors[:, i]
+        fin = col[np.isfinite(col)]
+        mx = float(fin.max()) if fin.size else 0.0
+        if mx > 0:
+            scaled[:, i] = col / mx
+            top = max(top, mx)
+    return scaled.max(axis=1) * (top if top > 0 else 1.0)
 
 
 def finite_error(error: np.ndarray, field=None, step: int = 0) -> np.ndarray | None:
