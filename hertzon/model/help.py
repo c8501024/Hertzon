@@ -138,9 +138,13 @@ HELP: dict[str, str] = {
     "SolutionFrequencyMode": "Single frequency, multiple frequencies or broadband adaptive meshing.",
     "Frequency": "Solution (adaptive meshing) frequency. Choose the highest frequency of interest for "
                  "filters; for antennas the operating frequency.",
-    "MultiFrequencies": "Adaptive frequencies, separated by ',' or ';' (2.45GHz, 6.1GHz).",
+    "MultiFrequencies": "Adaptive frequencies, separated by ',' or ';' (2.45GHz, 6.1GHz). A frequency may have its "
+                        "own Max Delta S after ':' (2.45GHz:0.01, 6.1GHz:0.005); the others use Max Delta S.",
     "LowFrequency": "Lower adaptive frequency (broadband).",
     "HighFrequency": "Upper adaptive frequency (broadband).",
+    "BroadbandFrequencies": "Number of adaptive frequencies of a broadband setup, evenly spaced from Low to High "
+                            "Frequency (default 3: low, middle, high). Convergence: mean Delta S of these "
+                            "frequencies below Max Delta S.",
     "MaximumPasses": "Maximum number of adaptive passes. Raising it later continues from the last adaptive "
                      "mesh (only convergence settings changed).",
     "MaximumDeltaS": "Convergence target: maximum change of any S-parameter magnitude between two passes.",

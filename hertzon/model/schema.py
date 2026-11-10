@@ -301,10 +301,14 @@ SETUP: list[Prop] = [
     P("SolutionFrequencyMode", "choice", "Single", label="Solution frequency",
       choices=("Single", "Multi-Frequencies", "Broadband")),
     P("Frequency", "freq", "5GHz", visible_if=("SolutionFrequencyMode", "Single")),
-    P("MultiFrequencies", "text", "1GHz,2GHz", label="Frequencies (each with own Max Delta S)",
+    P("MultiFrequencies", "text", "1GHz,2GHz", label="Frequencies (optional own Max Delta S: 2.45GHz:0.01)",
       visible_if=("SolutionFrequencyMode", "Multi-Frequencies")),
     P("LowFrequency", "freq", "1GHz", visible_if=("SolutionFrequencyMode", "Broadband")),
     P("HighFrequency", "freq", "10GHz", visible_if=("SolutionFrequencyMode", "Broadband")),
+    P("BroadbandFrequencies", "int", "3", label="Adaptive frequencies in the band",
+      visible_if=("SolutionFrequencyMode", "Broadband"),
+      help="Number of adaptive frequencies, evenly spaced from Low to High Frequency (at least 2). Every pass "
+           "solves all of them; the adaptive passes converge on the mean Delta S of these frequencies"),
     P("PortsOnly", "bool", "False", label="Solve ports only",
       help="Solve only the port modes of the wave ports: port impedance Zo, propagation constant Gamma and "
            "the port fields at the solution frequency and the sweep frequencies, without the 3D solution "
@@ -555,9 +559,22 @@ DESIGN_SETTINGS: list[Prop] = [
 ]
 
 
+def frequency_entries(text: str) -> list[tuple[str, str]]:
+    """The entries of a list of frequencies (MultiFrequencies), separated by ',' or ';' ("2.45GHz;6.1GHz"). An entry
+    may carry its own Max Delta S after ':' ("2.45GHz:0.01"); without one the second item is ""."""
+    out = []
+    for x in str(text or "").replace(";", ",").split(","):
+        x = x.strip()
+        if not x:
+            continue
+        f, _, ds = x.partition(":")
+        out.append((f.strip(), ds.strip()))
+    return out
+
+
 def frequency_list(text: str) -> list[str]:
-    """The entries of a list of frequencies (MultiFrequencies): separated by ',' or ';' ("2.45GHz;6.1GHz")."""
-    return [x.strip() for x in str(text or "").replace(";", ",").split(",") if x.strip()]
+    """The frequencies of a list of frequencies (MultiFrequencies), without their own Max Delta S."""
+    return [f for f, _ in frequency_entries(text)]
 
 
 def material_override(design) -> bool:
