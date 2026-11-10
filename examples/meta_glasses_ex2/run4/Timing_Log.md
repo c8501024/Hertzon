@@ -1,6 +1,6 @@
 # Example 2 (Run 4): timing log
 
-All times UTC, 9 November 2026, Hertzon 0.3.11 and the reference solver (version 2025 R1) on one workstation. Refinement of Run 3: started from the Run 3 project (A13) with the Run 3 report and project memory available. Times from 20:43 on are from the shell clock; the step boundaries between 19:30 and 20:35 are estimated from the solve durations (2–6 min each) and can be off by about 10 minutes. Tokens per step were not recorded.
+All times UTC, 9 November 2026, Hertzon 0.3.13 and the reference solver (version 2025 R1) on one workstation. Refinement of Run 3: started from the Run 3 project (A13) with the Run 3 report and project memory available. Times from 20:43 on are from the shell clock; the step boundaries between 19:30 and 20:35 are estimated from the solve durations (2–6 min each) and can be off by about 10 minutes. Tokens per step were not recorded.
 
 | Step | Start | End | Wall | Hertzon solves | Reference | Notes |
 | --- | --- | --- | --- | --- | --- | --- |

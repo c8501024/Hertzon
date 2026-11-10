@@ -1,6 +1,6 @@
 # Meta AI-glasses benchmark, Example 2, Run 4: an extra resonance for 6–7.125 GHz
 
-November 2026, Hertzon 0.3.11, checked with a commercial FEM reference solver
+November 2026, Hertzon 0.3.13, checked with a commercial FEM reference solver
 
 Run 4 is a refinement of [Run 3](../run3/README.md), not a run from scratch. It started from the Run 3 design (A13) and its Hertzon project, with the Run 3 report and the project memory in the agent's context. The prompt passed on a question from Jiang Zhu (Meta), one of the benchmark authors: could a further resonance cover the 6–7 GHz band better? The user asked to try it.
 
@@ -37,6 +37,31 @@ All values are from the reference solver on Meta's STEP, total efficiency Prad /
 | 6.55 | 64.8 | 70.9 | 73.4 | 74.7 |
 | 6.85 | 52.0 | 62.2 | 67.4 | 72.2 |
 | 7.125 | 44.3 | 57.4 | 61.8 | 94.4 |
+
+## Hertzon and the reference solver
+
+The same design A29 in both solvers. Hertzon is a repeat solve of A29 with Hertzon 0.3.13 (52k tetrahedra, ΔS 0.013); the design run itself gave 67.5 / 68.5 %, which shows the run-to-run spread of about ±1 point. Total efficiency is Prad / Pinc in both; Hertzon radiation efficiency is Prad / Pacc from its efficiency split.
+
+| Frequency (GHz) | Hertzon total (%) | Hertzon radiation (%) | Reference total (%) | Reference accepted (%) |
+| --- | --- | --- | --- | --- |
+| 2.401 | 60.0 | 81.0 | 63.4 | 79.0 |
+| 2.442 | 70.2 | 83.5 | 71.6 | 87.7 |
+| 2.483 | 71.8 | 84.7 | 71.2 | 86.7 |
+| 5.17 | 47.1 | 85.1 | 46.0 | 50.3 |
+| 5.5 | 74.2 | 92.5 | 74.8 | 78.2 |
+| 5.85 | 87.0 | 95.7 | 89.5 | 90.9 |
+| 6.2 | 84.7 | 96.0 | 89.1 | 89.6 |
+| 6.55 | 66.9 | 94.1 | 73.4 | 74.7 |
+| 6.85 | 60.9 | 89.9 | 67.4 | 72.2 |
+| 7.125 | 62.1 | 75.0 | 61.8 | 94.4 |
+| **Mean, 2.4 GHz / high band** | **67.3 / 69.0** | | **68.7 / 71.7** | |
+| **Equal weight** | **68.2** | | **70.2** | |
+
+![Total efficiency of A29 in Hertzon and the reference solver](results/Ex2_Run4_hertzon_vs_reference.png)
+
+![S11 of A29 in Hertzon and the reference solver](results/Ex2_Run4_S11_hertzon_vs_reference.png)
+
+The two solvers agree within 3 points on the band means (1.4 at 2.4 GHz, 2.7 in the high band) and within 7 points at every frequency. Hertzon is lower at 6.2–6.85 GHz, as in Run 3. S11 has the same shape; the narrow parasitic dip sits at 7.25 GHz in Hertzon and at 7.19 GHz in the reference solver. At 7.125 GHz the totals agree (62.1 and 61.8 %), but the split differs: Hertzon sees less accepted power and more radiation, the reference solver more accepted power and more loss, which fits the dip being 60 MHz closer in the reference solver. Data: `results/Hertzon_vs_reference.csv`, `results/hertzon_efficiency.csv`, `results/A29.s1p`.
 
 ## How the extra resonance works
 
@@ -89,7 +114,7 @@ Compared with Run 3, the stub right of the stem (x 7.886–9.9) is gone, because
 
 ## Setup
 
-As Run 3: Hertzon 0.3.11, first-order elements, adaptive at 2.45 and 6.1 GHz, up to 10 passes, ΔS ≤ 0.02, two-sided 35 µm copper sheets. The parasitic is a second sheet on the top FPC face with its own pin. The reference solver (version 2025 R1) uses Meta's STEP unmodified plus the two copper sheets, the two ground pins and a 30 µm bridge to the feed pin (`reference/Meta_Ex2_Run4_reference.py`), adaptive at 2.45 and 6.1 GHz, ΔS ≤ 0.01, 3° far-field sphere.
+Hertzon 0.3.13 (Run 3 used 0.3.11), first-order elements, adaptive at 2.45 and 6.1 GHz, up to 10 passes, ΔS ≤ 0.02, two-sided 35 µm copper sheets. The parasitic is a second sheet on the top FPC face with its own pin. The reference solver (version 2025 R1) uses Meta's STEP unmodified plus the two copper sheets, the two ground pins and a 30 µm bridge to the feed pin (`reference/Meta_Ex2_Run4_reference.py`), adaptive at 2.45 and 6.1 GHz, ΔS ≤ 0.01, 3° far-field sphere.
 
 ## Limits
 
