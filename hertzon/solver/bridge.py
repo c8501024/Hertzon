@@ -108,8 +108,42 @@ def adaptive_frequencies(setup: Setup, ev: Evaluator) -> list[float]:
         from ..model.schema import frequency_list
         return sorted(ev.freq(x) for x in frequency_list(p.get("MultiFrequencies", "")))
     if mode == "Broadband":
-        return [ev.freq(p["LowFrequency"]), ev.freq(p["HighFrequency"])]
+        return broadband_frequencies(ev.freq(p["LowFrequency"]), ev.freq(p["HighFrequency"]),
+                                     p.get("BroadbandFrequencies", "3"))
     return [ev.freq(p["Frequency"])]
+
+
+def broadband_frequencies(f_low: float, f_high: float, n="3") -> list[float]:
+    """The adaptive frequencies of a broadband setup: n (at least 2, default 3) evenly spaced from f_low to
+    f_high, so the middle of the band is adapted too and not only its edges."""
+    try:
+        n = int(float(n))
+    except (TypeError, ValueError):
+        n = 3
+    lo, hi = sorted((float(f_low), float(f_high)))
+    if hi <= lo:
+        return [lo]
+    return [float(f) for f in np.linspace(lo, hi, max(2, n))]
+
+
+def adaptive_delta_s(setup: Setup, ev: Evaluator) -> list[float]:
+    """Max Delta S of each adaptive frequency, in the order of adaptive_frequencies: Multi-Frequencies entries may
+    carry their own ("2.45GHz:0.01"), all others use the setup's Max Delta S."""
+    p = setup.props
+    default = float(p.get("MaximumDeltaS", "0.02") or "0.02")
+    fa = adaptive_frequencies(setup, ev)
+    if setup.eigen or p.get("SolutionFrequencyMode", "Single") != "Multi-Frequencies":
+        return [default] * len(fa)
+    from ..model.schema import frequency_entries
+    own = []
+    for x, ds in frequency_entries(p.get("MultiFrequencies", "")):
+        try:
+            v = float(ds) if ds else default
+        except ValueError:
+            v = default
+        own.append((ev.freq(x), v if v > 0 else default))
+    own.sort(key=lambda t: t[0])
+    return [v for _, v in own] if len(own) == len(fa) else [default] * len(fa)
 
 
 def _sweep_extremes(setup: Setup, ev: Evaluator, pick) -> list[float]:
@@ -1434,7 +1468,8 @@ class Bridge:
 
         key = self.keys["model_key"] if hasattr(self, "keys") else model_key(self.project, self.design, self.setup)
         state = load_amr_state(self.out, key, fa) if resume else None
-        conv = adaptive_loop(m, fa, p, self.out, on_pass, key=key, resume=state, power=self.pass_power)
+        conv = adaptive_loop(m, fa, p, self.out, on_pass, key=key, resume=state, power=self.pass_power,
+                             ds_limits=adaptive_delta_s(self.setup, self.ev))
         last = conv.pop("_last", None)
         conv["final_tets"] = int(m.mesh.n_tets)
         conv["frequencies"] = fa
@@ -1563,7 +1598,8 @@ class Bridge:
                 fl.set_field_vector()
                 err, lengths = fl._solution_quality(pec)
                 errors.append(err)
-            error = finite_error(np.max(errors, axis=0), fields[0] if fields else None, step)
+            error = finite_error(combine_frequency_errors(np.asarray(errors, float).T), fields[0] if fields else None,
+                                 step)
             if error is None:
                 break
             last_n = m.mesh.n_tets
@@ -2492,11 +2528,14 @@ def aligned_delta(S_old: np.ndarray, S_new: np.ndarray) -> tuple[float, float, f
 
 
 def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str = "", resume: dict | None = None,
-                  power=None) -> dict:
+                  power=None, ds_limits: list[float] | None = None) -> dict:
     """Adaptive mesh refinement with the reference tool's semantics.
 
     Pass 1 solves the initial mesh; from pass 2 on Delta S is the maximum change of any S-parameter
-    between consecutive passes. The loop stops after `MinimumConvergedPasses` consecutive converged
+    between consecutive passes. With several adaptive frequencies every pass solves all of them on one mesh:
+    each frequency's error estimate is scaled to its own maximum and the largest per tetrahedron is refined
+    (combine_frequency_errors); Multi-Frequencies converges when every frequency is below its own Max Delta S
+    (ds_limits), Broadband when the mean Delta S of its frequencies is below Max Delta S. The loop stops after `MinimumConvergedPasses` consecutive converged
     passes (but not before `MinimumPasses`), at `MaximumPasses`, or when the tetrahedra limit is hit.
     With UsePowerBalance a pass also needs |Prad + Ploss - Pacc| / Pin <= MaxPowerBalance and an efficiency
     change <= MaxDeltaEfficiency; power(fields, Ss) computes them (Bridge.pass_power).
@@ -2504,6 +2543,11 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     from .emerge_compat import select_refinement_indices, tet_to_node
     maxp = max(1, int(p.get("MaximumPasses", "6")))
     max_ds = float(p.get("MaximumDeltaS", "0.02"))
+    # Max Delta S per adaptive frequency (Multi-Frequencies entries may carry their own)
+    lims = list(ds_limits) if ds_limits is not None and len(ds_limits) == len(fa) else [max_ds] * len(fa)
+    # Broadband converges on the mean Delta S of its frequencies, Multi-Frequencies when every frequency has
+    # reached its own Max Delta S
+    broadband = p.get("SolutionFrequencyMode") == "Broadband" and len(fa) > 1
     use_mat = p.get("UseMatrixConvergence") == "True"
     max_dm = float(p.get("MaxDeltaMag", "0.02")) if use_mat else float("inf")
     max_dp = float(p.get("MaxDeltaPhase", "2")) if use_mat else float("inf")
@@ -2608,7 +2652,14 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
             row["delta_s"] = max(d[0] for d in ds)
             row["delta_mag"] = max(d[1] for d in ds)
             row["delta_phase"] = max(d[2] for d in ds)
-            ok = row["delta_s"] <= max_ds and row["delta_mag"] <= max_dm and row["delta_phase"] <= max_dp
+            if len(fa) > 1:
+                row["delta_s_freq"] = [float(d[0]) for d in ds]
+            if broadband:
+                row["delta_s"] = float(np.mean([d[0] for d in ds]))
+                ok_s = row["delta_s"] <= max_ds
+            else:
+                ok_s = all(d[0] <= lim for d, lim in zip(ds, lims))
+            ok = ok_s and row["delta_mag"] <= max_dm and row["delta_phase"] <= max_dp
             if "power_balance" in row:
                 ok = ok and row["power_balance"] <= max_pb and row.get("delta_eff", float("inf")) <= max_de
             passed = passed + 1 if ok else 0
@@ -2655,7 +2706,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         for i in range(len(fa)):
             err, lengths = fields[i]._solution_quality(solve_ids)
             errors[:, i] = err
-        error = finite_error(errors.max(axis=1), fields[0] if fields else None, step)
+        error = finite_error(combine_frequency_errors(errors), fields[0] if fields else None, step)
         info(f"Pass {step}: error estimate {time.time() - t_err:.2f} s ({m.mesh.n_tets} tetrahedra)")
         if error is None:
             break
@@ -2763,6 +2814,31 @@ def _material_of_tet(field, t: int) -> str:
             return f"{complex(d[0]):.4g}"
         return "[" + ", ".join(f"{complex(x):.4g}" for x in d) + "]"
     return f"er = {one(getattr(field, '_der', None))}, ur = {one(getattr(field, '_dur', None))}"
+
+
+def combine_frequency_errors(errors: np.ndarray) -> np.ndarray:
+    """One error per tetrahedron from the errors at several adaptive frequencies (columns of errors).
+
+    Each frequency's error is scaled to its own largest finite value before the maximum is taken, so every
+    frequency refines its own worst tetrahedra. Without the scaling the highest frequency (largest error
+    everywhere when the field has the same shape, as in a plain waveguide) chose every tetrahedron and
+    Broadband / Multi-Frequencies gave the mesh of a single solution at the highest frequency. The result
+    keeps the scale of the largest error. A single frequency is returned unchanged."""
+    errors = np.asarray(errors, float)
+    if errors.ndim == 1:
+        return errors
+    if errors.shape[1] == 1:
+        return errors[:, 0]
+    scaled = errors.copy()
+    top = 0.0
+    for i in range(errors.shape[1]):
+        col = errors[:, i]
+        fin = col[np.isfinite(col)]
+        mx = float(fin.max()) if fin.size else 0.0
+        if mx > 0:
+            scaled[:, i] = col / mx
+            top = max(top, mx)
+    return scaled.max(axis=1) * (top if top > 0 else 1.0)
 
 
 def finite_error(error: np.ndarray, field=None, step: int = 0) -> np.ndarray | None:
