@@ -20,6 +20,17 @@ the GitHub release notes.
   (`8GHz:0.001, 12GHz:0.0001`); entries without one use Max Delta S. The analysis converges when every frequency
   has reached its limit. The convergence data stores Delta S per frequency.
 
+### Fixed
+- **Interpolating sweep of wave ports with several modes:** a sweep did not converge when a port had two modes
+  (WR-90, 100 mm, TE10 + TE20, 8–40 GHz: interpolation error about 1 after 120 solutions). Before every batch of
+  solutions the sweep flipped port signs to match the nearest solved frequency, judged by the coupling to port 1:
+  for the second mode that coupling is mesh noise, and on a long line the phase also turns by more than 90°
+  between solutions, so modes were flipped at random. The solver's own sign rule for port modes is kept instead.
+  The entries of a mode cut off at the lower band edge are fitted in sqrt(f² − fc²), where their phase is a plain
+  delay (the TE20 phase just above its cutoff was off by up to 0.09 with 60 solutions), and start frequencies keep
+  1 % from a cutoff, where the propagation constant is zero. The example converges with 74 solutions, |S| within
+  0.005 of 1.
+
 ### Changed
 - **Example 2 of the Meta benchmark:** Run 4 in `examples/meta_glasses_ex2/run4`, a refinement of Run 3 with a
   grounded parasitic next to the feed stem that adds a resonance near 7.2 GHz. Reference solver on Meta's STEP:

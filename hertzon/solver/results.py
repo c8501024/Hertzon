@@ -279,11 +279,17 @@ def _json_default(o):
     return str(o)
 
 
-def fit_sparams(ff: np.ndarray, SS: np.ndarray):
+def fit_sparams(ff: np.ndarray, SS: np.ndarray, cutoffs: tuple = ()):
     """Rational (vector fitting) model of S-matrices SS (frequency x n x n) at the frequencies ff, as the
-    interpolating sweep fits its solutions; returns f -> S(f)."""
+    interpolating sweep fits its solutions; returns f -> S(f). cutoffs: (fc, rows) of the wave port modes cut
+    off at the edges of the band, rows their rows of S (see cutoff_axis)."""
     n = SS.shape[1]
-    models = [[_rational_fit(ff, SS[:, i, j]) for j in range(n)] for i in range(n)]
+    models = [[None] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            x = cutoff_axis(ff, next((fc for fc, rows in cutoffs if i in rows or j in rows), None))
+            fit = _rational_fit(x(ff), SS[:, i, j])
+            models[i][j] = (lambda f, fit=fit, x=x: fit(x(f)))
 
     def call(f):
         out = np.zeros((len(f), n, n), complex)
@@ -292,6 +298,19 @@ def fit_sparams(ff: np.ndarray, SS: np.ndarray):
                 out[:, i, j] = models[i][j](f)
         return out
     return call
+
+
+def cutoff_axis(ff: np.ndarray, fc: float | None):
+    """The variable an S entry is fitted in. Next to the cutoff fc of a wave port mode its propagation constant
+    goes as sqrt(f^2 - fc^2), a branch point at the band edge that no rational function of f follows: the
+    phase of S(TE20) of a WR-90 guide 100 mm long from 13.2 to 40 GHz still had an error of 0.09 with 60
+    samples. As a function of x = sqrt(f^2 - fc^2) that entry is a plain delay (3e-6). Only the entries of the
+    modes cut off at fc take it: the others are smooth in f and extrapolate worse in x, which stretches the
+    band towards fc. Below a cutoff (decaying modes, small S) the fit stays in f."""
+    ff = np.asarray(ff, float)
+    if fc is not None and fc <= ff.min():
+        return lambda f: np.sqrt(np.maximum(np.asarray(f, float) ** 2 - fc ** 2, 0.0))
+    return lambda f: np.asarray(f, float)
 
 
 # order selection of the rational fit: an order is kept when it reproduces the samples at least twice as
