@@ -2326,17 +2326,19 @@ class Bridge:
                 if len(band) <= n_start:
                     # as many frequencies as start points: solved directly
                     gf, Sm, z0, _ = solve_at(m, list(band), parallel=par, n_workers=nw, on_solved=prog.solved)
-                    Sm = align_batch(S_all, gf, Sm)
                     for f in band:
                         S_all[float(f)] = Sm[int(np.argmin(np.abs(gf - f)))]
                     dense.append(np.array([S_all[float(f)] for f in band]))
                     continue
                 part: dict[float, np.ndarray] = {}
-                fs: list[float] = list(np.linspace(band.min(), band.max(), n_start))
+                lo, hi = clear_of_cutoffs(band, [fc for fc, _ in cuts])
+                fs: list[float] = list(np.linspace(lo, hi, n_start))
+                edges = band_cutoffs(band, [(fc, cutoff_rows(labels, self.port_map) if TERMINALS is None
+                                                 else frozenset()) for fc, labels in cuts])
                 z0 = self._interpolate(name, band, nmax, tol, fs, part, errs, n_check, par, nw, prog, hyb,
-                                       known=S_all)
+                                       known=S_all, cutoffs=edges)
                 ff = np.array(sorted(part))
-                dense.append(_fit(_sparam_model(), ff, np.array([part[f] for f in ff]))(band))
+                dense.append(_fit(_sparam_model(), ff, np.array([part[f] for f in ff]), edges)(band))
                 S_all.update(part)
         finally:
             hybrid_sweep.ACTIVE = None
@@ -2344,9 +2346,11 @@ class Bridge:
             info(f"Sweep '{name}': {hyb.summary()}")
         self.save_s(name, fr, np.concatenate(dense), z0, solved=np.array(sorted(S_all)))
 
-    def _interpolate(self, name, fr, nmax, tol, fs, S_all, errs, n_check, par, nw, prog, hyb, known=None):
+    def _interpolate(self, name, fr, nmax, tol, fs, S_all, errs, n_check, par, nw, prog, hyb, known=None,
+                     cutoffs=()):
         """Solves start and check frequencies into S_all until the rational fit of S_all meets tol; returns the
-        port impedances. known: solutions of other bands of the same sweep (mode alignment)."""
+        port impedances. known: solutions of other bands of the same sweep (they count towards MaxSolutions).
+        cutoffs: those at the edges of the band (fitted in sqrt(f^2 - fc^2) where better, see results._cutoff_fit)."""
         SparamModel = _sparam_model()
         m = self.m
         known = known or {}
@@ -2360,7 +2364,6 @@ class Bridge:
                 if hyb is not None:
                     hyb.reduced = False             # start points: direct (in parallel when switched on)
                 gf, Sm, z0, _ = solve_at(m, todo, parallel=par, n_workers=nw, on_solved=prog.solved)
-                Sm = align_batch({**known, **S_all}, gf, Sm)
                 for f in todo:
                     k = int(np.argmin(np.abs(gf - f)))
                     S_all[f] = Sm[k]
@@ -2370,14 +2373,15 @@ class Bridge:
                 warn(f"Sweep '{name}': maximum number of solutions ({nmax}) reached")
                 break
             # validation: fit on all but every other new candidate, check midpoints of the largest gaps
-            gaps = np.diff(ff)
-            cand = sorted(((ff[i] + ff[i + 1]) / 2 for i in np.argsort(gaps)[::-1][:n_check]))
-            model = _fit(SparamModel, ff, SS)
+            # (next to a cutoff the gaps are measured in sqrt(f^2 - fc^2), which opens up where S turns fastest)
+            x, f_of = cutoff_variable(ff, cutoffs)
+            gaps = np.diff(x)
+            cand = sorted(float(f_of((x[i] + x[i + 1]) / 2)) for i in np.argsort(gaps)[::-1][:n_check])
+            model = _fit(SparamModel, ff, SS, cutoffs)
             if hyb is not None and hyb.V is not None:
                 gf, Sm = self._check_points(m, cand, {**known, **S_all}, par, nw, prog, hyb)
             else:
                 gf, Sm, _, _ = solve_at(m, cand, parallel=par, n_workers=nw, on_solved=prog.solved)
-                Sm = align_batch({**known, **S_all}, gf, Sm)
             err = 0.0
             for f in cand:
                 k = int(np.argmin(np.abs(gf - f)))
@@ -2407,7 +2411,6 @@ class Bridge:
             gf, Sm, _, _ = solve_at(m, cand)
         finally:
             hyb.reduced = hyb.probe = False
-        Sm = align_batch(S_all, gf, Sm)
         bad = np.array([any(np.isclose(f, g, rtol=1e-12, atol=0) for g in hyb.missed) for f in gf], bool)
         for _ in range(int((~bad).sum())):
             prog.solved()
@@ -2415,7 +2418,6 @@ class Bridge:
         if bad.any():
             miss = [f for f in cand if not np.any(np.isclose(gf, f, rtol=1e-12, atol=0))]
             g2, S2, _, _ = solve_at(m, miss, parallel=par, n_workers=nw, on_solved=prog.solved)
-            S2 = align_batch(S_all, g2, S2)
             gf, Sm = np.r_[gf, g2], np.concatenate([Sm, S2]) if len(Sm) else S2
             o = np.argsort(gf)
             gf, Sm = gf[o], Sm[o]
@@ -3352,24 +3354,6 @@ def memory_forecast(next_tets: float, cur_tets: int) -> tuple[float, float]:
     return next_tets * per_tet, available_memory()
 
 
-def align_batch(S_all: dict, gf: np.ndarray, Sm: np.ndarray) -> np.ndarray:
-    """Every solve run recomputes the wave port modes, whose sign is arbitrary. Flip the port
-    polarity of a new batch so that it matches the closest already solved frequency."""
-    if not S_all or Sm.shape[1] < 2:
-        return Sm
-    ff = np.array(sorted(S_all))
-    k = int(np.argmin(np.abs(ff - gf[0])))
-    ref = S_all[ff[k]]
-    new = Sm[0]
-    n = new.shape[0]
-    sgn = np.ones(n)
-    for j in range(1, n):
-        a = new[0, j] * np.conj(ref[0, j])
-        if abs(ref[0, j]) > 1e-4 and a.real < 0:
-            sgn[j] = -1.0
-    return Sm * np.outer(sgn, sgn)[None]
-
-
 def tet_statistics(nodes: np.ndarray, tets: np.ndarray) -> dict:
     """Mesh statistics like the reference tool: element count, edge lengths and volumes."""
     P = nodes[tets]                                     # (N, 4, 3)
@@ -3828,6 +3812,64 @@ def wave_port_cutoffs(m, f1: float, f2: float) -> list[tuple[float, list[str]]]:
     return [(fc, [label for _, label in sorted(labels)]) for fc, labels in merged]
 
 
+CUTOFF_CLEARANCE = 0.01     # solved frequencies keep 1 % from a cutoff: there beta -> 0 and the mode is singular
+
+
+def clear_of_cutoffs(band, cuts, rel: float = CUTOFF_CLEARANCE) -> tuple[float, float]:
+    """First and last start frequency of a band between cutoffs: the band edges, moved inside the band to at
+    least rel * fc from a cutoff fc. At a cutoff the propagation constant of the mode is zero (infinite wave
+    impedance, no power): a solution there is ill-conditioned and spoils the rational fit of the band; the
+    band edge itself is interpolated."""
+    lo, hi = float(np.min(band)), float(np.max(band))
+    a, b = lo, hi
+    for fc in cuts:
+        if fc <= lo and lo < fc * (1 + rel):
+            a = max(a, fc * (1 + rel))
+        if fc >= hi and hi > fc * (1 - rel):
+            b = min(b, fc * (1 - rel))
+    return (a, b) if a < b else (lo, hi)
+
+
+def cutoff_variable(ff, cutoffs):
+    """x(ff) and its inverse for the check points of a band: sqrt(f^2 - fc^2) above a cutoff fc next to the
+    band (the propagation constant of the mode cut off there), else f."""
+    ff = np.asarray(ff, float)
+    for fc, _ in cutoffs:
+        if fc <= ff.min():
+            return np.sqrt(np.maximum(ff ** 2 - fc ** 2, 0.0)), lambda x, fc=fc: np.sqrt(x ** 2 + fc ** 2)
+    return ff, lambda x: x
+
+
+def band_cutoffs(band, cuts, rel: float = 0.01) -> tuple:
+    """The cutoffs (fc, rows) next to a band between cutoffs: the highest one below it and the lowest one above
+    it, each with those within rel of it (the same mode at two ports, solved apart)."""
+    lo, hi = float(np.min(band)), float(np.max(band))
+    below = [c for c in cuts if c[0] <= lo]
+    above = [c for c in cuts if c[0] >= hi]
+    out = []
+    if below:
+        top = max(fc for fc, _ in below)
+        out += [c for c in below if c[0] >= top * (1 - rel)]
+    if above:
+        bottom = min(fc for fc, _ in above)
+        out += [c for c in above if c[0] <= bottom * (1 + rel)]
+    return tuple(out)
+
+
+def cutoff_rows(labels, port_map) -> frozenset:
+    """The rows of S of the wave port modes named in labels ("wave port 2 mode 2", "wave port 1")."""
+    import re
+    rows = {(int(q.get("number", 0)), int(q.get("mode", 1))): i for i, q in enumerate(port_entries(port_map))}
+    out = set()
+    for label in labels:
+        mt = re.fullmatch(r"wave port (\d+)(?: mode (\d+))?", label)
+        if mt:
+            key = (int(mt.group(1)), int(mt.group(2) or 1))
+            if key in rows:
+                out.add(rows[key])
+    return frozenset(out)
+
+
 def split_at(fr, cuts) -> list[np.ndarray]:
     """The frequencies fr (ascending) in bands between the cutoffs; empty bands are left out."""
     fr = np.asarray(fr, float)
@@ -3873,9 +3915,9 @@ def _z0(grid) -> np.ndarray:
         return np.array([50.0])
 
 
-def _fit(SparamModel, ff: np.ndarray, SS: np.ndarray):
+def _fit(SparamModel, ff: np.ndarray, SS: np.ndarray, cutoffs: tuple = ()):
     from .results import fit_sparams
-    return fit_sparams(ff, SS)
+    return fit_sparams(ff, SS, cutoffs)
 
 
 # --------------------------------------------------------------------------------------------

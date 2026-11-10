@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hertzon"
-version = "0.3.15"
+version = "0.3.16"
 description = "Open-source electromagnetic design suite for engineers and AI agents: 3D full-wave FEM, circuits, PCBs and optimization"
 readme = "README.md"
 license = {text = "GPL-2.0-or-later"}
@@ -13,9 +13,9 @@ dependencies = [
     # EMerge at the commit in packaging/emerge-commit, from the wheels .github/workflows/emerge-wheels.yml
     # built for it (release emerge-<short sha>); other platforms build that commit from source (Rust).
     # Brings emsutil (material library) with it.
-    "emerge @ https://github.com/c8501024/Hertzon/releases/download/emerge-a92bf13/emerge-3.0.0b5.post202611092124-cp310-abi3-win_amd64.whl ; sys_platform == 'win32' and platform_machine == 'AMD64'",
-    "emerge @ https://github.com/c8501024/Hertzon/releases/download/emerge-a92bf13/emerge-3.0.0b5.post202611092124-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "emerge @ git+https://github.com/FennisRobert/EMerge@a92bf13515c8fdc6dc678a30fd13b8d32f3ece27 ; sys_platform == 'darwin' or (sys_platform == 'win32' and platform_machine != 'AMD64') or (sys_platform == 'linux' and platform_machine != 'x86_64')",
+    "emerge @ https://github.com/c8501024/Hertzon/releases/download/emerge-767fb7b/emerge-3.0.0b5.post202611101258-cp310-abi3-win_amd64.whl ; sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "emerge @ https://github.com/c8501024/Hertzon/releases/download/emerge-767fb7b/emerge-3.0.0b5.post202611101258-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "emerge @ git+https://github.com/FennisRobert/EMerge@767fb7b9d8ab3d8d850034899fe8bdcc1321f6b8 ; sys_platform == 'darwin' or (sys_platform == 'win32' and platform_machine != 'AMD64') or (sys_platform == 'linux' and platform_machine != 'x86_64')",
     # gmsh 4.13 and 4.14 fail on some faces of the showcase example, and after such a failure later meshes of
     # the same session come out empty (4.13 stays locked: "I'm busy! Ask me that later"). EMerge allows 4.13.
     "gmsh>=4.15",

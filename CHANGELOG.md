@@ -3,6 +3,25 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.16 (2026-11-10)
+
+### Fixed
+- **Wave ports with several modes** (EMerge `767fb7b`, FennisRobert/EMerge#97): in an overmoded guide the mode
+  analysis returned high order modes instead of the dominant ones (WR-90 at 40 GHz with 2 modes: two modes with
+  kc 550 and 618 rad/m instead of TE10 and TE20), whose sign then flipped between adaptive passes (Delta S 2).
+  A sweep below the cutoff of the second mode stopped with "float division by zero"; that mode now decays at the
+  port (S = exp(-alpha L)). A repeated mode analysis no longer searches exactly on the first mode, which left the
+  other modes unconverged.
+- **Interpolating sweep of wave ports with several modes:** a sweep did not converge when a port had two modes
+  (WR-90, 100 mm, TE10 + TE20, 8–40 GHz: interpolation error about 1 after 120 solutions). Before every batch of
+  solutions the sweep flipped port signs to match the nearest solved frequency, judged by the coupling to port 1:
+  for the second mode that coupling is mesh noise, and on a long line the phase also turns by more than 90°
+  between solutions, so modes were flipped at random. The solver's own sign rule for port modes is kept instead.
+  The entries of a mode cut off at the lower band edge are fitted in sqrt(f² − fc²), where their phase is a plain
+  delay (the TE20 phase just above its cutoff was off by up to 0.09 with 60 solutions), and start frequencies keep
+  1 % from a cutoff, where the propagation constant is zero. The example converges with 74 solutions, |S| within
+  0.005 of 1.
+
 ## 0.3.15 (2026-11-10)
 
 ### Fixed
