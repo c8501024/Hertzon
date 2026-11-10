@@ -136,6 +136,32 @@ fig.tight_layout(rect=(0, 0, 1, 0.95))
 fig.savefig(os.path.join(RES, "Ex2_Run4_S11_reference.png"), dpi=200, facecolor=SURF)
 plt.close(fig)
 
+# ---- S11 of Runs 2, 3 and 4 -------------------------------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(9.2, 4.4), facecolor=SURF)
+ax.set_facecolor(SURF)
+ax.grid(color=GRID, lw=0.8)
+ax.set_axisbelow(True)
+for s in ("top", "right"):
+    ax.spines[s].set_visible(False)
+for lo, hi in ((2.401, 2.483), (5.17, 7.125)):
+    ax.axvspan(lo, hi, color=BAND, lw=0)
+f2, s2 = s11(os.path.join(EX2, "run2", "results", "reference_S11.csv"))
+ax.plot(f2, s2, color=GRAY, lw=2, ls=(0, (4, 3)), label="Run 2 (faulty)")
+ax.plot(f3, s3, color=BLUE, lw=2, label="Run 3 A13")
+ax.plot(f4, s4, color=ORANGE, lw=2, label="Run 4 A29")
+ax.axhline(-6, color=MUTED, lw=0.8, ls=":")
+ax.text(2.02, -5.6, "−6 dB", fontsize=8.5, color=MUTED)
+ax.set_xlim(2, 8)
+ax.set_ylim(-35, 0)
+ax.set_xlabel("Frequency (GHz)")
+ax.set_ylabel("|S11| (dB)")
+ax.legend(loc="lower left", frameon=False, fontsize=9)
+fig.suptitle("S11 of Runs 2 to 4 in the reference solver, no matching parts", x=0.01, ha="left", fontsize=12,
+             fontweight="bold")
+fig.tight_layout(rect=(0, 0, 1, 0.95))
+fig.savefig(os.path.join(RES, "Ex2_runs_S11_reference.png"), dpi=200, facecolor=SURF)
+plt.close(fig)
+
 # ---- layout of A29 ----------------------------------------------------------------------------------------------
 des = json.load(open(os.path.join(RUN4, "Meta_Ex2_Run4.hzn"), encoding="utf-8"))["designs"][0]
 var = {k: float(v.replace("mm", "")) for k, v in des["variables"].items()}
