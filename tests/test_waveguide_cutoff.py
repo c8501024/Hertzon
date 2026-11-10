@@ -31,6 +31,17 @@ def test_split_at_puts_the_frequencies_between_the_cutoffs():
     assert [len(b) for b in B.split_at(fr, [3e9, 6.557e9])] == [6, 7]     # no empty band
 
 
+def test_start_frequencies_keep_clear_of_a_cutoff():
+    """A grid point just above a cutoff (13.12 GHz for the TE20 cutoff 13.11 GHz of WR-90 in an 8-40 GHz sweep
+    of 201 points) is no start frequency: beta is almost zero there. The band edge moves 1 % into the band."""
+    fc = 13.11e9
+    fr = np.linspace(8e9, 40e9, 201)
+    below, above = B.split_at(fr, [fc])
+    assert B.clear_of_cutoffs(above, [fc]) == pytest.approx((1.01 * fc, 40e9))
+    assert B.clear_of_cutoffs(below, [fc]) == (8e9, below.max())             # 12.96 GHz is 1.1 % below fc
+    assert B.clear_of_cutoffs(np.array([13.12e9, 13.14e9]), [fc]) == (13.12e9, 13.14e9)   # no room: unchanged
+
+
 def test_port_beta_decays_below_cutoff():
     """De-embedding moves the reference plane with exp(j beta d): below cutoff that is exp(alpha d)."""
     k = lambda f: 2 * np.pi * f / B.C0                                          # noqa: E731
@@ -103,3 +114,37 @@ def test_interpolating_sweep_across_the_cutoff_is_fitted_on_each_side(tmp_path, 
         k0 = 2 * np.pi * f[~above] / B.C0
         alpha = np.sqrt((np.pi / A_WR90) ** 2 - k0 ** 2)
         assert 20 * np.log10(np.abs(S[~above, 1, 0])) == pytest.approx(-8.686 * alpha * L, abs=0.2)
+
+
+def test_fit_next_to_a_cutoff_follows_the_square_root_branch():
+    """S of a mode just above its cutoff goes with sqrt(f^2 - fc^2): WR-90 100 mm long, TE10 and TE20 from 1 %
+    above the TE20 cutoff to 40 GHz, 60 samples. In f the TE20 entry is off by about 1; fitted in
+    sqrt(f^2 - fc^2) it is a delay, while the TE10 entry stays in f (it extrapolates badly in that variable)."""
+    from hertzon.solver.results import fit_sparams
+    fc = B.C0 / A_WR90                                                          # TE20 cutoff, 13.11 GHz
+
+    def S(f, m):
+        k = 2 * np.pi * f / B.C0
+        return np.exp(-1j * np.sqrt(k ** 2 - (m * np.pi / A_WR90) ** 2 + 0j) * 0.1)
+    ff = np.linspace(1.01 * fc, 40e9, 60)
+    fd = np.linspace(1.001 * fc, 40e9, 1500)
+    SS = np.zeros((len(ff), 2, 2), complex)
+    SS[:, 0, 0], SS[:, 1, 1] = S(ff, 1), S(ff, 2)
+    plain = fit_sparams(ff, SS)(fd)
+    model = fit_sparams(ff, SS, ((fc, frozenset({1})),))(fd)
+    assert np.max(np.abs(plain[:, 1, 1] - S(fd, 2))) > 0.05
+    assert np.max(np.abs(model[:, 1, 1] - S(fd, 2))) < 1e-3
+    assert np.max(np.abs(model[:, 0, 0] - S(fd, 1))) < 1e-3
+
+
+def test_band_cutoffs_are_the_neighbours_of_the_band():
+    a, b, c, d = (6.5e9, "a"), (13.10e9, "b"), (13.11e9, "c"), (30e9, "d")
+    assert B.band_cutoffs(np.array([14e9, 20e9]), [a, b, c, d]) == (b, c, d)     # both ports' TE20 cutoff
+    assert B.band_cutoffs(np.array([8e9, 12e9]), [b]) == (b,)
+    assert B.band_cutoffs(np.array([8e9, 12e9]), []) == ()
+
+
+def test_cutoff_rows_are_the_rows_of_the_modes():
+    pm = [{"number": 1, "kind": "Wave Port", "modes": 2}, {"number": 2, "kind": "Wave Port", "modes": 2}]
+    assert B.cutoff_rows(["wave port 1 mode 2", "wave port 2 mode 2"], pm) == {1, 3}
+    assert B.cutoff_rows(["wave port 2"], [{"number": 1, "modes": 1}, {"number": 2, "modes": 1}]) == {1}
