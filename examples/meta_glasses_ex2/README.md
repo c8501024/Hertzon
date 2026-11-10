@@ -16,6 +16,18 @@ creates a second resonance near 7.2 GHz: at 7.125 GHz the total efficiency rises
 
 ![Layout of A29 on the FPC in mm](run4/results/Ex2_Run4_layout_mm.png)
 
+| A29, no matching | 2.4 GHz band | 5.17–7.125 GHz | Equal weight |
+| --- | --- | --- | --- |
+| **Reference solver, Meta's STEP** | **68.7 %** | **71.7 %** | **70.2 %** |
+| Hertzon 0.3.13 | 67.3 % | 69.0 % | 68.2 % |
+
+![Total efficiency of A29 in Hertzon and the reference solver](run4/results/Ex2_Run4_hertzon_vs_reference.png)
+
+![S11 of A29 in Hertzon and the reference solver](run4/results/Ex2_Run4_S11_hertzon_vs_reference.png)
+
+Both solvers give the same S11 shape, with the narrow parasitic dip at 7.19 GHz in the reference solver and at
+7.25 GHz in Hertzon. Band by band: [run4/REPORT.md](run4/REPORT.md#hertzon-and-the-reference-solver).
+
 ## How we got here
 
 Each run was a new session of the agent with its own prompt. The table lists what each run was asked for and what
@@ -82,6 +94,6 @@ parasitic also loses power, which is why the total efficiency plot above is the 
 | `run4/tools/make_plots.py`, `run4/tools/plot_layouts.py` | Plots, comparison table, layouts of Runs 2–4 |
 | [run4/REPORT.md](run4/REPORT.md), [run4/Timing_Log.md](run4/Timing_Log.md) | Full report and timing |
 
-Reproduce: open `run4/Meta_Ex2_Run4.hzn` in Hertzon 0.3.11 or newer and run Setup1. Total efficiency is radiated
+Reproduce: open `run4/Meta_Ex2_Run4.hzn` in Hertzon 0.3.13 or newer and run Setup1. Total efficiency is radiated
 power over incident power of the `Eff` sweep; `get_results` with `kind = efficiency` on the MCP interface gives the
 split into mismatch and radiation efficiency.

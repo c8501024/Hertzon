@@ -113,6 +113,51 @@ def s11(path):
     return r[:, 0], r[:, 3]
 
 
+# ---- A29: Hertzon against the reference solver ------------------------------------------------------------------
+with open(os.path.join(RES, "hertzon_efficiency.csv")) as fh:
+    HZ = [float(r[1]) for r in list(csv.reader(fh))[1:]]
+with open(os.path.join(RES, "reference_efficiency.csv")) as fh:
+    rows = list(csv.reader(fh))[1:]
+    ACC = [100 * float(r[2]) / float(r[3]) for r in rows]
+with open(os.path.join(RES, "Hertzon_vs_reference.csv"), "w", newline="") as fh:
+    w = csv.writer(fh)
+    w.writerow(["f_GHz", "Hertzon_total_pct", "reference_total_pct", "reference_accepted_pct"])
+    for row in zip(F, HZ, A29, ACC):
+        w.writerow([round(x, 3) for x in row])
+fig, a, b = two_panels(5.0)
+draw(a, b, [(HZ, ORANGE, (0, (4, 3)), "s", label("A29, Hertzon", HZ)),
+            (A29, BLUE, "-", "o", label("A29, reference solver", A29))])
+fig.legend(*b.get_legend_handles_labels(), loc="lower center", frameon=False, fontsize=9, bbox_to_anchor=(0.5, 0.0),
+           title="Total efficiency: mean 2.4 GHz / high band (equal weight)", title_fontsize=9)
+fig.suptitle("Final design A29: Hertzon and the reference solver", x=0.01, ha="left", fontsize=12, fontweight="bold")
+fig.tight_layout(rect=(0, 0.15, 1, 0.95))
+fig.savefig(os.path.join(RES, "Ex2_Run4_hertzon_vs_reference.png"), dpi=200, facecolor=SURF)
+plt.close(fig)
+
+hz = np.loadtxt(os.path.join(RES, "A29.s1p"), comments=["!", "#"])
+fig, ax = plt.subplots(figsize=(9.2, 4.0), facecolor=SURF)
+ax.set_facecolor(SURF)
+ax.grid(color=GRID, lw=0.8)
+ax.set_axisbelow(True)
+for s in ("top", "right"):
+    ax.spines[s].set_visible(False)
+for lo, hi in ((2.401, 2.483), (5.17, 7.125)):
+    ax.axvspan(lo, hi, color=BAND, lw=0)
+fr, sr = s11(os.path.join(RES, "reference_S11.csv"))
+ax.plot(hz[:, 0] / 1e9, 20 * np.log10(np.abs(hz[:, 1] + 1j * hz[:, 2])), color=ORANGE, lw=2, ls=(0, (4, 3)),
+        label="A29, Hertzon")
+ax.plot(fr, sr, color=BLUE, lw=2, label="A29, reference solver")
+ax.set_xlim(2, 8)
+ax.set_ylim(-35, 0)
+ax.set_xlabel("Frequency (GHz)")
+ax.set_ylabel("|S11| (dB)")
+ax.legend(loc="lower left", frameon=False, fontsize=9)
+fig.suptitle("S11 of A29 in Hertzon and the reference solver", x=0.01, ha="left", fontsize=12, fontweight="bold")
+fig.tight_layout(rect=(0, 0, 1, 0.95))
+fig.savefig(os.path.join(RES, "Ex2_Run4_S11_hertzon_vs_reference.png"), dpi=200, facecolor=SURF)
+plt.close(fig)
+
+
 fig, ax = plt.subplots(figsize=(9.2, 4.0), facecolor=SURF)
 ax.set_facecolor(SURF)
 ax.grid(color=GRID, lw=0.8)
