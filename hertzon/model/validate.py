@@ -317,13 +317,21 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                 if err:
                     add("Analysis Setup", "error", f"{s.name}.{p.name}: {err}")
         if not s.eigen and s.props.get("SolutionFrequencyMode") == "Multi-Frequencies":
-            freqs = schema.frequency_list(s.props.get("MultiFrequencies", ""))
-            if not freqs:
+            entries = schema.frequency_entries(s.props.get("MultiFrequencies", ""))
+            if not entries:
                 add("Analysis Setup", "error", f"{s.name}.MultiFrequencies: no frequency given")
-            for x in freqs:
+            for x, ds in entries:
                 err = ev.check(x)
                 if err:
                     add("Analysis Setup", "error", f"{s.name}.MultiFrequencies '{x}': {err}")
+                if ds:
+                    try:
+                        ok = float(ds) > 0
+                    except ValueError:
+                        ok = False
+                    if not ok:
+                        add("Analysis Setup", "error",
+                            f"{s.name}.MultiFrequencies '{x}:{ds}': Max Delta S must be a number > 0")
         for sw in s.sweeps:
             for p in schema.SWEEP:
                 if p.type == "freq" and schema.is_visible(p, sw.props):

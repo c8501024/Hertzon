@@ -7,11 +7,18 @@ the GitHub release notes.
 
 ### Fixed
 - **Broadband / Multi-Frequencies adaptive meshing:** every adaptive frequency now refines its own worst
-  tetrahedra. The error of each frequency is scaled to its own maximum before the frequencies are combined. Before,
-  the frequency with the larger error everywhere (in a plain WR-90 the highest one) chose all tetrahedra, and
-  Broadband 8–12 GHz gave exactly the mesh of a single solution at 12 GHz. Single-frequency setups are unchanged.
-  The label of the Multi-Frequencies list no longer claims a separate Max Delta S per frequency (one Max Delta S
-  applies to all).
+  tetrahedra. The error of each frequency is scaled to its own maximum before the largest per tetrahedron is
+  refined. Before, the frequency with the larger error everywhere (in a plain WR-90 the highest one) chose all
+  tetrahedra, and Broadband 8–12 GHz gave exactly the mesh of a single solution at 12 GHz. Single-frequency setups
+  are unchanged.
+
+### Added
+- **Broadband adapts inside the band:** at low, middle and high frequency by default (setting "Adaptive frequencies
+  in the band", evenly spaced, at least 2) instead of only at the two edges. It converges when the mean Delta S of
+  these frequencies is below Max Delta S.
+- **Multi-Frequencies with their own Max Delta S:** an entry may carry its own limit after ':'
+  (`8GHz:0.001, 12GHz:0.0001`); entries without one use Max Delta S. The analysis converges when every frequency
+  has reached its limit. The convergence data stores Delta S per frequency.
 
 ### Changed
 - **Example 2 of the Meta benchmark:** Run 4 in `examples/meta_glasses_ex2/run4`, a refinement of Run 3 with a

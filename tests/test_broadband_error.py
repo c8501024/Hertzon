@@ -30,3 +30,44 @@ def test_nan_stays_for_finite_error_and_zero_column_is_kept():
     out = finite_error(comb)
     assert out is not None and out[1] == 0.0
     assert len(select_refinement_indices(out, 0.5)) > 0
+
+
+# ---- adaptive frequencies and convergence limits -------------------------------------------------------
+from hertzon.model import schema  # noqa: E402
+from hertzon.model.design import Project, Setup  # noqa: E402
+from hertzon.model.validate import validate  # noqa: E402
+from hertzon.solver import bridge as B  # noqa: E402
+
+
+def _setup(**props):
+    p = Project()
+    d = p.designs[0]
+    st = Setup("Setup1", props=schema.defaults(schema.SETUP))
+    st.props.update(props)
+    d.setups.append(st)
+    return p, d, st
+
+
+def test_broadband_adapts_low_middle_high_by_default():
+    p, d, st = _setup(SolutionFrequencyMode="Broadband", LowFrequency="8GHz", HighFrequency="12GHz")
+    assert B.adaptive_frequencies(st, d.evaluator(p)) == [8e9, 10e9, 12e9]
+    st.props.pop("BroadbandFrequencies")                    # projects saved before the setting: 3 as well
+    assert B.adaptive_frequencies(st, d.evaluator(p)) == [8e9, 10e9, 12e9]
+    st.props["BroadbandFrequencies"] = "5"
+    assert B.adaptive_frequencies(st, d.evaluator(p)) == [8e9, 9e9, 10e9, 11e9, 12e9]
+    st.props["BroadbandFrequencies"] = "1"                  # at least the two edges
+    assert B.adaptive_frequencies(st, d.evaluator(p)) == [8e9, 12e9]
+    assert B.adaptive_delta_s(st, d.evaluator(p)) == [0.02, 0.02]
+
+
+def test_multi_frequencies_with_own_max_delta_s():
+    p, d, st = _setup(SolutionFrequencyMode="Multi-Frequencies", MaximumDeltaS="0.02",
+                      MultiFrequencies="12GHz:0.001; 8GHz, 10GHz:0.005")
+    ev = d.evaluator(p)
+    assert B.adaptive_frequencies(st, ev) == [8e9, 10e9, 12e9]
+    assert B.adaptive_delta_s(st, ev) == [0.02, 0.005, 0.001]          # in the order of the frequencies
+    assert schema.frequency_list(st.props["MultiFrequencies"]) == ["12GHz", "8GHz", "10GHz"]
+    assert not [c for c in validate(p, d) if c.category == "Analysis Setup" and c.level == "error"]
+    st.props["MultiFrequencies"] = "8GHz:abc, 12GHz:-1"
+    errs = [c.message for c in validate(p, d) if c.category == "Analysis Setup" and c.level == "error"]
+    assert len(errs) == 2 and all("Max Delta S must be a number > 0" in e for e in errs)
