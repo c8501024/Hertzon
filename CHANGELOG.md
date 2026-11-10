@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Example 2 of the Meta benchmark:** Run 4 in `examples/meta_glasses_ex2/run4`, a refinement of Run 3 with a
+  grounded parasitic next to the feed stem that adds a resonance near 7.2 GHz. Reference solver on Meta's STEP:
+  68.7 % at 2.4 GHz, 71.7 % in 5.17–7.125 GHz, 70.2 % with equal weight (Run 3: 68.6 %), 61.8 % instead of 44.3 %
+  at 7.125 GHz. The overview now opens with Run 4 and shows how Runs 1 to 4 got there.
+
 ## 0.3.14 (2026-11-09)
 
 ### Fixed
