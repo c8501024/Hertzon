@@ -34,6 +34,8 @@ Runs 1 and 2.
 
 ![Total efficiency of Runs 2, 3 and 4 in the reference solver](run4/results/Ex2_runs_reference.png)
 
+![Final antennas of Runs 2, 3 and 4 on the FPC, to the same scale](run4/results/Ex2_layouts_run2_run4.png)
+
 1. **Run 1** found a folded IFA with about 65 % in both bands. Its reference check used its own feed model, not
    Meta's STEP. It is not kept in this folder.
 2. **Run 2** ([run2/](run2/README.md)) is **faulty**. It was made with Hertzon versions that still had bugs in the
@@ -70,7 +72,7 @@ Runs 1 and 2.
 | `run4/Meta_Ex2_Run4.hzn` | Hertzon project of the final design A29 (Setup1: adaptive at 2.45 + 6.1 GHz, S11 and efficiency sweeps) |
 | `run4/reference/Meta_Ex2_Run4_reference.py` | IronPython script for the reference solver on Meta's STEP (set `STP_FILE`; the STEP is not included here) |
 | `run4/results/` | Reference efficiency and S11 of A29 and A28, comparison of Runs 2–4, plots, layout |
-| `run4/tools/make_plots.py` | Plots and comparison table |
+| `run4/tools/make_plots.py`, `run4/tools/plot_layouts.py` | Plots, comparison table, layouts of Runs 2–4 |
 | [run4/REPORT.md](run4/REPORT.md), [run4/Timing_Log.md](run4/Timing_Log.md) | Full report and timing |
 
 Reproduce: open `run4/Meta_Ex2_Run4.hzn` in Hertzon 0.3.11 or newer and run Setup1. Total efficiency is radiated

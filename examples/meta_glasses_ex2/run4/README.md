@@ -28,8 +28,9 @@ the reference solver. The lower band edge (5.17 GHz, 46 %) got worse.
 | `Meta_Ex2_Run4.hzn` | Hertzon project of the final design A29 (Setup1: adaptive at 2.45 + 6.1 GHz, S11 and efficiency sweeps) |
 | `reference/Meta_Ex2_Run4_reference.py` | IronPython script for the reference solver on Meta's STEP (set `STP_FILE`; the STEP is not included here) |
 | `results/reference_*.csv` | Reference efficiency and S11 of A29 (and of A28, `_A28`), efficiency of Runs 2–4 side by side |
-| `results/*.png` | Run comparison, Run 3 against Run 4, S11, layout |
+| `results/*.png` | Run comparison, Run 3 against Run 4, S11, layout, layouts of Runs 2–4 |
 | `tools/make_plots.py` | Writes the plots and the comparison table from these files and from `../run2`, `../run3` |
+| `tools/plot_layouts.py` | Draws the final antennas of Runs 2–4 from their Hertzon projects |
 
 ## Reproduce
 
