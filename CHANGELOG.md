@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.15 (2026-11-10)
 
 ### Fixed
 - **Broadband / Multi-Frequencies adaptive meshing:** every adaptive frequency now refines its own worst
