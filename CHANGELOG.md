@@ -3,6 +3,18 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Command line without the window** (`hertzon-cli`, also `python -m hertzon solve ...`): `describe` prints the
+  designs, ports (number, kind, reference impedance), variables (expression and SI value) and setups/sweeps of a
+  project as JSON; `solve` solves a design and writes its S-parameters as Touchstone (the same file as Export
+  Touchstone in the window), with `--set VAR=VALUE` for variables, `--freq START:STOP:COUNT` or `--points` for
+  the frequencies (Hz unless a unit is given), progress as text or JSON lines on stderr, a JSON summary and
+  stable exit codes. The project file is not changed: other values are solved on a copy in
+  `<project>.hznresults/<design>/CLI/`, and a call whose model and setup match an existing solution (of the
+  window or of an earlier call) is answered from it without solving. See [docs/CLI.md](docs/CLI.md).
+
 ## 0.3.17 (2026-11-11)
 
 ### Changed
