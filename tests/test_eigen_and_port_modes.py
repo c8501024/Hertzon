@@ -72,9 +72,13 @@ def test_eigenmode_fields_are_saved_one_frequency_per_mode(tmp_path):
     assert np.linalg.norm(E.imag) < 1e-6 * np.linalg.norm(E.real)     # phase 0 shows the real mode
 
 
-def test_wave_port_with_more_modes_than_the_face_carries_says_so(tmp_path):
-    """A WR-90 port at 10 GHz carries TE10 only; asking for two TE modes fails with a clear message instead of
-    a division by zero in the S-parameters."""
+def test_wave_port_mode_below_cutoff_decays_and_says_so(tmp_path, capsys):
+    """A WR-90 port at 10 GHz carries TE10 only; a second TE mode asked for is TE20 below cutoff. Since EMerge
+    767fb7b it decays at the port (gamma = alpha = sqrt(kc^2 - k0^2), no power) instead of failing the
+    S-parameters, and the log says so."""
+    import numpy as np
+
+    from hertzon.solver.results import ResultStore
     p = Project()
     d = p.designs[0]
     d.add_object("CreateBox", "Guide", Position="0,0,0", XSize="22.86mm", YSize="20mm", ZSize="10.16mm",
@@ -87,8 +91,15 @@ def test_wave_port_with_more_modes_than_the_face_carries_says_so(tmp_path):
     st = Setup("Setup1")
     st.props.update(Frequency="10GHz", MaximumPasses="1", MinimumPasses="1")
     d.setups.append(st)
-    with pytest.raises(RuntimeError, match="Wave port 'WP1': 2 modes requested, the port face carries only 1"):
-        B.Bridge(p, d, st, tmp_path).run()
+    B.Bridge(p, d, st, tmp_path).run()
+    s = ResultStore(tmp_path).sparams("LastAdaptive")
+    S, gamma = np.asarray(s["S"])[0], np.asarray(s["gamma"])[0]
+    k0, kc20 = 2 * np.pi * 10e9 / B.C0, 2 * np.pi / 22.86e-3
+    assert gamma[1].real == pytest.approx(np.sqrt(kc20 ** 2 - k0 ** 2), rel=0.02)     # TE20 decays
+    assert abs(gamma[1].imag) < 1e-6 * abs(gamma[1].real)
+    assert abs(S[2, 0]) == pytest.approx(1, abs=0.01)                                  # TE10 passes
+    assert abs(S[2, 1]) < 0.01 and abs(S[1, 0]) < 0.01                                 # TE20 carries nothing
+    assert "Wave port 'WP1': mode 2 is below cutoff at the adaptive frequency 10 GHz" in capsys.readouterr().out
 
 
 def test_two_mode_wave_port_absorbs_modes_with_different_propagation_constants(tmp_path):
