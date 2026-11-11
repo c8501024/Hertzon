@@ -67,6 +67,7 @@ def test_input_errors_have_exit_code_3(tmp_path, capsys):
     assert cli.main(["solve", ms, "--design", "Microstrip50", "--setup", "X"]) == cli.BAD_INPUT
     assert cli.main(["solve", ms, "--design", "Microstrip50", "--freq", "5e9:1e9:3"]) == cli.BAD_INPUT
     assert cli.main(["solve", ms, "--unknown-flag"]) == cli.USAGE
+    assert cli.main(["solve", str(EX / "PlaneWave.hzn"), "--design", "Design1"]) == cli.BAD_INPUT    # no ports, no S-parameters
     capsys.readouterr()
     assert cli.main(["solve", ms, "--design", "Nope", "--progress", "json"]) == cli.BAD_INPUT
     ev = json.loads(capsys.readouterr().err.strip().splitlines()[-1])

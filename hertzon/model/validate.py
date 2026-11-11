@@ -272,6 +272,13 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                     add("Boundaries and Excitations", "warning",
                         f"'{e.name}': the zero phase position lies outside the radiation boundary region "
                         f"({', '.join(sorted(set(region)))}). Place it inside the region.")
+        for o in sorted({o for b in rads for o in {f.obj for f in b.faces} | set(b.objects)} & names):
+            if _is_dielectric_or_lossy(project, design.obj(o).material):
+                add("Boundaries and Excitations", "warning",
+                    f"'{o}' ({design.obj(o).material}) touches the radiation boundary. The incident wave is "
+                    "defined in free space outside the boundary, so it enters through every boundary face, also the "
+                    "side faces of this object and of the region behind it. Surround the objects with an air "
+                    "region, or model an infinite wall with Perfect E / Perfect H side walls.")
     ports = design.ports()
     nums = []
     for e in ports:
@@ -347,6 +354,22 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
     elif design.spheres:
         add("Radiation", "ok", f"{len(design.spheres)} far field setup(s)")
     return out
+
+
+def _is_dielectric_or_lossy(project: Project, name: str) -> bool:
+    """True for a material that is not free space but no conductor either (conductors on a radiation
+    boundary are an error of their own): permittivity or permeability clearly other than 1 (air, 1.0006,
+    counts as free space), or any loss."""
+    try:
+        m = project.material(name)
+        vals = [float(m.permittivity or 1), float(m.permeability or 1), float(m.conductivity or 0),
+                float(m.loss_tangent or 0), float(m.magnetic_loss_tangent or 0)]
+    except Exception:  # noqa: BLE001
+        return False
+    if m.pec or vals[2] > 1e4:
+        return False
+    return (abs(vals[0] - 1) > 0.01 or abs(vals[1] - 1) > 0.01 or any(v > 0 for v in vals[2:])
+            or m.dispersion not in ("", "None") or m.anisotropic)
 
 
 def _boxes_overlap(a, b) -> bool:

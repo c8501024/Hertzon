@@ -1670,3 +1670,27 @@ def test_cover_united_lines_with_arcs():
         ctx = K.build_design(d, d.evaluator(p))
         assert not ctx.errors
         assert sum(gmsh.model.occ.getMass(*x) for x in ctx.built["a"]) == pytest.approx(15e-6, rel=1e-9)
+
+
+def test_plane_wave_warns_on_material_at_radiation_boundary():
+    """An incident plane wave is defined in free space outside the radiation boundary: a dielectric or
+    lossy object on that boundary gets the wave through its side faces too (concrete wall touching it)."""
+    from hertzon.model import schema
+    from hertzon.model.design import Assignment, FaceRef
+    from hertzon.model.materials import Material
+    p = Project()
+    p.materials.append(Material("Concrete", permittivity="6", conductivity="3"))
+    d = p.designs[0]
+    d.add_object("CreateBox", "Air", Position="0,0,0", XSize="10", YSize="10", ZSize="10").material = "vacuum"
+    d.add_object("CreateBox", "Wall", Position="-10,0,0", XSize="10", YSize="10", ZSize="10").material = "Concrete"
+    d.excitations.append(Assignment("IncPWave1", "Incident Plane Wave",
+                                    schema.defaults(schema.EXCITATIONS["Incident Plane Wave"])))
+
+    def warned(objs):
+        d.boundaries[:] = [Assignment("Rad1", "Radiation", {}, objects=objs)]
+        return [c.message for c in validate(p, d) if "touches the radiation boundary" in c.message]
+    msgs = warned(["Air", "Wall"])
+    assert len(msgs) == 1 and msgs[0].startswith("'Wall' (Concrete)")
+    assert warned(["Air"]) == []
+    d.obj("Wall").material = "air"                  # air (1.0006) counts as free space
+    assert warned(["Air", "Wall"]) == []
