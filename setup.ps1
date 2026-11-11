@@ -155,6 +155,16 @@ except metadata.PackageNotFoundError:
 sys.exit(0 if want and have == want[0] else 1)
 '@
 
+# pip's download cache goes next to .venv instead of %LOCALAPPDATA%\pip\Cache: Qt, VTK and the solver packages
+# fill several GB there, which breaks small roaming profiles (#377). The cache still serves the retries below
+# within this run and is deleted at the end.
+$pipCache = Join-Path $PSScriptRoot '.pip-cache'
+$env:PIP_CACHE_DIR = $pipCache
+
+function Remove-PipCache {
+    try { if (Test-Path -LiteralPath $pipCache) { Remove-Item -LiteralPath $pipCache -Recurse -Force -ErrorAction Stop } } catch {}
+}
+
 try {
     $venvPy = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
     Write-Host 'Checking for running Hertzon processes ...'
@@ -216,6 +226,7 @@ try {
     '' | & $venvPy -m hertzon.solver.warmup
     if ($LASTEXITCODE -ne 0) { Write-Host 'Solver kernels could not be prepared now; they are compiled on the first solve.' -ForegroundColor Yellow }
     Set-Content -LiteralPath (Join-Path $PSScriptRoot '.venv\hertzon_installed.txt') -Value (Get-Date)
+    Remove-PipCache
     Write-Host ''
     Write-Host 'Hertzon is installed. Start it with Hertzon.exe.' -ForegroundColor Green
     try { Stop-Transcript | Out-Null } catch {}
@@ -224,6 +235,7 @@ try {
 } catch {
     Write-Host ''
     Write-Host "ERROR: $_" -ForegroundColor Red
+    Remove-PipCache
     Write-Host "Full log: $log"
     try { Stop-Transcript | Out-Null } catch {}
     if (-not $env:CI) { Read-Host 'Press Enter to close' }   # the release check runs it unattended

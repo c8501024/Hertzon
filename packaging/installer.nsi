@@ -47,6 +47,7 @@ VIAddVersionKey "LegalCopyright" "GPL-2.0-or-later"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "${STAGE}\LICENSE"
+!define MUI_DIRECTORYPAGE_TEXT_TOP "$(DirTop)"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
@@ -57,6 +58,8 @@ VIAddVersionKey "LegalCopyright" "GPL-2.0-or-later"
 !insertmacro MUI_LANGUAGE "German"
 !insertmacro MUI_LANGUAGE "English"
 
+LangString DirTop ${LANG_GERMAN} "Hertzon und seine Python-Umgebung (.venv, mehrere GB) werden in diesen Ordner installiert. Bei wenig Platz im Benutzerprofil einen Ordner auf einem anderen Laufwerk wählen, z. B. D:\Hertzon."
+LangString DirTop ${LANG_ENGLISH} "Hertzon and its Python environment (.venv, several GB) are installed into this folder. If your user profile has little space, choose a folder on another drive, e.g. D:\Hertzon."
 LangString SecApp ${LANG_GERMAN} "Hertzon (Programm)"
 LangString SecApp ${LANG_ENGLISH} "Hertzon (program)"
 LangString SecDesktop ${LANG_GERMAN} "Verknüpfung auf dem Desktop"
@@ -273,6 +276,7 @@ Section "Uninstall"
     RMDir /r "$INSTDIR\examples"
     RMDir /r "$INSTDIR\docs"
     RMDir /r "$INSTDIR\.venv"
+    RMDir /r "$INSTDIR\.pip-cache"
     Delete "$INSTDIR\Hertzon.exe"
     Delete "$INSTDIR\setup.ps1"
     Delete "$INSTDIR\setup.log"

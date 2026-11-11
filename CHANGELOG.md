@@ -3,6 +3,18 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.17 (2026-11-11)
+
+### Changed
+- **Less space in the user profile on Windows** (#377): the setup keeps pip's download cache next to `.venv`
+  in the installation folder instead of `%LOCALAPPDATA%\pip\Cache` (several GB with Qt, VTK and the solver
+  packages) and deletes it when it is done. The installer's folder page now says that the Python environment
+  is installed into the chosen folder, so a folder on another drive keeps the profile small.
+- **Wave port mode below cutoff at the solution frequency:** since EMerge `767fb7b` such a mode decays at the
+  port instead of stopping the solve with "the port face carries only N modes". The log now warns about it
+  ("mode 2 is below cutoff at the adaptive frequency ... and decays at the port"), and the test checks the new
+  behaviour (WR-90 at 10 GHz: TE20 with alpha = sqrt(kc² − k0²), no coupling, TE10 passes).
+
 ## 0.3.16 (2026-11-10)
 
 ### Fixed
