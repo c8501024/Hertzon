@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass, asdict
 
 _NAMED = {"red": "#ff0000", "green": "#008000", "blue": "#0000ff", "yellow": "#ffff00", "cyan": "#00ffff",
@@ -245,12 +246,49 @@ def _from_emsutil(key: str, m) -> Material | None:
                     dispersion=EMERGE_DISPERSION if freq_dep else "None", emsutil_key=key)
 
 
-def emerge_library() -> dict[str, Material]:
-    """EMerge's material library by name (empty when emsutil is not installed). Names already used by
-    Hertzon's own library (in any case: "copper", "air", "pec") keep the Hertzon material."""
-    global _EMERGE_CACHE
-    if _EMERGE_CACHE is not None:
-        return _EMERGE_CACHE
+_EMERGE_LOCK = threading.Lock()
+_EMERGE_CACHE_FORMAT = 1        # raise when _from_emsutil changes what it stores
+
+
+def _emerge_cache_file():
+    """~/.hertzon/cache/emerge_materials-<emsutil version>-<hash>.json, or None when emsutil is not installed.
+    The version is read from the package metadata, which does not import emsutil."""
+    import hashlib
+    from importlib import metadata
+    from pathlib import Path
+    try:
+        ver = metadata.version("emsutil")
+    except Exception:  # noqa: BLE001
+        return None
+    sig = hashlib.sha1(("|".join(sorted(SYSTEM_BY_NAME)) + f"|{_EMERGE_FREQ}|{_EMERGE_CACHE_FORMAT}")
+                       .encode()).hexdigest()[:10]
+    return Path.home() / ".hertzon" / "cache" / f"emerge_materials-{ver}-{sig}.json"
+
+
+def _read_emerge_cache(path) -> dict[str, Material] | None:
+    import json
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rows = json.load(fh)["materials"]
+        return {m.name: m for m in (Material.from_dict(r) for r in rows)}
+    except Exception:  # noqa: BLE001   (missing or damaged: read from emsutil again)
+        return None
+
+
+def _write_emerge_cache(path, mats: dict[str, Material]) -> None:
+    import json
+    import os
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(f".{os.getpid()}.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"materials": [m.to_dict() for m in mats.values()]}, fh)
+        os.replace(tmp, path)
+    except Exception:  # noqa: BLE001   (read-only home: the library is simply read from emsutil next time)
+        pass
+
+
+def _emerge_from_emsutil() -> dict[str, Material]:
     out: dict[str, Material] = {}
     try:
         import emsutil.lib as lib
@@ -267,8 +305,30 @@ def emerge_library() -> dict[str, Material]:
         if m is not None and m.name.lower() not in taken:
             taken.add(m.name.lower())
             out[m.name] = m
-    _EMERGE_CACHE = dict(sorted(out.items(), key=lambda kv: kv[0].lower()))
-    return _EMERGE_CACHE
+    return dict(sorted(out.items(), key=lambda kv: kv[0].lower()))
+
+
+def emerge_library() -> dict[str, Material]:
+    """EMerge's material library by name (empty when emsutil is not installed). Names already used by
+    Hertzon's own library (in any case: "copper", "air", "pec") keep the Hertzon material.
+
+    Importing emsutil also loads matplotlib, pyvista and scipy: seconds on Windows, and the material dialogs
+    and the Properties panel waited for it. The table is therefore kept in a small file per emsutil version
+    and read from there (milliseconds); emsutil is imported only to build that file once."""
+    global _EMERGE_CACHE
+    if _EMERGE_CACHE is not None:
+        return _EMERGE_CACHE
+    with _EMERGE_LOCK:                      # the start-up thread and the window must not both build it
+        if _EMERGE_CACHE is not None:
+            return _EMERGE_CACHE
+        path = _emerge_cache_file()
+        mats = _read_emerge_cache(path) if path is not None else None
+        if mats is None:
+            mats = _emerge_from_emsutil()
+            if path is not None and mats:
+                _write_emerge_cache(path, mats)
+        _EMERGE_CACHE = mats
+        return _EMERGE_CACHE
 
 
 def library_material(name: str) -> Material | None:
