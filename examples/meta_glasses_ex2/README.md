@@ -1,7 +1,7 @@
 # Meta AI-glasses antenna benchmark, Example 2
 
-Meta Reality Labs published two antenna design benchmarks based on AI-glasses temple arms in
-*IEEE Antennas and Propagation Magazine*, vol. 68, no. 5, Oct. 2026, Industry Activities
+Two antenna design benchmarks based on AI-glasses temple arms, shared by Meta Reality Labs within the AI design
+benchmark initiative of the IEEE AP-S Industrial Initiative Committee, were published in *IEEE Antennas and Propagation Magazine*, vol. 68, no. 5, Oct. 2026, Industry Activities
 ([IEEE Xplore 11775874](https://ieeexplore.ieee.org/document/11775874)). This folder holds solutions of Example 2,
 found by a general-purpose LLM agent (Claude in Claude Code) that drove Hertzon only through its MCP interface, and
 cross-checked with a commercial FEM reference solver. The current solution is **Run 4**; its files are in
@@ -64,7 +64,7 @@ parasitic also loses power, which is why the total efficiency plot above is the 
 3. **Run 3** ([run3/](run3/README.md)) was asked to leave no band without a radiating mode, with the tool fixes and the
    Run 2 findings at hand. One broad high-band mode from a branch on the feed stem removed the dip (6.55 GHz: 64.8 %
    instead of 15.8 %). Its band edges stayed limited by reflection: 51 % at 5.17 GHz and 44 % at 7.125 GHz.
-4. **Run 4** ([run4/](run4/README.md)) followed a question from Jiang Zhu (Meta): could a further resonance cover
+4. **Run 4** ([run4/](run4/README.md)) followed a question from Jiang Zhu, Chair of the Industrial Initiative Committee of the IEEE Antennas and Propagation Society: could a further resonance cover
    6–7 GHz better? Starting from Run 3, a grounded parasitic right of the feed stem adds a resonance just above the band.
    Branches on the stem and a parasitic under it did not work, and a resonance placed right at 7.1 GHz lost most of
    its power in the narrow copper, so it sits just above the band. After one reference check the 2.4 GHz arm and the

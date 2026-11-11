@@ -1,7 +1,7 @@
 # Meta AI-glasses antenna benchmark, Example 1, solved through the Hertzon MCP interface
 
-Meta Reality Labs published two antenna design benchmarks based on AI-glasses temple arms in
-*IEEE Antennas and Propagation Magazine*, vol. 68, no. 5, Oct. 2026, Industry Activities
+Two antenna design benchmarks based on AI-glasses temple arms, shared by Meta Reality Labs within the AI design
+benchmark initiative of the IEEE AP-S Industrial Initiative Committee, were published in *IEEE Antennas and Propagation Magazine*, vol. 68, no. 5, Oct. 2026, Industry Activities
 ([IEEE Xplore 11775874](https://ieeexplore.ieee.org/document/11775874)). This folder holds a solution of
 Example 1, found by a general-purpose LLM agent (Claude Opus 5.5 in Claude Code) that drove Hertzon only
 through its MCP interface, and cross-checked with a commercial FEM reference solver.
