@@ -1,7 +1,7 @@
 # Meta AI-glasses benchmark, Example 2, Run 4: an extra resonance for 6–7.125 GHz
 
 A refinement of [Run 3](../run3/README.md) by Claude in Claude Code, driving Hertzon only through its MCP interface. Prompted by
-a question from Jiang Zhu (Meta): could a further resonance cover 6–7 GHz better? A grounded parasitic next to the feed stem adds
+a question from Jiang Zhu, Chair of the Industrial Initiative Committee of the IEEE Antennas and Propagation Society: could a further resonance cover 6–7 GHz better? A grounded parasitic next to the feed stem adds
 that resonance. The run started from the Run 3 design and project; see [REPORT.md](REPORT.md).
 
 **Full report:** [REPORT.md](REPORT.md) (result, band table, how the resonance works, design path, limits). Timing: [Timing_Log.md](Timing_Log.md).
