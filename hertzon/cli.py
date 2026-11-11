@@ -37,6 +37,7 @@ NOT_CONVERGED = 5       # adaptive meshing did not converge and --require-conver
 INTERRUPTED = 130       # Ctrl+C
 
 COMMANDS = ("version", "describe", "solve")
+TAG = "@@HZN "          # prefix of the event lines of the solver process (hertzon.solver.bridge.TAG)
 
 
 class CliError(Exception):
@@ -385,7 +386,6 @@ def _solution_ok(folder: Path, keys: dict, solution: str) -> bool:
 def run_solver(project_file: Path, design: str, setup: str, out: Path, cores: int, rep: Reporter) -> dict:
     """Run the solver process on a saved project; the progress goes to the reporter. Returns
     {"code", "error", "converged"}."""
-    from .solver.bridge import TAG
     root = Path(__file__).resolve().parent.parent
     env = dict(os.environ)
     env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")

@@ -144,3 +144,9 @@ def test_python_m_hertzon_dispatches_to_the_cli():
     r = subprocess.run([sys.executable, "-m", "hertzon", "version"], capture_output=True, text=True,
                        cwd=str(EX.parent))
     assert r.returncode == 0 and r.stdout.startswith("Hertzon ")
+
+
+def test_event_prefix_matches_the_solver():
+    import re
+    src = (EX.parent / "hertzon" / "solver" / "bridge.py").read_text(encoding="utf-8")
+    assert re.search(r'^TAG = "(.*)"', src, re.M).group(1) == cli.TAG
