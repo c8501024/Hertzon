@@ -6,6 +6,12 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Design Wizard: UWB monopoles.** A printed **disc monopole** and a **rectangular monopole** with bevelled
+  lower corners, each fed either by a **microstrip with a partial ground** on the bottom layer or by a
+  **coplanar line** with the ground on the same layer (a new choice field *Feed*). Start values from the lowest
+  frequency of a planar monopole; the optimization tunes the radiator, the gap and the ground length on the sweep
+  of the whole band (S11 ≤ −10 dB from 3.1 to 10.6 GHz by default). Also over MCP (`create_structure` with
+  `{"feed": "coplanar"}`). See [Design Wizard](docs/WIZARD.md).
 - **Command line without the window** (`hertzon-cli`, also `python -m hertzon solve ...`): `describe` prints the
   designs, ports (number, kind, reference impedance), variables (expression and SI value) and setups/sweeps of a
   project as JSON; `solve` solves a design and writes its S-parameters as Touchstone (the same file as Export

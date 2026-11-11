@@ -46,7 +46,7 @@ def test_catalogue_is_consistent():
     avail = {s.key for s in ST.CATALOG if s.status == ST.AVAILABLE}
     assert {"qwt", "branchline", "patch", "hairpin"} <= avail
     with pytest.raises(ValueError, match="not available"):
-        ST.structure("uwb").create()
+        ST.structure("slot").create()
     with pytest.raises(ValueError, match="own designer"):
         ST.create_structure("patch")
 
@@ -195,6 +195,49 @@ def test_cp_patch_cuts_two_corners():
     assert area == pytest.approx(L * L - c * c, rel=1e-6)     # counter-clockwise, two triangles cut
 
 
+@pytest.mark.parametrize("key,feed,radiator", [("uwb", 0, ["a"]), ("uwb", 1, ["a"]),
+                                               ("uwbrect", "microstrip", ["W", "L", "c"]),
+                                               ("uwbrect", "coplanar", ["W", "L", "c"])])
+def test_uwb_monopoles(key, feed, radiator):
+    from hertzon.model.structures.uwb import CPW, cpw_z0, substrate_factor
+    assert substrate_factor(4.4) == pytest.approx(1.15, abs=0.002)
+    p, r = _made(key, {"feed": feed})
+    (d3,) = r.designs
+    op = d3.optimetrics[0]
+    assert op.solution == "Setup1 : Sweep" and op.props["Optimizer"] == "Derivative Trust Region"
+    assert [v["name"] for v in op.variables if v["include"]] == radiator + ["p", "Lg"]
+    assert op.goals == [{"calc": "dB(S(1,1))", "start": "3.1GHz", "stop": "10.6GHz", "cond": "<=", "value": "-10",
+                         "weight": "1"}]
+    st = d3.setups[0]
+    assert st.props["Frequency"] == "10.6GHz" and st.sweeps[0].props["Enabled"] != "False"
+    assert st.sweeps[0].props["Start"] == "2.48GHz" and st.sweeps[0].props["Stop"] == "11.66GHz"
+    v = {k: float(x.removesuffix("mm")) for k, x in d3.variables.items() if x.endswith("mm")}
+    k = substrate_factor(3.66)
+    height = 2 * v["a"] + v["a"] / 4 if key == "uwb" else v["L"] + v["W"] / (2 * math.pi)
+    assert height + v["p"] == pytest.approx(72 / (3.1 * k), rel=1e-5)          # lowest frequency of the planar monopole
+    cpw = ST.structure(key).spec({"feed": feed})["feed"] == CPW
+    board, _top, bottom = ST.base.top_view(d3, p, bottom=True)
+    assert board and len(d3.excitations) == 1
+    if cpw:
+        assert cpw_z0(v["wf"], v["s"], ST.Substrate()) == pytest.approx(50, rel=1e-3) and not bottom
+        assert d3.excitations[0].props["IntegrationLine"] == "0,gb,h;0,gb + gp,h"
+    else:
+        assert len(bottom) == 1 and d3.excitations[0].props["IntegrationLine"] == "0,0,0;0,0,h"
+        xs, ys = zip(*bottom[0])
+        assert max(ys) == pytest.approx(v["Lg"]) and max(xs) - min(xs) == pytest.approx(v["Bx"])
+    assert {o.name for o in d3.objects if not o.consumed_by} >= {"Substrate", "Radiator", "PortSheet"}
+
+
+def test_choice_fields():
+    s = ST.structure("uwb")
+    assert s.spec({"feed": "Coplanar"})["feed"] == 1 and s.spec({"feed": "micro"})["feed"] == 0
+    assert s.spec({"feed": 1})["feed"] == 1
+    with pytest.raises(ValueError, match="choose one of"):
+        s.spec({"feed": "stripline"})
+    with pytest.raises(ValueError, match="between"):
+        s.spec({"feed": 2})
+
+
 @pytest.mark.parametrize("key,var", [("dipole", "Larm"), ("monopole", "L")])
 def test_wire_antennas_are_3d_designs_with_a_tuning(key, var):
     from hertzon.model.structures.antennas import resonant_fraction
@@ -329,8 +372,11 @@ def test_mcp_list_and_create(server, tmp_path):
     assert {"Branchline_5.8GHz_Circuit", "Branchline_5.8GHz"} <= set(json.loads(text)["designs"])
     err, text = _call(server, "create_structure", key="dipole", spec={"f0": 2.4})
     assert not err and json.loads(text)["design_3d"] == "Dipole_2.4GHz"
-    err, text = _call(server, "create_structure", key="uwb")
+    err, text = _call(server, "create_structure", key="slot")
     assert err and "not available" in text
+    assert rows["uwb"]["fields"][0]["choices"][1].startswith("Coplanar")
+    err, text = _call(server, "create_structure", key="uwb", spec={"feed": "coplanar"})
+    assert not err and json.loads(text)["design_3d"] == "UWBDisc_CPW_3.1-10.6GHz"
 
 
 def test_wizard_dialog_creates_a_structure(monkeypatch):
@@ -347,8 +393,14 @@ def test_wizard_dialog_creates_a_structure(monkeypatch):
     assert dlg.table.rowCount() == 9
     dlg._create(True)
     assert dlg.result is not None and dlg.run == "MultiFidelity1"
-    dlg = DesignWizard(None, Project("t"), None, start="uwb")
+    dlg = DesignWizard(None, Project("t"), None, start="slot")
     assert not dlg.next_btn.isEnabled()
+    dlg = DesignWizard(None, Project("t"), None, start="uwbrect")
+    dlg._next()
+    assert dlg.values()["feed"] == 0 and "sweep of the band" in dlg.creates.text()
+    dlg.fields["feed"].setCurrentIndex(1)
+    dlg.refresh()
+    assert dlg.preview.designs[0].name == "UWBRect_CPW_3.1-10.6GHz"
     dlg = DesignWizard(None, Project("t"), None, start="dipole")
     dlg._next()
     assert not dlg.sub_box.isVisibleTo(dlg) and "adaptive" in dlg.creates.text()

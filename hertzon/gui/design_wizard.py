@@ -555,16 +555,23 @@ class DesignWizard(QDialog):
     def _build_spec(self, s: ST.Structure) -> None:
         while self.spec_form.rowCount():
             self.spec_form.removeRow(0)
-        self.fields: dict[str, QDoubleSpinBox | QSpinBox] = {}
+        self.fields: dict[str, QDoubleSpinBox | QSpinBox | QComboBox] = {}
         for fld in s.fields:
-            if fld.integer:
+            if fld.choices:
+                w = QComboBox()
+                w.addItems(list(fld.choices))
+                w.setCurrentIndex(int(fld.default))
+                w.value = w.currentIndex                # read like the spin boxes
+                w.setValue = w.setCurrentIndex
+                w.currentIndexChanged.connect(lambda *_: self.timer.start())
+            elif fld.integer:
                 w = QSpinBox()
                 w.setRange(int(fld.lo), int(fld.hi))
                 w.setValue(int(fld.default))
                 w.valueChanged.connect(lambda *_: self.timer.start())
             else:
                 w = self._spin(fld.default, fld.lo, fld.hi, fld.decimals)
-            if fld.unit:
+            if fld.unit and not fld.choices:
                 w.setSuffix(" " + fld.unit)
             if fld.help:
                 w.setToolTip(fld.help)
@@ -633,8 +640,9 @@ class DesignWizard(QDialog):
             self.creates.setText(
                 f"<p><b style='color:{GOLD}'>■</b> <b>{d3.name}</b><br><span style='color:{MUTED}'>3D design, "
                 f"{len(syn.variables)} design variables, lumped port</span></p>"
-                f"<p><b style='color:{OK}'>■</b> <b>{op.name}</b><br><span style='color:{MUTED}'>on the adaptive "
-                f"solution at the frequency ({op.props.get('Optimizer', '')})</span></p>")
+                f"<p><b style='color:{OK}'>■</b> <b>{op.name}</b><br><span style='color:{MUTED}'>"
+                + ("on the adaptive solution at the frequency" if op.solution.endswith("LastAdaptive") else
+                   "on the sweep of the band") + f" ({op.props.get('Optimizer', '')})</span></p>")
         else:
             self.creates.setText(
                 f"<p><b style='color:#1d4f91'>■</b> <b>{circ.name}</b><br><span style='color:{MUTED}'>circuit, "
@@ -660,11 +668,14 @@ class DesignWizard(QDialog):
             board, copper = ST.base.side_view(d3, p)
             view, xl, yl = "side view", "x (mm)", "z (mm)"
         else:
-            board, copper = ST.base.top_view(d3, p)
+            board, copper, lower = ST.base.top_view(d3, p, bottom=True)
             view, xl, yl = "top view", "x (mm)", "y (mm)"
         if board:
             xs, ys = zip(*board)
             ax.fill(xs, ys, color="#e9f1fb", ec="#9cc3ee", lw=0.8, zorder=0)
+        for rect in lower if getattr(self.sel, "view", "top") != "side" else ():
+            xs, ys = zip(*rect)        # copper on the bottom layer (a partial ground), seen through the board
+            ax.fill(xs, ys, color="#9aa3b2", alpha=0.55, ec="#6b7385", lw=0.6, ls="--", zorder=1)
         for rect in copper:
             xs, ys = zip(*rect)
             ax.fill(xs, ys, color=GOLD, ec="#9a6c14", lw=0.4, zorder=2)
