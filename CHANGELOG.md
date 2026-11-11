@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Less space in the user profile on Windows** (#377): the setup keeps pip's download cache next to `.venv`
+  in the installation folder instead of `%LOCALAPPDATA%\pip\Cache` (several GB with Qt, VTK and the solver
+  packages) and deletes it when it is done. The installer's folder page now says that the Python environment
+  is installed into the chosen folder, so a folder on another drive keeps the profile small.
+
 ## 0.3.16 (2026-11-10)
 
 ### Fixed
