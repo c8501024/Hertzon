@@ -345,6 +345,29 @@ class Bridge:
                            f"to {have} or widen the port")
         return out
 
+    def note_decaying_modes(self, freqs) -> None:
+        """Warn about wave port modes that are below cutoff at the adaptive frequency: they decay at the port
+        (S = exp(-alpha L)) and carry no power, which is rarely what asking for them meant."""
+        try:
+            cols, k = [], 0
+            for q in sorted(self.port_map, key=lambda q: q["number"]):
+                for mode in range(1, int(q.get("modes") or 1) + 1):
+                    if q.get("kind") == "Wave Port":
+                        cols.append((k, q["name"], mode))
+                    k += 1
+            for f in np.atleast_1d(np.asarray(freqs, float)):
+                gamma = PORT_RECORDS.get(float(f), (None, None))[0]
+                if gamma is None:
+                    continue
+                gamma = np.asarray(gamma, complex).ravel()
+                for i, name, mode in cols:
+                    if i < len(gamma) and abs(gamma[i].real) > abs(gamma[i].imag):
+                        warn(f"Wave port '{name}': mode {mode} is below cutoff at the adaptive frequency "
+                             f"{f / 1e9:.4g} GHz and decays at the port (no power); reduce Number of modes "
+                             f"or widen the port if it should propagate")
+        except Exception:  # noqa: BLE001
+            pass
+
     def ports_below_cutoff(self) -> list[str]:
         """Wave ports without a single mode at the adaptive frequency: the frequency lies below the cutoff of
         the port's first mode, and the mode analysis keeps propagating modes only. One message per such port,
@@ -1491,6 +1514,7 @@ class Bridge:
             f, S, z0, data = solve_at(m, fa)
             flds = list(data.field)[-len(f):]
         self.save_s("LastAdaptive", f, S, z0)
+        self.note_decaying_modes(f)
         self.save_port_fields("LastAdaptive", f[:1])
         self.save_mesh()
         if p.get("SaveFields", "True") == "True":
