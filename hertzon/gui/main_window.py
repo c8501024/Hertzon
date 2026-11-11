@@ -2147,7 +2147,7 @@ class MainWindow(QMainWindow):
 
     def edit_shortcuts(self) -> None:
         import json as _json
-        from PySide6.QtWidgets import QKeySequenceEdit
+        from .shortcut_edit import ShortcutEdit
         acts = {}
         for a in self.findChildren(QAction):
             t = a.text().replace("&", "").strip()
@@ -2162,10 +2162,11 @@ class MainWindow(QMainWindow):
         tbl = QTableWidget(len(acts), 2)
         tbl.setHorizontalHeaderLabels(["Command", "Shortcut"])
         tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        tbl.setEditTriggers(QTableWidget.NoEditTriggers)   # command names are labels; Enter/Esc go to the dialog
         edits = {}
         for r, (t, a) in enumerate(sorted(acts.items())):
             tbl.setItem(r, 0, QTableWidgetItem(t))
-            e = QKeySequenceEdit(a.shortcut())
+            e = ShortcutEdit(a.shortcut())   # bare Enter = OK, Esc = Cancel
             tbl.setCellWidget(r, 1, e)
             edits[t] = e
         flt.textChanged.connect(lambda q: [tbl.setRowHidden(r, q.lower() not in tbl.item(r, 0).text().lower())
@@ -2174,6 +2175,7 @@ class MainWindow(QMainWindow):
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
+        bb.button(QDialogButtonBox.Ok).setDefault(True)   # Enter in the filter field or table also confirms
         lay.addWidget(bb)
         dlg.resize(560, 600)
         if dlg.exec() != QDialog.Accepted:
@@ -3608,8 +3610,15 @@ class MainWindow(QMainWindow):
             return
         if others:
             self.msgs.add("info", f"Assign Material: skipped sheets/lines {', '.join(others)}")
-        dlg = MaterialsDialog(self.doc, self, self.des.obj(objs[0]).material)
-        if dlg.exec() != QDialog.Accepted or not dlg.selected():
+        if getattr(self, "_materials_open", False):       # repeated clicks while it opens: one dialog only
+            return
+        self._materials_open = True
+        try:
+            dlg = MaterialsDialog(self.doc, self, self.des.obj(objs[0]).material)
+            ok = dlg.exec() == QDialog.Accepted and dlg.selected()
+        finally:
+            self._materials_open = False
+        if not ok:
             return
         self.doc.checkpoint()
         mat = self.doc.project.material(dlg.selected())
@@ -3621,7 +3630,13 @@ class MainWindow(QMainWindow):
         self.doc.commit("model")
 
     def edit_materials(self) -> None:
-        MaterialsDialog(self.doc, self).exec()
+        if getattr(self, "_materials_open", False):       # repeated clicks while it opens: one dialog only
+            return
+        self._materials_open = True
+        try:
+            MaterialsDialog(self.doc, self).exec()
+        finally:
+            self._materials_open = False
         self.project_tree.rebuild()
 
     def screenshot(self) -> None:

@@ -491,6 +491,8 @@ def solve(args, rep: Reporter) -> dict:
     ev = des.evaluator(proj)
     if not circuit and (des.settings.get("SolutionType") == "Eigenmode" or setup.eigen):
         raise CliError("Eigenmode setups have no S-parameters")
+    if not circuit and not des.ports() and any(e.kind == "Incident Plane Wave" and e.enabled for e in des.excitations):
+        raise CliError("Incident plane wave designs have no S-parameters (no ports); solve them in the window")
     sw = apply_frequencies(setup, args.sweep, args.freq, args.points, args.sweep_type, ev, circuit)
     solution = sw.name if sw is not None else "LastAdaptive"
     t0 = time.time()
