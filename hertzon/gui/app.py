@@ -88,6 +88,8 @@ def _load_in_background(app, work):
 
 
 def _heavy_imports():
+    from ..blas_threads import load_with_few_threads
+    load_with_few_threads()   # before numpy, scipy and gmsh load: about 1 GB less committed memory on 16 cores
     import pyvista as pv
     pv.global_theme.allow_empty_mesh = True
     from . import main_window  # noqa: F401   (VTK, solver interface, dialogs)
