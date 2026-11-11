@@ -2,7 +2,7 @@
 
 November 2026, Hertzon 0.3.13, checked with a commercial FEM reference solver
 
-Run 4 is a refinement of [Run 3](../run3/README.md), not a run from scratch. It started from the Run 3 design (A13) and its Hertzon project, with the Run 3 report and the project memory in the agent's context. The prompt passed on a question from Jiang Zhu (Meta), one of the benchmark authors: could a further resonance cover the 6–7 GHz band better? The user asked to try it.
+Run 4 is a refinement of [Run 3](../run3/README.md), not a run from scratch. It started from the Run 3 design (A13) and its Hertzon project, with the Run 3 report and the project memory in the agent's context. The prompt passed on a question from Jiang Zhu, Chair of the Industrial Initiative Committee of the IEEE Antennas and Propagation Society and one of the benchmark authors: could a further resonance cover the 6–7 GHz band better? The user asked to try it.
 
 ## Result
 
