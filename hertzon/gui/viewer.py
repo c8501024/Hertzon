@@ -244,7 +244,11 @@ def _vtk_matrix(O, R):
 
 class WorkingCSActor:
     """draws the working coordinate system as an axis triad at its origin, the same screen size
-    at every zoom (red X, green Y, blue Z)."""
+    at every zoom (red X, green Y, blue Z).
+
+    The renderer should be a layer drawn over the model (ModelerView._top_layer): the X/Y/Z captions are
+    2D text that is never hidden, so with the shafts depth tested against the model they vanished inside
+    a solid at the origin and the captions floated on its faces, away from any visible axis."""
     PIXELS = 70
 
     def __init__(self, renderer, name: str = "Global", pixels: int | None = None):
@@ -496,10 +500,12 @@ class ModelerView(QWidget):
         self._cube_press = False
         self.scale_bar = ScaleBar(p.renderer, lambda: self.length_unit)
         p.renderer.AddObserver("ResetCameraClippingRangeEvent", lambda *a: keep_focal_plane_in_view(p.renderer))
-        self.working_cs = WorkingCSActor(p.renderer)
+        # over the model, so the shafts stay with their X/Y/Z captions when a solid sits at the origin
+        self.working_cs = WorkingCSActor(self._top_layer())
         self.actors: dict[str, ObjActors] = {}
         self.highlight_actors: list = []
         self.assignment_actors: list = []
+        self.assignment_top_actors: list = []            # plane wave k / Eo arrows, drawn over the model
         self.direction_actors: list = []                 # Thicken sheet preview arrows
         self.overlay_actors: dict[str, list] = {}
         self.overlay_bars: dict[str, list[str]] = {}     # colour bar titles per overlay
@@ -1777,6 +1783,9 @@ class ModelerView(QWidget):
         for act in self.assignment_actors:
             self.plotter.remove_actor(act, render=False)
         self.assignment_actors = []
+        for act in self.assignment_top_actors:
+            self._top_layer().RemoveActor(act)
+        self.assignment_top_actors = []
         self._shown = (list(assignments), kind_colors)
         colors = {**BOUNDARY_COLORS, **EXCITATION_COLORS, **(kind_colors or {})}
         for a in assignments:
@@ -1839,16 +1848,21 @@ class ModelerView(QWidget):
         size = float(np.linalg.norm([b[1] - b[0], b[3] - b[2], b[5] - b[4]]))
         size = size if np.isfinite(size) and size > 0 else 10.0
         L = 0.3 * size
-        # both vectors start at the zero phase position, k (yellow) and Eo (red)
-        # both vectors start at the zero phase position, same length and thickness
-        tail = origin
+        # both vectors start at the zero phase position, k (yellow) and Eo (red), same length and thickness.
+        # They are drawn over the model like the working CS triad: their labels are 2D text that is never
+        # hidden, so with a solid at the zero phase position the arrows were cut by its faces and edges
+        # while k and Eo floated beside them.
+        top = self._top_layer()
         dot = pv.Sphere(radius=0.04 * L, center=origin)
-        self.assignment_actors.append(self.plotter.add_mesh(dot, color="#f1c40f", pickable=False, render=False,
-                                                            reset_camera=False))
+        parts = [(dot, "#f1c40f")]
         for d, col in ((k, "#f1c40f"), (e, "#e74c3c")):
-            arrow = pv.Arrow(start=origin, direction=d, scale=L, tip_length=0.2, tip_radius=0.06, shaft_radius=0.02)
-            self.assignment_actors.append(self.plotter.add_mesh(arrow, color=col, pickable=False, render=False,
-                                                                reset_camera=False))
+            parts.append((pv.Arrow(start=origin, direction=d, scale=L, tip_length=0.2, tip_radius=0.06,
+                                   shaft_radius=0.02), col))
+        for mesh, col in parts:
+            act = self.plotter.add_mesh(mesh, color=col, pickable=False, render=False, reset_camera=False)
+            self.plotter.renderer.RemoveActor(act)
+            top.AddActor(act)
+            self.assignment_top_actors.append(act)
         lab = self.plotter.add_point_labels(np.array([origin + k * L * 1.1, origin + e * L * 1.1]),
                                             ["k", "Eo"], text_color="black", font_size=14, shape=None,
                                             show_points=False, always_visible=True, render=False,

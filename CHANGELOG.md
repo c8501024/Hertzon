@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **3D view: coordinate system and plane wave arrows line up with their labels again.** With a solid at the
+  origin of the working coordinate system the axis triad and the k / Eo arrows were cut or hidden by the solid,
+  while the X/Y/Z, k and Eo labels (always drawn) floated on its faces. Triad and plane wave arrows are now
+  drawn over the model, so each label sits at the tip of its visible axis.
+
 ## 0.3.18 (2026-11-11)
 
 ### Added
