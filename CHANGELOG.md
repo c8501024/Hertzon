@@ -15,6 +15,13 @@ the GitHub release notes.
   `<project>.hznresults/<design>/CLI/`, and a call whose model and setup match an existing solution (of the
   window or of an earlier call) is answered from it without solving. See [docs/CLI.md](docs/CLI.md).
 
+### Changed
+- **Less reserved memory on PCs with many cores:** numpy, scipy and gmsh each bring their own OpenBLAS, which
+  reserves a work buffer for every CPU thread when it is loaded. The window and the MCP processes now load them
+  with two threads (the solver processes keep all cores). On a laptop with 16 logical CPUs an empty project
+  had 1.8 GB committed memory (Task Manager, Details, "Commit size"), about 1.2 GB of it these buffers.
+  `HERTZON_BLAS_THREADS=0` switches it off; an `OPENBLAS_NUM_THREADS` set by the user is kept.
+
 ## 0.3.17 (2026-11-11)
 
 ### Changed
