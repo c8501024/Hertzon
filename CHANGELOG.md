@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.18 (2026-11-11)
 
 ### Added
 - **Design Wizard: UWB monopoles.** A printed **disc monopole** and a **rectangular monopole** with bevelled
