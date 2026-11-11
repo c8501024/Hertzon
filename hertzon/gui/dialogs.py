@@ -560,11 +560,12 @@ class MaterialsDialog(QDialog):
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["Name", "Location", "Rel. Permittivity", "Rel. Permeability",
                                               "Bulk Conductivity", "Dielectric Loss Tangent"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        # widths are fitted once per fill: ResizeToContents measured all rows again after every cell set
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.doubleClicked.connect(self.accept)
+        self._busy = False             # a sub dialog is open: further clicks on the buttons are ignored
         lay.addWidget(self.table)
         row = QHBoxLayout()
         for text, fn in (("Add Material...", self._add), ("Clone Material", self._clone), ("View/Edit Material...", self._edit),
@@ -588,6 +589,7 @@ class MaterialsDialog(QDialog):
         lib = self.libs.currentText()
         want = {"Project": ("Project",), "SysLibrary": ("System",), "EMerge Library": (EMERGE_LIBRARY,)}.get(lib)
         mats = [m for m in self.doc.project.all_materials() if q in m.name.lower() and (want is None or m.library in want)]
+        self.table.setUpdatesEnabled(False)
         self.table.setRowCount(len(mats))
         for r, m in enumerate(mats):
             er = m.permittivity_tensor if m.anisotropic and m.permittivity_tensor else m.permittivity
@@ -599,6 +601,8 @@ class MaterialsDialog(QDialog):
                 self.table.setItem(r, c, QTableWidgetItem(str(v)))
             if m.name == self.current:
                 self.table.selectRow(r)
+        self.table.resizeColumnsToContents()
+        self.table.setUpdatesEnabled(True)
 
     def selected(self) -> str | None:
         r = self.table.currentRow()
@@ -615,10 +619,21 @@ class MaterialsDialog(QDialog):
         self.doc.dirty = True
         self._fill()
 
+    def _edit_dialog(self, mat: Material) -> None:
+        """Opens View / Edit Material once: a second click while it is open (or while a slow click is still
+        being handled) does not stack another dialog."""
+        if self._busy:
+            return
+        self._busy = True
+        try:
+            dlg = MaterialEditDialog(mat, self)
+            if dlg.exec() == QDialog.Accepted:
+                self._store(dlg.result_material())
+        finally:
+            self._busy = False
+
     def _add(self) -> None:
-        dlg = MaterialEditDialog(Material(name="Material1"), self)
-        if dlg.exec() == QDialog.Accepted:
-            self._store(dlg.result_material())
+        self._edit_dialog(Material(name="Material1"))
 
     def _clone(self) -> None:
         n = self.selected()
@@ -626,16 +641,12 @@ class MaterialsDialog(QDialog):
             m = copy.deepcopy(self.doc.project.material(n))
             m.name = n + "_clone"
             m.library = "Project"
-            dlg = MaterialEditDialog(m, self)
-            if dlg.exec() == QDialog.Accepted:
-                self._store(dlg.result_material())
+            self._edit_dialog(m)
 
     def _edit(self) -> None:
         n = self.selected()
         if n:
-            dlg = MaterialEditDialog(self.doc.project.material(n), self)
-            if dlg.exec() == QDialog.Accepted:
-                self._store(dlg.result_material())
+            self._edit_dialog(self.doc.project.material(n))
 
     def _import(self) -> None:
         """Import materials from a Hertzon library (.json) or an third-party material library (.amat)."""
