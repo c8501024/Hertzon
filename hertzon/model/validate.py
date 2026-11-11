@@ -272,13 +272,14 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                     add("Boundaries and Excitations", "warning",
                         f"'{e.name}': the zero phase position lies outside the radiation boundary region "
                         f"({', '.join(sorted(set(region)))}). Place it inside the region.")
-        for o in sorted({o for b in rads for o in {f.obj for f in b.faces} | set(b.objects)} & names):
+        for o in _side_radiation_objects(design, rads, pws, ev, tess or {}):
             if _is_dielectric_or_lossy(project, design.obj(o).material):
                 add("Boundaries and Excitations", "warning",
-                    f"'{o}' ({design.obj(o).material}) touches the radiation boundary. The incident wave is "
-                    "defined in free space outside the boundary, so it enters through every boundary face, also the "
-                    "side faces of this object and of the region behind it. Surround the objects with an air "
-                    "region, or model an infinite wall with Perfect E / Perfect H side walls.")
+                    f"'{o}' ({design.obj(o).material}) touches the radiation boundary with a side face (parallel to "
+                    "the incidence direction). The incident wave is defined in free space outside the boundary, so "
+                    "it enters this object and the region behind it from the sides too. Surround the objects with "
+                    "an air region, or model an infinite wall with periodic (Primary / Secondary) or "
+                    "Perfect E / Perfect H side walls.")
     ports = design.ports()
     nums = []
     for e in ports:
@@ -354,6 +355,46 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
     elif design.spheres:
         add("Radiation", "ok", f"{len(design.spheres)} far field setup(s)")
     return out
+
+
+def _side_radiation_objects(design: Design, rads, pws, ev, tess: dict) -> list[str]:
+    """Objects with a radiation face that the incident wave grazes (face normal not along k). Entry and exit
+    faces (normal along k) are fine whatever the material: the free-space wave meets the object head-on there.
+    Whole-object assignments use the tessellated face normals; without them the object counts as touching."""
+    import numpy as np
+    from . import planewave
+    names = {o.name for o in design.live_objects()}
+    ks = []
+    for e in pws:
+        try:
+            ks.append(np.asarray(planewave.vectors(e.props, ev)[0], float))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def side(normal) -> bool:
+        n = np.asarray(normal, float)
+        if not ks or n.shape != (3,) or not np.linalg.norm(n):
+            return True
+        n = n / np.linalg.norm(n)
+        return any(abs(n @ k) / max(np.linalg.norm(k), 1e-300) < 0.99 for k in ks)
+    out = set()
+    for b in rads:
+        for f in b.faces:
+            if f.obj not in names:
+                continue
+            if len(f.sig) >= 6:
+                normal = f.sig[3:6]
+            elif f.obj in tess and 0 <= f.face < len(tess[f.obj].face_normal):
+                normal = tess[f.obj].face_normal[f.face]
+            else:
+                normal = None
+            if side(normal) if normal is not None else True:
+                out.add(f.obj)
+        for o in set(b.objects) & names:
+            t = tess.get(o)
+            if t is None or any(side(n) for n in t.face_normal):
+                out.add(o)
+    return sorted(out)
 
 
 def _is_dielectric_or_lossy(project: Project, name: str) -> bool:

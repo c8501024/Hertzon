@@ -1684,7 +1684,8 @@ def test_plane_wave_warns_on_material_at_radiation_boundary():
     d.add_object("CreateBox", "Air", Position="0,0,0", XSize="10", YSize="10", ZSize="10").material = "vacuum"
     d.add_object("CreateBox", "Wall", Position="-10,0,0", XSize="10", YSize="10", ZSize="10").material = "Concrete"
     d.excitations.append(Assignment("IncPWave1", "Incident Plane Wave",
-                                    schema.defaults(schema.EXCITATIONS["Incident Plane Wave"])))
+                                    {**schema.defaults(schema.EXCITATIONS["Incident Plane Wave"]),
+                                     "VectorInput": "Cartesian", "KVector": "1,0,0", "E0Vector": "0,0,1"}))
 
     def warned(objs):
         d.boundaries[:] = [Assignment("Rad1", "Radiation", {}, objects=objs)]
@@ -1692,5 +1693,11 @@ def test_plane_wave_warns_on_material_at_radiation_boundary():
     msgs = warned(["Air", "Wall"])
     assert len(msgs) == 1 and msgs[0].startswith("'Wall' (Concrete)")
     assert warned(["Air"]) == []
+    # infinite wall: radiation only on the entry and exit faces (normal along k), periodic side walls
+    d.boundaries[:] = [Assignment("Rad1", "Radiation", {}, faces=[FaceRef("Wall", 0, [-10, 5, 5, -1, 0, 0]),
+                                                                   FaceRef("Air", 1, [10, 5, 5, 1, 0, 0])])]
+    assert not [c for c in validate(p, d) if "touches the radiation boundary" in c.message]
+    d.boundaries[0].faces.append(FaceRef("Wall", 2, [-5, 0, 5, 0, -1, 0]))   # a side face of the wall
+    assert [c for c in validate(p, d) if "touches the radiation boundary" in c.message]
     d.obj("Wall").material = "air"                  # air (1.0006) counts as free space
     assert warned(["Air", "Wall"]) == []
