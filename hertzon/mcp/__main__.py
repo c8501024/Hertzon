@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:  # noqa: BLE001
             pass
+    from ..blas_threads import load_with_few_threads
+    load_with_few_threads()    # the server only starts solver processes; those get the full thread count
     from .protocol import Server
     from .tools import TOOLS, INSTRUCTIONS
     from .geomworker import warm
@@ -48,7 +50,7 @@ def _version() -> str:
         from importlib.metadata import version
         return version("hertzon")
     except Exception:  # noqa: BLE001
-        return "0.3.17"
+        return "0.3.18"
 
 
 if __name__ == "__main__":

@@ -244,7 +244,8 @@ def t_list_structures(args):
                            "filter_hairpin": "create_hairpin_filter"}.get(st.designer, "")
         elif st.status == ST.AVAILABLE:
             row["fields"] = [{"key": f.key, "label": f.label, "default": f.default, "unit": f.unit,
-                              "min": f.lo, "max": f.hi} for f in st.fields]
+                              "min": f.lo, "max": f.hi} | ({"choices": list(f.choices)} if f.choices else {})
+                             for f in st.fields]
         if st.needs:
             row["needs"] = st.needs
         out.append(row)
@@ -948,7 +949,8 @@ TOOLS = [
          "one: a few 3D solves).",
          _schema({"key": {"type": "string", "description": "e.g. 'branchline', 'qwt' (see list_structures)"},
                   "spec": {"type": "object", "description": "field: value, e.g. {'f0': 2.45, 'c': 3}; missing "
-                                                            "fields keep their defaults"},
+                                                            "fields keep their defaults; a field with choices "
+                                                            "takes the index or the text, e.g. {'feed': 'coplanar'}"},
                   "material": {"type": "string", "description": "substrate (default Rogers RO4350B (tm))"},
                   "height_mm": NUM, "copper_um": NUM, "min_feature_mm": NUM,
                   "range_pct": {"type": "number", "description": "variable ranges +- % (default 20)"},

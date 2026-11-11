@@ -257,7 +257,9 @@ region, ports, radiation boundaries) are left out. See [docs/GERBER_EXPORT.md](d
 * **File > Export > EMerge Python Script** writes a stand-alone script that rebuilds the same EMerge
   model (geometry, materials, boundaries, ports, initial mesh) and runs the setup, or stops after
   meshing with `--prepare-only` so you can continue in plain EMerge.
-* Solve without the GUI: `python -m hertzon.solver.run Project.hzn DesignName Setup1 out_folder`.
+* Solve without the GUI: `hertzon-cli solve Project.hzn --design DesignName --set w=1.2mm --freq 1GHz:5GHz:401
+  -o out.s2p` writes the S-parameters as Touchstone; `hertzon-cli describe Project.hzn` lists ports, variables
+  and setups as JSON. Exit codes, progress lines and the JSON are in [docs/CLI.md](docs/CLI.md).
 * Solve on another computer (experimental): a computer in your network runs `hertzon-serve` (or Tools >
   Options > Remote > Share this computer) and the laptop pairs with it in Tools > Options > Remote; or
   Hertzon creates a cloud server for the session in Tools > Options > Cloud (Hetzner Cloud; Amazon Web

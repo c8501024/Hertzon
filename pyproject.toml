@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hertzon"
-version = "0.3.17"
+version = "0.3.18"
 description = "Open-source electromagnetic design suite for engineers and AI agents: 3D full-wave FEM, circuits, PCBs and optimization"
 readme = "README.md"
 license = {text = "GPL-2.0-or-later"}
@@ -39,6 +39,7 @@ test = ["pytest", "gerbonara", "pygerber", "pillow"]   # Gerber export is read b
 hertzon = "hertzon.gui.app:main"
 hertzon-mcp = "hertzon.mcp.__main__:main"
 hertzon-serve = "hertzon.remote.__main__:main"
+hertzon-cli = "hertzon.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["hertzon*"]

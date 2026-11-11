@@ -179,6 +179,8 @@ def main() -> int:
         out.write(f"{tag} {body}\n".encode("utf-8"))
 
     # load the heavy modules now, while the server waits for its first call, not when the first job comes
+    from ..blas_threads import load_with_few_threads
+    load_with_few_threads()
     try:
         from ..kernel import occ as K
         from ..model import design as _design  # noqa: F401

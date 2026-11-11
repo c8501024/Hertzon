@@ -264,6 +264,10 @@ class MainWindow(QMainWindow):
             A(f"Drawing Plane {pl}", lambda _=False, pl=pl: self.set_drawing_plane(pl), f"Ctrl+Alt+{i}")
         self.a_enter = A("Finish", self._enter, "Return")
         self.a_enter.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        # only armed while a polyline is drawn: otherwise this window-wide Return shortcut took the key from
+        # every field of the docked panels, so Return in the Properties panel did not commit the value (and a
+        # new name typed there never reached the Add Variable dialog)
+        self.a_enter.setEnabled(False)
 
     def _menus(self) -> None:
         mb = self.menuBar()
@@ -1064,6 +1068,8 @@ class MainWindow(QMainWindow):
         self.view.contextMenuRequested.connect(self._view_context)
         self.view.drawFinished.connect(self._draw_finished)
         self.view.drawPhaseChanged.connect(lambda t: self.hint.setText(t or "Ready"))
+        self.view.drawPhaseChanged.connect(lambda _t: self.a_enter.setEnabled(
+            self.view.draw is not None and self.view.draw.kind == "CreatePolyline"))
         self.view.navModeChanged.connect(self._on_nav_mode)
         self.view.cursorMoved.connect(self._cursor_moved)
         self.view.tabPressed.connect(self._coord_tab)
