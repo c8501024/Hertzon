@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.17 (2026-11-11)
 
 ### Changed
 - **Less space in the user profile on Windows** (#377): the setup keeps pip's download cache next to `.venv`
