@@ -36,6 +36,26 @@ class Field:
     decimals: int = 3
     integer: bool = False
     help: str = ""
+    choices: tuple[str, ...] = ()       # a choice: the value is the index of the chosen text
+
+    def __post_init__(self):
+        if self.choices:
+            self.integer, self.lo, self.hi = True, 0, len(self.choices) - 1
+
+    def index(self, v) -> float:
+        """The value of a choice given by its text (or the start of it, any case) or by its index."""
+        if not isinstance(v, str):
+            return v
+        t = v.strip().lower()
+        hits = [i for i, c in enumerate(self.choices) if c.lower() == t] or \
+            [i for i, c in enumerate(self.choices) if c.lower().startswith(t)] if t else []
+        if len(hits) != 1:
+            try:
+                return float(v)
+            except ValueError:
+                raise ValueError(f"{self.label}: choose one of {', '.join(repr(c) for c in self.choices)} (or "
+                                 "its number from 0)") from None
+        return hits[0]
 
 
 @dataclass
@@ -124,6 +144,7 @@ class Structure:
     coarse = "Circuit"                  # coarse model of the multi-fidelity optimization (shown in the wizard)
     optimizer = "Conjugate Gradient"    # algorithm of the optimization (a sampled start for rugged goals)
     kind = "circuit"                    # "circuit": circuit + 3D layout; "3d": a 3D design only (antennas)
+    solution = "Setup1 : LastAdaptive"  # what the optimization of a 3D-only design evaluates
     view = "top"                        # preview of the 3D design in the wizard: "top" or "side"
 
     # ---- specification
@@ -137,7 +158,7 @@ class Structure:
             fld = next((f for f in self.fields if f.key == k), None)
             if fld is None:
                 raise ValueError(f"{self.title}: unknown field '{k}' (fields: {', '.join(self.defaults())})")
-            v = float(v)
+            v = float(fld.index(v) if fld.choices else v)
             if not fld.lo <= v <= fld.hi:
                 raise ValueError(f"{self.title}: {fld.label} must be between {fld.lo:g} and {fld.hi:g} {fld.unit}")
             out[k] = round(v) if fld.integer else v
@@ -217,11 +238,11 @@ class Structure:
     def _create3d(self, spec: dict, sub: Substrate, syn: Synthesis, base: str, range_pct: float) -> Result:
         """A structure without a circuit: the 3D design and an optimization on its adaptive solution at the design
         frequency (one solve per evaluation; the start values are close, so the derivative tuning model needs a
-        few). Multi-fidelity does not apply."""
+        few), or on the sweep of its band (solution). Multi-fidelity does not apply."""
         d3 = self.model3d(spec, sub, syn, base)
         d3.name = base
         apply_ranges(syn, sub, range_pct)
-        op = Optimization("Optimization1", "Setup1 : LastAdaptive",
+        op = Optimization("Optimization1", self.solution,
                           props=dict(schema.defaults(schema.OPTIMIZATION), Optimizer=self.optimizer))
         for v in syn.variables:
             op.variables.append({"name": v.name, "include": v.include, "min": v.text(v.lo), "max": v.text(v.hi)})
@@ -288,24 +309,31 @@ def substrate_part(sub: Substrate, x: int = -100, y: int = -200):
                                         "Cond": f"{sub.sigma:g}"})
 
 
-def top_view(design: Design, project: Project | None = None) -> tuple[list, list]:
+def top_view(design: Design, project: Project | None = None, bottom: bool = False) -> tuple:
     """Top view of a planar 3D design (mm) for the wizard preview: (board outline, copper polygons), from the
     rectangles, circles and covered polylines in the xy plane (the traces of a layout, patches); the ground plane is
-    the board."""
+    the board, without one the outline of the substrate box. With bottom, also the copper below the top layer (a
+    partial ground) as a third list, left out of the second."""
     ev = design.evaluator(project)
-    board, shapes = [], {}
+    board, shapes, level = [], {}, {}
     for o in design.objects:
         if not o.history:
             continue
         h = o.history[0]
         p = h.props
         try:
-            if h.kind == "CreateRectangle" and p.get("Axis") == "Z":
+            z = None
+            if h.kind == "CreateBox" and o.name.startswith("Substrate") and not board:
                 x, y, _ = ev.point(p["Position"])
+                dx, dy = ev.length(p["XSize"]), ev.length(p["YSize"])
+                board = [(1e3 * a, 1e3 * b) for a, b in ((x, y), (x + dx, y), (x + dx, y + dy), (x, y + dy))]
+                continue
+            if h.kind == "CreateRectangle" and p.get("Axis") == "Z":
+                x, y, z = ev.point(p["Position"])
                 dx, dy = ev.length(p["XSize"]), ev.length(p["YSize"])
                 pts = ((x, y), (x + dx, y), (x + dx, y + dy), (x, y + dy))
             elif h.kind == "CreateCircle" and p.get("Axis") == "Z":
-                x, y, _ = ev.point(p["CenterPosition"])
+                x, y, z = ev.point(p["CenterPosition"])
                 r = ev.length(p["Radius"])
                 pts = [(x + r * math.cos(t), y + r * math.sin(t)) for t in (2 * math.pi * i / 72 for i in range(72))]
             elif h.kind == "CreatePolyline" and str(p.get("Covered")) == "True":
@@ -315,6 +343,7 @@ def top_view(design: Design, project: Project | None = None) -> tuple[list, list
                 if max(q[2] for q in xyz) - min(q[2] for q in xyz) > 1e-12:
                     continue                     # an upright sheet (a port), not in the xy plane
                 pts = [q[:2] for q in xyz]
+                z = xyz[0][2]
             else:
                 continue
         except Exception:  # noqa: BLE001, S112  (an expression the preview cannot evaluate: left out)
@@ -324,6 +353,7 @@ def top_view(design: Design, project: Project | None = None) -> tuple[list, list
             board = rect
         else:
             shapes[o.name] = rect
+            level[o.name] = z
     # a hole cut out of a shape (a ring): one outline, outer and inner joined by a slit, so a fill leaves it open
     cut = set()
     for o in design.objects:
@@ -334,7 +364,12 @@ def top_view(design: Design, project: Project | None = None) -> tuple[list, list
                 shapes[o.name] = outer + outer[:1] + inner + inner[:1]
                 cut.add(tool)
     copper = [r for n, r in shapes.items() if n not in cut]
-    return board, copper
+    if not bottom:
+        return board, copper
+    zs = [z for z in level.values() if z is not None]
+    lower = {n for n, z in level.items() if z is not None and z < max(zs) - 1e-12} if zs else set()
+    return (board, [r for n, r in shapes.items() if n not in cut and n not in lower],
+            [r for n, r in shapes.items() if n in lower])
 
 
 def side_view(design: Design, project: Project | None = None) -> tuple[list, list]:

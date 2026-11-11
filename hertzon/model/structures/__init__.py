@@ -28,6 +28,7 @@ from .filters import (
 )
 from .icons import ICONS
 from .matching import QuarterWaveTransformer, StubMatch
+from .uwb import UWBDisc, UWBRect
 
 CATEGORIES = (("antenna", "Antennas"), ("match", "Matching"), ("coupler", "Couplers & hybrids"),
               ("divider", "Power dividers"), ("filter", "Filters"), ("feed", "Feed networks"),
@@ -67,8 +68,8 @@ CATALOG: list[Structure] = [
     _built(Dipole, "dipole"),
     _built(Monopole, "monopole"),
     _built(PrintedIFA, "ifa"),
-    Planned("uwb", "UWB disc monopole", "antenna", "Planar disc, partial ground", "Ultra-wideband 3.1-10.6 GHz",
-            "uwb", priority=2, ports=1),
+    _built(UWBDisc, "uwb"),
+    _built(UWBRect, "uwbrect"),
     Planned("slot", "Microstrip-fed slot", "antenna", "Slot in the ground plane", "Low profile, bidirectional",
             "slot", priority=2, ports=1),
     Planned("array", "Patch array", "antenna", "Patches with a corporate feed (circuit and 3D blocks)",

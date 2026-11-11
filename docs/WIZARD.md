@@ -42,6 +42,8 @@ the next structure.
 | Monopole | f, wire radius, ground plane side, port impedance, return loss | wire length `L` | S11 at the frequency |
 | Inverted-F (IFA) | f, board width, ground length, arm height, trace width, port impedance, return loss | radiating arm `L`, feed position `s` | S11 at the frequency |
 | Circular patch | f, port impedance, return loss | radius `a`, probe distance `rho` | S11 at the frequency |
+| UWB disc monopole | feed (microstrip with partial ground or coplanar), lowest and highest frequency, port impedance, return loss | disc radius `a`, gap `p`, ground length `Lg` | S11 over the band |
+| UWB rectangular monopole | feed, lowest and highest frequency, port impedance, return loss, width / height | plate `W`, `L`, corner bevel `c`, gap `p`, ground length `Lg` | S11 over the band |
 | Circularly polarized patch | f, port impedance, return loss, axial ratio | side `L`, corner cut `c`, probe distance `xf` | S11 and the axial ratio at the frequency |
 | Quarter-wave transformer | f0, port and load impedance, 1 to 4 sections, bandwidth, return loss | width `W1..WN` and length `L1..LN` of each section | S11 in the band |
 | Wilkinson divider | f0, port impedance, bandwidth, return loss, isolation, split tolerance | arm width `Wa` and run `Lb` | S11, S22, S33 and S32 (isolation), S21 and S31 within the tolerance |
@@ -90,7 +92,8 @@ and gap come from the coupled-line model of the circuit. It couples backwards: p
 isolation to roughly 15 to 25 dB; coupling much stronger than 12 dB needs gaps below 0.15 mm on 0.508 mm boards.
 
 Antennas have no circuit (nothing in a schematic radiates): the wizard creates the 3D design and an optimization
-on its adaptive solution at the frequency with the Derivative Trust Region, like the patch designer; multi-fidelity
+on its adaptive solution at the frequency (the UWB monopoles: on the sweep of the band) with the Derivative Trust
+Region, like the patch designer; multi-fidelity
 and the substrate do not apply to the wire antennas. The dipole is two PEC cylinders with a lumped port in the gap,
 its resonant length 0.5 − 0.12/ln(L/d) wavelengths (about 0.475 λ for L/d = 100), its input resistance about
 70 Ω. The monopole is half of it over a square PEC plane, fed by a lumped port between the plane and the wire,
@@ -114,6 +117,24 @@ half the one of a linearly polarized patch at the same point, so the probe sits 
 In 3D the start designs (RO4350B 0.508 mm, 2.45 GHz) come out close: the circular patch at −22 dB at 2.45 GHz, the
 CP patch matched at 2.444 GHz; its optimization met S11 ≤ −15 dB and an axial ratio ≤ 3 dB at 2.45 GHz after
 4 solves (about 4 minutes on 4 cores).
+
+The two UWB monopoles are printed on the wizard's substrate: a circular disc, or a rectangular plate with its two
+lower corners bevelled. The **Feed** choice sets where the ground is:
+
+* **Microstrip, partial ground**: the strip runs on the top layer, the ground is on the bottom layer
+  and ends a gap `p` below the radiator (the ground length `Lg` is part of the antenna). The port is a lumped port
+  on a vertical sheet at the board edge, from the ground to the strip.
+* **Coplanar, ground on top** (CPW): the strip runs between two grounds on the top layer, with gaps of
+  the coplanar line of the port impedance (the strip about 3.5 h, 1 to 3 mm, the gap from it, never below the
+  smallest feature). At the board edge a short bar joins the two grounds, as the shell of an edge connector does,
+  and the lumped port sits across a gap between the bar and the strip.
+
+The start values come from the lowest frequency of a planar monopole, the cylindrical monopole of the same height
+and area: f_L = 7.2 / ((l + r + p) k) GHz with l, r, p in cm (Ray 2008). The disc is l = 2a high with r = a/4, the
+plate l = L with r = W/(2π); k = √(1 + 0.095 (εr − 1)), 1.15 on FR4. The ground starts at 0.15 λ at f_L and the
+gap at 0.5 mm. The setup refines the mesh at the highest frequency and sweeps 0.8 f_L to 1.1 f_H (interpolating);
+the optimization runs on that sweep with the Derivative Trust Region (the band model of the tuning), with the goal
+S11 ≤ −RL from f_L to f_H.
 
 The quarter-wave transformer is binomial (maximally flat): ln(Z[k+1]/Z[k]) = 2^−N C(N,k) ln(ZL/Z0); port 2 has
 the load impedance. The branchline coupler has series arms Z0·√(1−k²) and shunt arms Z_series/k with

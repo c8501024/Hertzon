@@ -214,10 +214,18 @@ ICONS = {
         line("M40 20 V47", 4),
         feed(40, 50),
     ),
+    # UWB monopoles: the disc with a coplanar feed (grounds beside the strip on the same layer), the plate with a
+    # microstrip over a partial ground on the bottom (drawn behind, dashed edge)
     "uwb": svg(
-        ground(8, 58, 46, 18), ground(66, 58, 46, 18),
-        disc(60, 28, 20),
-        line("M60 46 V78", 4),
+        ground(8, 56, 47, 20), ground(65, 56, 47, 20),
+        disc(60, 29, 21),
+        line("M60 48 V78", 4),
+    ),
+    "uwbrect": svg(
+        raw(f'<rect x="8" y="58" width="104" height="18" fill="{GND}" fill-opacity=".55" stroke="{GND_EDGE}" '
+            'stroke-width=".6" stroke-dasharray="2 1.5"/>'),
+        shape("M46 52 H74 L84 42 V10 H36 V42 Z"),
+        line("M60 50 V78", 4),
     ),
     "slot": svg(
         shape("M8 8 H112 V72 H8 Z"),
