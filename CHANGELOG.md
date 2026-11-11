@@ -3,9 +3,22 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.19 (2026-11-11)
+
+### Added
+- **Plane wave: warning for material on the radiation boundary.** The validation warns when a dielectric or lossy
+  object touches the radiation boundary of an incident plane wave with a side face: the boundary injects the
+  free-space wave on every face it covers, so the wave would also enter from the sides. Use an air region, or
+  periodic / Perfect E / Perfect H side walls for an infinite wall. Entry and exit faces (normal along k) are fine.
 
 ### Fixed
+- **Materials: storing or editing a material no longer hangs for about 22 s.** The material list fitted its column
+  widths on every cell while it was refilled; it now fits them once (milliseconds). EMerge's material library is
+  cached in `~/.hertzon/cache`, and repeated clicks no longer open further materials dialogs.
+- **Keyboard Shortcuts dialog: Enter confirms, Esc cancels**, also while a capture field has focus; with a
+  modifier (e.g. Ctrl+Return) they are still recorded as shortcuts.
+- **`hertzon-cli solve` stops with a clear message for incident plane wave designs** (no ports, no S-parameters)
+  instead of solving and then reporting a missing solution.
 - **3D view: coordinate system and plane wave arrows line up with their labels again.** With a solid at the
   origin of the working coordinate system the axis triad and the k / Eo arrows were cut or hidden by the solid,
   while the X/Y/Z, k and Eo labels (always drawn) floated on its faces. Triad and plane wave arrows are now
