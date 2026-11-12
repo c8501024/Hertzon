@@ -31,4 +31,9 @@ tool and system texts).
 Note from the run: the clock times of the rows "B2" to "Concept T" were estimated afterwards and are too late; reliable
 are the start at 15:49 and the state at 18:27 after 21 solves.
 
-Reference solver: not run yet.
+## Reference solver (version 2025 R1, same workstation, after the run)
+
+| Run | Time | Result (min / mean) |
+| --- | --- | --- |
+| Delta S 0.02, at least 4 passes, 0.3 mm seeding on the copper | 20:39–20:52 | 2.4 GHz 58.9 / 66.0 %, upper band 62.2 / 76.9 % |
+| Delta S 0.005, at least 9 passes (11 run), 0.3 mm seeding | 20:53–21:20 | 2.4 GHz 59.6 / 66.4 %, upper band 61.4 / 75.6 % |

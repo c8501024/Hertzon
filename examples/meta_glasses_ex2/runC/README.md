@@ -8,8 +8,9 @@ only the benchmark package and the goals and constraints of Run B, none of its d
 No matching network, no lumped components, one FPC copper layer, one feed via and one ground via (copper cylinders,
 0.25 mm).
 
-> **Status of the results.** All numbers below are Hertzon numbers. Run C has **not yet been checked in the
-> reference solver**.
+> **Status of the results.** `T_opp` has been checked in the commercial reference solver: all 26 points are above
+> 50 % there too (minimum 59.6 %), with 66.4 / 75.6 % band means and 71.0 % for both bands, against 72.0 / 75.4 % and
+> 73.7 % in Hertzon. The upper band agrees within 1.7 points, the 2.4 GHz band is about 6 points lower.
 
 ![Layout of T_opp on the FPC in mm](results/RunC_layout_mm.png)
 
@@ -20,8 +21,9 @@ No matching network, no lumped components, one FPC copper layer, one feed via an
 | **`T_opp`, 249k tetrahedra (12 passes)** | **62.0 / 72.0 %** | **60.8 / 75.4 %** | **73.7 %** |
 | `T_opp`, 144k tetrahedra (10 passes, converged) | 59.8 / 71.9 % | 60.2 / 75.1 % | 73.5 % |
 | `T_thick`: 18 µm thick copper instead of sheets (143k) | 59.1 / 72.2 % | 60.8 / 75.1 % | 73.7 % |
+| Reference solver, Delta S 0.005 | 59.6 / 66.4 % | 61.4 / 75.6 % | 71.0 % |
 | Run 4, A29 (yardstick, Hertzon 0.3.13) | 60.0 / 67.3 % | about 47 / 69.0 % | 68.2 % |
-| Run B, `B3_final` (Hertzon 0.3.18, 344k) | 47.6 / 58.9 % | 51.7 / 79.6 % | 69.3 % |
+| Run B, `B3_final` (Hertzon 0.3.18, 344k) | 47.6 / 57.3 % | 51.7 / 77.7 % | 67.5 % |
 
 **50 % target met at all 26 points in Hertzon.** Run C lies above Run 4 in both bands in Hertzon (+4.7 and +6.4
 points) and its weakest point is 60.8 % (6.27 GHz). Power balance within 1.2 % of the incident power at all points.
@@ -63,12 +65,52 @@ the 2.25 mm high space and covers only about 1.3 GHz at 50 %; 1.96 GHz needs two
 Design-rule check (`tools/drc.py`): copper to the FPC edge 0.105 mm, to the round hole 0.203 mm, to the slot
 0.123 mm; ground via fully on copper and under the PCB, 0.06 mm from the PCB edge.
 
-Not checked: second-order basis, larger air box, the reference solver and Meta's original STEP.
+Not checked: second-order basis, larger air box and Meta's original STEP. The reference solver is in the next section.
 
 Weak points: the ground via sits only 0.06 mm inside the PCB edge (FPC and PCB overlap by only 0.49 mm there); the
 2.4 GHz resonance is narrow (3 MHz shift changes the band edge by 2 points); radiation efficiency at 2.4 GHz is only
 0.76 to 0.82; the signal pad lies in the PCB plane next to the PCB edge, not on the FPC; tuning was by hand in 13
 steps, no optimizer run.
+
+## Reference solver
+
+`T_opp` in the commercial reference solver (version 2025 R1), with PCB, FPC and chassis from the benchmark STEP (not
+Meta's original STEP as in Run 4) and the antenna rebuilt from `reference/hfss_RunC.json` (written by
+`reference/make_geo.py` from the same polygon as `tools/drc.py`): copper as finite-conductivity sheets, 0.3 mm length
+seeding on the copper (smallest gap and trace width are 0.3 mm), adaptive at 2.44, 5.4 and 6.8 GHz, the same 26
+evaluation points. The check was run after the design was finished, by a separate session.
+
+| `T_opp` (min / mean) | 2401–2483 MHz | 5170–7125 MHz | Mean of both bands |
+| --- | --- | --- | --- |
+| Hertzon 0.3.18, 249k tetrahedra | 62.0 / 72.0 % | 60.8 / 75.4 % | 73.7 % |
+| **Reference solver, Delta S 0.005 (11 passes, at least 9)** | **59.6 / 66.4 %** | **61.4 / 75.6 %** | **71.0 %** |
+| Reference solver, Delta S 0.02 | 58.9 / 66.0 % | 62.2 / 76.9 % | 71.4 % |
+
+**All 26 points are above 50 % in the reference solver as well**; the weakest point is 59.6 % at 2.483 GHz.
+
+![T_opp in Hertzon and in the reference solver](results/RunC_hertzon_vs_reference.png)
+
+| f (GHz) | Hertzon total | Reference total | Hertzon mismatch / radiation | Reference mismatch / radiation |
+| --- | --- | --- | --- | --- |
+| 2.401 | 62.0 % | 61.7 % | 81.8 / 75.8 % | 89.2 / 69.2 % |
+| 2.440 | 79.2 % | 72.3 % | 99.8 / 79.4 % | 98.3 / 73.5 % |
+| 2.483 | 68.0 % | 59.6 % | 83.0 / 82.0 % | 78.0 / 76.3 % |
+| 5.170 | 61.9 % | 62.9 % | 70.0 / 88.3 % | 71.0 / 88.7 % |
+| 6.270 | 60.8 % | 61.4 % | 65.9 / 92.3 % | 67.7 / 90.7 % |
+| 6.770 | 90.9 % | 91.0 % | 99.0 / 91.9 % | 98.7 / 92.1 % |
+| 7.125 | 63.8 % | 63.0 % | 66.7 / 95.6 % | 66.7 / 94.4 % |
+
+- **Upper band confirmed:** within 1.7 points at every point, both resonances (5.45 and 6.77 GHz) at the same place,
+  S11 of the interpolating sweep on top of the Hertzon points.
+- **2.4 GHz lower in the reference solver:** the resonance lies about 10 MHz lower (2.43 instead of 2.44 GHz) and the
+  radiation efficiency is about 6 points lower (69 to 76 % instead of 76 to 82 %). The band mean drops from 72.0 to
+  66.4 %. The same pattern, a lower 2.4 GHz radiation efficiency than in Hertzon, appears in Run B.
+- Effort: 13 min for the Delta S 0.02 run, 27 min for the Delta S 0.005 run including the interpolating S11 sweep
+  from 2 to 8 GHz.
+
+Files: `results/reference_fine/` and `results/reference_first_run/` (efficiency, S11 sweep and points, convergence),
+`reference/Meta_Ex2_RunC_reference.py` (IronPython script, batch mode), `reference/make_geo.py`,
+`reference/hfss_RunC.json`.
 
 ## Prompt
 
@@ -105,6 +147,8 @@ Per step: [Timing_Log.md](Timing_Log.md).
 | `results/*.png` | Layout, efficiency and S11, comparison with Runs 4 and B |
 | `tools/drc.py` | Antenna polygon and design-rule check against the FPC outline and holes |
 | `tools/export_tables.py`, `tools/eff.py`, `tools/s11.py` | Tables from a Hertzon result folder or Touchstone file |
+| `results/reference_fine/`, `results/reference_first_run/` | Reference-solver runs of `T_opp` (see above) |
+| `reference/` | Reference-solver script, geometry export and the antenna geometry as JSON |
 | `tools/make_plots.py` | All plots of this folder from the CSV files |
 
 ## Reproduce
