@@ -2694,9 +2694,14 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
             warn(f"Maximum number of tetrahedra reached ({m.mesh.n_tets} >= {max_tets})")
             break
         need, avail = memory_forecast(m.mesh.n_tets * (1 + pct / 100.0), m.mesh.n_tets)
-        if avail and need > 0.85 * avail:
-            warn(f"Stopping refinement: the next pass would need about {need / 2**30:.1f} GB of memory, "
-                 f"{avail / 2**30:.1f} GB available. Reduce Maximum Refinement or use coarser settings.")
+        # the frequency sweep on the final mesh needs more than its adaptive pass (measured: peak of the
+        # whole solve 1.23x the peak of the last pass), so the next pass must leave room for it. The
+        # forecast itself errs on the safe side (n^(4/3)), hence 90 % of the memory instead of 85 %.
+        need *= SWEEP_MEMORY_FACTOR
+        if avail and need > 0.9 * avail:
+            warn(f"Stopping refinement: the next pass and the frequency sweep on its mesh would need about "
+                 f"{need / 2**30:.1f} GB of memory, {avail / 2**30:.1f} GB available. "
+                 f"Reduce Maximum Refinement or use coarser settings.")
             break
         if on_pass is not None:
             # current mesh + fields as "LastAdaptive" so they can be plotted while the solve continues
@@ -3349,6 +3354,11 @@ def available_memory() -> float:
         except OSError:
             pass
     return total
+
+
+# peak memory of the frequency sweep on the final mesh relative to the peak of its adaptive pass (Patch
+# 245 MHz, 30k tetrahedra: 6.25 GB vs 5.08 GB; Hairpin, 66k: a 12.0 GB pass, sweep out of memory at 15.7 GB)
+SWEEP_MEMORY_FACTOR = 1.25
 
 
 def memory_forecast(next_tets: float, cur_tets: int) -> tuple[float, float]:

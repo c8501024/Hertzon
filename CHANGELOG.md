@@ -13,6 +13,10 @@ the GitHub release notes.
   are unchanged.
 - **Ports with Perfect H walls (TM modes) and magnetic materials** are now treated correctly at wave ports (#407).
 
+### Fixed
+- **Adaptive meshing no longer runs out of memory in the frequency sweep after the last pass.** The memory check
+  before a further pass now also reserves the memory of the sweep on that mesh (about 1.25 times the pass).
+
 ## 0.3.20 (2026-11-12)
 
 ### Added
