@@ -12,7 +12,7 @@ the GitHub release notes.
   without scaling and weighted matching (13 to 20 % faster, same S-parameters). Results of 10 reference models
   are unchanged.
 - **Basis order "Second Order": ports no longer lose power** (EMerge 3.0.6). On a lossless line |S11|² + |S21|²
-  was about 0.88 at a lumped or modal port, and a wave port reflected nearly everything.
+  was about 0.88 at a modal port, and a wave port reflected nearly everything.
 - **Basis order "Zero Order": port modes are computed with the same first-order functions as the volume**
   (before always second order). Power is conserved; the propagation constant of the port is less accurate on a
   coarse mesh, as in the volume.
