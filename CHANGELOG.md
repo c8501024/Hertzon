@@ -3,6 +3,24 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **EMerge updated to 3.0.6** (`hertzon` branch at `deb5c94`). Brings EMerge's fixes since the last update, among
+  them thin conductors (factor 2), the PEC threshold for volumes and wave ports through copper. Wave ports with
+  several modes now use EMerge's own `WavePort(number_of_modes=N)`. PARDISO solves symmetric systems as LDL^T
+  without scaling and weighted matching (13 to 20 % faster, same S-parameters). Results of 10 reference models
+  are unchanged.
+- **Ports with Perfect H walls (TM modes) and magnetic materials** are now treated correctly at wave ports (#407).
+- **Port modes are computed with the basis functions of the volume** (EMerge 3.0.6). With "Second Order" modal and
+  wave ports no longer lose power (on a lossless line |S11|² + |S21|² was about 0.88 at a modal port, and a wave port
+  reflected nearly everything); with "Zero Order" the port modes are first order like the volume. The mode solver
+  factorizes the port matrix in SuperLU's symmetric mode, which keeps it fast with the new basis.
+
+### Fixed
+- **Adaptive meshing no longer runs out of memory in the frequency sweep after the last pass.** The memory check
+  before a further pass now also reserves the memory of the sweep on that mesh (about 1.25 times the pass).
+
 ## 0.3.20 (2026-11-12)
 
 ### Added

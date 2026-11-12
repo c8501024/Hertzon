@@ -163,3 +163,32 @@ def test_a_disabled_or_unanalyzed_sweep_is_not_tuned(tmp_path):
 def Qt_checked():
     from PySide6.QtCore import Qt
     return Qt.Checked
+
+
+def test_tuning_dock_keeps_the_bottom_docks_resizable(tmp_path):
+    """Derivative Tuning open on a short window: Message Manager and Progress must still resize vertically."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    import shutil
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication, QDockWidget
+    from hertzon.gui.main_window import MainWindow
+    from hertzon.model.design import Project
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "p.hzn"
+    shutil.copy(EX / "PatchAntenna.hzn", path)
+    w = MainWindow()
+    w.resize(1366, 720)
+    w.show()
+    proj = Project.load(str(path))
+    proj.path = str(path)
+    w.set_project(proj)
+    w.derivative_tuning()
+    app.processEvents()
+    dm = w.findChild(QDockWidget, "Message Manager")
+    heights = []
+    for want in (320, 140):
+        w.resizeDocks([dm], [want], Qt.Vertical)
+        app.processEvents()
+        heights.append(dm.height())
+    assert heights[0] >= 300 and heights[1] <= 160, heights
+    w.close()

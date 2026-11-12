@@ -34,7 +34,7 @@ def test_reduced_matches_direct():
         calls.append(1)
         x = np.zeros_like(bb)
         x[solve_ids] = spsolve(A[:, solve_ids][solve_ids, :].tocsc(), bb[solve_ids]).reshape(-1, bb.shape[1])
-        from emerge._emerge.solver import SolveReport
+        from emerge._emerge.solvers import SolveReport
         return x, SolveReport()
 
     red = ReducedSolver(direct, tol=1e-8)

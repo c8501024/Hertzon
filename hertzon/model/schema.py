@@ -253,7 +253,7 @@ EXCITATIONS: dict[str, list[Prop]] = {
                      "automatically between the two conductors touching the sheet (empty = auto); right click the "
                      "port to draw it in the 3D view or to place it automatically again. Given in the coordinates of the sheet as "
                      "created: the line moves, rotates and mirrors with its object")],
-    "Floquet Port": [P("PortNumber", "int", "1"), P("NumberOfModes", "int", "2", help="1 = TE00, 2 = TE00 and TM00"),
+    "Floquet Port": [P("PortNumber", "int", "1"), P("NumberOfModes", "int", "2", help="1 = TE00, 2 = TE00 and TM00, more = also the grating modes (TE and TM per order)"),
                      P("Permittivity", "expr", "1", label="Medium permittivity")],
     "Incident Plane Wave": [P("VectorInput", "choice", "Cartesian", label="Vector input format",
                               choices=("Cartesian", "Spherical")),

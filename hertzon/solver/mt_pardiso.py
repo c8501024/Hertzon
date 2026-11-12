@@ -43,20 +43,21 @@ def apply() -> None:
     if _DONE:
         return
     _DONE = True
-    from emerge._emerge import solver as S
+    from emerge._emerge import solveroutine as R
+    from emerge._emerge.solvers import MatrixType, SolverCHOLMOD, SolverPardiso
 
-    pick = S.AutomaticRoutine.pick_solver
+    pick = R.AutomaticRoutine.pick_solver
 
     def pick_solver(self, A, b, matrix_type, direct: bool = True):
         if (WORKER_THREADS > 0 and self.parallel == "MT" and direct and A.shape[0] >= 10_000
-                and S._PARDISO_AVAILABLE and S.EMSolver.PARDISO in self.solvers
-                and not (matrix_type is S.MatrixType.SPD and S._SKSP_AVAILABLE)):
-            return self.solvers[S.EMSolver.PARDISO]       # this worker thread's own instance
+                and SolverPardiso.available and SolverPardiso in self.solvers
+                and not (matrix_type is MatrixType.SPD and SolverCHOLMOD.available)):
+            return self.solvers[SolverPardiso]       # this worker thread's own instance
         return pick(self, A, b, matrix_type, direct)
 
-    S.AutomaticRoutine.pick_solver = pick_solver
+    R.AutomaticRoutine.pick_solver = pick_solver
 
-    solve = S.SolverPardiso.solve
+    solve = SolverPardiso.solve
 
     def pardiso_solve(self, A, b, precon, id: int = -1):  # noqa: A002
         if WORKER_THREADS > 0 and not _main():
@@ -69,7 +70,7 @@ def apply() -> None:
                 TIMES["solve"] += time.perf_counter() - t
 
     pardiso_solve._hertzon_fast = getattr(solve, "_hertzon_fast", False)
-    S.SolverPardiso.solve = pardiso_solve
+    SolverPardiso.solve = pardiso_solve
 
     from emerge._emerge.physics.microwave.assembly.assembler import Assembler
     assemble = Assembler.assemble_freq_matrix

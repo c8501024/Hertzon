@@ -21,7 +21,7 @@ the commits on this branch.
 - Every case runs a fixed number of adaptive passes (4), so two runs solve the same meshes; the tetrahedra
   per pass are compared too. Before a series, Hertzon's warm-up compiles all numba kernels.
 - `HERTZON_EMERGE_NATIVE=mt_pardiso,mesh_fallback`,
-  `HERTZON_SLOW_ASSEMBLY=1`, `HERTZON_PARDISO_STRUCT=1` and `HERTZON_HYBRID_SWEEP=0` switch single
+  `HERTZON_HYBRID_SWEEP=0` switch single
   replacements off, so EMerge's own code runs instead.
 - `examples/benchmark/tools/farfield_kernels.py HUYGENS_NPZ` compares the far field kernels on stored
   boundary fields.
@@ -108,19 +108,17 @@ on (EMerge 3.0.0b5).
 
 | Replacement | microstrip | hairpin | patch | rotman | Results |
 |---|---|---|---|---|---|
-| PARDISO LDLT off (`HERTZON_PARDISO_STRUCT=1`) | +9 % | +34 % | +34 % | +7 % | same |
 | Reduced basis in the interpolating sweep off | +30 % | +48 % | +30 % | – | same within tolerance |
 | `mt_pardiso` off, sweep frequencies in parallel | +442 % | out of memory | out of memory | – | – |
 | Thin conductor DoF numbering off | ±0 | ±0 | ±0 | ±0 | S identical |
 | Conductor sheets in the error estimate off | ±0 | ±0 | ±0 | ±0 | same meshes |
 
-### PARDISO: complex symmetric LDL^T (`fast_assembly._pardiso_solve`)
+### PARDISO: complex symmetric LDL^T (now in EMerge)
 
-EMerge factorizes the complex symmetric system matrix with PARDISO mtype 3 (structurally symmetric LU).
-mtype 6 (complex symmetric, upper triangle) needs about half the factor memory and is 20–40 % faster on the
-second order cases. Hertzon uses it only when EMerge classifies the matrix as symmetric and a random
-bilinear test confirms it, and falls back to LU on any PARDISO error.
-**Proposal:** move into EMerge's PARDISO interface, with this benchmark.
+Since EMerge 3.0.0 (FennisRobert/EMerge#87) EMerge's PARDISO interface factorizes a complex symmetric matrix
+as LDL^T itself (mtype 6 on the upper triangle, LU otherwise). Hertzon's own replacement is removed with the
+update to EMerge 3.0.5: passing the upper triangle to the new interface would make it detect a
+non-symmetric matrix. `fast_assembly._pardiso_solve` now only records the factorization memory.
 
 ### PARDISO in parallel sweeps (`mt_pardiso`)
 
