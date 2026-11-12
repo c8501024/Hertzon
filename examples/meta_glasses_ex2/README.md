@@ -49,18 +49,20 @@ Runs 1 and 2.
 Two later runs started from zero with only the benchmark package, no reports, designs or notes of earlier runs, and the
 stricter goal of **at least 50 % total efficiency at every frequency** in both bands. Both used the model Fable 5.2
 with medium effort. The table gives Hertzon numbers (arithmetic means over the evaluation points, as for Run 4) and,
-where available, the reference solver. Unlike Runs 2 to 4, Run B's reference check uses the benchmark STEP, not
-Meta's original STEP.
+the reference solver. Unlike Runs 2 to 4, the reference checks of Runs B and C use the benchmark STEP, not Meta's
+original STEP.
 
 | Run | Prompt | 2.4 GHz min / mean | 5.17–7.125 GHz min / mean | Equal weight | Design time | Solves | Reference solver |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [Run B](runB/README.md), `B3_final` | From scratch, beat Run 4, then at least 50 % everywhere | 47.6 / 57.3 % | 51.7 / 77.7 % | 67.5 % | 8 h 15 min to `Final`, then 88 min for B1–B3 | 49 + 9 | 46.4 / 53.4 % and 52.1 / 77.8 %, 65.6 % |
-| [Run C](runC/README.md), `T_opp` | Same task as Run B, from scratch | 62.0 / 72.0 % | 60.8 / 75.4 % | 73.7 % | about 4 h | 26 | Not run yet |
+| [Run C](runC/README.md), `T_opp` | Same task as Run B, from scratch | 62.0 / 72.0 % | 60.8 / 75.4 % | 73.7 % | about 4 h | 26 | 59.6 / 66.4 % and 61.4 / 75.6 %, 71.0 % |
 | Run 4, A29, for comparison | | 60.0 / 67.3 % | about 47 / 69.0 % | 68.2 % | | | 68.7 / 71.7 % (means) |
 
 ![Runs 4, B and C in Hertzon](runC/results/Ex2_runs_4_B_C_hertzon.png)
 
 ![B3_final of Run B in Hertzon and the reference solver](runB/results/RunB_B3_final_hertzon_vs_reference.png)
+
+![T_opp of Run C in Hertzon and the reference solver](runC/results/RunC_hertzon_vs_reference.png)
 
 - **Run B** found a loop with a finger capacitor for 2.4 GHz and an open arm for 5–7 GHz. In Hertzon its upper band
   holds 51.7 % everywhere, the lower 2.4 GHz band edge does not (47.6 %). The reference solver confirms the upper
@@ -69,7 +71,9 @@ Meta's original STEP.
   resonance at about 4.2 GHz although it reported convergence.
 - **Run C** feeds and shorts the antenna near the middle of the FPC and runs two arms in opposite directions. The
   low-band arm's third harmonic and the high-band arm give two resonances in the upper band, so its weakest point in
-  Hertzon is 60.8 %.
+  Hertzon is 60.8 %. The reference solver confirms the upper band within 1.7 points and gives about 6 points less at
+  2.4 GHz; all 26 points stay above 50 % (minimum 59.6 %), 71.0 % for both bands. In both runs the reference solver
+  finds a lower 2.4 GHz radiation efficiency than Hertzon.
 
 ![Total efficiency of Runs 2, 3 and 4 in the reference solver](run4/results/Ex2_runs_reference.png)
 

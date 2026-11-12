@@ -95,3 +95,39 @@ axs[1].legend(frameon=False, fontsize=9, loc="lower center")
 fig.suptitle("Example 2: Runs 4, B and C in Hertzon (no matching)",
              x=0.01, ha="left", fontsize=11, fontweight="bold")
 fig.tight_layout(); fig.savefig(os.path.join(res, "Ex2_runs_4_B_C_hertzon.png"), dpi=160)
+plt.close(fig)
+
+
+# T_opp in Hertzon and in the reference solver
+def ref(run):
+    with open(os.path.join(res, run, "Efficiency.csv")) as f:
+        e = np.array([[float(r[0]), 100 * float(r[1]) / float(r[3])] for r in list(csv.reader(f))[1:] if r])
+    with open(os.path.join(res, run, "S11.csv")) as f:
+        s = np.array([[float(r[0]), float(r[3])] for r in list(csv.reader(f))[1:] if r])
+    return e, s
+
+
+fine, first = ref("reference_fine"), ref("reference_first_run")
+fig, axs = plt.subplots(2, 2, figsize=(12, 7), gridspec_kw={"width_ratios": [1, 3]})
+for col, (lo, hi) in enumerate(((2.39, 2.49), (5.1, 7.2))):
+    m = (rc[:, 0] > lo) & (rc[:, 0] < hi)
+    axs[0, col].plot(rc[m, 0], 100 * rc[m, 4], "o-", ms=3.5, color="#1f6fd1", lw=2, label="Hertzon 0.3.18 (249k tetrahedra)")
+    axs[1, col].plot(rc[m, 0], rc[m, 1], "o", ms=4, color="#1f6fd1", label="Hertzon 0.3.18, evaluation points")
+    for (e, s), lab, c, st in ((fine, "Reference solver, Delta S 0.005 (11 passes)", "#c0392b", "--s"),
+                               (first, "Reference solver, Delta S 0.02", "#bbbbbb", ":^")):
+        n = (e[:, 0] > lo) & (e[:, 0] < hi)
+        axs[0, col].plot(e[n, 0], e[n, 1], st, color=c, ms=3.5, lw=1.5, label=lab)
+    n = (fine[1][:, 0] >= lo) & (fine[1][:, 0] <= hi)
+    axs[1, col].plot(fine[1][n, 0], fine[1][n, 1], "--", color="#c0392b", lw=1.5,
+                     label="Reference solver, Delta S 0.005, interpolating sweep")
+    axs[0, col].axhline(50, color="#b00020", ls=":", lw=1); axs[0, col].set_ylim(0, 100)
+    axs[0, col].set_xlim(lo, hi); axs[1, col].set_xlim(lo, hi)
+    axs[0, col].set_ylabel("Total efficiency (%)"); axs[1, col].set_ylabel("|S11| (dB)")
+    axs[1, col].set_xlabel("Frequency (GHz)")
+    axs[0, col].grid(color="#dddddd"); axs[1, col].grid(color="#dddddd")
+axs[0, 1].legend(fontsize=8, frameon=False, loc="lower center")
+axs[1, 1].legend(fontsize=8, frameon=False, loc="lower left")
+axs[0, 0].set_title("2401-2483 MHz", loc="left", fontsize=10)
+axs[0, 1].set_title("5170-7125 MHz", loc="left", fontsize=10)
+fig.suptitle("Run C, T_opp: Hertzon against the reference solver", x=0.01, ha="left", fontsize=11.5, fontweight="bold")
+fig.tight_layout(); fig.savefig(os.path.join(res, "RunC_hertzon_vs_reference.png"), dpi=150)
