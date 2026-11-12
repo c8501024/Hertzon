@@ -145,3 +145,24 @@ def test_eigenmode_table_report_lists_the_modes(tmp_path, monkeypatch):
     assert R.eigen_solution_list(doc) == ["Eigen1 : LastAdaptive"]
     modes = R.eigen_table(doc, "Eigen1 : LastAdaptive")
     assert [m["freq"] for m in modes] == [8.25e9, 11.9e9] and np.isinf(modes[0]["Q"])
+
+
+def test_cutoff_of_a_two_mode_wave_port_between_solved_frequencies():
+    """EMerge's WavePort returns the beta of the nearest solved frequency; the interpolating sweep finds the TE20
+    cutoff of WR-90 (13.114 GHz) between two solved frequencies from the extrapolated beta (mode_beta_at)."""
+    em.cleanup()
+    sim = em.Simulation("wg_cutoff", loglevel="ERROR")
+    box = em.geo.Box(A, BB, 0.1)
+    sim.commit_geometry()
+    sim.mw.set_frequency(40e9)
+    sim.mw.set_resolution(0.2)
+    sim.generate_mesh()
+    for i, face in enumerate(("-z", "+z")):
+        sim.mw.bc.WavePort(box.face(face), i + 1, number_of_modes=2, modetype=None)
+    sim.mw.set_frequency([20e9, 30e9])
+    sim.mw.run_sweep()
+    cuts = B.wave_port_cutoffs(sim, 8e9, 40e9)
+    em.cleanup()
+    fc = 299792458 / A                      # TE20
+    assert len(cuts) == 1 and cuts[0][0] == pytest.approx(fc, rel=2e-3)
+    assert sorted(cuts[0][1]) == ["wave port 1 mode 2", "wave port 2 mode 2"]

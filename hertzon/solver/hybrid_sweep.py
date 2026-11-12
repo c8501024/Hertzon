@@ -124,7 +124,7 @@ def apply() -> None:
     if _DONE:
         return
     _DONE = True
-    from emerge._emerge import solver as S
+    from emerge._emerge import solveroutine as S
     orig = S.SolveRoutine.solve
 
     def solve(self, A, b, solve_ids, *a, **kw):

@@ -53,10 +53,10 @@ def test_gpu_without_a_usable_gpu_factorizes_on_the_cpu(monkeypatch):
 
 def _emerge_sparta():
     try:
-        from emerge._emerge import solver as S
+        from emerge._emerge import solvers as S
     except Exception:  # noqa: BLE001
         pytest.skip("EMerge not importable")
-    if not S._SPARTA_AVAILABLE:
+    if not S.SolverSparta.available:
         pytest.skip("SPARTA not installed")
     return S
 

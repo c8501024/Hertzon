@@ -67,7 +67,7 @@ The maintainer may later take any of them into `main` in his own way.
 
 | Item | Hertzon code today | Why | Status |
 |---|---|---|---|
-| Wave port with several modes of different propagation constant (coupled microstrip lines: even and odd mode): the port condition uses the propagation constant of the first mode for all modes, so the others are not absorbed exactly | – | Needed for terminal wave ports on differential lines | `MultiModeWavePort` on `hertzon` (FennisRobert/EMerge#85, agreed with the Hertzon maintainer, 26 October 2026): the dense wave port condition of `WavePortIH` with one projection term per mode, each with its own propagation constant, and S-parameters from the same projection. Coupled microstrip: odd mode reflection −38 dB instead of −23 dB, S unitary to 1e-11. Hertzon uses it for terminal wave ports with several signal conductors |
+| Wave port with several modes of different propagation constant (coupled microstrip lines: even and odd mode): the port condition uses the propagation constant of the first mode for all modes, so the others are not absorbed exactly | – | Needed for terminal wave ports on differential lines | `MultiModeWavePort` on `hertzon` (FennisRobert/EMerge#85, agreed with the Hertzon maintainer, 26 October 2026): the dense wave port condition of `WavePortIH` with one projection term per mode, each with its own propagation constant, and S-parameters from the same projection. Coupled microstrip: odd mode reflection −38 dB instead of −23 dB, S unitary to 1e-11. Since EMerge 3.0.0 on `main` as `WavePort(number_of_modes=N)` (with mode tracking over the sweep); Hertzon uses that since EMerge 3.0.5 |
 
 ### AI-written EMerge code: free to improve (R5)
 

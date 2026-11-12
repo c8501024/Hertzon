@@ -1,11 +1,10 @@
-"""Faster solve for EMerge 3 (same results, applied once in the solver worker): PARDISO factorizes the complex
-symmetric system matrix as LDL^T (mtype 6) instead of an unsymmetric LU. EMerge removes the PEC rows and
-columns in parallel itself since FennisRobert/EMerge#78, and builds the element matrices and the CSC pattern
-in its compiled library. Set HERTZON_SLOW_ASSEMBLY=1 or HERTZON_PARDISO_STRUCT=1 for EMerge's LU.
+"""PARDISO helpers for EMerge 3 (applied once in the solver worker). EMerge factorizes a complex symmetric
+system matrix as LDL^T itself (FennisRobert/EMerge#87) and removes the PEC rows and columns in parallel
+(FennisRobert/EMerge#78); Hertzon records the memory of each factorization (FACTOR) and keeps a fast upper
+triangle of a symmetric matrix (upper_symmetric).
 """
 from __future__ import annotations
 
-import os
 import threading
 
 import numpy as np
@@ -21,12 +20,9 @@ def _main_thread() -> bool:
     return threading.current_thread() is threading.main_thread()
 
 
-# -- complex symmetric PARDISO -----------------------------------------------------------------------------
-# EMerge factorizes the (complex symmetric) system matrix as "structurally symmetric" (mtype 3, LU).
-# mtype 6 (complex symmetric, LDL^T on the upper triangle) needs about half the work and memory; on a
-# 350k DoF patch model the numeric factorization took 7.3 s instead of 11.8 s with the same residual.
-# Used only when EMerge classifies the matrix as symmetric (not with periodic boundaries) and a random
-# bilinear test confirms it; any PARDISO error repeats the solve the original way.
+# -- upper triangle of a complex symmetric matrix ----------------------------------------------------------
+# The upper triangle (CSR, int32, diagonal always present) of a symmetric matrix in one parallel pass, or None
+# when the matrix is not symmetric.
 
 @njit(cache=True, nogil=True, parallel=True)
 def _upper_counts(indptr, indices):
@@ -108,48 +104,13 @@ def upper_symmetric(A):
     return U
 
 
-def _pardiso_configure(orig):
-    def _configure(self, A):
-        orig(self, A)
-        mt = getattr(self, "_hzn_mtype", None)
-        if mt is not None and self.complex:
-            self.MATRIX_TYPE = mt
-    _configure._hertzon_fast = True
-    return _configure
-
-
 def _pardiso_solve(orig):
+    """Records the memory of each PARDISO factorization (FACTOR). EMerge 3 picks LDL^T for a complex symmetric
+    matrix itself (FennisRobert/EMerge#87, PardisoInterface.symmetric)."""
     def solve(self, A, b, precon, id: int = -1):  # noqa: A002
-        from emerge._emerge.solve_interfaces.pardiso_interface import PARDISOMType
-        U = None
-        if getattr(self, "_hzn_sym", False) and os.environ.get("HERTZON_PARDISO_STRUCT") != "1":
-            try:
-                U = upper_symmetric(A)
-            except Exception:  # noqa: BLE001
-                U = None
-        mode = "sym" if U is not None else "struct"
-        if getattr(self, "_hzn_mode", mode) != mode:     # the analysis belongs to the other matrix type
-            self.fact_symb = False
-        self._hzn_mode = mode
-        if U is not None:
-            self.solver._hzn_mtype = PARDISOMType.COMP_SYM
-            try:
-                out = orig(self, U, b, precon, id)
-                _record_factor(self.solver, A.shape[0], "complex symmetric (LDLT)")
-                return out
-            except Exception as ex:  # noqa: BLE001
-                from loguru import logger
-                logger.warning(f"Symmetric PARDISO failed ({ex}); repeating with the unsymmetric factorization")
-                try:
-                    self.solver.clear_memory()
-                except Exception:  # noqa: BLE001
-                    pass
-                self.fact_symb = False
-                self._hzn_mode = "struct"
-            finally:
-                self.solver._hzn_mtype = None
         out = orig(self, A, b, precon, id)
-        _record_factor(self.solver, A.shape[0], "unsymmetric (LU)")
+        sym = bool(getattr(self.solver, "symmetric", False))
+        _record_factor(self.solver, A.shape[0], "complex symmetric (LDLT)" if sym else "unsymmetric (LU)")
         return out
     solve._hertzon_fast = True
     return solve
@@ -169,27 +130,16 @@ def _record_factor(pardiso, n: int, kind: str) -> None:
         pass
 
 
-def _set_symmetry(self, complex_symmetric: bool) -> None:
-    self._hzn_sym = bool(complex_symmetric)
-
-
 def apply() -> None:
-    """Install the faster PARDISO factorization."""
+    """Record the PARDISO factorization memory (FACTOR, for the memory check of parallel sweeps)."""
     global _DONE
-    if _DONE or os.environ.get("HERTZON_SLOW_ASSEMBLY") == "1":
+    if _DONE:
         return
     _DONE = True
-    from emerge._emerge import solver
-    if os.environ.get("HERTZON_PARDISO_STRUCT") != "1":
-        try:
-            from emerge._emerge.solve_interfaces import pardiso_interface as PI
-            if not getattr(PI.PardisoInterface._configure, "_hertzon_fast", False):
-                PI.PardisoInterface._configure = _pardiso_configure(PI.PardisoInterface._configure)
-            if not getattr(solver.SolverPardiso.solve, "_hertzon_fast", False):
-                solver.SolverPardiso.solve = _pardiso_solve(solver.SolverPardiso.solve)
-                solver.SolverPardiso.set_symmetry = _set_symmetry
-            STATS["pardiso"] = "complex symmetric"
-        except Exception:  # noqa: BLE001
-            STATS["pardiso"] = "unchanged"
-
-
+    try:
+        from emerge._emerge.solvers import SolverPardiso
+        if not getattr(SolverPardiso.solve, "_hertzon_fast", False):
+            SolverPardiso.solve = _pardiso_solve(SolverPardiso.solve)
+        STATS["pardiso"] = "EMerge (LDL^T for symmetric systems)"
+    except Exception:  # noqa: BLE001
+        STATS["pardiso"] = "unchanged"

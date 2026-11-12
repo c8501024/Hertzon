@@ -22,37 +22,25 @@ import numpy as np
 class _Factor:
     """Factorization of the centre matrix, reused for many right-hand sides (PARDISO, else SuperLU).
 
-    The FEM matrix is complex symmetric: PARDISO gets its upper triangle with mtype 6 (LDL^T, as in the
-    main solve, about half the factor memory of LU), with the LU of the full matrix as fallback. All
-    right-hand sides of a call are solved in one PARDISO call (nrhs > 1)."""
+    EMerge's PARDISO interface factorizes the complex symmetric FEM matrix as LDL^T on its upper triangle (as in
+    the main solve, about half the factor memory of LU), a matrix that is not symmetric as LU. All right-hand
+    sides of a call are solved in one PARDISO call (nrhs > 1)."""
 
     def __init__(self, A):
         self.A = A.tocsr()
         self.A.sort_indices()
-        self.M = self.A                     # the matrix PARDISO factorized (upper triangle for LDL^T)
+        self.M = self.A
         self.kind = ""
         self._p = None
         self._lu = None
         try:
-            from emerge._emerge.solve_interfaces import pardiso_interface as PI
-            from .fast_assembly import upper_symmetric
-            U = None
-            if getattr(PI.PardisoInterface._configure, "_hertzon_fast", False):   # mtype 6 is honoured
-                try:
-                    U = upper_symmetric(self.A)
-                except Exception:  # noqa: BLE001
-                    U = None
-            if U is not None:
-                p = PI.PardisoInterface()
-                p._hzn_mtype = PI.PARDISOMType.COMP_SYM
-                if p.symbolic(U) == 0 and p.numeric(U) == 0:
-                    self._p, self.M, self.kind = p, U, "LDL^T"
-                else:
-                    p.clear_memory()
-            if self._p is None:
-                p = PI.PardisoInterface()
-                if p.symbolic(self.A) == 0 and p.numeric(self.A) == 0:
-                    self._p, self.kind = p, "LU"
+            from emerge._emerge.solvers import pardiso as PI
+            p = PI.PardisoInterface()
+            # EMerge factorizes a complex symmetric matrix as LDL^T on its upper triangle, any other one as LU
+            if p.symbolic(self.A) == 0 and p.numeric(self.A) == 0:
+                self._p, self.kind = p, "LDL^T" if p.symmetric else "LU"
+            else:
+                p.clear_memory()
         except Exception:  # noqa: BLE001
             self._p = None
         if self._p is None:
@@ -81,14 +69,20 @@ class _Factor:
     def _block(self, B: np.ndarray) -> np.ndarray:
         """All columns of B in one PARDISO solve (phase 33 with nrhs columns, column major)."""
         import ctypes
-        from emerge._emerge.solve_interfaces import pardiso_interface as PI
-        p, M = self._p, self.M
-        p._configure(M)
+        from emerge._emerge.solvers import pardiso as PI
+        p = self._p
+        p._configure(self.A)
         if not p.complex:
             raise TypeError("complex matrix expected")
+        M = p._prepare_A(self.A)            # the upper triangle on the LDL^T path, else A itself
         Bf = np.asfortranarray(B)
         X = np.zeros_like(Bf, order="F")
-        ia, ja = M.indptr + 1, M.indices + 1
+        if p.IPARM[34] == 1:                # zero-based indices
+            ia = np.ascontiguousarray(M.indptr, dtype=np.int32)
+            ja = np.ascontiguousarray(M.indices, dtype=np.int32)
+        else:
+            ia = (M.indptr + 1).astype(np.int32)
+            ja = (M.indices + 1).astype(np.int32)
         err = ctypes.c_int32(0)
         p._pardiso_interface(
             p.PT.ctypes.data_as(ctypes.POINTER(PI.PT_A)), PI.c_int(1), PI.c_int(1), PI.c_int(p.MATRIX_TYPE.value),
@@ -147,7 +141,7 @@ class ReducedSolver:
 
     # solve -----------------------------------------------------------------------------------------
     def solve(self, A, b, solve_ids, direct=True, id=-1, matrix_type=None, **kw):  # noqa: A002
-        from emerge._emerge.solver import SolveReport
+        from emerge._emerge.solvers import SolveReport
         t = time.time()
         b2 = b.reshape((b.shape[0], 1)) if b.ndim == 1 else b
         if self.ids is not None and not np.array_equal(self.ids, solve_ids):
