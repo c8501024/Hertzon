@@ -11,7 +11,7 @@ Versions are those of a current installation; `pyproject.toml` lists the require
 
 | Package | Version | Licence | Used for |
 |---|---|---|---|
-| [EMerge](https://github.com/FennisRobert/EMerge) | 3.0.5 + `hertzon` branch at [`3c31cf4`](https://github.com/FennisRobert/EMerge/commit/3c31cf44a6df93ca423a6b734914fba71832667d) | GPL-2.0-or-later | FEM solver (its compiled core `emr` is part of the package); installed from wheels built from that commit (release `emerge-3c31cf4` of this repository) |
+| [EMerge](https://github.com/FennisRobert/EMerge) | 3.0.6 + `hertzon` branch at [`deb5c94`](https://github.com/FennisRobert/EMerge/commit/deb5c9449993e63b7d161f156769811ef4d9e27c) | GPL-2.0-or-later | FEM solver (its compiled core `emr` is part of the package); installed from wheels built from that commit (release `emerge-deb5c94` of this repository) |
 | [PySide6](https://pyside.org) (with shiboken6, PySide6 Essentials/Addons) | 6.12.0 | LGPL-3.0 / GPL-2.0 / GPL-3.0 | Qt user interface |
 | [PyVista](https://github.com/pyvista/pyvista) | 0.49.1 | MIT | 3D display |
 | [pyvistaqt](https://github.com/pyvista/pyvistaqt) | 0.13.1 | MIT | 3D view inside the Qt window |
