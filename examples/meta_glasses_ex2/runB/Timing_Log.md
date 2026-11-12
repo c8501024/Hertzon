@@ -52,5 +52,5 @@ included. Tokens from the Claude Code session log, summed over the time window o
 
 | Run | Start | Duration | Result |
 | --- | --- | --- | --- |
-| B3_final, no mesh seeding | 12 Nov, about 08:50 | about 3 min adaptive (7 passes) plus sweep | Upper band confirmed, 2.4 GHz disputed |
-| B3_final, 0.1 mm length seeding on the copper | 12 Nov, 09:55 | still running at the time of writing (17 passes, 1.76 M tetrahedra, 17–23 min per frequency point) | pending |
+| B3_final, no mesh seeding | 12 Nov, about 08:50 | about 3 min adaptive (7 passes) plus sweep | Wrongly converged: loop resonance near 4.2 GHz |
+| B3_final, 0.1 mm length seeding on the copper | 12 Nov, 09:55 | 10 h 40 min (17 passes, 1.76 M tetrahedra, 17–23 min per frequency point); S11 sweep stopped | 2.4 GHz 46.4 / 53.4 %, upper band 52.1 / 77.8 % (min / mean) |
