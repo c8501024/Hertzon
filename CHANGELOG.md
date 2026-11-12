@@ -6,11 +6,16 @@ the GitHub release notes.
 ## Unreleased
 
 ### Changed
-- **EMerge updated to 3.0.5** (`hertzon` branch at `3c31cf4`). Brings EMerge's fixes since the last update, among
+- **EMerge updated to 3.0.6** (`hertzon` branch at `20bd541`). Brings EMerge's fixes since the last update, among
   them thin conductors (factor 2), the PEC threshold for volumes and wave ports through copper. Wave ports with
   several modes now use EMerge's own `WavePort(number_of_modes=N)`. PARDISO solves symmetric systems as LDL^T
   without scaling and weighted matching (13 to 20 % faster, same S-parameters). Results of 10 reference models
   are unchanged.
+- **Basis order "Second Order": ports no longer lose power** (EMerge 3.0.6). On a lossless line |S11|² + |S21|²
+  was about 0.88 at a lumped or modal port, and a wave port reflected nearly everything.
+- **Basis order "Zero Order": port modes are computed with the same first-order functions as the volume**
+  (before always second order). Power is conserved; the propagation constant of the port is less accurate on a
+  coarse mesh, as in the volume.
 - **Ports with Perfect H walls (TM modes) and magnetic materials** are now treated correctly at wave ports (#407).
 
 ### Fixed
