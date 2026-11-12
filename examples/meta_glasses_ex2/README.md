@@ -44,6 +44,29 @@ Run 1 used its own feed model in the reference solver; Runs 2 to 4 use Meta's ST
 directly. Run 3 and Run 4 did not start from zero (see their reports), so their design times are not comparable with
 Runs 1 and 2.
 
+## From-scratch runs B and C (Hertzon 0.3.18)
+
+Two later runs started from zero with only the benchmark package, no reports, designs or notes of earlier runs, and the
+stricter goal of **at least 50 % total efficiency at every frequency** in both bands. Both used the model Fable 5.2
+with medium effort. Their numbers are **Hertzon numbers**; they are not yet confirmed in the reference solver and are
+not directly comparable with the reference column above.
+
+| Run | Prompt | 2.4 GHz min / mean | 5.17–7.125 GHz min / mean | Equal weight | Design time | Solves | Reference solver |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| [Run B](runB/README.md), `B3_final` | From scratch, beat Run 4, then at least 50 % everywhere | 47.6 / 58.9 % | 51.7 / 79.6 % | 69.3 % | 8 h 15 min to `Final`, then 88 min for B1–B3 | 49 + 9 | First run disputes 2.4 GHz (about 4 %); refined run pending |
+| [Run C](runC/README.md), `T_opp` | Same task as Run B, from scratch | 62.0 / 72.0 % | 60.8 / 75.4 % | 73.7 % | about 4 h | 26 | Not run yet |
+| Run 4, A29, for comparison | | 60.0 / 67.3 % | about 47 / 69.0 % | 68.2 % | | | 68.7 / 71.7 % (means) |
+
+![Runs 4, B and C in Hertzon](runC/results/Ex2_runs_4_B_C_hertzon.png)
+
+- **Run B** found a loop with a finger capacitor for 2.4 GHz and an open arm for 5–7 GHz. In Hertzon its upper band
+  holds 51.7 % everywhere, the lower 2.4 GHz band edge does not (47.6 %). A first reference-solver run moves the loop
+  resonance to about 4.2 GHz; a refined run with mesh seeding on the 0.1 mm capacitor gaps will decide which solver is
+  right there.
+- **Run C** feeds and shorts the antenna near the middle of the FPC and runs two arms in opposite directions. The
+  low-band arm's third harmonic and the high-band arm give two resonances in the upper band, so its weakest point in
+  Hertzon is 60.8 %.
+
 ![Total efficiency of Runs 2, 3 and 4 in the reference solver](run4/results/Ex2_runs_reference.png)
 
 ![Final antennas of Runs 2, 3 and 4 on the FPC, to the same scale](run4/results/Ex2_layouts_run2_run4.png)
