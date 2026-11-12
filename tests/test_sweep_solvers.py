@@ -75,7 +75,7 @@ def test_fast_sweep_factor_symmetric_block_solve():
     try:
         from hertzon.solver import emerge_patches
         emerge_patches.apply()
-        from emerge._emerge.solve_interfaces.pardiso_interface import PardisoInterface
+        from emerge._emerge.solvers.pardiso import PardisoInterface
         PardisoInterface()
     except Exception:  # noqa: BLE001
         pytest.skip("PARDISO not available")

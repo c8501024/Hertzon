@@ -2,7 +2,7 @@
 
 SPARTA (https://github.com/FennisRobert/SPARTA, AGPL-3.0) factors the FEM matrix on the GPU (Metal on
 Apple silicon, Vulkan on AMD and NVIDIA under Windows and Linux) in single precision, or on the CPU in
-double precision. EMerge has it as EMSolver.SPARTA with the modes 'GPU', 'CPU' and 'HYBRID'
+double precision. EMerge has it as em.solvers.Sparta with the modes 'GPU', 'CPU' and 'HYBRID'
 (SolverSparta.set_options); Hertzon offers 'GPU' and 'CPU' as "SPARTA (GPU)" and "SPARTA (CPU)".
 
 It is not one of Hertzon's own packages: Tools > Options installs it on request from the wheels of a

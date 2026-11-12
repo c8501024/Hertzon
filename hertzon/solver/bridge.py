@@ -877,6 +877,8 @@ class Bridge:
             info(f"Phase delays at {f0 / 1e9:g} GHz = scan angles theta {theta:.4g} deg, phi {phi:.4g} deg "
                  "(kept for all frequencies)")
         cell = PER.make_cell(pairs)
+        # the cell applies its scan angles again to its boundaries and Floquet ports whenever a port is added
+        cell.scan_theta, cell.scan_phi = math.radians(theta), math.radians(phi)
         self.m.set_periodic_cell(cell)
         for bc in cell.generate_bcs():
             bc.ux, bc.uy, bc.uz = (float(x) for x in u)
@@ -1047,14 +1049,12 @@ class Bridge:
                         # and those of a face inside metal would have nothing else (singular matrix)
                         sel = em.FaceSelection(self.faces_off_metal(tags))
                         MULTI_TERMINAL_PORTS = True
-                    port = mw.bc.MultiModeWavePort(sel, num, number_of_modes=nmodes,
-                                                   modetype=None if mt == "Auto" else mt,
-                                                   impedance_definition=zdef)
+                    port = mw.bc.WavePort(sel, num, number_of_modes=nmodes,
+                                          modetype=None if mt == "Auto" else mt,
+                                          impedance_definition=zdef)
                 else:
                     port = mw.bc.ModalPort(sel, num, modetype=None if mt == "Auto" else mt,
                                            number_of_modes=nmodes,
-                                           # several modes: solved once per solve (see fresh_port_modes)
-                                           mixed_materials=nmodes == 1,
                                            impedance_definition=zdef)
             elif e.kind == "Lumped Port":
                 w, h, d = self.port_geometry(e, tags)
@@ -1216,7 +1216,9 @@ class Bridge:
 
     def floquet_port(self, e: Assignment, sel, tags: list[int], num: int):
         """Floquet port of the periodic cell: the plane waves TE00 (s polarization) and, with two modes, TM00
-        (p polarization) in the scan direction of the cell. The port face has to be normal to z."""
+        (p polarization) in the scan direction of the cell; more modes add the grating modes (m, n), TE and TM,
+        ordered by their cutoff at the highest frequency. Every mode is absorbed with its own propagation
+        constant, also at oblique incidence. The port face has to be normal to z."""
         import gmsh
         if self.cell is None:
             raise RuntimeError(f"Floquet port '{e.name}' needs a periodic cell: assign Primary / Secondary "
@@ -1226,23 +1228,9 @@ class Bridge:
             raise RuntimeError(f"Floquet port '{e.name}': the port face has to be normal to the z axis (the scan "
                                "angles are measured from z)")
         p, ev = e.props, self.ev
-        n = ev.integer(p.get("NumberOfModes", "2") or "2")
-        if n > 2:
-            warn(f"Floquet port '{e.name}': EMerge has the two zeroth order modes TE00 and TM00 only; "
-                 f"{n - 2} higher mode(s) left out")
+        n = max(1, ev.integer(p.get("NumberOfModes", "2") or "2"))
         er = ev.value(p.get("Permittivity", "1") or "1")
-        if abs(er - 1) > 1e-9:
-            warn(f"Floquet port '{e.name}': EMerge's Floquet port takes the propagation constant of free space; "
-                 f"the medium permittivity {er:g} only scales the port H field. Put the port in air or vacuum")
-        port = self.m.mw.bc.FloquetPort(sel, num, er=er)
-        port.area = float(sum(gmsh.model.occ.getMass(2, t) for t in tags))
-        port.scan_theta, port.scan_phi = (math.radians(a) for a in self.scan)
-        if n >= 2:
-            port.port_modes = {1: (1 + 0j, 0j), 2: (0j, 1 + 0j)}
-            if self.scan[0] > 1e-6:
-                warn(f"Floquet port '{e.name}': at oblique incidence EMerge absorbs both modes with the "
-                     "propagation constant of TE00; the TM00 results are only exact at normal incidence")
-        return port
+        return self.m.mw.bc.floquet_port(sel, num, number_of_modes=n, er=er)
 
     def back_port_with_void(self, port: str, tags: list[int]) -> None:
         """A wave port on a face of a PEC solid (e.g. the bottom of a coax bore in a metal body) has the
@@ -1443,21 +1431,20 @@ class Bridge:
             self.set_sparta(name)
             return
         try:
-            self.m.set_solver({"PARDISO": em.EMSolver.PARDISO, "MUMPS": em.EMSolver.MUMPS,
-                               "UMFPACK": em.EMSolver.UMFPACK, "SuperLU": em.EMSolver.SUPERLU}[name])
+            self.m.set_solver({"PARDISO": em.solvers.Pardiso, "MUMPS": em.solvers.MUMPS,
+                               "UMFPACK": em.solvers.UMFPACK, "SuperLU": em.solvers.SuperLU}[name])
         except Exception as ex:  # noqa: BLE001
             warn(f"Solver {name} not available ({ex}); using automatic choice")
 
     def set_sparta(self, name: str) -> None:
         """SPARTA on the GPU or the CPU (sparta_setup). Not installed: EMerge's automatic choice."""
         em = self.em
-        from emerge._emerge import solver as S
-        if not S._SPARTA_AVAILABLE:
+        if not em.solvers.Sparta.available:
             warn(f"Solver {name}: SPARTA is not installed (Tools > Options > Install SPARTA); "
                  "using automatic choice")
             return
         try:
-            solver = self.m.set_solver(em.EMSolver.SPARTA)
+            solver = self.m.set_solver(em.solvers.Sparta)
             # a periodic cell's matrix is not symmetric: LU instead of LDL^T
             mode = sparta_setup.configure(solver, sparta_setup.MODES[name], symmetric=self.cell is None)
         except Exception as ex:  # noqa: BLE001
@@ -3664,6 +3651,20 @@ def fresh_port_modes(m) -> None:
         pass
 
 
+def _run_sweep(m, kw: dict):
+    """EMerge's frequency sweep with Hertzon's options: parallel / n_workers (several frequencies at a time,
+    run_sweep_distributed), frequency_groups and _reset_solvers (keep the factorization between calls). EMerge 3
+    splits run_sweep (one frequency at a time) and run_sweep_distributed and only takes _reset_solvers in the
+    driver behind both; older versions take everything in run_sweep."""
+    drv = getattr(m.mw, "_run_sweep", None)
+    if drv is None:
+        return m.mw.run_sweep(**kw)
+    kw = dict(kw)
+    par = bool(kw.pop("parallel", False))
+    nw = int(kw.pop("n_workers", 2) or 2)
+    return drv(parallel=par, n_workers=nw, **kw)
+
+
 def _solve_at(m, freqs, **kw):
     from . import mt_pardiso
     fresh_port_modes(m)
@@ -3701,7 +3702,7 @@ def _solve_at(m, freqs, **kw):
     if kw.get("parallel") and routine is not None and getattr(routine, "forced_solver", None):
         forced, routine.forced_solver = routine.forced_solver, []
     try:
-        data = m.mw.run_sweep(**kw)
+        data = _run_sweep(m, kw)
     except Exception as e:  # noqa: BLE001
         if not kw.get("parallel"):
             raise
@@ -3710,7 +3711,7 @@ def _solve_at(m, freqs, **kw):
             n0 = int(m.mw.data.scalar.n)
         except Exception:  # noqa: BLE001
             pass
-        data = m.mw.run_sweep(**dict(kw, parallel=False))
+        data = _run_sweep(m, dict(kw, parallel=False))
     finally:
         mt_pardiso.WORKER_THREADS = 0
         if forced is not None:
@@ -3752,13 +3753,13 @@ def _mode_constants(m, freq: float, beta: np.ndarray, z: np.ndarray) -> tuple[np
     """EMerge records the propagation constant and impedance of a port's first mode for all its S-matrix
     rows; a wave port with several modes (each absorbed with its own propagation constant) gets those of
     each mode here, in the order of the S-matrix rows."""
-    from emerge._emerge.physics.microwave.bcs.port_bcs import MultiModeWavePort
+    from emerge._emerge.physics.microwave.bcs.port_bcs import WavePort
     k0 = 2 * np.pi * float(freq) / C0
     for i, (port, _, mode_nr) in enumerate(m.mw.bc.iter_port_modes()):
-        if i >= len(beta) or not isinstance(port, MultiModeWavePort):
+        if i >= len(beta) or not isinstance(port, WavePort):
             continue
         try:
-            beta[i] = port.get_beta(k0, mode_nr)
+            beta[i] = port.mode_beta(k0, mode_nr)
             md = port.get_modes(k0)[mode_nr - 1]
             if md.Z0 is not None and np.isfinite(md.Z0):
                 z[i] = md.Z0
@@ -3794,7 +3795,7 @@ def wave_port_cutoffs(m, f1: float, f2: float) -> list[tuple[float, list[str]]]:
     constant the solver uses for each (bisection on propagating |Re beta| > |Im beta| against decaying),
     with the port modes cut off there; sorted, cutoffs closer than 1 ppm merged."""
     try:
-        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort, MultiModeWavePort
+        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
         ports = [bc for bc in m.mw.bc.oftype(ModalPort) if getattr(bc, "available_modes", None)]
     except Exception:  # noqa: BLE001
         return []
@@ -3804,7 +3805,7 @@ def wave_port_cutoffs(m, f1: float, f2: float) -> list[tuple[float, list[str]]]:
         for nr in nrs:
             def beta(f, bc=bc, nr=nr):
                 k0 = 2 * np.pi * f / C0
-                return complex(bc.get_beta(k0, nr) if isinstance(bc, MultiModeWavePort) else bc.get_beta(k0))
+                return complex(bc.mode_beta(k0, nr))
 
             def propagates(f):
                 b = beta(f)

@@ -133,8 +133,8 @@ def test_pardiso_not_transposed():
     # the pinned EMerge solves A x = b for the non-symmetric CSC matrix of a periodic cell, so Hertzon keeps
     # PARDISO for periodic cells instead of falling back to SuperLU
     pytest.importorskip("emerge")
-    from emerge._emerge import solver as S
-    if not S._PARDISO_AVAILABLE:
+    from emerge._emerge.solvers import SolverPardiso
+    if not SolverPardiso.available:
         pytest.skip("PARDISO not available")
     assert not PER.pardiso_transposes()
 

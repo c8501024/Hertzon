@@ -95,7 +95,7 @@ def pardiso_transposes() -> bool:
     seen = dict(FACTOR)                 # the probe is no factorization of the model (memory statistics)
     try:
         from scipy.sparse import csc_matrix
-        from emerge._emerge.solver import SolverPardiso
+        from emerge._emerge.solvers import SolverPardiso
         A = csc_matrix(np.array([[4, 1, 0], [3, 5, 2], [0, 1, 6]], complex))   # structurally symmetric
         b = np.array([[1], [1], [1]], complex)
         s = SolverPardiso("")
