@@ -3790,6 +3790,20 @@ def _sparam_model():
     return SparamModel
 
 
+def mode_beta_at(bc, k0: float, nr: int = 1) -> complex:
+    """Propagation constant of port mode nr at k0, extrapolated from the nearest frequency where the port modes
+    were solved: beta^2 = beta0^2 + er ur (k0^2 - k00^2) (exact for a uniformly filled port, the mean filling of
+    the port face otherwise), beta proportional to k0 for TEM modes, beta = -j alpha below cutoff. EMerge's
+    WavePort returns the beta of the nearest solved frequency unchanged, which hides a cutoff between solved
+    frequencies."""
+    modes = bc.get_modes(k0)
+    md = modes[min(max(int(nr), 1), len(modes)) - 1]
+    if getattr(md, "modetype", None) == "TEM":
+        return complex(md.beta / md.k0 * k0)
+    n2 = getattr(bc, "_ermur", None) or getattr(md, "fill_n2", None) or 1.0
+    return complex(decaying_root(md.beta ** 2 + n2 * (k0 ** 2 - md.k0 ** 2)))
+
+
 def wave_port_cutoffs(m, f1: float, f2: float) -> list[tuple[float, list[str]]]:
     """Cutoff frequencies strictly between f1 and f2 of the modes of the wave ports, from the propagation
     constant the solver uses for each (bisection on propagating |Re beta| > |Im beta| against decaying),
@@ -3804,8 +3818,7 @@ def wave_port_cutoffs(m, f1: float, f2: float) -> list[tuple[float, list[str]]]:
         nrs = sorted(getattr(bc, "port_modes", None) or [1])
         for nr in nrs:
             def beta(f, bc=bc, nr=nr):
-                k0 = 2 * np.pi * f / C0
-                return complex(bc.mode_beta(k0, nr))
+                return mode_beta_at(bc, 2 * np.pi * f / C0, nr)
 
             def propagates(f):
                 b = beta(f)
