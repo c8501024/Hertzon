@@ -13,7 +13,7 @@ import numpy as np
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QComboBox, QPushButton, QSlider,
                                QSpinBox, QListWidget, QListWidgetItem, QGroupBox, QWidget, QMessageBox,
-                               QDoubleSpinBox, QAbstractItemView, QScrollArea)
+                               QDoubleSpinBox, QAbstractItemView, QScrollArea, QFrame)
 
 from ..solver.optimetrics import split_value, fmt_value
 
@@ -97,7 +97,17 @@ class TuningPanel(QWidget):
         self.state = tuning_state(win.doc)
         self.model = None
         self.rows: list[dict] = []
-        lay = QVBoxLayout(self)
+        # everything sits in a scroll area: the dock then has almost no minimum height, so the docks below it
+        # (Message Manager, Progress) stay resizable on short screens; a scroll bar appears only when needed
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        page_scroll = QScrollArea()
+        page_scroll.setWidgetResizable(True)
+        page_scroll.setFrameShape(QFrame.NoFrame)
+        page = QWidget()
+        page_scroll.setWidget(page)
+        outer.addWidget(page_scroll)
+        lay = QVBoxLayout(page)
 
         top = QGroupBox("Tuning model")
         g = QGridLayout(top)
@@ -164,6 +174,10 @@ class TuningPanel(QWidget):
         self.b_apply.clicked.connect(self.apply)
         win.solver.finished.connect(self._solver_finished)
         self.select(setup, sweep)
+        # keep the width the controls need (only the height scrolls)
+        page_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        page_scroll.setMinimumWidth(page.minimumSizeHint().width()
+                                    + page_scroll.verticalScrollBar().sizeHint().width())
 
     # ---- model ---------------------------------------------------------------------------------
     def select(self, setup: str | None, sweep: str | None) -> None:
