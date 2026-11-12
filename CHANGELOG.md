@@ -3,6 +3,15 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.20 (2026-11-12)
+
+### Added
+- **Monostatic RCS report: Families.** With Families set to a parametric setup, the Monostatic RCS report (plot and
+  table) draws the RCS over the swept variable when every variation is solved at one frequency, for example the
+  RCS over the radius of a sphere; other swept variables give one curve each. With several frequencies or over the
+  adaptive passes it draws one curve per variation. Export, markers and the Values... filter work as in the other
+  family reports.
+
 ## 0.3.19 (2026-11-11)
 
 ### Added
