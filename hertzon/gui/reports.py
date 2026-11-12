@@ -261,24 +261,29 @@ def ff_frequencies(ff: dict) -> list[tuple[int, float]]:
     return sorted(((k, float(ff[f"freq_{k}"][0])) for k in ks), key=lambda x: x[1])
 
 
+def _rcs_solutions(st, setup: str) -> list[str]:
+    """The monostatic RCS solutions of one setup's results: far fields of an incident wave and the passes."""
+    labels = sorted(p.stem[len("huygens_"):] for p in st.folder.glob("huygens_*.npz")) \
+        if st.folder.exists() else []
+    if "LastAdaptive" in labels:
+        labels.remove("LastAdaptive")
+        labels.insert(0, "LastAdaptive")
+    out = [f"{setup} : {x}" for x in labels]
+    rows = [r for v in (st.read_json(RCS_PASSES, {}) or {}).values() for r in v]
+    if rows:
+        fa = rows[-1].get("freq") or [0.0]
+        out += [f"{setup} : AdaptivePasses"] if len(fa) == 1 else \
+            [f"{setup} : AdaptivePasses @ {f / 1e9:.6g}GHz" for f in fa]
+    return out
+
+
 def rcs_solution_list(doc) -> list[str]:
     """Solutions with far fields of an incident wave (monostatic RCS over frequency) and the adaptive passes."""
     out = []
     if not doc.project.path:
         return out
     for s in doc.design.setups:
-        st = ResultStore(result_dir(doc, s.name))
-        labels = sorted(p.stem[len("huygens_"):] for p in st.folder.glob("huygens_*.npz")) \
-            if st.folder.exists() else []
-        if "LastAdaptive" in labels:
-            labels.remove("LastAdaptive")
-            labels.insert(0, "LastAdaptive")
-        out += [f"{s.name} : {x}" for x in labels]
-        rows = [r for v in (st.read_json(RCS_PASSES, {}) or {}).values() for r in v]
-        if rows:
-            fa = rows[-1].get("freq") or [0.0]
-            out += [f"{s.name} : AdaptivePasses"] if len(fa) == 1 else \
-                [f"{s.name} : AdaptivePasses @ {f / 1e9:.6g}GHz" for f in fa]
+        out += _rcs_solutions(ResultStore(result_dir(doc, s.name)), s.name)
     return out
 
 
@@ -310,6 +315,12 @@ def report_solution_list(doc, kind: str) -> list[str]:
     if kind in ("Radiation Pattern", "3D Polar Plot"):
         return ff_solution_list(doc)
     return solution_list(doc)
+
+
+def _number_unit(text: str) -> tuple[float | None, str]:
+    """'50mm' -> (50.0, 'mm'), '0.1' -> (0.1, ''); (None, '') for an expression."""
+    m = re.fullmatch(r"\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*([A-Za-z]*)\s*", str(text))
+    return (float(m.group(1)), m.group(2)) if m else (None, "")
 
 
 def load_rcs(st, label: str, sphere: str, design) -> dict:
@@ -353,7 +364,7 @@ def load_antenna(doc, solution: str, sphere: str, root=None) -> dict:
 
 
 FAMILY_KINDS = ("Rectangular", "Smith Chart", "Data Table", "Antenna Parameters", "Antenna Parameters Table",
-                "Radiation Pattern", "3D Polar Plot")
+                "Radiation Pattern", "3D Polar Plot", "Monostatic RCS", "Monostatic RCS Table")
 FF_KINDS = ("Radiation Pattern", "3D Polar Plot")
 # complex quantities: a plot needs a function (mag, dB, re, im, ...), a bare one would silently be its magnitude
 COMPLEX_CATEGORIES = ("S Parameter", "Y Parameter", "Z Parameter", "Gamma", "Port Zo", "Propagation Constant")
@@ -383,6 +394,8 @@ def family_solution_list(doc, name: str, kind: str = "Rectangular") -> list[str]
             st = ResultStore(folder / _safe(s.name))
             if kind in ANTENNA_KINDS:
                 sols = _antenna_solutions(st, s.name)
+            elif kind.startswith("Monostatic RCS"):
+                sols = _rcs_solutions(st, s.name)
             elif kind in FF_KINDS:
                 sols = _ff_solutions(st, s.name)
             else:
@@ -678,6 +691,8 @@ class ReportWindow(QWidget):
             self.cat.addItems(["Monostatic RCS"])
             self.qty.addItems(RCS_QUANTITIES)
             self.func.addItems(["dBsm", "m^2"])
+            if self._family():
+                self._fill_solutions()
         elif report.kind in ANTENNA_KINDS:
             self.sol.blockSignals(True)
             self.sol.clear()
@@ -1213,7 +1228,8 @@ class ReportWindow(QWidget):
         if fam:
             sols = family_solution_list(self.doc, fam, kind)
         else:
-            sols = report_solution_list(self.doc, kind) if kind in ANTENNA_KINDS + FF_KINDS else solution_list(self.doc)
+            sols = report_solution_list(self.doc, kind) if kind in ANTENNA_KINDS + FF_KINDS \
+                or kind.startswith("Monostatic RCS") else solution_list(self.doc)
         cur = self.report.solution
         self.sol.blockSignals(True)
         self.sol.clear()
@@ -1260,7 +1276,13 @@ class ReportWindow(QWidget):
                 from .tuning import TUNED, tuning_state
                 return [("", None), (tuning_state(self.doc).label(), TUNED)]
             return [("", None)]
-        from ..solver.parametric import solved_variations, variation_label
+        from ..solver.parametric import variation_label
+        return [("  " + variation_label(texts), folder) for texts, folder in self._family_rows()]
+
+    def _family_rows(self) -> list[tuple[dict, object]]:
+        """(variable texts, folder) of the solved variations of the families shown (Values... filter applied)."""
+        from ..solver.parametric import solved_variations
+        fam = self._family()
         try:
             keep = json.loads(self.report.props.get("family_values", "") or "{}")
         except ValueError:
@@ -1268,7 +1290,7 @@ class ReportWindow(QWidget):
         out = []
         for texts, folder in solved_variations(self.doc.project.path, self.doc.design_name, fam):
             if all(texts.get(k) in v for k, v in keep.items() if k in texts and v):
-                out.append(("  " + variation_label(texts), folder))
+                out.append((texts, folder))
         if not out:
             raise RuntimeError(f"{fam}: no solved variation" + (" with the chosen values" if keep else
                                                                  " yet (analyze the parametric setup)"))
@@ -1756,9 +1778,9 @@ class ReportWindow(QWidget):
                     curves.append((with_unit(self.doc, tr) + tuning_state(self.doc).label(), np.degrees(ang), y))
             return (p.get("xlabel") if self._ff_rect() else None) or f"{other} [deg]", curves
         if kind.startswith("Monostatic RCS"):
-            f, xl, _, cols, _ = self._rcs_series()
+            xl, _, cols, _ = self._rcs_curves()
             return ((p.get("xlabel") if kind != "Monostatic RCS Table" else None) or xl,
-                    [(tr + (" [dBsm]" if tr.startswith(("dB10", "dBsm")) else " [m²]"), f, y) for tr, y in cols])
+                    [(tr + (" [dBsm]" if tr.startswith(("dB10", "dBsm")) else " [m²]"), f, y) for tr, f, y in cols])
         if kind == EIGEN_KIND:
             n, cols = self._eigen_series()
             return "Mode", [(h, n.astype(float), y) for h, y in cols]
@@ -1847,11 +1869,11 @@ class ReportWindow(QWidget):
             ang, y = self._ff_cut(self._ff(root), tr)
             return np.degrees(ang), y
         if self.report.kind.startswith("Monostatic RCS"):
-            f, _, _, cols, _ = self._rcs_series()
-            y = dict(cols).get(tr)
-            if y is None:
+            _, _, cols, _ = self._rcs_curves()
+            hit = next(((f, y) for name, f, y in cols if name == tr or name.startswith(tr + "  ")), None)
+            if hit is None:
                 raise RuntimeError(f"No data for '{tr}'")
-            return f, y
+            return hit
         expr, sol = split_trace(tr)
         from .calc_bridge import field_names_in
         if field_names_in(self.doc.design, expr):
@@ -2208,6 +2230,82 @@ class ReportWindow(QWidget):
             cols.append((tr, 10 * np.log10(np.maximum(v, 1e-300)) if func in ("dB10", "dBsm") else v))
         return f, ("Pass" if passes else "Freq [GHz]"), passes, cols, d
 
+    def _rcs_curves(self):
+        """(x label, over passes, [(label, x, y)], note) of the monostatic RCS report. Nominal: the traces over
+        frequency (or the passes). Families: with one frequency per variation the traces over the swept
+        variable (one curve per value of the other swept variables), else one curve per variation."""
+        if not self._family():
+            f, xl, passes, cols, d = self._rcs_series()
+            note = (f"{len(f)} adaptive passes at {d['adaptive_freq'] / 1e9:.6g} GHz" if passes
+                    else f"{len(f)} frequencies")
+            return xl, passes, [(tr, f, y) for tr, y in cols], note
+        from ..solver.parametric import variation_label
+        from ..solver.results import _safe
+        cache = self.__dict__.setdefault("_cache", {})
+        setup, _, label = [x.strip() for x in self.sol.currentText().partition(":")]
+        rows = []
+        for texts, folder in self._family_rows():
+            key = ("rcs", str(folder), self.sol.currentText())
+            if key not in cache:
+                try:
+                    cache[key] = load_rcs(ResultStore(folder / _safe(setup)), label, self._sphere_name(),
+                                          self.doc.design)
+                except Exception:  # noqa: BLE001  (variation without this solution)
+                    cache[key] = None
+            if cache[key] is not None:
+                rows.append((texts, cache[key]))
+        if not rows:
+            raise RuntimeError(f"No monostatic RCS for '{self.sol.currentText()}' in the variations of "
+                               f"'{self._family()}'")
+        passes = rows[0][1].get("xaxis") == "Pass"
+
+        def values(d):
+            out = []
+            for tr in self.report.traces:
+                m = re.match(r"(\w+)\((\w+)\)", tr)
+                func, name = m.groups() if m else ("", tr)
+                if name in d:
+                    v = np.asarray(d[name], float)
+                    out.append((tr, 10 * np.log10(np.maximum(v, 1e-300)) if func in ("dB10", "dBsm") else v))
+            return out
+
+        swept = [k for k in rows[0][0] if len({r[0].get(k) for r in rows}) > 1]
+        if not passes and swept and all(len(d["freq"]) == 1 for _, d in rows):
+            # one value per variation: plot over the (first) swept variable
+            var = swept[0]
+            nums = [_number_unit(r[0][var]) for r in rows]
+            units = {u for _, u in nums}
+            if None in [n for n, _ in nums] or len(units) > 1:
+                ev = self.doc.evaluator()
+                nums = [(ev.value(r[0][var]), "") for r in rows]
+                units = {""}
+            unit = units.pop()
+            groups: dict[str, list] = {}
+            for (texts, d), (x, _) in zip(rows, nums):
+                rest = variation_label({k: v for k, v in texts.items() if k != var and k in swept})
+                groups.setdefault(rest, []).append((x, d))
+            curves = []
+            for tr in self.report.traces:
+                for rest, pts in groups.items():
+                    pts = sorted(pts, key=lambda p: p[0])
+                    ys = [dict(values(d)).get(tr) for _, d in pts]
+                    if any(y is None for y in ys):
+                        continue
+                    curves.append((tr + ("  " + rest if rest else ""), np.array([p[0] for p in pts]),
+                                   np.array([float(y[0]) for y in ys])))
+            f0 = float(rows[0][1]["freq"][0])
+            return (f"{var} [{unit}]" if unit else var), False, curves, \
+                f"{len(rows)} variations of {self._family()} at {f0 / 1e9:.6g} GHz"
+        curves = []
+        for tr in self.report.traces:
+            for texts, d in rows:
+                y = dict(values(d)).get(tr)
+                if y is not None:
+                    x = d["freq"] if passes else d["freq"] / 1e9
+                    curves.append((tr + "  " + variation_label(texts), np.asarray(x, float), y))
+        return ("Pass" if passes else "Freq [GHz]"), passes, curves, \
+            f"{len(rows)} variations of {self._family()}"
+
     def _eigen_series(self) -> tuple[np.ndarray, list[tuple[str, np.ndarray]]]:
         """Mode numbers and the columns of the traces (Freq in GHz, Q; a lossless mode has Q = inf)."""
         modes = eigen_table(self.doc, self.sol.currentText())
@@ -2229,23 +2327,27 @@ class ReportWindow(QWidget):
         self.info.setText(f"{len(n)} eigenmodes of {self.sol.currentText()}")
 
     def _draw_rcs(self) -> None:
-        f, xl, passes, cols, d = self._rcs_series()
+        xl, passes, cols, note = self._rcs_curves()
+        over_var = bool(self._family()) and not passes and not xl.startswith("Freq")
         if self.report.kind == "Monostatic RCS Table":
+            xs = sorted({float(x) for _, f, _ in cols for x in f})
             self.table.setColumnCount(len(cols) + 1)
             self.table.setHorizontalHeaderLabels([xl] + [c[0] for c in cols])
-            self.table.setRowCount(len(f))
-            for r in range(len(f)):
-                self.table.setItem(r, 0, QTableWidgetItem(f"{int(f[r])}" if passes else f"{f[r]:.6g}"))
-                for c, (_, y) in enumerate(cols):
-                    self.table.setItem(r, c + 1, QTableWidgetItem(f"{y[r]:.6g}"))
+            self.table.setRowCount(len(xs))
+            for r, x in enumerate(xs):
+                self.table.setItem(r, 0, QTableWidgetItem(f"{int(x)}" if passes else f"{x:.6g}"))
+                for c, (_, f, y) in enumerate(cols):
+                    k = np.flatnonzero(np.isclose(f, x))
+                    self.table.setItem(r, c + 1, QTableWidgetItem(f"{y[k[0]]:.6g}" if k.size else ""))
+            self.info.setText(f"Monostatic RCS: {note}")
             return
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         curves = []
-        for tr, y in cols:
-            line, = ax.plot(f, y, marker="o" if len(f) < 3 or passes else None, label=tr)
+        for tr, f, y in cols:
+            line, = ax.plot(f, y, marker="o" if len(f) < 3 or passes or over_var else None, label=tr)
             curves.append((tr, f, y, ax, line.get_color()))
-        self._draw_markers(ax, curves, "" if passes else " GHz", xl)
+        self._draw_markers(ax, curves, "" if passes or over_var else " GHz", xl)
         ax.set_xlabel(xl)
         if passes:
             from matplotlib.ticker import MaxNLocator
@@ -2260,9 +2362,8 @@ class ReportWindow(QWidget):
         ax.legend(loc="best", fontsize=8)
         ax.set_title(f"{self.report.name}   ({self.sol.currentText()})", fontsize=10)
         self.canvas.draw_idle()
-        self.info.setText(f"Monostatic RCS: backscatter towards the incident wave source, " +
-                          (f"{len(f)} adaptive passes at {d['adaptive_freq'] / 1e9:.6g} GHz" if passes
-                           else f"{len(f)} frequencies") + ". Double-click: marker. Right-click: markers, axes.")
+        self.info.setText(f"Monostatic RCS: backscatter towards the incident wave source, {note}. "
+                          "Double-click: marker. Right-click: markers, axes.")
 
     def _near_series(self):
         """(distance, x label, [(trace, values)], near field) of the Near Field Line traces."""
