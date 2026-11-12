@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.21 (2026-11-12)
 
 ### Changed
 - **EMerge updated to 3.0.6** (`hertzon` branch at `deb5c94`). Brings EMerge's fixes since the last update, among
@@ -20,6 +20,8 @@ the GitHub release notes.
 ### Fixed
 - **Adaptive meshing no longer runs out of memory in the frequency sweep after the last pass.** The memory check
   before a further pass now also reserves the memory of the sweep on that mesh (about 1.25 times the pass).
+- **Message Manager and Progress stay resizable while Derivative Tuning is open.** The tuning panel scrolls instead
+  of reserving about 430 px of height, so on short windows it no longer pins the docks below it.
 
 ## 0.3.20 (2026-11-12)
 
