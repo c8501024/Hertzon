@@ -21,7 +21,7 @@ No matching network, no lumped components, one FPC copper layer, one feed via an
 | `T_opp`, 144k tetrahedra (10 passes, converged) | 59.8 / 71.9 % | 60.2 / 75.1 % | 73.5 % |
 | `T_thick`: 18 µm thick copper instead of sheets (143k) | 59.1 / 72.2 % | 60.8 / 75.1 % | 73.7 % |
 | Run 4, A29 (yardstick, Hertzon 0.3.13) | 60.0 / 67.3 % | about 47 / 69.0 % | 68.2 % |
-| Run B, `B3_final` (Hertzon 0.3.18, 344k) | 47.6 / 58.9 % | 51.7 / 79.6 % | 69.3 % |
+| Run B, `B3_final` (Hertzon 0.3.18, 344k) | 47.6 / 57.3 % | 51.7 / 77.7 % | 67.5 % |
 
 **50 % target met at all 26 points in Hertzon.** Run C lies above Run 4 in both bands in Hertzon (+4.7 and +6.4
 points) and its weakest point is 60.8 % (6.27 GHz). Power balance within 1.2 % of the incident power at all points.

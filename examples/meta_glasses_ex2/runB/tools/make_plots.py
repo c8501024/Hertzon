@@ -1,4 +1,4 @@
-"""Layout of B3_final in mm and B3_final in Hertzon against the first (preliminary) reference-solver run.
+"""Layouts in mm and B3_final in Hertzon against the two reference-solver runs.
 
 python make_plots.py   (writes into ../results)
 """
@@ -53,8 +53,8 @@ def hertzon_table(fn):
     return np.array(rows)
 
 
-def reference_table():
-    with open(os.path.join(res, "reference_prelim", "Efficiency.csv")) as f:
+def reference_table(run):
+    with open(os.path.join(res, run, "Efficiency.csv")) as f:
         rows = [(float(r[0]), 100 * float(r[1]) / float(r[3])) for r in list(csv.reader(f))[1:]]
     return np.array(rows)
 
@@ -62,19 +62,22 @@ def reference_table():
 layout("B3_final", "Run B, design B3_final: layout on the FPC (top view)", "RunB_B3_final_layout_mm.png")
 layout("Final", "Run B, design Final (40 % target): layout on the FPC (top view)", "RunB_Final_layout_mm.png")
 
-h, rf = hertzon_table("B3_final_efficiency.txt"), reference_table()
-fig, axs = plt.subplots(1, 2, figsize=(12, 4.6), gridspec_kw={"width_ratios": [1, 2.6]}, sharey=True)
+h = hertzon_table("B3_final_efficiency.txt")
+refs = [(reference_table("reference_refined"), "Reference solver, 0.1 mm mesh seeding on the copper (1.76 M tetrahedra)", "#c0392b", "--s"),
+        (reference_table("reference_first_run"), "Reference solver, first run without mesh seeding (wrong, see README)", "#bbbbbb", ":^")]
+fig, axs = plt.subplots(1, 2, figsize=(12, 4.8), gridspec_kw={"width_ratios": [1, 2.6]}, sharey=True)
 for ax, (lo, hi) in zip(axs, ((2.37, 2.51), (5.1, 7.2))):
-    m, n = (h[:, 0] > lo) & (h[:, 0] < hi), (rf[:, 0] > lo) & (rf[:, 0] < hi)
+    m = (h[:, 0] > lo) & (h[:, 0] < hi)
     ax.plot(h[m, 0], h[m, 3], "-o", color="#1f6fd1", ms=3.5, lw=2, label="Hertzon 0.3.18 (344k tetrahedra)")
-    ax.plot(rf[n, 0], rf[n, 1], "--s", color="#c0392b", ms=3.5, lw=1.5,
-            label="Reference solver, first run (no mesh seeding, preliminary)")
+    for rf, lab, c, st in refs:
+        n = (rf[:, 0] > lo) & (rf[:, 0] < hi)
+        ax.plot(rf[n, 0], rf[n, 1], st, color=c, ms=3.5, lw=1.5, label=lab)
     ax.axhline(50, color="#b00020", lw=1, ls=":")
     ax.set_xlim(lo, hi); ax.set_ylim(0, 105); ax.grid(color="#dddddd"); ax.set_xlabel("Frequency (GHz)")
 axs[0].set_ylabel("Total efficiency (%)")
-axs[0].set_title("2.401-2.483 GHz (disputed)", loc="left", fontsize=10)
+axs[0].set_title("2.401-2.483 GHz", loc="left", fontsize=10)
 axs[1].set_title("5.17-7.125 GHz", loc="left", fontsize=10)
-axs[1].legend(frameon=False, fontsize=9, loc="lower center")
-fig.suptitle("Run B, B3_final: Hertzon against the first reference-solver run", x=0.01, ha="left", fontsize=11.5,
+axs[1].legend(frameon=False, fontsize=8.5, loc="lower center")
+fig.suptitle("Run B, B3_final: Hertzon against the reference solver", x=0.01, ha="left", fontsize=11.5,
              fontweight="bold")
-fig.tight_layout(); fig.savefig(os.path.join(res, "RunB_B3_final_hertzon_vs_reference_prelim.png"), dpi=160)
+fig.tight_layout(); fig.savefig(os.path.join(res, "RunB_B3_final_hertzon_vs_reference.png"), dpi=160)

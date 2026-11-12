@@ -92,6 +92,6 @@ for ax in axs:
 axs[0].set_ylabel("Total efficiency (%)")
 axs[0].set_title("2.401-2.483 GHz", loc="left", fontsize=10); axs[1].set_title("5.17-7.125 GHz", loc="left", fontsize=10)
 axs[1].legend(frameon=False, fontsize=9, loc="lower center")
-fig.suptitle("Example 2: Runs 4, B and C in Hertzon (no matching; B and C not yet confirmed in the reference solver)",
+fig.suptitle("Example 2: Runs 4, B and C in Hertzon (no matching)",
              x=0.01, ha="left", fontsize=11, fontweight="bold")
 fig.tight_layout(); fig.savefig(os.path.join(res, "Ex2_runs_4_B_C_hertzon.png"), dpi=160)
