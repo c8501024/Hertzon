@@ -29,13 +29,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import circuit as CK
+from . import circuit_embed as CE
 from . import footprints as FPS
 from .kicad import KicadError
 
 BOARD = "Board"                      # circuit design setting: the board (JSON)
 NOT_ON_BOARD = ("GND", "LABEL", "SUBST", "SPICELIB")
 SKIPPED = {"ATTEN": "an attenuator has no layout", "COAX": "a coaxial line has no planar layout",
-           "DCFEED": "an ideal DC feed has no layout", "EM": "3D design blocks are not on the board yet"}
+           "DCFEED": "an ideal DC feed has no layout"}
 GAP_MM = 1.0                         # gap of a lumped part without a footprint
 TOL = 1e-4                           # mm: pins closer than this meet
 
@@ -68,7 +69,8 @@ def _sdir(dx: int, dy: int) -> tuple[int, int]:
 class Pin:
     x: float                          # mm, part coordinates
     y: float
-    d: tuple[int, int]                # direction a line leaves the pin in (unit axis)
+    d: tuple                          # direction a line leaves the pin in (unit axis; a slanted port of a 3D
+    #                                   design block: any unit vector)
     w: float = 0.0                    # copper width at the pin (a line attaching there; a port's width)
     box: tuple | None = None          # the pad's bounding box (a line may attach at any of its edges)
 
@@ -86,9 +88,11 @@ class Pin:
 @dataclass
 class Copper:
     pts: list[tuple[float, float]]    # polygon, part coordinates (mm)
-    pin: int | None                   # the pin (schematic pin index) whose net it is; None: no net (open pad)
+    pin: int | None                   # the pin (schematic pin index) whose net it is; None: no net (open pad, the
+    #                                   copper of a 3D design block)
     name: str = ""                    # object name suffix in 3D (MS1, C1_Pad1, ...)
     dims: dict[str, str] = field(default_factory=dict)   # for lines: the variables of its size (W, L)
+    holes: list = field(default_factory=list)            # inner rings (a ring conductor)
 
 
 @dataclass
@@ -122,6 +126,8 @@ class BoardPart:
     body: list[tuple[float, float]] = field(default_factory=list)   # outline (fabrication layer), part coordinates
     footprint: str = ""
     note: str = ""
+    sheets: list = field(default_factory=list)            # Lumped RLC sheets of a 3D design block (outlines)
+    design: str = ""                  # a 3D design block: the 3D design it stands for
 
     def outline(self):
         pts = [p for c in self.copper for p in c.pts] + self.body + [(q.x, q.y) for q in self.pins]
@@ -164,8 +170,11 @@ def board_parts(project, circuit) -> tuple[dict[str, BoardPart], dict[str, list[
             continue
         bp = BoardPart(c.name, t)
         try:
-            _fill(bp, c, ev, width, subs, pdir, notes)
-        except (KicadError, KeyError, ValueError) as ex:
+            if t == "EM":
+                _fill_em(bp, c, project)
+            else:
+                _fill(bp, c, ev, width, subs, pdir, notes)
+        except (KicadError, KeyError, ValueError, CE.EmbedError) as ex:
             notes.append(f"{c.name}: {ex}; left out")
             continue
         _ground_vias(bp, nodes.get(c.name, []), notes)
@@ -317,6 +326,51 @@ def _fill(bp: BoardPart, c, ev, width, subs, pdir, notes) -> None:
     raise ValueError(f"no board form for a {t}")
 
 
+_EM_CACHE: dict[str, tuple] = {}
+
+
+def em_geometry(project, c) -> CE.EmGeometry:
+    """The geometry of a 3D design block (circuit_embed.geometry, slanted ports accepted), kept while the 3D
+    design and the block's port settings stay the same: building it takes the geometry kernel."""
+    from dataclasses import asdict
+    s = CE.source(project, c)
+    key = json.dumps([asdict(s), dict(getattr(project, "variables", {}) or {}),
+                      c.props.get("Ports", ""), c.props.get("PortNames", "")], sort_keys=True, default=str)
+    hit = _EM_CACHE.get(s.name)
+    if hit and hit[0] == key:
+        return hit[1]
+    g = CE.geometry(project, c, slanted=True)
+    _EM_CACHE[s.name] = (key, g)
+    return g
+
+
+def em_frame(g: CE.EmGeometry) -> tuple[float, float]:
+    """The point of the 3D design (mm) that is the origin of its board part: the middle of its extent."""
+    x0, y0, x1, y1 = g.bbox
+    return (x0 + x1) / 2 * 1e3, (y0 + y1) / 2 * 1e3
+
+
+def _fill_em(bp: BoardPart, c, project) -> None:
+    """A 3D design block: its copper seen from the top, a pin at every port (the middle of the port sheet,
+    pointing out of the design along the sheet's normal, the sheet's width), its outline as the body."""
+    g = em_geometry(project, c)
+    cx, cy = em_frame(g)
+
+    def mm(p):
+        return p[0] * 1e3 - cx, p[1] * 1e3 - cy
+    for i, (ring, holes) in enumerate(g.copper):
+        bp.copper.append(Copper([mm(p) for p in ring], None, f"{c.name}_Cu{i + 1}",
+                                holes=[[mm(p) for p in h] for h in holes]))
+    bp.sheets = [[mm(p) for p in ring] for ring, _ in g.lumped]
+    x0, y0, x1, y1 = g.bbox
+    bp.body = rect(x0 * 1e3 - cx, y0 * 1e3 - cy, x1 * 1e3 - cx, y1 * 1e3 - cy)
+    bp.design = g.design.name
+    for pg in g.ports:
+        nx, ny = pg.normal
+        d = (int(round(nx)), int(round(ny))) if abs(abs(nx) + abs(ny) - 1) < 1e-9 else (float(nx), float(ny))
+        bp.pins.append(Pin(*mm(pg.centre), d, pg.width * 1e3))
+
+
 def _pads(bp: BoardPart, c, board: FPS.OnBoard, ports: bool = False) -> None:
     """Copper of the footprint's pads (centred on the courtyard), one pin per terminal at the outer edge of its
     outermost pad, the other pads of a terminal as extra anchors; with ports, a pad port at every pad."""
@@ -396,6 +450,11 @@ class Placement:
         q = rot_pt(d, self.rot)
         return int(round(q[0])), int(round(q[1]))
 
+    def wvec(self, d):
+        """A direction turned into the board, as it is (slanted directions stay slanted)."""
+        q = rot_pt(d, self.rot)
+        return round(q[0], 12), round(q[1], 12)
+
 
 @dataclass
 class Track:
@@ -404,14 +463,57 @@ class Track:
 
 
 @dataclass
+class Route:
+    """A line of one impedance from a pin to a pin, laid by the router (routing.py) and part of the circuit."""
+    a: tuple                          # (part, pin index) where it starts
+    b: tuple                          # (part, pin index) where it ends
+    pts: list                         # centre line corners from pin a to pin b, mm
+    w: float                          # width, mm
+    radii: list = field(default_factory=list)   # per inner corner: bend radius of the centre line; 0: mitered
+    wa: float = 0.0                   # width at pin a (a taper from it to w over la); 0: no taper
+    wb: float = 0.0
+    la: float = 0.0
+    lb: float = 0.0
+    z0: float = 50.0                  # impedance it was laid for (ohm)
+    group: str = ""                   # equal-phase group
+    offset: float = 0.0               # phase offset in its group (degrees)
+    ga: list = field(default_factory=list)      # the pins joined to pin a on the board (one node with it)
+    gb: list = field(default_factory=list)
+    plain: list = field(default_factory=list)   # corners before a meander was put in (to match again)
+
+    def to_dict(self) -> dict:
+        r6 = lambda v: round(float(v), 6)  # noqa: E731
+        return {"a": [self.a[0], int(self.a[1])], "b": [self.b[0], int(self.b[1])],
+                "pts": [[r6(x), r6(y)] for x, y in self.pts], "w": r6(self.w), "radii": [r6(v) for v in self.radii],
+                "wa": r6(self.wa), "wb": r6(self.wb), "la": r6(self.la), "lb": r6(self.lb), "z0": r6(self.z0),
+                "group": self.group, "offset": r6(self.offset), "ga": [[p[0], int(p[1])] for p in self.ga],
+                "gb": [[p[0], int(p[1])] for p in self.gb], "plain": [[r6(x), r6(y)] for x, y in self.plain]}
+
+    @staticmethod
+    def from_dict(d: dict) -> Route:
+        pt = lambda lst: [(float(x), float(y)) for x, y in lst]  # noqa: E731
+        return Route((d["a"][0], int(d["a"][1])), (d["b"][0], int(d["b"][1])), pt(d["pts"]), float(d["w"]),
+                     [float(v) for v in d.get("radii", [])], float(d.get("wa", 0)), float(d.get("wb", 0)),
+                     float(d.get("la", 0)), float(d.get("lb", 0)), float(d.get("z0", 50)), d.get("group", ""),
+                     float(d.get("offset", 0)), [(p[0], int(p[1])) for p in d.get("ga", [])],
+                     [(p[0], int(p[1])) for p in d.get("gb", [])], pt(d.get("plain", [])))
+
+
+@dataclass
 class Board:
     placements: dict[str, Placement] = field(default_factory=dict)
     tracks: list[Track] = field(default_factory=list)
+    routes: list[Route] = field(default_factory=list)
+    opts: dict = field(default_factory=dict)      # router settings: z0, style, f0, simulate
 
     def to_json(self) -> str:
-        return json.dumps({"placements": {k: [round(float(v.x), 6), round(float(v.y), 6), float(v.rot)] for k, v in self.placements.items()},
-                           "tracks": [{"pts": [[round(x, 6), round(y, 6)] for x, y in t.pts], "w": t.w}
-                                      for t in self.tracks]})
+        d = {"placements": {k: [round(float(v.x), 6), round(float(v.y), 6), float(v.rot)] for k, v in self.placements.items()},
+             "tracks": [{"pts": [[round(x, 6), round(y, 6)] for x, y in t.pts], "w": t.w} for t in self.tracks]}
+        if self.routes:
+            d["routes"] = [r.to_dict() for r in self.routes]
+        if self.opts:
+            d["opts"] = self.opts
+        return json.dumps(d)
 
     @staticmethod
     def from_json(text: str) -> Board:
@@ -426,6 +528,12 @@ class Board:
             b.placements[k] = Placement(float(v[0]), float(v[1]), float(v[2]))
         for t in d.get("tracks") or []:
             b.tracks.append(Track([(float(x), float(y)) for x, y in t["pts"]], float(t.get("w", 0.3))))
+        for r in d.get("routes") or []:
+            try:
+                b.routes.append(Route.from_dict(r))
+            except (KeyError, ValueError, TypeError, IndexError):
+                pass
+        b.opts = dict(d.get("opts") or {})
         return b
 
 
@@ -473,19 +581,26 @@ def anchors(parts: dict[str, BoardPart], board: Board, nodes) -> dict[int, list[
     return out
 
 
-def ratsnest(parts, board: Board, nodes) -> list[tuple[int, tuple[float, float], tuple[float, float]]]:
-    """The connections the board does not make yet: per net, the shortest lines that join the groups of pins that
-    already meet (at the same point, or by a track), as (net, from, to)."""
-    from shapely.geometry import Polygon
+def route_ok(parts, board: Board, r: Route) -> bool:
+    """A route still ends on its two pins (the parts have not moved since it was laid)."""
+    for ref, p in ((r.a, r.pts[0]), (r.b, r.pts[-1])):
+        bp, pl = parts.get(ref[0]), board.placements.get(ref[0])
+        if bp is None or pl is None or ref[1] >= len(bp.pins):
+            return False
+        x, y = pl.world((bp.pins[ref[1]].x, bp.pins[ref[1]].y))
+        if math.hypot(x - p[0], y - p[1]) > 1e-3:
+            return False
+    return True
+
+
+def _groups(parts, board: Board, nodes, with_routes: bool = True):
+    """Per net: its pins on the board [(part, pin index, x, y)] and the union-find parent of each (pins that meet:
+    same part, same point, touching copper, joined by a track, and with_routes by a route)."""
     shapes: dict[str, list] = {}
-    for name, _net, wpts in world_copper(parts, board, nodes):
-        if len(wpts) >= 3:
-            shapes.setdefault(name, []).append(Polygon(wpts).buffer(1e-3))
-    out = []
-    for net, pts in anchors(parts, board, nodes).items():
-        if len(pts) < 2:
-            continue
-        # groups: same part (its copper joins its anchors of one net), same point, or joined by a track
+    for name, _net, poly in world_polys(parts, board, nodes):
+        shapes.setdefault(name, []).append(poly.buffer(1e-3))
+    out = {}
+    for net, pts in pin_refs(parts, board, nodes).items():
         n = len(pts)
         parent = list(range(n))
 
@@ -500,20 +615,65 @@ def ratsnest(parts, board: Board, nodes) -> list[tuple[int, tuple[float, float],
         for i in range(n):
             for j in range(i):
                 same_part = pts[i][0] == pts[j][0]
-                close = abs(pts[i][1] - pts[j][1]) < 1e-3 and abs(pts[i][2] - pts[j][2]) < 1e-3
-                touch = (_on_copper(pts[i][1:], shapes.get(pts[j][0], ())) or
-                         _on_copper(pts[j][1:], shapes.get(pts[i][0], ())))
+                close = abs(pts[i][2] - pts[j][2]) < 1e-3 and abs(pts[i][3] - pts[j][3]) < 1e-3
+                touch = (_on_copper(pts[i][2:], shapes.get(pts[j][0], ())) or
+                         _on_copper(pts[j][2:], shapes.get(pts[i][0], ())))
                 if same_part or close or touch:
                     union(i, j)
         for tr in board.tracks:
-            hit = [i for i, p in enumerate(pts) if any(_near_segment((p[1], p[2]), a, b, tr.w / 2 + 1e-3)
+            hit = [i for i, p in enumerate(pts) if any(_near_segment((p[2], p[3]), a, b, tr.w / 2 + 1e-3)
                                                        for a, b in zip(tr.pts, tr.pts[1:]))]
             for i in hit[1:]:
                 union(i, hit[0])
-        # Prim over the groups
+        if with_routes:
+            for r in board.routes:
+                if not route_ok(parts, board, r):
+                    continue
+                ia = [i for i, p in enumerate(pts) if (p[0], p[1]) == tuple(r.a)]
+                ib = [i for i, p in enumerate(pts) if (p[0], p[1]) == tuple(r.b)]
+                if ia and ib:
+                    union(ia[0], ib[0])
+        out[net] = (pts, [find(i) for i in range(n)])
+    return out
+
+
+def pin_refs(parts, board: Board, nodes) -> dict[int, list[tuple[str, int, float, float]]]:
+    """Like anchors(), with the pin index: (part, pin index, x, y) per net."""
+    out: dict[int, list] = {}
+    for name, bp in parts.items():
+        pl = board.placements.get(name)
+        if pl is None:
+            continue
+        ns = nodes.get(name, [])
+        for k, pin in list(enumerate(bp.pins)) + list(bp.extra):
+            if k >= len(ns) or ns[k] == 0:
+                continue
+            x, y = pl.world((pin.x, pin.y))
+            out.setdefault(ns[k], []).append((name, k, x, y))
+    return out
+
+
+def pin_group(parts, board: Board, nodes, ref) -> list[tuple[str, int]]:
+    """The pins that meet the pin ref on the board without routes (one node with it)."""
+    ns = nodes.get(ref[0], [])
+    if ref[1] >= len(ns):
+        return [tuple(ref)]
+    pts, roots = _groups(parts, board, nodes, with_routes=False).get(ns[ref[1]], ([], []))
+    mine = [roots[i] for i, p in enumerate(pts) if (p[0], p[1]) == tuple(ref)]
+    if not mine:
+        return [tuple(ref)]
+    return sorted({(p[0], p[1]) for i, p in enumerate(pts) if roots[i] == mine[0]})
+
+
+def connections(parts, board: Board, nodes) -> list[tuple[int, tuple[str, int], tuple[str, int]]]:
+    """The connections the board does not make yet: per net, the shortest that join the groups of pins that meet
+    (Prim), as (net, (part, pin), (part, pin)); pins with a pin index of a main pin (not an extra pad) are
+    preferred as ends, the router attaches there."""
+    out = []
+    for net, (pts, roots) in _groups(parts, board, nodes).items():
         groups: dict[int, list[int]] = {}
-        for i in range(n):
-            groups.setdefault(find(i), []).append(i)
+        for i, r in enumerate(roots):
+            groups.setdefault(r, []).append(i)
         gl = list(groups.values())
         if len(gl) < 2:
             continue
@@ -524,12 +684,26 @@ def ratsnest(parts, board: Board, nodes) -> list[tuple[int, tuple[float, float],
             for gi, g in enumerate(rest):
                 for a in (i for d_ in done for i in d_):
                     for b in g:
-                        dd = math.hypot(pts[a][1] - pts[b][1], pts[a][2] - pts[b][2])
+                        dd = math.hypot(pts[a][2] - pts[b][2], pts[a][3] - pts[b][3])
                         if best is None or dd < best[0]:
                             best = (dd, gi, a, b)
             _, gi, a, b = best
-            out.append((net, (pts[a][1], pts[a][2]), (pts[b][1], pts[b][2])))
+            out.append((net, (pts[a][0], pts[a][1]), (pts[b][0], pts[b][1]), (pts[a][2], pts[a][3]),
+                        (pts[b][2], pts[b][3])))
             done.append(rest.pop(gi))
+    return [(net, a, b) for net, a, b, _, _ in out]
+
+
+def ratsnest(parts, board: Board, nodes) -> list[tuple[int, tuple[float, float], tuple[float, float]]]:
+    """The connections the board does not make yet (connections()) as lines (net, from, to)."""
+    out = []
+    for net, a, b in connections(parts, board, nodes):
+        pa = board.placements[a[0]].world((parts[a[0]].pins[a[1]].x, parts[a[0]].pins[a[1]].y)) \
+            if a[1] < len(parts[a[0]].pins) else None
+        pb = board.placements[b[0]].world((parts[b[0]].pins[b[1]].x, parts[b[0]].pins[b[1]].y)) \
+            if b[1] < len(parts[b[0]].pins) else None
+        if pa is not None and pb is not None:
+            out.append((net, pa, pb))
     return out
 
 
@@ -572,21 +746,54 @@ def world_copper(parts, board: Board, nodes) -> list[tuple[str, int | None, list
     return out
 
 
-def overlaps(parts, board: Board, nodes) -> list[tuple[str, str]]:
-    """Pairs of parts whose copper of different nets lies on each other (shapely)."""
+def world_polys(parts, board: Board, nodes) -> list[tuple[str, int | None, object]]:
+    """Every copper polygon of the placed parts as a shapely polygon (with its holes) in world coordinates:
+    (part, net, polygon)."""
     from shapely.geometry import Polygon
-    polys = []
+    out = []
     for name, bp in parts.items():
         pl = board.placements.get(name)
         if pl is None:
             continue
         for cu in bp.copper:
-            if len(cu.pts) >= 3:
-                polys.append((name, copper_nets(bp, cu, nodes), Polygon([pl.world(q) for q in cu.pts]).buffer(0)))
+            if len(cu.pts) < 3:
+                continue
+            poly = Polygon([pl.world(p) for p in cu.pts], [[pl.world(p) for p in h] for h in cu.holes if len(h) >= 3])
+            out.append((name, copper_net(bp, cu, nodes), poly.buffer(0)))
+    return out
+
+
+def route_name(i: int) -> str:
+    return f"Route{i + 1}"
+
+
+def overlaps(parts, board: Board, nodes) -> list[tuple[str, str]]:
+    """Pairs of parts (and routes, Route1, ...) whose copper of different nets lies on each other (shapely); a
+    route may touch the two parts it connects."""
+    from shapely.geometry import Polygon
+    from . import routing as RT
+    polys = []                        # (part, the nets its copper touches, polygon): a line joins both its nets
+    for name, bp in parts.items():
+        pl = board.placements.get(name)
+        if pl is None:
+            continue
+        for cu in bp.copper:
+            if len(cu.pts) < 3:
+                continue
+            poly = Polygon([pl.world(p) for p in cu.pts], [[pl.world(p) for p in h] for h in cu.holes if len(h) >= 3])
+            polys.append((name, copper_nets(bp, cu, nodes), poly.buffer(0)))
+    ends = {}
+    for i, r in enumerate(board.routes):
+        ns = nodes.get(r.a[0], [])
+        net = ns[r.a[1]] if r.a[1] < len(ns) else None
+        polys.append((route_name(i), set() if net is None else {net}, RT.polygon(r)))
+        ends[route_name(i)] = {r.a[0], r.b[0]}
     out = set()
     for i, (an, anets, ap) in enumerate(polys):
         for bn, bnets, bpoly in polys[:i]:
             if an == bn or not anets or not bnets or anets & bnets:
+                continue
+            if bn in ends.get(an, ()) or an in ends.get(bn, ()):
                 continue
             if ap.intersection(bpoly).area > 1e-6:
                 out.add(tuple(sorted((an, bn))))
@@ -608,6 +815,7 @@ def auto_place(project, circuit) -> tuple[Board, list[str]]:
                 users.setdefault(n, []).append((name, k))
     ports = [c.name for c in CK.port_order(list(comps.values())) if c.name in parts]
     queue: list[str] = []
+    parent: dict[str, str] = {}
     if ports:
         board.placements[ports[0]] = Placement(0, 0, 0)
         queue.append(ports[0])
@@ -636,6 +844,7 @@ def auto_place(project, circuit) -> tuple[Board, list[str]]:
                     p0 = Placement(0, 0, q)
                     px, py = p0.world((ob.pins[j].x, ob.pins[j].y))
                     board.placements[other] = Placement(ax - px, ay - py, q)
+                    parent[other] = name
                     queue.append(other)
         rest = [n for n in parts if n not in board.placements]
         if not rest:
@@ -645,7 +854,56 @@ def auto_place(project, circuit) -> tuple[Board, list[str]]:
                                                                    _corners(parts[nm]))] or [0.0]
         board.placements[rest[0]] = Placement(0, min(ys) - 5.0, 0)
         queue.append(rest[0])
+    _spread_blocks(parts, board, parent)
     return board, notes
+
+
+def _spread_blocks(parts, board: Board, parent: dict[str, str], gap: float = 5.0) -> None:
+    """3D design blocks the walk put on each other (two blocks at the outputs of a divider) are moved apart,
+    across the way they were attached, with what hangs on them; Connect joins them again."""
+    from shapely.geometry import Polygon
+
+    def body(n):
+        bp, pl = parts[n], board.placements[n]
+        pts = bp.body or [(x, y) for c in bp.copper for x, y in c.pts]
+        return Polygon([pl.world(p) for p in pts]).envelope if len(pts) >= 3 else None
+
+    def subtree(n):
+        out = [n]
+        for k, v in parent.items():
+            if v == n:
+                out += subtree(k)
+        return out
+    order = list(board.placements)
+    placed: list[str] = []
+    for n in order:
+        if parts[n].type != "EM":
+            placed.append(n)
+            continue
+        for k in range(40):
+            mine = body(n)
+            hit = [m for m in placed if m != n and parent.get(n) != m and body(m) is not None and mine is not None
+                   and mine.buffer(gap / 2).intersects(body(m).buffer(gap / 2))]
+            if not hit:
+                break
+            # across the attaching direction: away from what it lies on
+            pl = board.placements[n]
+            ox = sum(body(m).centroid.x for m in hit) / len(hit)
+            oy = sum(body(m).centroid.y for m in hit) / len(hit)
+            c = mine.centroid
+            vertical = abs(pl.wdir((1, 0))[0]) == 1
+            step = (0.0, gap if c.y >= oy else -gap) if vertical else (gap if c.x >= ox else -gap, 0.0)
+            if k == 0 and abs(c.y - oy) < 1e-9 and abs(c.x - ox) < 1e-9:
+                step = (0.0, gap) if vertical else (gap, 0.0)
+            if k == 0 and n in parent:      # and once away from the part it hangs on: room for the bends
+                px_, py_ = board.placements[parent[n]].x, board.placements[parent[n]].y
+                along = (3 * gap if pl.x >= px_ else -3 * gap, 0.0) if vertical else \
+                    (0.0, 3 * gap if pl.y >= py_ else -3 * gap)
+                step = (step[0] + along[0], step[1] + along[1])
+            for m in subtree(n):
+                board.placements[m].x += step[0]
+                board.placements[m].y += step[1]
+        placed.append(n)
 
 
 def _corners(bp: BoardPart):
@@ -710,6 +968,37 @@ def complete(project, circuit, board: Board) -> tuple[Board, list[str]]:
 
 
 # ---- the 3D design of the board ------------------------------------------------------------------------------
+def _embed_em(d, project, circuit, parts, board: Board, ems, ground, warnings, h: float) -> None:
+    """Copy the 3D design of every block on the board into the layout d, turned and moved as it is placed; its
+    ports go (the board connects the block: lines, routes or a Power Port at the pin), the layout's ground plane
+    gets a hole where the block has its own ground."""
+    from .design import Command
+    comps = {c.name: c for c in circuit.components}
+    for name in ems:
+        c, pl = comps[name], board.placements[name]
+        g = em_geometry(project, c)
+        cx, cy = em_frame(g)
+        q = int(round(pl.rot / 90.0)) % 4
+        rx, ry = CE.turn((cx, cy), q)
+        zg = min((pg.zmin for pg in g.ports), default=0.0)
+        move = f"{_mm(pl.x - rx)},{_mm(pl.y - ry)},{_mm(-zg * 1e3)}"
+        for pg in g.ports:
+            if pg.kind == "Lumped Port" and abs((pg.zmax - pg.zmin) - h) > 0.01 * h:
+                warnings.append(f"{name}: the port {pg.name} is {(pg.zmax - pg.zmin) * 1e3:.4g} mm high, the "
+                                f"board substrate {h * 1e3:.4g} mm")
+        _, w = CE.embed(d, g, c, q, move, {})
+        warnings += w
+        for x0, y0, x1, y1 in g.grounds:
+            ax, ay = CE.turn((x0 * 1e3, y0 * 1e3), q)
+            bx, by = CE.turn((x1 * 1e3, y1 * 1e3), q)
+            hole = d.add_object("CreateRectangle", name=d.unique_name(f"{name}_GroundCut"),
+                                Position=f"{_mm(min(ax, bx) + pl.x - rx)},{_mm(min(ay, by) + pl.y - ry)},0", Axis="Z",
+                                XSize=_mm(abs(bx - ax)), YSize=_mm(abs(by - ay)))
+            hole.consumed_by = ground.name
+            ground.history.append(Command.new("Subtract", Tools=hole.name, KeepOriginals="False"))
+
+
+
 def _mm(v: float) -> str:
     return f"{v:.6g}mm"
 
@@ -747,9 +1036,12 @@ def layout_3d(project, circuit, board: Board, name: str | None = None):
                         f"({p1[0]:.3g}, {p1[1]:.3g}) mm (ratsnest); draw a track or move the parts")
 
     # copper: one entry per polygon with its shapely form, joined later where they touch
+    from . import routing as RT
     pieces: list[dict] = []
     for pname, bp in parts.items():
         pl = board.placements[pname]
+        if bp.type == "EM":            # copied from its 3D design below
+            continue
         for cu in bp.copper:
             wpts = [pl.world(p) for p in cu.pts]
             pieces.append({"name": cu.name or pname, "pts": wpts, "dims": cu.dims, "part": pname,
@@ -758,11 +1050,25 @@ def layout_3d(project, circuit, board: Board, name: str | None = None):
         geo = LineString(tr.pts).buffer(tr.w / 2, cap_style=3, join_style=2)
         pieces.append({"name": f"Track{i + 1}", "pts": list(geo.exterior.coords)[:-1], "dims": {}, "part": "",
                        "poly": geo})
+    for i, r in enumerate(board.routes):
+        geo = RT.polygon(r)
+        for k, g in enumerate(getattr(geo, "geoms", [geo])):
+            if g.is_empty:
+                continue
+            nm = route_name(i) if k == 0 else f"{route_name(i)}_{k + 1}"
+            pieces.append({"name": nm, "pts": [tuple(p) for p in list(g.exterior.coords)[:-1]], "dims": {},
+                           "part": "", "poly": g})
+        if not route_ok(parts, board, r):
+            warnings.append(f"{route_name(i)} ({r.a[0]}–{r.b[0]}) no longer ends on its pins (a part moved): "
+                            "connect again")
     if board.tracks:
         warnings.append(f"{len(board.tracks)} track(s) drawn on the board are not in the schematic")
-    if not pieces:
+    ems = [n for n, bp in parts.items() if bp.type == "EM"]
+    if not pieces and not ems:
         raise LayoutError("nothing on the board")
-    allc = unary_union([p["poly"] for p in pieces])
+    outlines = [p["poly"] for p in pieces] + [Polygon([board.placements[n].world(q) for q in parts[n].body])
+                                              for n in ems]
+    allc = unary_union(outlines)
     x0, y0, x1, y1 = allc.bounds
     margin = 3.0
     # power ports on the board edge where they are the outermost copper on their side
@@ -942,7 +1248,8 @@ def layout_3d(project, circuit, board: Board, name: str | None = None):
         port_map[str(num)] = {"part": pname, "terminal": "+", "pad": ""}
         num += 1
     d.settings[PORT_MAP] = json.dumps(port_map)
-    wmin = min([p.w for bp in parts.values() for p in bp.pins if p.w > 0] + [1.0])
+    _embed_em(d, project, circuit, parts, board, ems, ground, warnings, ev.length(sub["H"]))
+    wmin = min([p.w for bp in parts.values() for p in bp.pins if p.w > 0] + [r.w for r in board.routes] + [1.0])
     assign(d.mesh_ops, schema.MESH_OPS, "Length Based On Selection", "Length_Traces", conductors,
            MaxLength=_mm(wmin / 2))
     st = Setup("Setup1")

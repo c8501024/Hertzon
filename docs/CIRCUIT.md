@@ -479,6 +479,42 @@ line made longer in the schematic does not push the parts behind it: the ratsnes
 its footprint gets vias of 0.3 mm in its ground pad (reported). Vendor downloads in the KiCad 5 format
 (`module`) are read too, and pin names such as `EMITTER_1`, `EMITTER_2` are matched to `e1`, `e2` (or both to `e`).
 
+### Connecting subdesigns automatically
+
+Finished structures (a Wilkinson divider, a rat-race, a filter of the Design Wizard, any 3D design whose ports
+are vertical sheets on its edge) are placed in the schematic as 3D design blocks and wired as they belong
+together. On the board each block is one part with its copper seen from the top, its lumped resistors in red and
+a pin at every port; ports at an angle (the feeds of a rat-race) keep their angle. Place the blocks roughly, then:
+
+* **Connect** lays a line for every connection still missing (only for the selected parts, if any are selected):
+  microstrip of the impedance **Z0** on the circuit's substrate (its width from the closed-form line model of the
+  circuit simulation at f0), led at right angles round the other copper at a gap of 3 line widths where there is
+  room, with few bends. **Arc** bends are circular with a radius of 3 line widths (smaller where a jog leaves less
+  room), **Miter** bends are 50 % mitered; a bend from a slanted port is always circular. Where a pin is more
+  than 2 % wider or narrower than the line, a linear taper of 3 line widths joins them, so the impedance has no
+  step. Hover a route for its length and its phase at f0.
+* **Match Phase** gives the selected routes the same insertion phase at **f0**, or a set difference: the dialog
+  asks for each route's phase relative to the group (0 for all: equal phase; +90 degrees: this route lags by 90
+  degrees more, as for a feed of a circularly polarized antenna). Each route that is short of its target gets a
+  meander (a row of U-shaped detours) in its longest straight piece, its height first from the electrical length
+  and then corrected on the route's circuit model to within 0.2 degrees. Matching again starts from the routes
+  without their meanders.
+* Double-click a bend of a route to set its radius, or a 50 % miter for a 90 degree bend (for that bend or all
+  bends of the route); where the straight pieces leave less room, the radius is made smaller and the status line
+  says so.
+* A route whose part was moved is outlined in red and no longer counts as a connection; select it, Del, and
+  Connect again.
+
+The routes are part of the circuit: the S-parameter and harmonic-balance analyses replace the ideal connection of
+the schematic by the chain of the route (its straight pieces as MLIN, the tapers as five MLIN steps, a mitered
+bend as MMBEND, a circular bend as an MLIN of its arc length), and say so in their messages. Create 3D Layout
+copies every block's 3D design into the layout, turned and moved as placed (its own ports go: the board connects
+it), with the routes as copper, so the full-wave check of the whole system is one click away.
+
+**File > Open Example > VNA_TestSet_2G4** shows it on a whole board: the reflectometer test set of a two-port
+network analyzer from a Wilkinson divider and two coupled-line couplers of the Design Wizard, with the lines to
+the receivers R, A and B matched in phase. Move a block and press Connect and Match Phase again.
+
 ## AI assistants
 
 The MCP server covers circuit designs: `create_circuit`, `get_circuit`, `edit_circuit` (parts, wires, 3D
