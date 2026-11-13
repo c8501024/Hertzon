@@ -487,13 +487,42 @@ class BoardEditor(QWidget):
         if len(idx) < 2:
             self.status.setText("Match Phase: select two or more routes (click, Ctrl+click)")
             return
+        offsets = self._ask_offsets(idx)
+        if offsets is None:
+            return
         try:
-            b, warnings, ph = RT.match_phase(self.doc.project, self.des, self._collect(), idx, self.f0.value() * 1e9)
+            b, warnings, ph = RT.match_phase(self.doc.project, self.des, self._collect(), idx, self.f0.value() * 1e9,
+                                             offsets)
         except RT.RouteError as e:
             self.status.setText(f"Match Phase: {e}")
             return
         warnings = [", ".join(f"Route {i + 1}: {v:.2f} deg" for i, v in sorted(ph.items()))] + warnings
         self._apply(b, warnings, "Match Phase")
+
+    def _ask_offsets(self, idx: list[int]) -> dict[int, float] | None:
+        """The phase of each selected route relative to the group, in degrees (0 for all: equal phase)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Match Phase")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(f"Insertion phase at {self.f0.value():g} GHz relative to the group\n"
+                           "(0 for all routes: equal phase; +90 deg: this route lags 90 deg more)"))
+        boxes = {}
+        for i in idx:
+            r = self.board.routes[i]
+            sb = QDoubleSpinBox()
+            sb.setRange(-3600.0, 3600.0)
+            sb.setDecimals(1)
+            sb.setSuffix(" deg")
+            sb.setValue(r.offset or 0.0)
+            form.addRow(f"Route {i + 1} ({r.a[0]} to {r.b[0]})", sb)
+            boxes[i] = sb
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec() != QDialog.Accepted:
+            return None
+        return {i: sb.value() for i, sb in boxes.items()}
 
     def edit_bend(self, p: QPointF) -> bool:
         """Double-click on a bend of a route: its radius, or a miter for a 90 degree bend."""

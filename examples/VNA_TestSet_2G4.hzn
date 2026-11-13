@@ -1,0 +1,3104 @@
+{
+ "name": "VNA_TestSet_2G4",
+ "designs": [
+  {
+   "name": "Wilkinson_2.45GHz_Circuit",
+   "units": "mm",
+   "kind": "circuit",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Off",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "AutoJunctions": "False"
+   },
+   "variables": {
+    "h": "0.508mm",
+    "t_cu": "35um",
+    "Wa": "0.571671mm",
+    "Lb": "16.9716mm",
+    "La": "0.5mm",
+    "Wf": "1.08135mm",
+    "lf": "9.1581mm",
+    "R_iso": "100ohm"
+   },
+   "objects": [],
+   "boundaries": [],
+   "excitations": [],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "5GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "BroadbandFrequencies": "3",
+      "PortsOnly": "False",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "UsePowerBalance": "False",
+      "MaxPowerBalance": "0.01",
+      "MaxDeltaEfficiency": "0.01",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Discrete",
+        "Distribution": "Linear Count",
+        "Start": "1.715GHz",
+        "Stop": "3.185GHz",
+        "Step": "0.1GHz",
+        "Count": "201",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [
+    {
+     "name": "MultiFidelity1",
+     "solution": "Setup1 : Sweep",
+     "variables": [
+      {
+       "name": "Wa",
+       "include": true,
+       "min": "0.457337mm",
+       "max": "0.686005mm"
+      },
+      {
+       "name": "Lb",
+       "include": true,
+       "min": "13.5773mm",
+       "max": "20.3659mm"
+      },
+      {
+       "name": "La",
+       "include": false,
+       "min": "0.4mm",
+       "max": "0.6mm"
+      },
+      {
+       "name": "Wf",
+       "include": false,
+       "min": "0.865083mm",
+       "max": "1.29762mm"
+      },
+      {
+       "name": "lf",
+       "include": false,
+       "min": "7.32648mm",
+       "max": "10.9897mm"
+      }
+     ],
+     "goals": [
+      {
+       "calc": "dB(S(1,1))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": "<=",
+       "value": "-20",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(2,2))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": "<=",
+       "value": "-20",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(3,3))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": "<=",
+       "value": "-20",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(3,2))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": "<=",
+       "value": "-20",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(2,1))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": ">=",
+       "value": "-3.3103",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(2,1))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": "<=",
+       "value": "-2.7103",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(3,1))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": ">=",
+       "value": "-3.3103",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(3,1))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": "<=",
+       "value": "-2.7103",
+       "weight": "1"
+      }
+     ],
+     "props": {
+      "Optimizer": "Conjugate Gradient",
+      "CostFunction": "Error Area",
+      "MaxEvaluations": "3000",
+      "ParallelEvaluations": "6",
+      "DifferenceStep": "0.05",
+      "InitialStep": "0.1",
+      "GradientTolerance": "0.0001",
+      "MaxLineTrials": "16",
+      "Samples": "24",
+      "Chains": "4",
+      "ChainEvaluations": "40",
+      "SimplexStep": "0.08",
+      "SimplexTolerance": "0.005",
+      "Seed": "1",
+      "TrustRadius": "0.6",
+      "MaxRounds": "10",
+      "CoarseModel": "",
+      "MappingRounds": "6",
+      "MappingTolerance": "0.01",
+      "MultiFidelity": "True",
+      "FineModel": "Wilkinson_2.45GHz",
+      "FineSolution": "Setup1 : Sweep",
+      "TuningPoints": "51"
+     }
+    }
+   ],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": "",
+   "stackup": null,
+   "components": [
+    {
+     "name": "Sub1",
+     "type": "SUBST",
+     "x": -200,
+     "y": -260,
+     "rot": 0,
+     "props": {
+      "Er": "3.66",
+      "H": "h",
+      "T": "t_cu",
+      "TanD": "0.0037",
+      "Cond": "5.8e+07"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Feed1",
+     "type": "MLIN",
+     "x": 0,
+     "y": 0,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wf",
+      "L": "lf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "T1",
+     "type": "MTEE",
+     "x": 70,
+     "y": 0,
+     "rot": 90,
+     "props": {
+      "Subst": "Sub1",
+      "W1": "Wa",
+      "W2": "Wa",
+      "W3": "Wf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Port1",
+     "type": "PORT",
+     "x": -80,
+     "y": 40,
+     "rot": 0,
+     "props": {
+      "Num": "1",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "MSr2",
+     "type": "MLIN",
+     "x": 70,
+     "y": -70,
+     "rot": 90,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wa",
+      "L": "La"
+     },
+     "mirror": false
+    },
+    {
+     "name": "C2",
+     "type": "MCORN",
+     "x": 70,
+     "y": -140,
+     "rot": 270,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wa"
+     },
+     "mirror": false
+    },
+    {
+     "name": "MS2",
+     "type": "MLIN",
+     "x": 140,
+     "y": -140,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wa",
+      "L": "Lb"
+     },
+     "mirror": false
+    },
+    {
+     "name": "T2",
+     "type": "MTEE",
+     "x": 210,
+     "y": -140,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W1": "Wa",
+      "W2": "Wf",
+      "W3": "Wa"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Feed2",
+     "type": "MLIN",
+     "x": 280,
+     "y": -140,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wf",
+      "L": "lf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Port2",
+     "type": "PORT",
+     "x": 360,
+     "y": -100,
+     "rot": 0,
+     "props": {
+      "Num": "2",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "MSr3",
+     "type": "MLIN",
+     "x": 70,
+     "y": 70,
+     "rot": 90,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wa",
+      "L": "La"
+     },
+     "mirror": false
+    },
+    {
+     "name": "C3",
+     "type": "MCORN",
+     "x": 70,
+     "y": 140,
+     "rot": 90,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wa"
+     },
+     "mirror": true
+    },
+    {
+     "name": "MS3",
+     "type": "MLIN",
+     "x": 140,
+     "y": 140,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wa",
+      "L": "Lb"
+     },
+     "mirror": false
+    },
+    {
+     "name": "T3",
+     "type": "MTEE",
+     "x": 210,
+     "y": 140,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W1": "Wa",
+      "W2": "Wf",
+      "W3": "Wa"
+     },
+     "mirror": true
+    },
+    {
+     "name": "Feed3",
+     "type": "MLIN",
+     "x": 280,
+     "y": 140,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wf",
+      "L": "lf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Port3",
+     "type": "PORT",
+     "x": 360,
+     "y": 180,
+     "rot": 0,
+     "props": {
+      "Num": "3",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "R1",
+     "type": "R",
+     "x": 210,
+     "y": 0,
+     "rot": 90,
+     "props": {
+      "R": "R_iso",
+      "Gap": "2*La + Wa"
+     },
+     "mirror": false
+    }
+   ],
+   "wires": [
+    {
+     "points": [
+      [
+       -40,
+       0
+      ],
+      [
+       -80,
+       0
+      ]
+     ]
+    },
+    {
+     "points": [
+      [
+       320,
+       -140
+      ],
+      [
+       360,
+       -140
+      ]
+     ]
+    },
+    {
+     "points": [
+      [
+       320,
+       140
+      ],
+      [
+       360,
+       140
+      ]
+     ]
+    },
+    {
+     "points": [
+      [
+       210,
+       -110
+      ],
+      [
+       210,
+       -30
+      ]
+     ]
+    },
+    {
+     "points": [
+      [
+       210,
+       110
+      ],
+      [
+       210,
+       30
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "Wilkinson_2.45GHz",
+   "units": "mm",
+   "kind": "3d",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Auto Open - Filter",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "10mm",
+    "MaterialOverride": "True",
+    "LayoutOf": "Wilkinson_2.45GHz_Circuit",
+    "LayoutPorts": "{\"1\": {\"part\": \"Port1\", \"terminal\": \"\", \"pad\": \"\"}, \"2\": {\"part\": \"Port2\", \"terminal\": \"\", \"pad\": \"\"}, \"3\": {\"part\": \"Port3\", \"terminal\": \"\", \"pad\": \"\"}}",
+    "LayoutDims": "{\"Feed1_L\": [\"Feed1\", \"XSize\"], \"Feed1_W\": [\"Feed1\", \"YSize\"], \"T1_W1\": [\"T1\", \"XSize\"], \"T1_W3\": [\"T1\", \"YSize\"], \"MSr2_W\": [\"MSr2\", \"XSize\"], \"MSr2_L\": [\"MSr2\", \"YSize\"], \"MSr3_W\": [\"MSr3\", \"XSize\"], \"MSr3_L\": [\"MSr3\", \"YSize\"], \"C2_W\": [\"C2\", \"XSize\"], \"C3_W\": [\"C3\", \"XSize\"], \"MS2_L\": [\"MS2\", \"XSize\"], \"MS2_W\": [\"MS2\", \"YSize\"], \"MS3_L\": [\"MS3\", \"XSize\"], \"MS3_W\": [\"MS3\", \"YSize\"], \"T2_W3\": [\"T2\", \"XSize\"], \"T2_W2\": [\"T2\", \"YSize\"], \"T3_W3\": [\"T3\", \"XSize\"], \"T3_W2\": [\"T3\", \"YSize\"], \"Feed2_L\": [\"Feed2\", \"XSize\"], \"Feed2_W\": [\"Feed2\", \"YSize\"], \"Feed3_L\": [\"Feed3\", \"XSize\"], \"Feed3_W\": [\"Feed3\", \"YSize\"], \"R1_Gap\": [\"R1\", \"YSize\"], \"Sub1_H\": [\"Port1\", \"ZSize\"]}",
+    "LayoutVars": "[\"C2_W\", \"C3_W\", \"Feed1_L\", \"Feed1_W\", \"Feed2_L\", \"Feed2_W\", \"Feed3_L\", \"Feed3_W\", \"La\", \"Lb\", \"MS2_L\", \"MS2_W\", \"MS3_L\", \"MS3_W\", \"MSr2_L\", \"MSr2_W\", \"MSr3_L\", \"MSr3_W\", \"Margin\", \"R1_Gap\", \"R_iso\", \"Sub1_H\", \"Sub1_T\", \"T1_W1\", \"T1_W2\", \"T1_W3\", \"T2_W1\", \"T2_W2\", \"T2_W3\", \"T3_W1\", \"T3_W2\", \"T3_W3\", \"Wa\", \"Wf\", \"h\", \"lf\", \"t_cu\"]"
+   },
+   "variables": {
+    "h": "0.508mm",
+    "t_cu": "35um",
+    "Wa": "0.571671mm",
+    "Lb": "16.9716mm",
+    "La": "0.5mm",
+    "Wf": "1.08135mm",
+    "lf": "9.1581mm",
+    "R_iso": "100ohm",
+    "Sub1_H": "h",
+    "Sub1_T": "t_cu",
+    "Margin": "5mm",
+    "Feed1_W": "Wf",
+    "Feed1_L": "lf",
+    "T1_W1": "Wa",
+    "T1_W2": "Wa",
+    "T1_W3": "Wf",
+    "MSr2_W": "Wa",
+    "MSr2_L": "La",
+    "MSr3_W": "Wa",
+    "MSr3_L": "La",
+    "C2_W": "Wa",
+    "C3_W": "Wa",
+    "MS2_W": "Wa",
+    "MS2_L": "Lb",
+    "MS3_W": "Wa",
+    "MS3_L": "Lb",
+    "T2_W1": "Wa",
+    "T2_W2": "Wf",
+    "T2_W3": "Wa",
+    "T3_W1": "Wa",
+    "T3_W2": "Wf",
+    "T3_W3": "Wa",
+    "Feed2_W": "Wf",
+    "Feed2_L": "lf",
+    "R1_Gap": "2*La + Wa",
+    "Feed3_W": "Wf",
+    "Feed3_L": "lf"
+   },
+   "objects": [
+    {
+     "name": "Substrate",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "0,-0.5*C3_W-MSr3_L-Margin-0.5*T1_W3-0.5*T3_W2,0",
+        "XSize": "0.5*C3_W+Feed1_L+Feed3_L+MS3_L+0.5*T1_W1+T3_W3",
+        "YSize": "0.5*C2_W+0.5*C3_W+MSr2_L+MSr3_L+2*Margin+T1_W3+0.5*T2_W2+0.5*T3_W2",
+        "ZSize": "Sub1_H"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "Sub1_Er3.66",
+     "solve_inside": true,
+     "model": true,
+     "color": "#bebebe",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Ground",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0,-0.5*C3_W-MSr3_L-Margin-0.5*T1_W3-0.5*T3_W2,0",
+        "Axis": "Z",
+        "XSize": "0.5*C3_W+Feed1_L+Feed3_L+MS3_L+0.5*T1_W1+T3_W3",
+        "YSize": "0.5*C2_W+0.5*C3_W+MSr2_L+MSr3_L+2*Margin+T1_W3+0.5*T2_W2+0.5*T3_W2",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0,-0.5*Feed1_W,Sub1_H",
+        "Axis": "Z",
+        "XSize": "Feed1_L",
+        "YSize": "Feed1_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "T1",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "MSr2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "MSr3",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "C2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "C3",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "MS2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "MS3",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "T2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "T3",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Feed2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Feed3",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "T1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Feed1_L,-0.5*T1_W3,Sub1_H",
+        "Axis": "Z",
+        "XSize": "T1_W1",
+        "YSize": "T1_W3",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "MSr2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Feed1_L-0.5*MSr2_W+0.5*T1_W1,0.5*T1_W3,Sub1_H",
+        "Axis": "Z",
+        "XSize": "MSr2_W",
+        "YSize": "MSr2_L",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "MSr3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Feed1_L-0.5*MSr3_W+0.5*T1_W1,-MSr3_L-0.5*T1_W3,Sub1_H",
+        "Axis": "Z",
+        "XSize": "MSr3_W",
+        "YSize": "MSr3_L",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "C2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-0.5*C2_W+Feed1_L+0.5*T1_W1,MSr2_L+0.5*T1_W3,Sub1_H",
+        "Axis": "Z",
+        "XSize": "C2_W",
+        "YSize": "C2_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "C3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-0.5*C3_W+Feed1_L+0.5*T1_W1,-C3_W-MSr3_L-0.5*T1_W3,Sub1_H",
+        "Axis": "Z",
+        "XSize": "C3_W",
+        "YSize": "C3_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "MS2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C2_W+Feed1_L+0.5*T1_W1,0.5*C2_W-0.5*MS2_W+MSr2_L+0.5*T1_W3,Sub1_H",
+        "Axis": "Z",
+        "XSize": "MS2_L",
+        "YSize": "MS2_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "MS3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C3_W+Feed1_L+0.5*T1_W1,-0.5*C3_W-0.5*MS3_W-MSr3_L-0.5*T1_W3,Sub1_H",
+        "Axis": "Z",
+        "XSize": "MS3_L",
+        "YSize": "MS3_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "T2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C2_W+Feed1_L+MS2_L+0.5*T1_W1,0.5*C2_W+MSr2_L+0.5*T1_W3-0.5*T2_W2,Sub1_H",
+        "Axis": "Z",
+        "XSize": "T2_W3",
+        "YSize": "T2_W2",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "T3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C3_W+Feed1_L+MS3_L+0.5*T1_W1,-0.5*C3_W-MSr3_L-0.5*T1_W3-0.5*T3_W2,Sub1_H",
+        "Axis": "Z",
+        "XSize": "T3_W3",
+        "YSize": "T3_W2",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C2_W+Feed1_L+MS2_L+0.5*T1_W1+T2_W3,0.5*C2_W-0.5*Feed2_W+MSr2_L+0.5*T1_W3,Sub1_H",
+        "Axis": "Z",
+        "XSize": "Feed2_L",
+        "YSize": "Feed2_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C3_W+Feed1_L+MS3_L+0.5*T1_W1+T3_W3,-0.5*C3_W-0.5*Feed3_W-MSr3_L-0.5*T1_W3,Sub1_H",
+        "Axis": "Z",
+        "XSize": "Feed3_L",
+        "YSize": "Feed3_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "R1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C2_W+Feed1_L+MS2_L+0.5*T1_W1,0.5*C2_W+MSr2_L-R1_Gap+0.5*T1_W3-0.5*T2_W2,Sub1_H",
+        "Axis": "Z",
+        "XSize": "T2_W3",
+        "YSize": "R1_Gap",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0,-0.5*Feed1_W,0",
+        "Axis": "X",
+        "XSize": "1",
+        "YSize": "Feed1_W",
+        "ZSize": "Sub1_H"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C2_W+Feed1_L+Feed2_L+MS2_L+0.5*T1_W1+T2_W3,0.5*C2_W-0.5*Feed2_W+MSr2_L+0.5*T1_W3,0",
+        "Axis": "X",
+        "XSize": "1",
+        "YSize": "Feed2_W",
+        "ZSize": "Sub1_H"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C3_W+Feed1_L+Feed3_L+MS3_L+0.5*T1_W1+T3_W3,-0.5*C3_W-0.5*Feed3_W-MSr3_L-0.5*T1_W3,0",
+        "Axis": "X",
+        "XSize": "1",
+        "YSize": "Feed3_W",
+        "ZSize": "Sub1_H"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [
+    {
+     "name": "Copper_Traces",
+     "kind": "Finite Conductivity",
+     "props": {
+      "UseMaterial": "False",
+      "Material": "copper",
+      "Conductivity": "5.8e+07",
+      "Permeability": "1",
+      "Roughness": "0um",
+      "UseThickness": "True",
+      "Thickness": "Sub1_T",
+      "TwoSided": "True"
+     },
+     "faces": [],
+     "objects": [
+      "Feed1"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Copper_Ground",
+     "kind": "Finite Conductivity",
+     "props": {
+      "UseMaterial": "False",
+      "Material": "copper",
+      "Conductivity": "5.8e+07",
+      "Permeability": "1",
+      "Roughness": "0um",
+      "UseThickness": "True",
+      "Thickness": "Sub1_T",
+      "TwoSided": "True"
+     },
+     "faces": [],
+     "objects": [
+      "Ground"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "R1",
+     "kind": "Lumped RLC",
+     "props": {
+      "Model": "Parallel RLC",
+      "UseResistance": "True",
+      "Resistance": "R_iso",
+      "UseInductance": "False",
+      "Inductance": "1nH",
+      "UseCapacitance": "False",
+      "Capacitance": "1pF",
+      "TouchstoneFile": "",
+      "TouchstoneMount": "Series",
+      "Component": "R1 of Wilkinson_2.45GHz_Circuit",
+      "IntegrationLine": "0.5*C2_W+Feed1_L+MS2_L+0.5*T1_W1+0.5*T2_W3,0.5*C2_W+MSr2_L+0.5*T1_W3-0.5*T2_W2,Sub1_H;0.5*C2_W+Feed1_L+MS2_L+0.5*T1_W1+0.5*T2_W3,0.5*C2_W+MSr2_L-R1_Gap+0.5*T1_W3-0.5*T2_W2,Sub1_H"
+     },
+     "faces": [],
+     "objects": [
+      "R1"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "excitations": [
+    {
+     "name": "1",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "1",
+      "Impedance": "50ohm",
+      "IntegrationLine": "0,0,0;0,0,Sub1_H"
+     },
+     "faces": [],
+     "objects": [
+      "Port1"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "2",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "2",
+      "Impedance": "50ohm",
+      "IntegrationLine": "0.5*C2_W+Feed1_L+Feed2_L+MS2_L+0.5*T1_W1+T2_W3,0.5*C2_W+MSr2_L+0.5*T1_W3,0;0.5*C2_W+Feed1_L+Feed2_L+MS2_L+0.5*T1_W1+T2_W3,0.5*C2_W+MSr2_L+0.5*T1_W3,Sub1_H"
+     },
+     "faces": [],
+     "objects": [
+      "Port2"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "3",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "3",
+      "Impedance": "50ohm",
+      "IntegrationLine": "0.5*C3_W+Feed1_L+Feed3_L+MS3_L+0.5*T1_W1+T3_W3,-0.5*C3_W-MSr3_L-0.5*T1_W3,0;0.5*C3_W+Feed1_L+Feed3_L+MS3_L+0.5*T1_W1+T3_W3,-0.5*C3_W-MSr3_L-0.5*T1_W3,Sub1_H"
+     },
+     "faces": [],
+     "objects": [
+      "Port3"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [
+    {
+     "name": "Length_Traces",
+     "kind": "Length Based On Selection",
+     "props": {
+      "MaxLength": "0.5*T1_W1",
+      "RestrictElements": "False",
+      "MaxElements": "1000"
+     },
+     "faces": [],
+     "objects": [
+      "Feed1"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "3.185GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "BroadbandFrequencies": "3",
+      "PortsOnly": "False",
+      "MaximumPasses": "10",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "UsePowerBalance": "False",
+      "MaxPowerBalance": "0.01",
+      "MaxDeltaEfficiency": "0.01",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Interpolating",
+        "Distribution": "Linear Count",
+        "Start": "1.715GHz",
+        "Stop": "3.185GHz",
+        "Step": "0.1GHz",
+        "Count": "201",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": "Layout of the circuit design 'Wilkinson_2.45GHz_Circuit'. The dimensions are the design variables named after the parts; 'Update from Layout' (Simulation tab of the schematic) copies them back.",
+   "stackup": null,
+   "components": [],
+   "wires": []
+  },
+  {
+   "name": "Coupler_15dB_2.45GHz_Circuit",
+   "units": "mm",
+   "kind": "circuit",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Off",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True"
+   },
+   "variables": {
+    "h": "0.508mm",
+    "t_cu": "35um",
+    "W": "1.0213mm",
+    "S": "0.31504mm",
+    "L": "18.3906mm",
+    "Wf": "1.08135mm",
+    "lf": "9.1581mm"
+   },
+   "objects": [],
+   "boundaries": [],
+   "excitations": [],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "5GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "BroadbandFrequencies": "3",
+      "PortsOnly": "False",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "UsePowerBalance": "False",
+      "MaxPowerBalance": "0.01",
+      "MaxDeltaEfficiency": "0.01",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Discrete",
+        "Distribution": "Linear Count",
+        "Start": "1.715GHz",
+        "Stop": "3.185GHz",
+        "Step": "0.1GHz",
+        "Count": "201",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [
+    {
+     "name": "MultiFidelity1",
+     "solution": "Setup1 : Sweep",
+     "variables": [
+      {
+       "name": "W",
+       "include": true,
+       "min": "0.817044mm",
+       "max": "1.22557mm"
+      },
+      {
+       "name": "S",
+       "include": true,
+       "min": "0.252032mm",
+       "max": "0.378048mm"
+      },
+      {
+       "name": "L",
+       "include": true,
+       "min": "14.7125mm",
+       "max": "22.0687mm"
+      },
+      {
+       "name": "Wf",
+       "include": false,
+       "min": "0.865083mm",
+       "max": "1.29762mm"
+      },
+      {
+       "name": "lf",
+       "include": false,
+       "min": "7.32648mm",
+       "max": "10.9897mm"
+      }
+     ],
+     "goals": [
+      {
+       "calc": "dB(S(1,1))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": "<=",
+       "value": "-20",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(4,1))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": "<=",
+       "value": "-20",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(3,1))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": ">=",
+       "value": "-15.5",
+       "weight": "1"
+      },
+      {
+       "calc": "dB(S(3,1))",
+       "start": "2.205GHz",
+       "stop": "2.695GHz",
+       "cond": "<=",
+       "value": "-14.5",
+       "weight": "1"
+      }
+     ],
+     "props": {
+      "Optimizer": "Conjugate Gradient",
+      "CostFunction": "Error Area",
+      "MaxEvaluations": "3000",
+      "ParallelEvaluations": "6",
+      "DifferenceStep": "0.05",
+      "InitialStep": "0.1",
+      "GradientTolerance": "0.0001",
+      "MaxLineTrials": "16",
+      "Samples": "24",
+      "Chains": "4",
+      "ChainEvaluations": "40",
+      "SimplexStep": "0.08",
+      "SimplexTolerance": "0.005",
+      "Seed": "1",
+      "TrustRadius": "0.6",
+      "MaxRounds": "10",
+      "CoarseModel": "",
+      "MappingRounds": "6",
+      "MappingTolerance": "0.01",
+      "MultiFidelity": "True",
+      "FineModel": "Coupler_15dB_2.45GHz",
+      "FineSolution": "Setup1 : Sweep",
+      "TuningPoints": "51"
+     }
+    }
+   ],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": "",
+   "stackup": null,
+   "components": [
+    {
+     "name": "Sub1",
+     "type": "SUBST",
+     "x": -260,
+     "y": -200,
+     "rot": 0,
+     "props": {
+      "Er": "3.66",
+      "H": "h",
+      "T": "t_cu",
+      "TanD": "0.0037",
+      "Cond": "5.8e+07"
+     },
+     "mirror": false
+    },
+    {
+     "name": "CL1",
+     "type": "MCLIN",
+     "x": 0,
+     "y": 0,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "W",
+      "S": "S",
+      "L": "L"
+     },
+     "mirror": false
+    },
+    {
+     "name": "C1",
+     "type": "MCORN",
+     "x": -70,
+     "y": -10,
+     "rot": 90,
+     "props": {
+      "Subst": "Sub1",
+      "W": "W"
+     },
+     "mirror": true
+    },
+    {
+     "name": "Feed1",
+     "type": "MLIN",
+     "x": -70,
+     "y": -80,
+     "rot": 90,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wf",
+      "L": "lf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Port1",
+     "type": "PORT",
+     "x": -110,
+     "y": -80,
+     "rot": 0,
+     "props": {
+      "Num": "1",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "C2",
+     "type": "MCORN",
+     "x": 70,
+     "y": -10,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "W"
+     },
+     "mirror": true
+    },
+    {
+     "name": "Feed2",
+     "type": "MLIN",
+     "x": 70,
+     "y": -80,
+     "rot": 90,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wf",
+      "L": "lf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Port2",
+     "type": "PORT",
+     "x": 110,
+     "y": -80,
+     "rot": 0,
+     "props": {
+      "Num": "2",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "C3",
+     "type": "MCORN",
+     "x": -70,
+     "y": 10,
+     "rot": 270,
+     "props": {
+      "Subst": "Sub1",
+      "W": "W"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Feed3",
+     "type": "MLIN",
+     "x": -70,
+     "y": 80,
+     "rot": 90,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wf",
+      "L": "lf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Port3",
+     "type": "PORT",
+     "x": -110,
+     "y": 160,
+     "rot": 0,
+     "props": {
+      "Num": "3",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "C4",
+     "type": "MCORN",
+     "x": 70,
+     "y": 10,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "W"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Feed4",
+     "type": "MLIN",
+     "x": 70,
+     "y": 80,
+     "rot": 90,
+     "props": {
+      "Subst": "Sub1",
+      "W": "Wf",
+      "L": "lf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Port4",
+     "type": "PORT",
+     "x": 110,
+     "y": 160,
+     "rot": 0,
+     "props": {
+      "Num": "4",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    }
+   ],
+   "wires": [
+    {
+     "points": [
+      [
+       -70,
+       -120
+      ],
+      [
+       -110,
+       -120
+      ]
+     ]
+    },
+    {
+     "points": [
+      [
+       70,
+       -120
+      ],
+      [
+       110,
+       -120
+      ]
+     ]
+    },
+    {
+     "points": [
+      [
+       -70,
+       120
+      ],
+      [
+       -110,
+       120
+      ]
+     ]
+    },
+    {
+     "points": [
+      [
+       70,
+       120
+      ],
+      [
+       110,
+       120
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "Coupler_15dB_2.45GHz",
+   "units": "mm",
+   "kind": "3d",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Auto Open - Filter",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "10mm",
+    "MaterialOverride": "True",
+    "LayoutOf": "Coupler_15dB_2.45GHz_Circuit",
+    "LayoutPorts": "{\"1\": {\"part\": \"Port1\", \"terminal\": \"\", \"pad\": \"\"}, \"2\": {\"part\": \"Port2\", \"terminal\": \"\", \"pad\": \"\"}, \"3\": {\"part\": \"Port3\", \"terminal\": \"\", \"pad\": \"\"}, \"4\": {\"part\": \"Port4\", \"terminal\": \"\", \"pad\": \"\"}}",
+    "LayoutDims": "{\"Feed1_W\": [\"Feed1\", \"XSize\"], \"Feed1_L\": [\"Feed1\", \"YSize\"], \"C1_W\": [\"C1\", \"XSize\"], \"CL1_L\": [\"CL1_A\", \"XSize\"], \"CL1_W\": [\"CL1_A\", \"YSize\"], \"C2_W\": [\"C2\", \"XSize\"], \"C3_W\": [\"C3\", \"XSize\"], \"C4_W\": [\"C4\", \"XSize\"], \"Feed2_W\": [\"Feed2\", \"XSize\"], \"Feed2_L\": [\"Feed2\", \"YSize\"], \"Feed3_W\": [\"Feed3\", \"XSize\"], \"Feed3_L\": [\"Feed3\", \"YSize\"], \"Feed4_W\": [\"Feed4\", \"XSize\"], \"Feed4_L\": [\"Feed4\", \"YSize\"], \"Sub1_H\": [\"Port1\", \"ZSize\"]}",
+    "LayoutVars": "[\"C1_W\", \"C2_W\", \"C3_W\", \"C4_W\", \"CL1_L\", \"CL1_S\", \"CL1_W\", \"Feed1_L\", \"Feed1_W\", \"Feed2_L\", \"Feed2_W\", \"Feed3_L\", \"Feed3_W\", \"Feed4_L\", \"Feed4_W\", \"L\", \"Margin\", \"S\", \"Sub1_H\", \"Sub1_T\", \"W\", \"Wf\", \"h\", \"lf\", \"t_cu\"]"
+   },
+   "variables": {
+    "h": "0.508mm",
+    "t_cu": "35um",
+    "W": "1.0213mm",
+    "S": "0.31504mm",
+    "L": "18.3906mm",
+    "Wf": "1.08135mm",
+    "lf": "9.1581mm",
+    "Sub1_H": "h",
+    "Sub1_T": "t_cu",
+    "Margin": "5mm",
+    "Feed1_W": "Wf",
+    "Feed1_L": "lf",
+    "C1_W": "W",
+    "CL1_W": "W",
+    "CL1_L": "L",
+    "CL1_S": "S",
+    "C2_W": "W",
+    "C3_W": "W",
+    "C4_W": "W",
+    "Feed2_W": "Wf",
+    "Feed2_L": "lf",
+    "Feed3_W": "Wf",
+    "Feed3_L": "lf",
+    "Feed4_W": "Wf",
+    "Feed4_L": "lf"
+   },
+   "objects": [
+    {
+     "name": "Substrate",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-0.5*Feed1_W-Margin,-0.5*C1_W-0.5*C4_W-CL1_S-CL1_W-Feed1_L-Feed4_L,0",
+        "XSize": "0.5*C1_W+0.5*C2_W+CL1_L+0.5*Feed1_W+0.5*Feed2_W+2*Margin",
+        "YSize": "0.5*C2_W+0.5*C4_W+CL1_S+CL1_W+Feed2_L+Feed4_L",
+        "ZSize": "Sub1_H"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "Sub1_Er3.66",
+     "solve_inside": true,
+     "model": true,
+     "color": "#bebebe",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Ground",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-0.5*Feed1_W-Margin,-0.5*C1_W-0.5*C4_W-CL1_S-CL1_W-Feed1_L-Feed4_L,0",
+        "Axis": "Z",
+        "XSize": "0.5*C1_W+0.5*C2_W+CL1_L+0.5*Feed1_W+0.5*Feed2_W+2*Margin",
+        "YSize": "0.5*C2_W+0.5*C4_W+CL1_S+CL1_W+Feed2_L+Feed4_L",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-0.5*Feed1_W,-Feed1_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "Feed1_W",
+        "YSize": "Feed1_L",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "C1",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "CL1_A",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "C2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Feed2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "C1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-0.5*C1_W,-C1_W-Feed1_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "C1_W",
+        "YSize": "C1_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "CL1_A",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W,-0.5*C1_W-0.5*CL1_W-Feed1_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "CL1_L",
+        "YSize": "CL1_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "CL1_B",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W,-0.5*C1_W-CL1_S-1.5*CL1_W-Feed1_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "CL1_L",
+        "YSize": "CL1_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "C3",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "C4",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Feed3",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Feed4",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "C2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W+CL1_L,-0.5*C1_W-0.5*C2_W-Feed1_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "C2_W",
+        "YSize": "C2_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "C3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W-C3_W,-0.5*C1_W-0.5*C3_W-CL1_S-CL1_W-Feed1_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "C3_W",
+        "YSize": "C3_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "CL1_B",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "C4",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W+CL1_L,-0.5*C1_W-0.5*C4_W-CL1_S-CL1_W-Feed1_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "C4_W",
+        "YSize": "C4_W",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "CL1_B",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W+0.5*C2_W+CL1_L-0.5*Feed2_W,-0.5*C1_W+0.5*C2_W-Feed1_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "Feed2_W",
+        "YSize": "Feed2_L",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Feed1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W-0.5*C3_W-0.5*Feed3_W,-0.5*C1_W-0.5*C3_W-CL1_S-CL1_W-Feed1_L-Feed3_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "Feed3_W",
+        "YSize": "Feed3_L",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "CL1_B",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed4",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W+0.5*C4_W+CL1_L-0.5*Feed4_W,-0.5*C1_W-0.5*C4_W-CL1_S-CL1_W-Feed1_L-Feed4_L,Sub1_H",
+        "Axis": "Z",
+        "XSize": "Feed4_W",
+        "YSize": "Feed4_L",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "CL1_B",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-0.5*Feed1_W,0,0",
+        "Axis": "Y",
+        "XSize": "Feed1_W",
+        "YSize": "1",
+        "ZSize": "Sub1_H"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W+0.5*C2_W+CL1_L-0.5*Feed2_W,-0.5*C1_W+0.5*C2_W-Feed1_L+Feed2_L,0",
+        "Axis": "Y",
+        "XSize": "Feed2_W",
+        "YSize": "1",
+        "ZSize": "Sub1_H"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W-0.5*C3_W-0.5*Feed3_W,-0.5*C1_W-0.5*C3_W-CL1_S-CL1_W-Feed1_L-Feed3_L,0",
+        "Axis": "Y",
+        "XSize": "Feed3_W",
+        "YSize": "1",
+        "ZSize": "Sub1_H"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port4",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0.5*C1_W+0.5*C4_W+CL1_L-0.5*Feed4_W,-0.5*C1_W-0.5*C4_W-CL1_S-CL1_W-Feed1_L-Feed4_L,0",
+        "Axis": "Y",
+        "XSize": "Feed4_W",
+        "YSize": "1",
+        "ZSize": "Sub1_H"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [
+    {
+     "name": "Copper_Traces",
+     "kind": "Finite Conductivity",
+     "props": {
+      "UseMaterial": "False",
+      "Material": "copper",
+      "Conductivity": "5.8e+07",
+      "Permeability": "1",
+      "Roughness": "0um",
+      "UseThickness": "True",
+      "Thickness": "Sub1_T",
+      "TwoSided": "True"
+     },
+     "faces": [],
+     "objects": [
+      "Feed1",
+      "CL1_B"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Copper_Ground",
+     "kind": "Finite Conductivity",
+     "props": {
+      "UseMaterial": "False",
+      "Material": "copper",
+      "Conductivity": "5.8e+07",
+      "Permeability": "1",
+      "Roughness": "0um",
+      "UseThickness": "True",
+      "Thickness": "Sub1_T",
+      "TwoSided": "True"
+     },
+     "faces": [],
+     "objects": [
+      "Ground"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "excitations": [
+    {
+     "name": "1",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "1",
+      "Impedance": "50ohm",
+      "IntegrationLine": "0,0,0;0,0,Sub1_H"
+     },
+     "faces": [],
+     "objects": [
+      "Port1"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "2",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "2",
+      "Impedance": "50ohm",
+      "IntegrationLine": "0.5*C1_W+0.5*C2_W+CL1_L,-0.5*C1_W+0.5*C2_W-Feed1_L+Feed2_L,0;0.5*C1_W+0.5*C2_W+CL1_L,-0.5*C1_W+0.5*C2_W-Feed1_L+Feed2_L,Sub1_H"
+     },
+     "faces": [],
+     "objects": [
+      "Port2"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "3",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "3",
+      "Impedance": "50ohm",
+      "IntegrationLine": "0.5*C1_W-0.5*C3_W,-0.5*C1_W-0.5*C3_W-CL1_S-CL1_W-Feed1_L-Feed3_L,0;0.5*C1_W-0.5*C3_W,-0.5*C1_W-0.5*C3_W-CL1_S-CL1_W-Feed1_L-Feed3_L,Sub1_H"
+     },
+     "faces": [],
+     "objects": [
+      "Port3"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "4",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "4",
+      "Impedance": "50ohm",
+      "IntegrationLine": "0.5*C1_W+0.5*C4_W+CL1_L,-0.5*C1_W-0.5*C4_W-CL1_S-CL1_W-Feed1_L-Feed4_L,0;0.5*C1_W+0.5*C4_W+CL1_L,-0.5*C1_W-0.5*C4_W-CL1_S-CL1_W-Feed1_L-Feed4_L,Sub1_H"
+     },
+     "faces": [],
+     "objects": [
+      "Port4"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [
+    {
+     "name": "Length_Traces",
+     "kind": "Length Based On Selection",
+     "props": {
+      "MaxLength": "CL1_S",
+      "RestrictElements": "False",
+      "MaxElements": "1000"
+     },
+     "faces": [],
+     "objects": [
+      "Feed1",
+      "CL1_B"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "3.185GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "BroadbandFrequencies": "3",
+      "PortsOnly": "False",
+      "MaximumPasses": "10",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "UsePowerBalance": "False",
+      "MaxPowerBalance": "0.01",
+      "MaxDeltaEfficiency": "0.01",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Interpolating",
+        "Distribution": "Linear Count",
+        "Start": "1.715GHz",
+        "Stop": "3.185GHz",
+        "Step": "0.1GHz",
+        "Count": "201",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": "Layout of the circuit design 'Coupler_15dB_2.45GHz_Circuit'. The dimensions are the design variables named after the parts; 'Update from Layout' (Simulation tab of the schematic) copies them back.",
+   "stackup": null,
+   "components": [],
+   "wires": []
+  },
+  {
+   "name": "TestSet",
+   "units": "mm",
+   "kind": "circuit",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Off",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "Board": "{\"placements\": {\"SRC\": [-50.0, 0.0, 0.0], \"DIV\": [-10.0, 0.0, 0.0], \"R\": [130.0, 40.0, 180.0], \"CPL1\": [50.0, -25.0, 0.0], \"DUT1\": [130.0, -5.0, 180.0], \"R_iso1\": [40.29405, -46.38692, 270.0], \"A\": [130.0, -60.0, 180.0], \"V_iso1\": [40.29405, -52.28692, 90.0], \"CPL2\": [50.0, -95.0, 180.0], \"DUT2\": [130.0, -115.0, 180.0], \"TERM2\": [-50.0, -115.0, 0.0], \"B\": [130.0, -78.0, 180.0], \"R_iso2\": [40.29405, -73.61308, 90.0], \"V_iso2\": [40.29405, -67.71308, 270.0]}, \"tracks\": [], \"routes\": [{\"a\": [\"R_iso1\", 1], \"b\": [\"V_iso1\", 0], \"pts\": [[40.29405, -47.43692], [40.29405, -52.43692]], \"w\": 1.078611, \"radii\": [], \"wa\": 0.8, \"wb\": 0.0, \"la\": 3.235834, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"\", \"offset\": 0.0, \"ga\": [[\"R_iso1\", 1]], \"gb\": [[\"V_iso1\", 0]], \"plain\": []}, {\"a\": [\"R_iso2\", 1], \"b\": [\"V_iso2\", 0], \"pts\": [[40.29405, -72.56308], [40.29405, -67.56308]], \"w\": 1.078611, \"radii\": [], \"wa\": 0.8, \"wb\": 0.0, \"la\": 3.235834, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"\", \"offset\": 0.0, \"ga\": [[\"R_iso2\", 1]], \"gb\": [[\"V_iso2\", 0]], \"plain\": []}, {\"a\": [\"CPL1\", 2], \"b\": [\"R_iso1\", 0], \"pts\": [[40.29405, -35.33692], [40.29405, -45.33692]], \"w\": 1.078611, \"radii\": [], \"wa\": 0.0, \"wb\": 0.8, \"la\": 0.0, \"lb\": 3.235834, \"z0\": 50.0, \"group\": \"\", \"offset\": 0.0, \"ga\": [[\"CPL1\", 2]], \"gb\": [[\"R_iso1\", 0]], \"plain\": []}, {\"a\": [\"CPL2\", 3], \"b\": [\"R_iso2\", 0], \"pts\": [[40.29405, -84.66308], [40.29405, -74.66308]], \"w\": 1.078611, \"radii\": [], \"wa\": 0.0, \"wb\": 0.8, \"la\": 0.0, \"lb\": 3.235834, \"z0\": 50.0, \"group\": \"\", \"offset\": 0.0, \"ga\": [[\"CPL2\", 3]], \"gb\": [[\"R_iso2\", 0]], \"plain\": []}, {\"a\": [\"DIV\", 0], \"b\": [\"SRC\", 0], \"pts\": [[-28.215571, 0.0], [-50.0, 0.0]], \"w\": 1.078611, \"radii\": [], \"wa\": 0.0, \"wb\": 0.0, \"la\": 0.0, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"\", \"offset\": 0.0, \"ga\": [[\"DIV\", 0]], \"gb\": [[\"SRC\", 0]], \"plain\": []}, {\"a\": [\"DIV\", 2], \"b\": [\"CPL1\", 0], \"pts\": [[8.215571, -1.32651], [40.29405, -1.32651], [40.29405, -14.66308]], \"w\": 1.078611, \"radii\": [3.235834], \"wa\": 0.0, \"wb\": 0.0, \"la\": 0.0, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"\", \"offset\": 0.0, \"ga\": [[\"DIV\", 2]], \"gb\": [[\"CPL1\", 0]], \"plain\": []}, {\"a\": [\"CPL2\", 2], \"b\": [\"B\", 0], \"pts\": [[59.70595, -84.66308], [59.70595, -78.0], [89.999224, -78.0], [89.999224, -99.916821], [93.235058, -99.916821], [93.235058, -78.0], [96.470892, -78.0], [96.470892, -99.916821], [99.706726, -99.916821], [99.706726, -78.0], [130.0, -78.0]], \"w\": 1.078611, \"radii\": [3.235834, 1.617917, 1.617917, 1.617917, 1.617917, 1.617917, 1.617917, 1.617917, 1.617917], \"wa\": 0.0, \"wb\": 0.0, \"la\": 0.0, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"G1\", \"offset\": 0.0, \"ga\": [[\"CPL2\", 2]], \"gb\": [[\"B\", 0]], \"plain\": [[59.70595, -84.66308], [59.70595, -78.0], [130.0, -78.0]]}, {\"a\": [\"CPL1\", 1], \"b\": [\"DUT1\", 0], \"pts\": [[59.70595, -14.66308], [59.70595, -5.0], [130.0, -5.0]], \"w\": 1.078611, \"radii\": [3.235834], \"wa\": 0.0, \"wb\": 0.0, \"la\": 0.0, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"\", \"offset\": 0.0, \"ga\": [[\"CPL1\", 1]], \"gb\": [[\"DUT1\", 0]], \"plain\": []}, {\"a\": [\"CPL2\", 0], \"b\": [\"DUT2\", 0], \"pts\": [[59.70595, -105.33692], [59.70595, -115.0], [130.0, -115.0]], \"w\": 1.078611, \"radii\": [3.235834], \"wa\": 0.0, \"wb\": 0.0, \"la\": 0.0, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"\", \"offset\": 0.0, \"ga\": [[\"CPL2\", 0]], \"gb\": [[\"DUT2\", 0]], \"plain\": []}, {\"a\": [\"CPL1\", 3], \"b\": [\"A\", 0], \"pts\": [[59.70595, -35.33692], [59.70595, -60.0], [89.999224, -60.0], [89.999224, -42.583179], [93.235058, -42.583179], [93.235058, -60.0], [96.470892, -60.0], [96.470892, -42.583179], [99.706726, -42.583179], [99.706726, -60.0], [130.0, -60.0]], \"w\": 1.078611, \"radii\": [3.235834, 1.617917, 1.617917, 1.617917, 1.617917, 1.617917, 1.617917, 1.617917, 1.617917], \"wa\": 0.0, \"wb\": 0.0, \"la\": 0.0, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"G1\", \"offset\": 0.0, \"ga\": [[\"CPL1\", 3]], \"gb\": [[\"A\", 0]], \"plain\": [[59.70595, -35.33692], [59.70595, -60.0], [130.0, -60.0]]}, {\"a\": [\"CPL2\", 1], \"b\": [\"TERM2\", 0], \"pts\": [[40.29405, -105.33692], [40.29405, -115.0], [-50.0, -115.0]], \"w\": 1.078611, \"radii\": [3.235834], \"wa\": 0.0, \"wb\": 0.0, \"la\": 0.0, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"\", \"offset\": 0.0, \"ga\": [[\"CPL2\", 1]], \"gb\": [[\"TERM2\", 0]], \"plain\": []}, {\"a\": [\"DIV\", 1], \"b\": [\"R\", 0], \"pts\": [[8.215571, 1.32651], [69.107786, 1.32651], [69.107786, 40.0], [130.0, 40.0]], \"w\": 1.078611, \"radii\": [3.235834, 3.235834], \"wa\": 0.0, \"wb\": 0.0, \"la\": 0.0, \"lb\": 0.0, \"z0\": 50.0, \"group\": \"G1\", \"offset\": 0.0, \"ga\": [[\"DIV\", 1]], \"gb\": [[\"R\", 0]], \"plain\": []}], \"opts\": {\"z0\": 50.0, \"style\": \"Arc\", \"next_group\": 2, \"f0\": 2450000000.0}}"
+   },
+   "variables": {},
+   "objects": [],
+   "boundaries": [],
+   "excitations": [],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "5GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "BroadbandFrequencies": "3",
+      "PortsOnly": "False",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "UsePowerBalance": "False",
+      "MaxPowerBalance": "0.01",
+      "MaxDeltaEfficiency": "0.01",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Discrete",
+        "Distribution": "Linear Count",
+        "Start": "1.5GHz",
+        "Stop": "3.5GHz",
+        "Step": "0.1GHz",
+        "Count": "201",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [
+    {
+     "name": "Test set paths",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "dB(S(2,1))",
+      "dB(S(5,1))",
+      "dB(S(3,5))",
+      "dB(S(4,6))",
+      "dB(S(7,6))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Directivity of the A coupler",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "dB(S(3,5))",
+      "dB(S(3,1)/S(5,1))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Match",
+     "kind": "Rectangular",
+     "solution": "Setup1 : Sweep",
+     "traces": [
+      "dB(S(1,1))",
+      "dB(S(5,5))",
+      "dB(S(6,6))",
+      "dB(S(2,2))",
+      "dB(S(3,3))",
+      "dB(S(4,4))"
+     ],
+     "props": {}
+    }
+   ],
+   "field_plots": [],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": "",
+   "stackup": null,
+   "components": [
+    {
+     "name": "Sub1",
+     "type": "SUBST",
+     "x": 0,
+     "y": -260,
+     "rot": 0,
+     "props": {
+      "Er": "3.66",
+      "H": "0.508mm",
+      "T": "35um",
+      "TanD": "0.0037",
+      "Cond": "5.8e7"
+     },
+     "mirror": false
+    },
+    {
+     "name": "DIV",
+     "type": "EM",
+     "x": 0,
+     "y": 0,
+     "rot": 0,
+     "props": {
+      "Design": "Wilkinson_2.45GHz",
+      "Ports": "3",
+      "Model": "Circuit",
+      "CircuitModel": "Wilkinson_2.45GHz_Circuit"
+     },
+     "mirror": false
+    },
+    {
+     "name": "CPL1",
+     "type": "EM",
+     "x": 300,
+     "y": 120,
+     "rot": 0,
+     "props": {
+      "Design": "Coupler_15dB_2.45GHz",
+      "Ports": "4",
+      "Model": "Circuit",
+      "CircuitModel": "Coupler_15dB_2.45GHz_Circuit"
+     },
+     "mirror": false
+    },
+    {
+     "name": "CPL2",
+     "type": "EM",
+     "x": 300,
+     "y": 360,
+     "rot": 0,
+     "props": {
+      "Design": "Coupler_15dB_2.45GHz",
+      "Ports": "4",
+      "Model": "Circuit",
+      "CircuitModel": "Coupler_15dB_2.45GHz_Circuit"
+     },
+     "mirror": false
+    },
+    {
+     "name": "SRC",
+     "type": "PORT",
+     "x": -260,
+     "y": 0,
+     "rot": 0,
+     "props": {
+      "Num": "1",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "R",
+     "type": "PORT",
+     "x": 620,
+     "y": -120,
+     "rot": 180,
+     "props": {
+      "Num": "2",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "A",
+     "type": "PORT",
+     "x": 620,
+     "y": 60,
+     "rot": 180,
+     "props": {
+      "Num": "3",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "B",
+     "type": "PORT",
+     "x": 620,
+     "y": 420,
+     "rot": 180,
+     "props": {
+      "Num": "4",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "DUT1",
+     "type": "PORT",
+     "x": 620,
+     "y": 180,
+     "rot": 180,
+     "props": {
+      "Num": "5",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "DUT2",
+     "type": "PORT",
+     "x": 620,
+     "y": 300,
+     "rot": 180,
+     "props": {
+      "Num": "6",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "TERM2",
+     "type": "PORT",
+     "x": -260,
+     "y": 360,
+     "rot": 0,
+     "props": {
+      "Num": "7",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "R_iso1",
+     "type": "R",
+     "x": 520,
+     "y": 240,
+     "rot": 90,
+     "props": {
+      "R": "50ohm",
+      "Footprint": "R_0603"
+     },
+     "mirror": false
+    },
+    {
+     "name": "V_iso1",
+     "type": "MVIA",
+     "x": 520,
+     "y": 310,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "D": "0.3mm",
+      "N": "2",
+      "P": "0.6mm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "R_iso2",
+     "type": "R",
+     "x": 100,
+     "y": 480,
+     "rot": 90,
+     "props": {
+      "R": "50ohm",
+      "Footprint": "R_0603"
+     },
+     "mirror": false
+    },
+    {
+     "name": "V_iso2",
+     "type": "MVIA",
+     "x": 100,
+     "y": 550,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "D": "0.3mm",
+      "N": "2",
+      "P": "0.6mm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N15",
+     "type": "LABEL",
+     "x": -260,
+     "y": -40,
+     "rot": 0,
+     "props": {
+      "Net": "src"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N16",
+     "type": "LABEL",
+     "x": -60,
+     "y": -10,
+     "rot": 0,
+     "props": {
+      "Net": "src"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N17",
+     "type": "LABEL",
+     "x": 60,
+     "y": 0,
+     "rot": 0,
+     "props": {
+      "Net": "ref"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N18",
+     "type": "LABEL",
+     "x": 620,
+     "y": -80,
+     "rot": 0,
+     "props": {
+      "Net": "ref"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N19",
+     "type": "LABEL",
+     "x": -60,
+     "y": 10,
+     "rot": 0,
+     "props": {
+      "Net": "fwd"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N20",
+     "type": "LABEL",
+     "x": 240,
+     "y": 110,
+     "rot": 0,
+     "props": {
+      "Net": "fwd"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N21",
+     "type": "LABEL",
+     "x": 360,
+     "y": 110,
+     "rot": 0,
+     "props": {
+      "Net": "p1"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N22",
+     "type": "LABEL",
+     "x": 620,
+     "y": 220,
+     "rot": 0,
+     "props": {
+      "Net": "p1"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N23",
+     "type": "LABEL",
+     "x": 360,
+     "y": 130,
+     "rot": 0,
+     "props": {
+      "Net": "a"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N24",
+     "type": "LABEL",
+     "x": 620,
+     "y": 100,
+     "rot": 0,
+     "props": {
+      "Net": "a"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N25",
+     "type": "LABEL",
+     "x": 240,
+     "y": 130,
+     "rot": 0,
+     "props": {
+      "Net": "iso1"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N26",
+     "type": "LABEL",
+     "x": 520,
+     "y": 210,
+     "rot": 0,
+     "props": {
+      "Net": "iso1"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N27",
+     "type": "LABEL",
+     "x": 360,
+     "y": 370,
+     "rot": 0,
+     "props": {
+      "Net": "iso2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N28",
+     "type": "LABEL",
+     "x": 100,
+     "y": 450,
+     "rot": 0,
+     "props": {
+      "Net": "iso2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N29",
+     "type": "LABEL",
+     "x": 520,
+     "y": 270,
+     "rot": 0,
+     "props": {
+      "Net": "via1"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N30",
+     "type": "LABEL",
+     "x": 520,
+     "y": 290,
+     "rot": 0,
+     "props": {
+      "Net": "via1"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N31",
+     "type": "LABEL",
+     "x": 100,
+     "y": 510,
+     "rot": 0,
+     "props": {
+      "Net": "via2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N32",
+     "type": "LABEL",
+     "x": 100,
+     "y": 530,
+     "rot": 0,
+     "props": {
+      "Net": "via2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N33",
+     "type": "LABEL",
+     "x": 620,
+     "y": 340,
+     "rot": 0,
+     "props": {
+      "Net": "p2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N34",
+     "type": "LABEL",
+     "x": 240,
+     "y": 350,
+     "rot": 0,
+     "props": {
+      "Net": "p2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N35",
+     "type": "LABEL",
+     "x": 360,
+     "y": 350,
+     "rot": 0,
+     "props": {
+      "Net": "t2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N36",
+     "type": "LABEL",
+     "x": -260,
+     "y": 320,
+     "rot": 0,
+     "props": {
+      "Net": "t2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N37",
+     "type": "LABEL",
+     "x": 240,
+     "y": 370,
+     "rot": 0,
+     "props": {
+      "Net": "b"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N38",
+     "type": "LABEL",
+     "x": 620,
+     "y": 460,
+     "rot": 0,
+     "props": {
+      "Net": "b"
+     },
+     "mirror": false
+    }
+   ],
+   "wires": []
+  }
+ ],
+ "variables": {},
+ "materials": [
+  {
+   "name": "Sub1_Er3.66",
+   "permittivity": "3.66",
+   "permeability": "1",
+   "conductivity": "0",
+   "loss_tangent": "0.0037",
+   "magnetic_loss_tangent": "0",
+   "color": "#2e7d32",
+   "pec": false,
+   "library": "Project",
+   "description": "Substrate Sub1 of Wilkinson_2.45GHz_Circuit",
+   "dispersion": "None",
+   "measured_frequency": "1GHz",
+   "eps_static": "4.6",
+   "eps_infinity": "4.2",
+   "relaxation_frequency": "1GHz",
+   "anisotropic": false,
+   "permittivity_tensor": "",
+   "permeability_tensor": "",
+   "loss_tangent_tensor": "",
+   "emsutil_key": ""
+  }
+ ],
+ "format": "hertzon-project",
+ "version": 2
+}

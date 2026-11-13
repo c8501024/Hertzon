@@ -486,10 +486,12 @@ a pin at every port; ports at an angle (the feeds of a rat-race) keep their angl
   room), **Miter** bends are 50 % mitered; a bend from a slanted port is always circular. Where a pin is more
   than 2 % wider or narrower than the line, a linear taper of 3 line widths joins them, so the impedance has no
   step. Hover a route for its length and its phase at f0.
-* **Match Phase** gives the selected routes the same insertion phase at **f0**: each route that is short of the
-  longest gets a meander (a row of U-shaped detours) in its longest straight piece, its height first from the
-  electrical length and then corrected on the route's circuit model to within 0.2 degrees. Matching again
-  starts from the routes without their meanders.
+* **Match Phase** gives the selected routes the same insertion phase at **f0**, or a set difference: the dialog
+  asks for each route's phase relative to the group (0 for all: equal phase; +90 degrees: this route lags by 90
+  degrees more, as for a feed of a circularly polarized antenna). Each route that is short of its target gets a
+  meander (a row of U-shaped detours) in its longest straight piece, its height first from the electrical length
+  and then corrected on the route's circuit model to within 0.2 degrees. Matching again starts from the routes
+  without their meanders.
 * Double-click a bend of a route to set its radius, or a 50 % miter for a 90 degree bend (for that bend or all
   bends of the route); where the straight pieces leave less room, the radius is made smaller and the status line
   says so.
@@ -501,6 +503,10 @@ the schematic by the chain of the route (its straight pieces as MLIN, the tapers
 bend as MMBEND, a circular bend as an MLIN of its arc length), and say so in their messages. Create 3D Layout
 copies every block's 3D design into the layout, turned and moved as placed (its own ports go: the board connects
 it), with the routes as copper, so the full-wave check of the whole system is one click away.
+
+**File > Open Example > VNA_TestSet_2G4** shows it on a whole board: the reflectometer test set of a two-port
+network analyzer from a Wilkinson divider and two coupled-line couplers of the Design Wizard, with the lines to
+the receivers R, A and B matched in phase. Move a block and press Connect and Match Phase again.
 
 ## AI assistants
 

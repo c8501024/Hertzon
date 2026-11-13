@@ -506,8 +506,23 @@ def route_one(parts, board, nodes, a, b, w: float, style: str, gap_w: float = GA
     want_r = RADIUS_W * w if style == "Arc" else 0.0
     taper = lambda wq: (wq, TAPER_W * max(wq, w)) if wq > 0 and abs(wq - w) > 0.02 * w else (0.0, 0.0)  # noqa: E731
     (wa_, la), (wb_, lb) = taper(wa), taper(wb)
+    if parts[a[0]].type == "MVIA":            # a line ends on vias with its own width
+        wa_, la = 0.0, 0.0
+    if parts[b[0]].type == "MVIA":
+        wb_, lb = 0.0, 0.0
     bend_allow = max(RADIUS_W * w, w / 2)
     warnings = []
+    # two pins that face each other on one line: a straight piece between them (a short connection, e.g. a
+    # resistor to its via, must not loop round to get the stub lengths of a bend)
+    from shapely.geometry import LineString
+    dist = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
+    if dist > la + lb + 1e-6 and da[0] * db[0] + da[1] * db[1] < -0.9999 and \
+            abs((pb[0] - pa[0]) * da[1] - (pb[1] - pa[1]) * da[0]) < 1e-4 and \
+            (pb[0] - pa[0]) * da[0] + (pb[1] - pa[1]) * da[1] > 0:
+        tight = _obstacles(parts, board, nodes, {a[0], b[0]}, routes, w, 0.25 * w)
+        seg = LineString([pa, pb]).difference(_near(pa, w / 2 + 0.05)).difference(_near(pb, w / 2 + 0.05))
+        if tight is None or not tight.intersects(seg):
+            return BD.Route(a, b, [pa, pb], w, [], wa_, wb_, la, lb, z0), warnings
     for gfac in (gap_w, 2.0, 1.0, 0.5):
         gap = gfac * w
         blocked = _obstacles(parts, board, nodes, {a[0], b[0]}, routes, w, gap)
