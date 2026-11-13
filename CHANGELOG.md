@@ -90,6 +90,11 @@ the GitHub release notes.
   Touchstone). Both tabs are built by one function, so they stay alike.
 
 ### Fixed
+- **render_image shows round faces as the modeler does.** The picture of the model used the coarse display mesh
+  (18 segments per turn) and flat shading, so small cylinders such as coax conductors, pins and vias looked
+  angular, unlike the viewer. It now uses the modeler's display quality (normal, 36 segments; `quality` to
+  choose) and the viewer's normals, smooth inside a curved face and sharp at its edges. Checks and face lists
+  keep the cheap coarse mesh. Display only: the FEM mesh is not touched.
 - Circuit designs: a part with two pins on the same net (for example both cold ends of a balun block on one IF
   node, or a 3D block with two ports tied together) lost one of the two in the network; now both count.
 - Harmonic balance with 3D blocks or Touchstone data that start above 0 Hz: DC takes the real part of the lowest

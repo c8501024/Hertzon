@@ -401,13 +401,14 @@ def summary(ctx: Ctx) -> dict:
 # geometry (built in this process with gmsh)
 # ------------------------------------------------------------------------------------------------
 def tessellate(proj: Project, des: Design, names: list[str] | None = None, timeout: float | None = None,
-               detail: str = "full") -> tuple[dict, dict]:
+               detail: str = "full", quality: str = "coarse") -> tuple[dict, dict]:
     """Display tessellation of the live objects: ({name: Tess}, {name: error}).
 
     Objects not in the cache are built in a child process (geomworker) with a time limit, progress reports
     and cancellation, so a build that hangs in the kernel never blocks the server. detail='fast' leaves out
     subtractions whose tools stay in the model (drill holes in a board that hold the via cylinders): the
-    picture is the same from outside, the build much faster. It is never the default."""
+    picture is the same from outside, the build much faster. It is never the default. quality is the display
+    quality: coarse is enough for checks and face lists, a picture uses the modeler's (render_image)."""
     from ..kernel import occ as K
     from . import geomworker as W
     from .protocol import cancelled, progress
@@ -417,7 +418,7 @@ def tessellate(proj: Project, des: Design, names: list[str] | None = None, timeo
     live_objs = des.live_objects()
     if names is not None:
         live_objs = [o for o in live_objs if o.name in names]
-    keys = {o.name: K.object_key(des, o, ev) for o in live_objs}
+    keys = {o.name: (quality, K.object_key(des, o, ev)) for o in live_objs}
     regions = [o.name for o in live_objs if o.history[0].kind == "CreateRegion"]
     out, errors = {}, {}
     todo = []
@@ -433,7 +434,7 @@ def tessellate(proj: Project, des: Design, names: list[str] | None = None, timeo
         limit = W.default_timeout() if timeout is None else float(timeout)
         try:
             tess, errs = W.build(proj.to_dict(), proj.path, des.name, build, limit,
-                                 on_progress=progress, should_stop=cancelled)
+                                 on_progress=progress, should_stop=cancelled, quality=quality)
         except W.BuildTimeout as e:
             raise ToolError(
                 f"Building the geometry took longer than {limit:g} s and was stopped"
@@ -2274,7 +2275,11 @@ def t_render_image(args):
     detail = args.get("detail") or "full"
     if detail not in ("full", "fast"):
         raise ToolError("detail is 'full' or 'fast'")
-    tess, errors = tessellate(ctx.proj, d, timeout=args.get("timeout_s"), detail=detail)
+    from ..kernel.display import DEFAULT_QUALITY, QUALITIES, face_smooth_polydata
+    quality = args.get("quality") or DEFAULT_QUALITY
+    if quality not in QUALITIES:
+        raise ToolError(f"quality is one of {list(QUALITIES)}")
+    tess, errors = tessellate(ctx.proj, d, timeout=args.get("timeout_s"), detail=detail, quality=quality)
     sc = _unit(d)
     w, h = int(args.get("width", 1000)), int(args.get("height", 700))
     pl = pv.Plotter(off_screen=True, window_size=(w, h))
@@ -2287,9 +2292,10 @@ def t_render_image(args):
             continue
         is_region = o.history[0].kind == "CreateRegion"
         if len(t.tris):
-            m = pv.PolyData(np.asarray(t.points) / sc, np.c_[np.full(len(t.tris), 3), t.tris].ravel())
+            # surfaces as in the viewer: normals smooth inside a curved face, sharp at its edges
+            m = face_smooth_polydata(np.asarray(t.points) / sc, t.tris, t.tri_face)
             op = 0.08 if is_region else max(0.15, 1.0 - float(o.transparency))
-            pl.add_mesh(m, color=o.color, opacity=op, show_edges=False, smooth_shading=False)
+            pl.add_mesh(m, color=o.color, opacity=op, show_edges=False, smooth_shading=True)
         lines = [e for e in t.edges if len(e) > 1]
         for e in lines[:4000]:
             pl.add_mesh(pv.lines_from_points(np.asarray(e) / sc), color="#202020", line_width=1)
@@ -2583,6 +2589,8 @@ TOOLS = [
                   "detail": {"type": "string", "enum": ["full", "fast"], "description": "full (default): the model "
                              "as built; fast: subtractions that keep their tools (drill holes of a board, filled by "
                              "the via cylinders) are left out, much faster for large boards"},
+                  "quality": {"type": "string", "enum": ["coarse", "normal", "fine"], "description": "display "
+                              "quality of round faces, as View > Display Quality in the modeler (default normal)"},
                   "timeout_s": TIMEOUT}), t_render_image, True),
     Tool("run_python", "Edit the design with Python for repetitive work (arrays, parametric layouts). Names: "
          "project, design, add_object(kind, name=None, material='vacuum', **props), operation(obj, kind, "
