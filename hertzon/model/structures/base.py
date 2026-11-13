@@ -140,7 +140,7 @@ class Structure:
     ports = 2
     fields: tuple[Field, ...] = ()
     needs = ""                          # planned: what is missing before it can be built
-    designer = ""                       # an existing dialog that builds it (Tools menu action), see catalog.py
+    designer = ""                       # an existing dialog that builds it (main window method), see catalog.py
     coarse = "Circuit"                  # coarse model of the multi-fidelity optimization (shown in the wizard)
     optimizer = "Conjugate Gradient"    # algorithm of the optimization (a sampled start for rugged goals)
     kind = "circuit"                    # "circuit": circuit + 3D layout; "3d": a 3D design only (antennas)

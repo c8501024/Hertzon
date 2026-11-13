@@ -126,7 +126,7 @@ def patch_antenna() -> Project:
 
 def hairpin_filter() -> Project:
     """2.3-2.6 GHz band-pass of three tapped hairpins on RO4350B with the conjugate gradient optimization
-    (Tools > Filter Design > Tapped Hairpin with its defaults)."""
+    (Tools > Design Wizard > Hairpin bandpass with its defaults)."""
     from hertzon.model.filters import HairpinSpec, hairpin_project
     p = hairpin_project(HairpinSpec(n=3))
     p.name = "HairpinFilter"

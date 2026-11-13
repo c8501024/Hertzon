@@ -1,4 +1,4 @@
-"""Filters of the design wizard (the hairpin filter has its own designer, model/filters.py)."""
+"""Filters of the design wizard (the hairpin filter and diplexer have their own designers, model/filters.py and model/diplexer.py)."""
 from __future__ import annotations
 
 import math

@@ -1,4 +1,4 @@
-"""Tools > Antenna Design > Rectangular Patch: frequency and substrate in, parametrized patch design out."""
+"""Design Wizard > Rectangular patch: frequency and substrate in, parametrized patch design out."""
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer
