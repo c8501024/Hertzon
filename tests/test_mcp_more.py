@@ -321,3 +321,29 @@ def test_switching_on_the_patch_sweep_keeps_the_model(server, tmp_path):
     r = call(server, "set_sweep", name="Sweep", props={"Enabled": "True"})
     assert "air box" in r["note"] and "AutoOpenPadding" in r["note"]
     assert "air box" in tools._stale_mesh_reason(tools.load({}), "Setup1", out)
+
+
+def test_wideband_sweep_and_short_padding_are_flagged(server, tmp_path):
+    """A sweep is solved on the mesh adapted at the setup's frequencies (also when run alone on the stored mesh):
+    a sweep far above them (UWB) and a fixed padding below lambda/4 at the lowest frequency are warned about by
+    validate, set_sweep and run_simulation; the patch assistant's +-15 % sweep and its padding are not, and a
+    broadband adaptation over the sweep clears the mesh warning."""
+    from hertzon.model.design import Project
+    from hertzon.model.validate import sweep_coverage
+    path = str(tmp_path / "w.hzn")
+    call(server, "create_project", path=path)
+    call(server, "create_patch_antenna", frequency_ghz=2.45)
+    r = call(server, "set_sweep", name="Sweep", props={"Enabled": "True"})
+    assert "warnings" not in r
+    r = call(server, "set_sweep", name="UWB", props={"SweepType": "Interpolating", "Distribution": "Linear Count",
+                                                     "Start": "1GHz", "Stop": "6GHz", "Count": "101"})
+    w = r["warnings"]
+    assert any("UWB reaches 6 GHz" in x and "Broadband" in x for x in w), w
+    assert any("below lambda/4" in x and "1 GHz" in x for x in w), w
+    p = Project.load(path)
+    d = p.design("Patch_2.45GHz")
+    st = d.setup("Setup1")
+    st.props.update(SolutionFrequencyMode="Broadband", LowFrequency="1GHz", HighFrequency="6GHz")
+    assert not any("reaches" in x for x in sweep_coverage(p, d, st))
+    d.settings["AutoOpenPadding"] = ""                 # automatic: lambda/3 at the lowest sweep frequency
+    assert sweep_coverage(p, d, st) == []

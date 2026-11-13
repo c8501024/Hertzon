@@ -346,6 +346,9 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                     err = ev.check(sw.props.get(p.name, p.default))
                     if err:
                         add("Analysis Setup", "error", f"{s.name}:{sw.name}.{p.name}: {err}")
+        if not any(c.level == "error" for c in out if c.category == "Analysis Setup"):
+            for msg in sweep_coverage(project, design, s):
+                add("Analysis Setup", "warning", msg)
     if design.setups and not any(c.level == "error" for c in out if c.category == "Analysis Setup"):
         add("Analysis Setup", "ok", f"{len(design.setups)} setup(s)")
 
@@ -355,6 +358,57 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
     elif design.spheres:
         add("Radiation", "ok", f"{len(design.spheres)} far field setup(s)")
     return out
+
+
+# a switched-on sweep may reach this far above the highest adaptive frequency before its upper end is solved on a
+# mesh that is clearly too coarse: elements per wavelength fall with 1/f, the lambda/3 of the initial mesh becomes
+# lambda/2 at 1.5x. Below that (patch assistant +-15 %, a band around its centre) the adapted mesh carries the sweep.
+SWEEP_ABOVE_ADAPTIVE = 1.5
+C0 = 299792458.0
+
+
+def sweep_coverage(project: Project, design: Design, setup) -> list[str]:
+    """Warnings when the switched-on sweeps of `setup` leave what its adaptive mesh and open region cover.
+    Every sweep, whether solved with the setup or alone on the stored adaptive mesh, is solved on the mesh
+    adapted at the setup's adaptive frequencies; it is never refined for the sweep. A wideband (e.g. UWB) sweep
+    far above them needs adaptive frequencies at its upper end (Broadband or Multi-Frequencies). A fixed open
+    region padding must stay at least lambda/4 at the lowest frequency (the automatic one is lambda/3 there)."""
+    if getattr(setup, "eigen", False) or setup.props.get("PortsOnly") == "True" or \
+            getattr(design, "kind", "3d") == "circuit":
+        return []
+    try:
+        from ..solver.bridge import adaptive_frequencies
+        from ..solver.sweeps import sweep_frequencies
+        ev = design.evaluator(project)
+        fa = adaptive_frequencies(setup, ev)
+        lows, out = list(fa), []
+        for sw in setup.sweeps:
+            if sw.props.get("Enabled", "True") != "True":
+                continue
+            f = sweep_frequencies(sw.props, ev)
+            if not len(f):
+                continue
+            lows.append(float(min(f)))
+            f_max = float(max(f))
+            if f_max > SWEEP_ABOVE_ADAPTIVE * max(fa):
+                at = ", ".join(f"{x / 1e9:.4g}" for x in fa)
+                out.append(f"{setup.name}:{sw.name} reaches {f_max / 1e9:.4g} GHz, but the mesh is adapted at {at} GHz "
+                           f"only ({f_max / max(fa):.2g}x higher). Sweeps are solved on that mesh, it is not refined "
+                           f"for them, so the upper end is under-resolved. Adapt there too: SolutionFrequencyMode "
+                           f"Broadband (LowFrequency/HighFrequency over the sweep) or Multi-Frequencies including "
+                           f"{f_max / 1e9:.4g}GHz")
+        st = design.settings
+        pad = str(st.get("AutoOpenPadding", "") or "").strip()
+        if st.get("AutoOpen", "Off") not in ("Off", "Auto Open - Filter") and pad:
+            margin, lam = ev.length(pad), C0 / min(lows)
+            if margin < lam / 4 * (1 - 1e-6):
+                out.append(f"Open region padding {margin * 1e3:.4g} mm is below lambda/4 ({lam / 4 * 1e3:.4g} mm) at "
+                           f"the lowest frequency of {setup.name}, {min(lows) / 1e9:.4g} GHz: the radiation boundary "
+                           f"is too close there. Enlarge AutoOpenPadding or leave it empty (automatic: lambda/3 at "
+                           f"the lowest frequency of the switched-on sweeps)")
+        return out
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _side_radiation_objects(design: Design, rads, pws, ev, tess: dict) -> list[str]:

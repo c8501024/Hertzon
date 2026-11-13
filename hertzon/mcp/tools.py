@@ -117,6 +117,10 @@ Interpreting results (before you name a cause)
 - Check mesh convergence first. If the adaptive solve did not reach its Delta S target, S11 and the accepted
   power are uncertain, most of all near high-Q points and deep dips; refine (more passes, adaptive frequencies at
   the critical points) before drawing conclusions. A power balance far from 0 is a warning sign too.
+- Sweeps are solved on the mesh adapted at the setup's adaptive frequencies; they never refine it. For a
+  wideband sweep (UWB, several bands) adapt at the upper end too: SolutionFrequencyMode Broadband over the sweep
+  or Multi-Frequencies with the band edges. validate, set_sweep and run_simulation warn when a sweep reaches more
+  than 1.5x the highest adaptive frequency or a fixed open region padding is below lambda/4 at its lowest frequency.
 - The mismatch factor rests on the port: S11 and the accepted power come from the port voltage and current.
   If Delta S jumps between passes instead of falling, S11 changes a lot from pass to pass, or Prad + Ploss does
   not match Pacc, check the port model first (Integration Line across the port sheet, port size against the
@@ -1124,6 +1128,10 @@ def t_set_sweep(args):
     w = _set_sweep(s, args.get("name") or "Sweep", args.get("props"))
     commit(ctx, f"sweep {w.name}")
     out = {"setup": s.name, "sweep": w.name, "props": w.props}
+    from ..model.validate import sweep_coverage
+    warnings = sweep_coverage(ctx.proj, ctx.des, s)
+    if warnings:
+        out["warnings"] = warnings
     f_after = _open_region_f(ctx, s)
     if f_after != f_before:
         where = f"the lowest sweep frequency, {f_after / 1e9:.4g} GHz" if f_after else "the solution frequency"
@@ -1704,6 +1712,10 @@ def t_run_simulation(args):
         if why:
             note = (f"The stored adaptive mesh cannot be reused: {why}. The setup is analyzed anew (adaptive passes, "
                     f"then '{sweep}' and the switched-on sweeps).")
+    from ..model.validate import sweep_coverage
+    coverage = sweep_coverage(ctx.proj, d, d.setup(setup))
+    if sweep:
+        coverage = [w for w in coverage if f":{sweep} " in w or w.startswith("Open region")]
         for f in list(out.glob(f"sparams_{sweep}.npz")) + list(out.glob(f"fields_{sweep}.npz")) + \
                 list(out.glob(f"solution_{sweep}.npz")):
             f.unlink(missing_ok=True)
@@ -1737,7 +1749,8 @@ def t_run_simulation(args):
                                     cwd=str(Path(ctx.proj.path).parent), **kw)
     log.close()
     return {"started": True, "in_window": False, "setup": setup, "results": str(out), "cores": n,
-            **({"note": note} if note else {}), "next": "get_status with wait_seconds to follow the passes"}
+            **({"note": note} if note else {}), **({"warnings": coverage} if coverage else {}),
+            "next": "get_status with wait_seconds to follow the passes"}
 
 
 def _log_tail(out: Path, n: int = 12) -> list[str]:
@@ -2549,7 +2562,10 @@ TOOLS = [
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string", "description": "only this sweep, "
                                                          "reusing the adaptive mesh of the analyzed setup (when the "
                                                          "model is unchanged: a switched-on sweep that enlarges the "
-                                                         "automatic air box needs a new adaptive mesh)"},
+                                                         "automatic air box needs a new adaptive mesh). Every sweep "
+                                                         "is solved on the mesh adapted at the setup's adaptive "
+                                                         "frequencies: for a wideband sweep adapt at its upper end "
+                                                         "too (Broadband or Multi-Frequencies)"},
                   "mesh_only": {"type": "boolean"}, "cores": {"type": "integer"},
                   "skip_validation": {"type": "boolean"}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_run_simulation),
