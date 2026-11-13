@@ -1,4 +1,4 @@
-"""Hairpin diplexer (Tools > Filter Design > Hairpin Diplexer): two hairpin filters on a T-junction."""
+"""Hairpin diplexer (Tools > Design Wizard > Hairpin diplexer): two hairpin filters on a T-junction."""
 import os
 import sys
 from pathlib import Path

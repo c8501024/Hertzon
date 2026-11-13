@@ -1,4 +1,4 @@
-"""Diplexer design: two tapped hairpin band-pass filters joined by a T-junction (Tools > Filter Design).
+"""Diplexer design: two tapped hairpin band-pass filters joined by a T-junction (Tools > Design Wizard > Hairpin diplexer).
 
 Layout (top view): the common port at the left edge, the T-junction right behind it, channel A above and channel
 B below (stacked as in most published hairpin diplexers), Port 2 and Port 3 at the right edge.

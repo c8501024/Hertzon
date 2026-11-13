@@ -3,6 +3,13 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Filter Design and Antenna Design are gone from the ribbon and the Tools menu.** Everything they offered is in
+  **Tools › Design Wizard**: the cards *Rectangular patch*, *Hairpin bandpass* and the new card
+  *Hairpin diplexer / triplexer* open the same designers as before.
+
 ## 0.3.22 (2026-11-13)
 
 ### Fixed

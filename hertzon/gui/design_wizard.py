@@ -3,7 +3,7 @@
 Step 1 shows the catalogue as cards by category, with a search field and the description of the selected card;
 planned structures are shown greyed out. Step 2 takes the specification and the substrate, shows the synthesized
 start values while typing, a top view of the 3D design and what will be created: the circuit, its 3D design and
-the multi-fidelity optimization. Structures with their own designer (patch, hairpin) open it instead.
+the multi-fidelity optimization. Structures with their own designer (patch, hairpin filter, hairpin diplexer) open it instead.
 """
 from __future__ import annotations
 

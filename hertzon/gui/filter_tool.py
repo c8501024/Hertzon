@@ -1,4 +1,4 @@
-"""Tools > Filter Design > Tapped Hairpin: specification dialog with a live preview of what the specification
+"""Design Wizard > Hairpin bandpass: specification dialog with a live preview of what the specification
 allows (the ideal Chebyshev response with the loss of the board and the circuit of the start design), help with the
 number of resonators, a top view of the layout, and Create and Optimize (the design, then its space mapping
 optimization with the circuit as the fast model)."""

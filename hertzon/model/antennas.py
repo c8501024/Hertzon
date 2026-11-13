@@ -1,4 +1,4 @@
-"""Antenna design: a parametrized inset-fed rectangular microstrip patch (Tools > Antenna Design).
+"""Antenna design: a parametrized inset-fed rectangular microstrip patch (Tools > Design Wizard > Rectangular patch).
 
 The start dimensions come from the transmission line model (Balanis, Antenna Theory ch. 14): width for
 good radiation efficiency, length from the effective permittivity and the fringing extension, the edge
