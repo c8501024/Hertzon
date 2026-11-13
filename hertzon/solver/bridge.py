@@ -299,7 +299,7 @@ class Bridge:
         emit("progress", value=8, text="Mapping boundaries to the solver model")
         self.samples = facematch.final_face_samples()
         self.assign_mesh_ops()
-        self.limit_thin_layers()
+        layers = self.thin_layers()
         self.set_frequencies_for_mesh()
         self.assign_boundaries()
         self.assign_excitations()
@@ -310,6 +310,10 @@ class Bridge:
         emit("progress", value=10, text="Initial mesh (lambda refinement)")
         keep_global_max_size(m)
         m.generate_mesh()
+        if layers and self.limit_thin_layers(layers, m.mesh.n_tets):
+            m._reset_mesh()
+            keep_global_max_size(m)
+            m.generate_mesh()
         remesh_degenerate(m)
         info(f"Initial mesh: {m.mesh.n_tets} tetrahedra")
         from .port_lines import spread_lumped_port_lines
@@ -1310,14 +1314,10 @@ class Bridge:
                 mesher.set_face_size(sel, size)
             info(f"Mesh operation '{op.name}' applied")
 
-    def limit_thin_layers(self) -> None:
-        """Element size in a thin dielectric layer (a substrate) at most THIN_LAYER_SIZE times its thickness.
-        The wavelength rule alone gives elements many times wider than a 0.5 mm board is thick: the tetrahedra
-        through it are flat (a third of them had a quality below 0.01 on a microstrip filter), and among them
-        gmsh now and then leaves slivers of no volume whose matrix entries are NaN. With the limit the flat
-        ones are gone and the mesh grows only a little (+7 % on that filter). A layer whose limited mesh would
-        exceed THIN_LAYER_TETS elements gets a coarser limit."""
+    def thin_layers(self) -> list[tuple[str, object, float, float]]:
+        """The thin dielectric layers (substrates): (name, geometry, thickness, area of the two larger extents)."""
         import gmsh
+        layers = []
         for obj in self.design.objects:
             g = self.geos.get(obj.name)
             if g is None or getattr(g, "dim", 0) != 3:
@@ -1337,11 +1337,31 @@ class Bridge:
             t, a, b = sorted(hi - lo)
             if t <= 0 or t > THIN_LAYER_RATIO * a:
                 continue
-            size = THIN_LAYER_SIZE * t
-            # about 6 tetrahedra per cube of the element size: keep the layer within THIN_LAYER_TETS
-            size = max(size, (6 * a * b * t / THIN_LAYER_TETS) ** (1 / 3))
+            layers.append((obj.name, g, float(t), float(a * b)))
+        return layers
+
+    def limit_thin_layers(self, layers, n_tets: int) -> bool:
+        """Element size in a thin dielectric layer (a substrate) at most THIN_LAYER_SIZE times its thickness.
+        The wavelength rule alone gives elements many times wider than a 0.5 mm board is thick: the tetrahedra
+        through it are flat (a third of them had a quality below 0.01 on a microstrip filter), and among them
+        gmsh now and then leaves slivers of no volume whose matrix entries are NaN. With the limit the flat
+        ones are gone and the mesh grows only a little (+7 % on that filter).
+
+        The limit adds at most THIN_LAYER_GROWTH times the elements of the wavelength mesh (``n_tets``), shared
+        by the layers in proportion to their area: the layer is one element thick, so its count grows with its
+        area over the element size squared (about THIN_LAYER_DENSITY a b / size^2 with the transition into the
+        air on both sides). Without that bound a large or very thin board multiplied the initial mesh (24 times
+        on a user's model, out of memory on a 0.1 mm patch substrate) and every adaptive pass after it.
+        Returns whether a limit was set (then the model is meshed again; meshing takes seconds, the passes minutes)."""
+        total = sum(ab for _, _, _, ab in layers)
+        budget = THIN_LAYER_GROWTH * max(n_tets, 1)
+        changed = False
+        for name, g, t, ab in layers:
+            size = max(THIN_LAYER_SIZE * t, (THIN_LAYER_DENSITY * total / budget) ** 0.5)
             self.m.mesher.set_domain_size(g, size)
-            info(f"Thin layer '{obj.name}' ({t * 1e3:.4g} mm): elements at most {size * 1e3:.4g} mm")
+            changed = True
+            info(f"Thin layer '{name}' ({t * 1e3:.4g} mm): elements at most {size * 1e3:.4g} mm")
+        return changed
 
     def _match_edges(self, op) -> list[tuple[int, float]]:
         """gmsh curve tags (with lengths) whose end points and midpoint lie on the selected tess edges."""
@@ -3207,17 +3227,22 @@ def scattered_energy(fld, m) -> tuple[float, float]:
 
 THIN_LAYER_RATIO = 0.25       # a dielectric whose smallest extent is below this share of the next one is a layer
 THIN_LAYER_SIZE = 6.0         # element size in a layer at most this many times its thickness
-THIN_LAYER_TETS = 400_000     # but a layer gets no more elements than about this from the limit
+THIN_LAYER_GROWTH = 1.0       # but the limits add no more elements than the wavelength mesh has (at most double)
+THIN_LAYER_DENSITY = 24.0     # elements per (element size)^2 of layer area, air next to it included (measured)
 DEGENERATE_QUALITY = 1e-6      # a tet below this quality has no volume: its matrix entries overflow to NaN
 
 
 def remesh_degenerate(m, tries: int = 5) -> None:
-    """Mesh again when the mesh has flat (zero-volume) tetrahedra. gmsh now and then leaves a few slivers on a
-    conductor face (found on an edge-coupled filter: 35 tets of 1e-25 m3 on a trace edge); their element
-    matrices hold NaN, the solution is void (S11 = -1) and the error estimate stops the analysis. A different
-    random seed of the mesher gives a sound mesh of the same density. (gmsh's Netgen optimizer removes them
-    too, but it crashed the process on a patch with a copper ground solid.) Since thin layers are limited
-    (limit_thin_layers) this is rare: slivers at the large faces of the air box."""
+    """Mesh again when the mesh has tetrahedra without volume. gmsh now and then leaves a few slivers, mostly in
+    a thin substrate whose elements the wavelength rule makes many times wider than the layer is thick (an
+    edge-coupled filter on 0.508 mm: up to 109 tets of about 1e-25 m3); their element matrices hold NaN, the
+    solution is void (S11 = -1) and the error estimate stops the analysis. A different random seed of the
+    mesher gives a sound mesh of the same density (two tries on that filter). Should all seeds leave slivers,
+    gmsh's own optimizer (edge/face swaps and node smoothing, boundaries kept) removes them; it takes longer
+    (about 20 s on that filter) and so only comes last. gmsh's Netgen optimizer is not used: it crashed the
+    process on a patch with a copper ground solid.
+
+    Since thin layers are limited (Bridge.limit_thin_layers) slivers are rare."""
     from .bisect import mesh_quality
     try:
         import gmsh
@@ -3241,10 +3266,28 @@ def remesh_degenerate(m, tries: int = 5) -> None:
             return
     try:
         bad = int((mesh_quality(m) < DEGENERATE_QUALITY).sum())
+    except Exception:  # noqa: BLE001
+        return
+    if not bad:
+        return
+    warn(f"The mesh still has {bad} tetrahedra without volume; optimizing it with gmsh")
+    generate = gmsh.model.mesh.generate
+
+    def generate_and_optimize(dim=3):
+        generate(dim)
+        gmsh.model.mesh.optimize("")
+    gmsh.model.mesh.generate = generate_and_optimize
+    try:
+        m._reset_mesh()
+        keep_global_max_size(m)
+        m.generate_mesh()
+        bad = int((mesh_quality(m) < DEGENERATE_QUALITY).sum())
         if bad:
             warn(f"The mesh still has {bad} tetrahedra without volume; the solution may fail")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as ex:  # noqa: BLE001
+        warn(f"Optimizing the mesh failed ({ex})")
+    finally:
+        gmsh.model.mesh.generate = generate
 
 
 def keep_global_max_size(m) -> None:

@@ -1,0 +1,12 @@
+{
+ "Coax/Coax50": 6841,
+ "DifferentialPair/CoupledMicrostrip": 931,
+ "GPS_L1_RHCP/GPS_L1": 11433,
+ "HairpinFilter/Hairpin_N3": 7310,
+ "Microstrip/Microstrip50": 4554,
+ "PatchAntenna/Patch245": 6125,
+ "PatchAntenna/Patch245[h=0.1mm]": 14116,
+ "PatchAntenna/Patch245[h=0.25mm]": 10983,
+ "StubFilter/StubFilter_Layout": 6320,
+ "WaveguidePost/WR90_Post": 1090
+}
