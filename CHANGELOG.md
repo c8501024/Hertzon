@@ -33,6 +33,8 @@ the GitHub release notes.
   Touchstone). Both tabs are built by one function, so they stay alike.
 
 ### Fixed
+- Properties panel: changing a design variable now updates the Evaluated Value of the variables that use it
+  right away, not only after selecting the design again (#430).
 - Interpolating sweep on macOS: no more spurious "divide by zero / overflow in matmul" warnings from Apple's
   Accelerate in the reduced-basis step; a reduced solution that is really not finite is rejected and solved
   directly (#405).
