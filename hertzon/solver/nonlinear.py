@@ -25,7 +25,8 @@ import numpy as np
 
 from ..model import circuit as CK
 from ..model.design import Design, Project
-from .circuit import (CircuitError, CircuitResult, LinearNetwork, circuit_ports, kron, linear_network, y_to_s)
+from .circuit import (CircuitError, CircuitResult, LinearNetwork, NPortData, circuit_ports, kron, linear_network,
+                      y_to_s)
 
 AC_SHORT = 1e12          # admittance of an ideal DC voltage source for the RF signal (as Hertzon's DC Feed)
 DC_SHORT = 1e6           # largest admittance of a part in the bias point (1 micro-ohm)
@@ -86,10 +87,11 @@ def _path(text: str, base: Path | None) -> Path:
     return p
 
 
-def gather(project: Project, design: Design, freqs: np.ndarray, progress=None) -> NonlinearCircuit:
-    """Split the schematic into the linear network, devices, sources and libraries."""
+def gather(project: Project, design: Design, freqs: np.ndarray, progress=None, span: str = "") -> NonlinearCircuit:
+    """Split the schematic into the linear network, devices, sources and libraries. Every analysis here also needs
+    the linear network at DC (the bias point); span: see linear_network."""
     ports, port_nodes, z_ref = circuit_ports(project, design)
-    net = linear_network(project, design, freqs, progress)
+    net = linear_network(project, design, freqs, progress, dc_point=True, span=span)
     ev = design.evaluator(project)
     base = Path(project.path).parent if project.path else None
     devices, sources, libs = [], [], []
@@ -149,12 +151,12 @@ def gather(project: Project, design: Design, freqs: np.ndarray, progress=None) -
     term = sorted({x for x in port_nodes} | {x for d in devices for x in d.nodes if x}
                   | {x for s in sources for x in s.nodes if x})
     for c in net.comps:
-        if c.type in ("SNP", "EM"):
+        if c.type in CK.NPORT_TYPES:
             nd = net.blocks[c.name]
-            if nd.freq[0] > 0:
+            if isinstance(nd, NPortData) and nd.freq[0] > 0 and nd.dc is None:
                 net.warnings.append(f"{c.name}: the data start at {nd.freq[0] / 1e9:.6g} GHz; the bias point uses "
-                                    "that point as DC. Add 0 Hz (or a low frequency) to its sweep for DC paths "
-                                    "through it")
+                                    "that point as DC. For DC paths through it add 0 Hz (or a low frequency) to "
+                                    "its sweep, or give the block a circuit model")
     return NonlinearCircuit(net, ports, port_nodes, z_ref, devices, sources, libs, term, base)
 
 
@@ -243,7 +245,7 @@ def harmonic_balance(project: Project, design: Design, f0: float, harmonics: int
     (swept) at f0, the other ports terminate in their Z0."""
     from . import circuitrf
     freqs = f0 * np.arange(harmonics + 1, dtype=float)
-    nl = gather(project, design, freqs, progress)
+    nl = gather(project, design, freqs, progress, span=f" (harmonics up to {harmonics} x {f0 / 1e9:.6g} GHz)")
     names = [c.name for c in nl.ports]
     if drive not in names:
         raise CircuitError(f"no port named {drive}; the ports are {', '.join(names)}")

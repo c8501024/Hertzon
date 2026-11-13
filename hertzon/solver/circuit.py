@@ -37,6 +37,7 @@ class NPortData:
     S: np.ndarray                     # (F, N, N)
     z0: np.ndarray                    # (F, N) real reference impedances
     names: list[str] = field(default_factory=list)
+    dc: "CircuitModel | None" = None  # the circuit model that gives the DC point of a bias analysis
 
     def at(self, f: float) -> tuple[np.ndarray, np.ndarray, bool]:
         """S and z0 at f, linear in real and imaginary part; outside the data the nearest point (flag True)."""
@@ -331,6 +332,84 @@ def max_frequency(project: Project, design: Design) -> float:
     return fm
 
 
+def analysis_span(project: Project, design: Design) -> tuple[float, float] | None:
+    """Lowest and highest positive frequency the enabled analyses of a circuit design need: the S-parameter sweeps,
+    and the fundamental to the last harmonic of a harmonic balance. None without one."""
+    ev = design.evaluator(project)
+    lo, hi = np.inf, 0.0
+    for st in design.setups:
+        try:
+            if st.props.get("CircuitAnalysis", "S-Parameters") == "Harmonic Balance":
+                f0 = ev.freq(st.props.get("Tone", "1GHz"))
+                k = int(float(st.props.get("Harmonics", "5") or 5))
+                fr = f0 * np.arange(1, max(k, 1) + 1, dtype=float)
+            else:
+                fr = np.concatenate([np.atleast_1d(sweep_frequencies(sw.props, ev)) for sw in st.sweeps
+                                     if sw.props.get("Enabled", "True") == "True"] or [np.zeros(0)])
+        except Exception:  # noqa: BLE001 (an incomplete setup: no span from it)
+            continue
+        fr = fr[fr > 0]
+        if fr.size:
+            lo, hi = min(lo, float(fr.min())), max(hi, float(fr.max()))
+    return (lo, hi) if hi > 0 else None
+
+
+_RANGE_CACHE: dict = {}
+
+
+def data_range(project: Project, c: CK.Component) -> tuple[float, float] | None:
+    """First and last frequency of a block's data (None if there are none), cached by file and time stamp."""
+    try:
+        if c.type == "EM":
+            name, sol = c.props.get("Design", ""), c.props.get("Solution", "")
+            if not project.path or " : " not in sol:
+                return None
+            setup, label = sol.split(" : ", 1)
+            from .results import _safe
+            path = results_dir(project.path, name, setup) / f"sparams_{_safe(label)}.npz"
+        else:
+            path = Path(c.props.get("File", ""))
+            if not path.is_absolute() and project.path:
+                path = Path(project.path).parent / path
+        key = (str(path), path.stat().st_mtime_ns)
+    except (OSError, ValueError):
+        return None
+    if key not in _RANGE_CACHE:
+        try:
+            if c.type == "EM":
+                with np.load(path, allow_pickle=False) as d:
+                    fr = np.asarray(d["freq"], float)
+            else:
+                from ..model.touchstone import read
+                fr = np.asarray(read(path)[0], float)
+            _RANGE_CACHE[key] = (float(fr.min()), float(fr.max())) if fr.size else None
+        except Exception:  # noqa: BLE001
+            _RANGE_CACHE[key] = None
+    return _RANGE_CACHE[key]
+
+
+def block_state(project: Project, design: Design, c: CK.Component) -> tuple[str, str]:
+    """Which model the next analysis of the circuit design takes for the block c, for the schematic:
+    "data" (full-wave or Touchstone data), "circuit" (chosen), "auto" (data chosen, but they do not cover the
+    analyses: the circuit model is used) or "error" (no usable model), with a sentence why."""
+    cm = circuit_model_name(project, c)
+    if uses_circuit_model(c):
+        return ("circuit", f"Circuit model: {cm}") if cm else ("error", "Circuit model chosen, but none set")
+    kind = "full-wave FEM" if c.type == "EM" else "Touchstone"
+    rng = data_range(project, c)
+    if rng is None:
+        return "error", f"No {kind} data yet" + (f"; the circuit model {cm} is not used automatically" if cm else "")
+    span = analysis_span(project, design)
+    lo, hi = rng
+    if span is None or (span[0] >= lo * (1 - 1e-9) and span[1] <= hi * (1 + 1e-9)):
+        return "data", f"{kind[0].upper() + kind[1:]} data, {_ghz(lo)} to {_ghz(hi)} GHz"
+    text = (f"The analyses need {_ghz(span[0])} to {_ghz(span[1])} GHz, the {kind} data cover {_ghz(lo)} to "
+            f"{_ghz(hi)} GHz")
+    if cm:
+        return "auto", text + f": the circuit model {cm} is used"
+    return "error", text + " and there is no circuit model"
+
+
 def auto_junctions(design: Design) -> bool:
     return design.settings.get(CK.AUTO, "True") != "False"
 
@@ -348,6 +427,19 @@ class LinearNetwork:
     where: dict
     warnings: list[str]
 
+    def block_y(self, name: str, f: float, short: float | None = None) -> np.ndarray:
+        """Admittance matrix of an N-port block at f: from its data, or from its circuit model (exact at every
+        frequency; the data give way to it only below their first point, for the DC point of a bias analysis)."""
+        blk = self.blocks[name]
+        if isinstance(blk, NPortData) and blk.dc is not None and f < blk.freq[0] * (1 - 1e-9):
+            blk = blk.dc
+        if isinstance(blk, CircuitModel):
+            return blk.y_at(f, short)
+        Sb, zb, _ = blk.at(f)
+        m = Sb.shape[0]
+        r = 1.0 / np.sqrt(zb)
+        return (r[:, None] * (np.eye(m) - Sb) @ np.linalg.inv(np.eye(m) + Sb)) * r[None, :]
+
     def assemble(self, f: float, short: float | None = None) -> np.ndarray:
         """Nodal admittance matrix (n x n, ground removed) of the linear parts at frequency f, GMIN included.
         short: largest admittance of a one- or two-terminal part (an ideal short at DC is 1e12 S, which is too
@@ -357,10 +449,7 @@ class LinearNetwork:
         for c in self.comps:
             nd = nodes_of[c.name]
             if c.type in CK.NPORT_TYPES:
-                Sb, zb, _ = self.blocks[c.name].at(f)
-                m = Sb.shape[0]
-                r = 1.0 / np.sqrt(zb)
-                Ym = (r[:, None] * (np.eye(m) - Sb) @ np.linalg.inv(np.eye(m) + Sb)) * r[None, :]
+                Ym = self.block_y(c.name, f, short)
             elif c.type == "MLIN" and 0 in nd and nd[0] != nd[1]:
                 # a microstrip line to ground ends in a via (as laid out): a shorted stub at its other pin
                 q, sb = self.values[c.name]
@@ -388,6 +477,117 @@ class LinearNetwork:
         return Y[1:, 1:] + GMIN * np.eye(n)
 
 
+@dataclass
+class CircuitModel:
+    """An N-port block modelled by a circuit design of the project: the sub-circuit's admittance matrix at its power
+    ports, in the order of the block's pins, exact at every frequency (DC included)."""
+    design: str
+    net: LinearNetwork
+    port_idx: np.ndarray                     # 0-based nodes of the sub-circuit's ports, in the block's pin order
+
+    def y_at(self, f: float, short: float | None = None) -> np.ndarray:
+        return kron(self.net.assemble(f, short), self.port_idx)
+
+
+def uses_circuit_model(c: CK.Component) -> bool:
+    """The block is set to its circuit model (instead of its full-wave or Touchstone data)."""
+    return c.props.get(CK.MODEL, CK.MODEL_DATA) == CK.MODEL_CIRCUIT
+
+
+def circuit_model_name(project: Project, c: CK.Component) -> str:
+    """The circuit design that models the block c ("" for none): its CircuitModel property. A 3D design block
+    saved before that property existed takes the circuit its 3D design was laid out from (Create 3D Layout)."""
+    if CK.CIRCUIT_MODEL in c.props:
+        return c.props[CK.CIRCUIT_MODEL].strip()
+    if c.type != "EM":
+        return ""
+    from ..model.circuit_layout import LINK
+    try:
+        name = project.design(c.props.get("Design", "")).settings.get(LINK, "")
+        return name if name and getattr(project.design(name), "kind", "3d") == "circuit" else ""
+    except KeyError:
+        return ""
+
+
+def _block_port_names(c: CK.Component) -> list[str]:
+    return [n.strip() for n in c.props.get("PortNames", "").split(",") if n.strip()]
+
+
+def load_circuit_model(project: Project, c: CK.Component, freqs: np.ndarray, stack: tuple = (),
+                       progress=None) -> CircuitModel:
+    """The circuit model of block c, evaluated for freqs. stack: the circuit designs above it (no cycles)."""
+    name = circuit_model_name(project, c)
+    if not name:
+        raise CircuitError(f"{c.name}: no circuit model chosen. Choose a circuit design of the project as its "
+                           "circuit model (Properties), or use its data")
+    try:
+        des = project.design(name)
+    except KeyError:
+        raise CircuitError(f"{c.name}: the circuit model '{name}' is not a design of this project") from None
+    if getattr(des, "kind", "3d") != "circuit":
+        raise CircuitError(f"{c.name}: the circuit model '{name}' is not a circuit design")
+    if name in stack:
+        raise CircuitError(f"{c.name}: the circuit model '{name}' contains itself "
+                           f"({' > '.join(list(stack) + [name])})")
+    if any(o.type in CK.NONLINEAR_TYPES for o in des.components):
+        raise CircuitError(f"{c.name}: the circuit model '{name}' has nonlinear parts; a block model must be linear")
+    try:
+        ports, port_nodes, _ = circuit_ports(project, des)
+        net = linear_network(project, des, freqs, progress, _stack=tuple(stack) + (name,))
+    except CircuitError as e:
+        raise CircuitError(f"{c.name}: circuit model '{name}': {e}") from e
+    n = CK.nport_count(c)
+    if len(ports) != n:
+        raise CircuitError(f"{c.name}: the block has {n} ports, its circuit model '{name}' {len(ports)} power ports")
+    sub = [p.name for p in ports]
+    mine = _block_port_names(c)
+    if len(mine) == n and set(mine) == set(sub):           # the same port names: matched by name
+        order = [sub.index(m) for m in mine]
+    else:                                                  # else by number (a generated layout numbers them 1..N)
+        order = list(range(n))
+    net.warnings = [f"{c.name} ({name}): {w}" for w in net.warnings]
+    return CircuitModel(name, net, np.array([port_nodes[k] - 1 for k in order]))
+
+
+def _ghz(f: float) -> str:
+    return f"{f / 1e9:.6g}"
+
+
+def _block(project: Project, c: CK.Component, freqs: np.ndarray, base, stack: tuple, warnings: list[str],
+           progress, dc_point: bool, span: str):
+    """The model of an N-port block for the frequencies freqs: its data, or its circuit model when the block is set
+    to it or when the data do not cover freqs (with a warning; without a circuit model that is an error, the data are
+    never extrapolated). dc_point: a bias analysis also needs the block at DC, below the data, which its circuit model
+    gives when it has one."""
+    if uses_circuit_model(c):
+        return load_circuit_model(project, c, freqs, stack, progress)
+    nd = load_em(project, c) if c.type == "EM" else load_snp(c, base)
+    if nd.S.shape[1] != CK.nport_count(c):
+        raise CircuitError(f"{c.name}: the data have {nd.S.shape[1]} ports, the symbol "
+                           f"{CK.nport_count(c)}. Update the block (right-click > Update ports).")
+    lo, hi = nd.freq[0], nd.freq[-1]
+    need = np.asarray(freqs, float)
+    if dc_point:
+        need = need[need > 0]
+    if need.size and (need.min() < lo * (1 - 1e-9) or need.max() > hi * (1 + 1e-9)):
+        what = (f"full-wave FEM data of '{c.props.get('Design', '')}'" if c.type == "EM"
+                else "Touchstone data")
+        text = (f"{c.name}: the analysis needs {_ghz(need.min())} to {_ghz(need.max())} GHz{span}, the {what} "
+                f"cover {_ghz(lo)} to {_ghz(hi)} GHz")
+        if not circuit_model_name(project, c):
+            raise CircuitError(text + ". The block has no circuit model to switch to. Extend the frequency range of "
+                               "the data, narrow the analysis or choose a circuit model for the block")
+        cm = load_circuit_model(project, c, freqs, stack, progress)
+        warnings.append(text + f". Switched to its circuit model '{cm.design}'")
+        warnings += cm.net.warnings
+        return cm
+    if dc_point and lo > 0 and circuit_model_name(project, c):
+        nd.dc = load_circuit_model(project, c, np.array([0.0]), stack, progress)
+        warnings.append(f"{c.name}: the data start at {_ghz(lo)} GHz; the DC point of the bias comes from its "
+                        f"circuit model '{nd.dc.design}'")
+    return nd
+
+
 def kron(Y: np.ndarray, keep: np.ndarray) -> np.ndarray:
     """Admittance matrix at the nodes keep (0-based) with all other nodes eliminated."""
     inner = np.array(sorted(set(range(Y.shape[0])) - set(np.asarray(keep).tolist())), int)
@@ -397,29 +597,23 @@ def kron(Y: np.ndarray, keep: np.ndarray) -> np.ndarray:
     return Ykk
 
 
-def linear_network(project: Project, design: Design, freqs: np.ndarray, progress=None) -> LinearNetwork:
-    """Evaluate the linear parts of a circuit for the frequencies freqs (data ranges are checked against them).
-    With the full-wave line model the cross-sections of the lines are solved first (or read from the cache);
-    progress(done, total, text) reports those solves."""
+def linear_network(project: Project, design: Design, freqs: np.ndarray, progress=None, dc_point: bool = False,
+                   span: str = "", _stack: tuple = ()) -> LinearNetwork:
+    """Evaluate the linear parts of a circuit for the frequencies freqs (data ranges are checked against them: a
+    block whose data do not cover them switches to its circuit model, or the analysis stops). With the full-wave
+    line model the cross-sections of the lines are solved first (or read from the cache); progress(done, total,
+    text) reports those solves. dc_point: the analysis also needs DC (bias point), see _block; span: added to the
+    range of a range message (e.g. the harmonics of a harmonic balance)."""
     ev = design.evaluator(project)
     comps, nodes_of, n, _ = CK.netlist(design.components, design.wires, auto_junctions(design))
     warnings: list[str] = []
     base = Path(project.path).parent if project.path else None
-    blocks: dict[str, NPortData] = {}
+    stack = tuple(_stack) or (design.name,)
+    blocks: dict[str, NPortData | CircuitModel] = {}
     for c in comps:
-        if c.type == "EM":
-            blocks[c.name] = load_em(project, c)
-        elif c.type == "SNP":
-            blocks[c.name] = load_snp(c, base)
         if c.type in CK.NPORT_TYPES:
-            nd = blocks[c.name]
-            if nd.S.shape[1] != CK.nport_count(c):
-                raise CircuitError(f"{c.name}: the data have {nd.S.shape[1]} ports, the symbol "
-                                   f"{CK.nport_count(c)}. Update the block (right-click > Update ports).")
-            lo, hi = nd.freq[0], nd.freq[-1]
-            if freqs.min() < lo * (1 - 1e-9) or freqs.max() > hi * (1 + 1e-9):
-                warnings.append(f"{c.name}: data cover {lo / 1e9:.6g} to {hi / 1e9:.6g} GHz; outside, the "
-                                "nearest point is used")
+            blocks[c.name] = _block(project, c, np.asarray(freqs, float), base, stack, warnings, progress, dc_point,
+                                    span)
     subst = _substrates(comps, ev)
     values = {}
     for c in comps:

@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDial
 
 from ..model import circuit as CK
 from .circuit_thumb import THUMB, design_thumbnail
-from .theme import GOLD, INK, MUTED
+from .theme import (GOLD, INK, MODEL_CIRCUIT, MODEL_CIRCUIT_BG, MODEL_ERROR, MODEL_FEM, MODEL_FEM_BG, MODEL_NONE,
+                    MODEL_NONE_BG, MUTED)
 from .trees import MIME_DESIGN
 
 MIME_PART = "application/x-hertzon-part"
@@ -30,6 +31,12 @@ WIRE = QColor("#1f6f3f")
 COPPER = QColor("#c9952f")
 SUBSTRATE = QColor("#dfe6d0")
 FILL = QColor("#e9f1fb")
+# model state of an N-port block (solver.circuit.block_state): frame, fill, band text, mark
+MODEL_LOOK = {"data": (MODEL_FEM, MODEL_FEM_BG, "", ""),
+              "circuit": (MODEL_CIRCUIT, MODEL_CIRCUIT_BG, "CIRCUIT", ""),
+              "auto": (MODEL_CIRCUIT, MODEL_CIRCUIT_BG, "CIRCUIT (AUTO)", "!"),
+              "error": (MODEL_NONE, MODEL_NONE_BG, "NO MODEL", "\u00d7")}
+BAND = 13                                       # height of the model band at the top of a block
 
 # size (w, h) of the body at rotation 0, for the outline used in selection and label placement
 SIZES = {"GND": (24, 28), "MVIA": (28, 44), "PORT": (26, 80), "LABEL": (20, 20), "TLIN": (80, 20), "TLOC": (18, 70),
@@ -116,8 +123,10 @@ def _upright(p: QPainter, c: CK.Component, at: QPointF, draw) -> None:
     p.restore()
 
 
-def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = None, pins: bool = True) -> None:
-    """The symbol of a part at rotation 0 around its origin (the caller sets rotation and mirror)."""
+def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = None, pins: bool = True,
+                 state: str = "") -> None:
+    """The symbol of a part at rotation 0 around its origin (the caller sets rotation and mirror). state: the
+    model state of an N-port block (MODEL_LOOK), drawn as the colour of its frame and a band with the model."""
     p.setPen(pen)
     p.setBrush(Qt.NoBrush)
     t = c.type
@@ -324,13 +333,17 @@ def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = N
         _small_text(p, QRectF(-40, 0, 80, 20), "LIBRARY", 6)
     elif t in CK.BLOCK_TYPES:
         w, h = body_size(c)
+        look = MODEL_LOOK.get(state) if t in CK.NPORT_TYPES else None
         p.setBrush(QColor("#ffffff"))
         p.drawRoundedRect(QRectF(-w / 2, -h / 2, w, h), 6, 6)
         for (dx, dy) in CK.nport_pins(CK.nport_count(c)):
             p.drawLine(QPointF(dx, dy), QPointF(dx - 10 if dx > 0 else dx + 10, dy))
+        if look is not None:
+            _model_frame(p, c, w, h, state, pen)
         if img is not None:
-            side = min(w - 20, h - 16, THUMB)
-            p.drawImage(QRectF(-side / 2, -side / 2, side, side), img)
+            band = BAND if look is not None else 0
+            side = min(w - 20, h - 16 - band, THUMB)
+            p.drawImage(QRectF(-side / 2, -side / 2 + band / 2, side, side), img)
         else:
             p.setPen(QPen(QColor(MUTED)))
             mark = {"SNP": "S", "EM": "3D"}.get(t) or ("VA" if c.props.get("Kind") == "Verilog-A" else "NL")
@@ -354,6 +367,41 @@ def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = N
         p.setBrush(PIN)
         for dx, dy in CK.pin_offsets(c):
             p.drawEllipse(QPointF(dx, dy), 2.5, 2.5)
+
+
+def _model_frame(p: QPainter, c: CK.Component, w: float, h: float, state: str, pen: QPen) -> None:
+    """Fill, frame and band of an N-port block in the colour of the model it uses (a selected block keeps the gold
+    frame of the selection)."""
+    col, bg, text, mark = MODEL_LOOK[state]
+    p.save()
+    body = QRectF(-w / 2, -h / 2, w, h)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(bg))
+    p.drawRoundedRect(body, 6, 6)
+    band = QPainterPath()
+    band.addRoundedRect(body, 6, 6)
+    top = QPainterPath()
+    top.addRect(QRectF(-w / 2, -h / 2, w, BAND))
+    p.setBrush(QColor(col))
+    p.drawPath(band.intersected(top))
+    sel = pen.color() == QColor(GOLD)
+    fp = QPen(QColor(GOLD) if sel else QColor(col), 2.2, Qt.DashLine if state == "auto" else Qt.SolidLine)
+    p.setPen(fp)
+    p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(body, 6, 6)
+    if not text and state == "data":
+        text = "FULL-WAVE FEM" if c.type == "EM" else "TOUCHSTONE"
+    if c.rot % 180 == 0:                       # the band runs across the top (bottom when mirrored or turned)
+        p.setPen(QPen(QColor("#ffffff")))
+        _upright(p, c, QPointF(0, -h / 2 + BAND / 2),
+                 lambda: _small_text(p, QRectF(-w / 2, -BAND / 2, w, BAND), text, 6.5))
+    if mark:
+        p.setPen(QPen(QColor("#ffffff"), 1.2))
+        p.setBrush(QColor(GOLD if state == "auto" else MODEL_ERROR))
+        p.drawEllipse(QPointF(w / 2, -h / 2), 7, 7)
+        p.setPen(QPen(QColor("#ffffff")))
+        _upright(p, c, QPointF(w / 2, -h / 2), lambda: _small_text(p, QRectF(-7, -7, 14, 14), mark, 8))
+    p.restore()
 
 
 def value_lines(c: CK.Component) -> list[str]:
@@ -437,6 +485,13 @@ class ComponentItem(QGraphicsItem):
         self.setPos(comp.x, comp.y)
         self.sync_transform()
         self._img = _image(comp.props.get("Thumbnail", "")) if comp.type == "EM" else None
+        self.state, self.state_text = "", ""
+        if comp.type in CK.NPORT_TYPES and not ghost:
+            from ..solver.circuit import block_state
+            try:
+                self.state, self.state_text = block_state(editor.doc.project, editor.des, comp)
+            except Exception:  # noqa: BLE001 (the display must not fail on an incomplete design)
+                pass
         self.setToolTip(self._tip())
 
     def sync_transform(self) -> None:
@@ -451,6 +506,8 @@ class ComponentItem(QGraphicsItem):
         info = CK.TYPES[c.type]
         vals = "\n".join(f"{k} = {v}" for k, v in c.props.items() if k not in ("Thumbnail", "PortNames", "Ports"))
         extra = line_summary(self.editor.doc, c) if not self.ghost and c.type in CALC_TYPES else ""
+        if getattr(self, "state_text", ""):
+            extra = f"Model now: {self.state_text}"
         return f"{c.name}: {info.label}\n{info.help}" + (f"\n\n{vals}" if vals else "") + \
             (f"\n\n{extra}" if extra else "")
 
@@ -487,7 +544,7 @@ class ComponentItem(QGraphicsItem):
         sel = self.isSelected()
         pen = QPen(QColor(GOLD) if sel else INKC, 2 if sel else 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         p.setRenderHint(QPainter.Antialiasing)
-        paint_symbol(p, c, pen, self._img)
+        paint_symbol(p, c, pen, self._img, state=self.state)
         # name and values, upright and beside the part
         p.save()
         p.setTransform(self.transform().inverted()[0], True)
@@ -1043,8 +1100,13 @@ class CircuitEditor(QWidget):
         if not names:
             QMessageBox.information(self, "3D design block", f"{design} has no ports. Add ports to it first.")
             return
+        from ..model.circuit_layout import LINK
+        link = src.settings.get(LINK, "")             # a generated layout: its circuit is the circuit model
+        cm = link if link and link != self.des.name and any(
+            d.name == link and getattr(d, "kind", "3d") == "circuit" for d in self.doc.project.designs) else ""
         self.place("EM", x, y, {"Design": design, "Solution": sol, "Ports": str(len(names)),
-                                "PortNames": ",".join(names), "Thumbnail": design_thumbnail(self.doc, design)})
+                                "PortNames": ",".join(names), "Thumbnail": design_thumbnail(self.doc, design),
+                                CK.CIRCUIT_MODEL: cm})
         if not sols:
             self.hint.setText(f"{design} is not solved yet: analyze it before the circuit.")
 
@@ -1283,6 +1345,30 @@ class CircuitEditor(QWidget):
                 pass
         self._commit()
 
+    def set_block_model(self, name: str, model: str) -> None:
+        """Switch a block between its data (full-wave FEM or Touchstone) and its circuit model."""
+        c = self.comp(name)
+        if c.props.get(CK.MODEL, CK.MODEL_DATA) == model:
+            return
+        self._change()
+        c.props[CK.MODEL] = model
+        self._commit()
+
+    def _model_actions(self, m: QMenu, c: CK.Component) -> None:
+        from ..solver.circuit import circuit_model_name
+        cur = c.props.get(CK.MODEL, CK.MODEL_DATA)
+        cm = circuit_model_name(self.doc.project, c)
+        a = m.addAction("Use Full-Wave FEM Model" if c.type == "EM" else "Use Touchstone Data",
+                        lambda: self.set_block_model(c.name, CK.MODEL_DATA))
+        a.setCheckable(True)
+        a.setChecked(cur != CK.MODEL_CIRCUIT)
+        b = m.addAction(f"Use Circuit Model ({cm})" if cm else "Use Circuit Model (none set: Properties)",
+                        lambda: self.set_block_model(c.name, CK.MODEL_CIRCUIT))
+        b.setCheckable(True)
+        b.setChecked(cur == CK.MODEL_CIRCUIT)
+        b.setEnabled(bool(cm) or cur == CK.MODEL_CIRCUIT)
+        m.addSeparator()
+
     def _context(self, pos) -> None:
         if self.mode == "wire" and self.wire_pts:
             self.finish_wire()
@@ -1297,6 +1383,8 @@ class CircuitEditor(QWidget):
                 self.scene.clearSelection()
                 it.setSelected(True)
             m.addAction("Properties...", lambda: self.edit_component(it.comp.name))
+            if it.comp.type in CK.NPORT_TYPES:
+                self._model_actions(m, it.comp)
             if it.comp.type == "EM":
                 m.addAction("Update ports and picture", lambda: self.update_block(it.comp.name))
                 m.addAction("Open 3D design", lambda: self.doc.set_design(it.comp.props.get("Design", "")))
@@ -1399,6 +1487,7 @@ class ComponentDialog(QDialog):
             fill()
             form.addRow("3D design", self.design)
             form.addRow("Solution", self.solution)
+            self._model_rows(form, "Full-wave FEM (3D design)")
         elif comp.type == "SNP":
             row = QHBoxLayout()
             self.file = QLineEdit(comp.props.get("File", ""))
@@ -1409,6 +1498,7 @@ class ComponentDialog(QDialog):
             w = QWidget()
             w.setLayout(row)
             form.addRow("File", w)
+            self._model_rows(form, "Touchstone data")
         else:
             for k, default in info.props.items():
                 if k == "Subst":
@@ -1431,6 +1521,34 @@ class ComponentDialog(QDialog):
         bb.accepted.connect(self._ok)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+    def _model_rows(self, form: QFormLayout, data_label: str) -> None:
+        """Model of an N-port block: its data or a circuit design of the project; the circuit model also stands
+        in where the data do not reach."""
+        from ..solver.circuit import circuit_model_name
+        self.model = QComboBox()
+        self.model.addItem(data_label, CK.MODEL_DATA)
+        self.model.addItem("Circuit model", CK.MODEL_CIRCUIT)
+        self.model.setCurrentIndex(1 if self.comp.props.get(CK.MODEL) == CK.MODEL_CIRCUIT else 0)
+        self.circuit_model = QComboBox()
+        self.circuit_model.addItem("(none)", "")
+        for d in self.doc.project.designs:
+            if getattr(d, "kind", "3d") == "circuit" and d.name != self.doc.design.name:
+                self.circuit_model.addItem(d.name, d.name)
+        cur = circuit_model_name(self.doc.project, self.comp)
+        k = self.circuit_model.findData(cur)
+        self.circuit_model.setCurrentIndex(max(k, 0))
+        form.addRow("Model", self.model)
+        form.addRow("Circuit model", self.circuit_model)
+        note = QLabel("A circuit design of this project with the same ports (matched by name, else by number). "
+                      "Where the data do not cover the analysis (harmonics included), the block switches to it "
+                      "with a warning; without one the analysis stops.")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {MUTED};")
+        form.addRow("", note)
+
+    def _model_values(self) -> dict:
+        return {CK.MODEL: self.model.currentData(), CK.CIRCUIT_MODEL: self.circuit_model.currentData()}
 
     # ---- line calculator: Z0 and electrical length <-> W and L --------------------------------------
     def _calculator(self) -> QWidget:
@@ -1520,6 +1638,10 @@ class ComponentDialog(QDialog):
         return (e.currentText() if isinstance(e, QComboBox) else e.text()).strip()
 
     def _ok(self) -> None:
+        if getattr(self, "model", None) is not None and self.model.currentData() == CK.MODEL_CIRCUIT \
+                and not self.circuit_model.currentData():
+            QMessageBox.warning(self, "Component", "Choose the circuit design that models the block.")
+            return
         ev = self.doc.design.evaluator(self.doc.project)
         for k, e in self.fields.items():
             if k in ("Subst", "Net") or (k == "Num" and not self._text(e)):
@@ -1534,7 +1656,8 @@ class ComponentDialog(QDialog):
     def values(self) -> tuple[str, dict]:
         name = self.name.text().strip() or self.comp.name
         if self.comp.type == "EM":
-            return name, {"Design": self.design.currentText(), "Solution": self.solution.currentText()}
+            return name, {"Design": self.design.currentText(), "Solution": self.solution.currentText(),
+                          **self._model_values()}
         if self.comp.type == "SNP":
-            return name, {"File": self.file.text().strip()}
+            return name, {"File": self.file.text().strip(), **self._model_values()}
         return name, {k: self._text(e) for k, e in self.fields.items()}

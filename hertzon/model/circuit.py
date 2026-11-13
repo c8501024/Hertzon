@@ -124,10 +124,13 @@ TYPES: dict[str, TypeInfo] = {
                                              "Cond": "5.8e7", "L": "100mm"}, [(-40, 0), (40, 0)],
                      "Coaxial line: inner and outer diameter, dielectric, conductor loss", "Transmission Lines"),
     # ---- data
-    "SNP": TypeInfo("Touchstone", "S", {"File": ""}, [], "N-port from a Touchstone file, ports against ground",
-                    "Data"),
-    "EM": TypeInfo("3D Design", "EM", {"Design": "", "Solution": ""}, [],
-                   "S-parameters of a 3D design of this project, ports against ground", "Data"),
+    "SNP": TypeInfo("Touchstone", "S", {"File": "", "Model": "Data", "CircuitModel": ""}, [],
+                    "N-port from a Touchstone file, ports against ground. Model: the file's data or a circuit "
+                    "design of the project (circuit model), which also stands in where the data end", "Data"),
+    "EM": TypeInfo("3D Design", "EM", {"Design": "", "Solution": "", "Model": "Data", "CircuitModel": ""}, [],
+                   "S-parameters of a 3D design of this project, ports against ground. Model: the full-wave FEM "
+                   "solution or a circuit design of the project (circuit model), which also stands in where the "
+                   "full-wave data end", "Data"),
     # ---- nonlinear (simulated by an external circuit engine, see hertzon/solver/nonlinear.py)
     "DEVICE": TypeInfo("Nonlinear Device", "Q", {"Kind": "Subcircuit", "Model": "", "Pins": "c b e",
                                                   "Params": "", "File": ""}, [],
@@ -148,6 +151,12 @@ TYPES: dict[str, TypeInfo] = {
                     "Nonlinear"),
 }
 NPORT_TYPES = ("SNP", "EM")
+# Model of an N-port block: its data (the full-wave FEM solution of a 3D design, or a Touchstone file) or a circuit
+# model, a circuit design of the project with the same ports. A block whose data do not cover the frequencies of an
+# analysis switches to its circuit model (with a warning); without a circuit model the analysis stops.
+MODEL = "Model"                     # block property: MODEL_DATA or MODEL_CIRCUIT
+MODEL_DATA, MODEL_CIRCUIT = "Data", "Circuit"
+CIRCUIT_MODEL = "CircuitModel"      # block property: name of the circuit design that models the block ("": none)
 LINE_TYPES = ("MLIN", "MLOC", "MLSC", "MCLIN", "MTEE", "MCORN", "MMBEND", "MSTEP", "MGAP", "MCROSS",
               "SLIN", "CPWLIN")
 LINE_MODEL = "LineModel"            # design setting: "Closed form" or "Full wave" (cross-section solve)
