@@ -412,7 +412,7 @@ A part that goes on the board (R, L, C, the RLC networks, a nonlinear device, a 
   can be used as they are. A library id is looked up in the project folder, the *KiCad library folders* of
   **Tools › Options › General**, `HERTZON_KICAD_LIBS` and the folders of a KiCad installation (`Name.pretty`).
   Only where no file is found, a built-in package of the same name is used (chip R, C, L 0201 to 1206, SOT-23,
-  SOT-323, SOT-343, QFN): a typical land pattern, and the dialog says so. A file picked from outside the project
+  SOT-323, SOT-343, QFN, and SC-82FL as onsemi recommends it): a typical land pattern, and the dialog says so. A file picked from outside the project
   is copied into its `footprints` folder.
 * **Symbol** (optional): a KiCad symbol (`Library:Name`, `file.kicad_sym:Name`, also `.kicad_symdir`
   libraries) that names the pins of the pads.

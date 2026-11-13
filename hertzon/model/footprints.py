@@ -11,7 +11,7 @@ A part that goes on the board carries the properties
 A library id is looked up in the KiCad library folders (KICAD*_FOOTPRINT_DIR / KICAD*_SYMBOL_DIR, the usual
 installation folders, the folders in HERTZON_KICAD_LIBS and the ones set in the program) as Library.pretty/
 Name.kicad_mod, a symbol in Library.kicad_sym or Library.kicad_symdir/Name.kicad_sym. Only where no file is found
-a built-in package of the same kind is used (chip R, C, L 0201 to 1206, SOT-23, SOT-323, SOT-343, QFN); it says
+a built-in package of the same kind is used (chip R, C, L 0201 to 1206, SOT-23, SOT-323, SOT-343, SC-82FL, QFN); it says
 so in its source, because its pads are a typical land pattern and not the manufacturer's.
 """
 from __future__ import annotations
@@ -252,6 +252,14 @@ def builtin(name: str) -> Footprint | None:
     if key in ("SOT-343", "SOT-343-SC-70-4", "SC-70-4"):
         return two_row("SOT-343_SC-70-4", [(1, -0.95, 0.65), (2, -0.95, -0.65), (3, 0.95, -0.65), (4, 0.95, 0.65)],
                        0.9, 0.45, (1.25, 2.0), "SOT-343 (SC-70-4), pin 1 top left")
+    if key in ("SC-82FL", "MCPH4", "SC-82FL-MCPH4", "SC-82FL-MCPH-4"):
+        # onsemi case 419AR, recommended mounting footprint: pads 0.40 x 0.60 mm, 1.30 mm apart in x, 2.10 mm in
+        # y (centre to centre); pin 1 bottom left seen from the top, 2 bottom right, 3 top right, 4 top left
+        fp = two_row("SC-82FL_MCPH4", [(1, -0.65, -1.05), (2, 0.65, -1.05), (3, 0.65, 1.05), (4, -0.65, 1.05)],
+                     0.4, 0.6, (2.0, 1.6), "SC-82FL / MCPH4 (onsemi case 419AR), pin 1 bottom left")
+        fp.description = ("SC-82FL / MCPH4 (onsemi case 419AR), 2.0 x 1.6 mm, pin 1 bottom left; the manufacturer's "
+                          "recommended mounting footprint")
+        return fp
     m = re.match(r"^QFN-(\d+)(?:-1EP)?-(\d+(?:\.\d+)?)X\2MM-P(\d+(?:\.\d+)?)MM(?:-EP(\d+(?:\.\d+)?)X\4MM)?$", key)
     if m and int(m.group(1)) % 4 == 0:
         npin, body, pitch = int(m.group(1)), float(m.group(2)), float(m.group(3))
@@ -260,7 +268,8 @@ def builtin(name: str) -> Footprint | None:
     return None
 
 
-BUILTIN_NAMES = ([f"{k}_{c}" for k in "RCL" for c in CHIPS] + ["SOT-23", "SOT-323_SC-70", "SOT-343_SC-70-4"]
+BUILTIN_NAMES = ([f"{k}_{c}" for k in "RCL" for c in CHIPS] + ["SOT-23", "SOT-323_SC-70", "SOT-343_SC-70-4",
+                                                             "SC-82FL_MCPH4"]
                  + ["QFN-16-1EP_3x3mm_P0.5mm_EP1.7x1.7mm", "QFN-20-1EP_4x4mm_P0.5mm_EP2.6x2.6mm",
                     "QFN-24-1EP_4x4mm_P0.5mm_EP2.6x2.6mm", "QFN-16-1EP_4x4mm_P0.65mm_EP2.1x2.1mm"])
 

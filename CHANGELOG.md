@@ -12,6 +12,8 @@ the GitHub release notes.
   pads and transistors and ICs on their footprints with one port per pad; **Board Circuit** puts the solved
   layout back into a schematic with every device pin on its pad port. KiCad library folders in Tools › Options.
   **Board Layout** places the parts in 2D before the 3D layout: drag, turn, ratsnest, overlap check, tracks.
+  The LNA_2G4 example comes with its board placed (0402 parts, the transistor in SC-82FL); Board Circuit adds a
+  circuit model of the layout so that the bias point has the DC paths of the board.
 - **Nonlinear devices in circuit designs.** Transistors and diodes from SPICE libraries of process design kits
   (subcircuits), model cards or Verilog-A models, DC voltage and current sources, a SPICE Library part. Hertzon
   solves the schematic and reduces all linear parts (lines, junctions, 3D blocks) to one network at the device

@@ -161,3 +161,13 @@ def test_old_module_format_and_numbered_pin_names_of_vendor_libraries(tmp_path):
     sym = K.Symbol("Q", [("1", "COLLECTOR"), ("2", "EMITTER_1"), ("3", "BASE"), ("4", "EMITTER_2")])
     assert F.auto_pads(["b", "c", "e"], fp, sym) == {"b": ["3"], "c": ["1"], "e": ["2", "4"]}
     assert F.auto_pads(["b", "c", "e1", "e2"], fp, sym) == {"b": ["3"], "c": ["1"], "e1": ["2"], "e2": ["4"]}
+
+
+def test_sc82fl_is_onsemis_recommended_footprint():
+    """SC-82FL / MCPH4 (onsemi case 419AR): pads 0.40 x 0.60 mm, 1.30 mm and 2.10 mm apart (centre to centre),
+    pin 1 bottom left seen from the top, counter-clockwise."""
+    fp = F.builtin("SC-82FL_MCPH4")
+    assert [(p.number, p.x, p.y, p.w, p.h) for p in fp.pads] == [
+        ("1", -0.65, -1.05, 0.4, 0.6), ("2", 0.65, -1.05, 0.4, 0.6), ("3", 0.65, 1.05, 0.4, 0.6),
+        ("4", -0.65, 1.05, 0.4, 0.6)]
+    assert F.builtin("MCPH4").name == fp.name and "SC-82FL_MCPH4" in F.BUILTIN_NAMES
