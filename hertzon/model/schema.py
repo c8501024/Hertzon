@@ -363,18 +363,39 @@ SETUP: list[Prop] = [
 # Analysis of a circuit design. Hertzon solves the schematic (lines, lumped parts, 3D blocks) itself; with
 # transistors the bias point and the small-signal device admittances come from ngspice, the harmonic balance from
 # circuitRF (see hertzon/solver/nonlinear.py).
-CIRCUIT_ANALYSES = ("S-Parameters", "Harmonic Balance")
+CIRCUIT_ANALYSES = ("S-Parameters", "Harmonic Balance", "Mixer")
+_MIX = ("CircuitAnalysis", "Mixer")
 CIRCUIT_SETUP: list[Prop] = [
     P("CircuitAnalysis", "choice", "S-Parameters", label="Analysis", choices=CIRCUIT_ANALYSES,
       help="S-Parameters: Hertzon's linear circuit solver; with nonlinear devices the bias point and the "
            "small-signal device admittances come from ngspice. Harmonic Balance: large-signal single tone, solved "
-           "by circuitRF on Hertzon's linear network"),
+           "by circuitRF on Hertzon's linear network. Mixer: two-tone harmonic balance (LO and RF) by circuitRF, "
+           "conversion loss and isolation over an RF sweep"),
     P("Tone", "freq", "1GHz", label="Fundamental", visible_if=("CircuitAnalysis", "Harmonic Balance")),
     P("Harmonics", "int", "5", label="Harmonics", visible_if=("CircuitAnalysis", "Harmonic Balance")),
     P("DrivePort", "text", "Port1", label="Drive port", visible_if=("CircuitAnalysis", "Harmonic Balance"),
       help="The port that drives the circuit with its available power; the other ports terminate in Z0"),
     P("Power", "text", "-30", label="Available power (dBm)", visible_if=("CircuitAnalysis", "Harmonic Balance"),
       help="One value, a list (-30, -20, -10) or start:step:stop (-30:2:10)"),
+    # two-tone harmonic balance of a mixer: an LO and a small RF signal, the IF read at its port
+    P("LOPort", "text", "LO", label="LO port", visible_if=_MIX,
+      help="The port of the local oscillator, a source of the LO power"),
+    P("LOPower", "text", "7", label="LO power (dBm)", visible_if=_MIX,
+      help="Available LO power: one value, a list (3, 7, 10) or start:step:stop"),
+    P("RFPort", "text", "RF", label="RF port", visible_if=_MIX),
+    P("RFPower", "text", "-20", label="RF power (dBm)", visible_if=_MIX,
+      help="Available power of the RF signal, small enough that the mixer is linear in it"),
+    P("IFPort", "text", "IF", label="IF port", visible_if=_MIX),
+    P("RFStart", "freq", "2GHz", label="RF start", visible_if=_MIX),
+    P("RFStop", "freq", "4GHz", label="RF stop", visible_if=_MIX),
+    P("RFPoints", "int", "21", label="RF points", visible_if=_MIX),
+    P("IFFreq", "freq", "200MHz", label="IF frequency", visible_if=_MIX,
+      help="The LO follows the RF so that the IF stays at this frequency"),
+    P("LOSide", "choice", "Low", label="LO side", choices=("Low", "High"), visible_if=_MIX,
+      help="Low: LO = RF - IF; High: LO = RF + IF"),
+    P("MixOrder", "int", "13", label="Mixing order", visible_if=_MIX,
+      help="Products k1 LO + k2 RF with |k1| + |k2| up to this order are kept. A diode mixer needs about 13: the "
+           "IF depends on the high harmonics of the LO (order 7 was 1 dB off an ngspice transient analysis)"),
 ]
 
 

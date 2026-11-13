@@ -1,0 +1,7 @@
+* Broadcom (Avago) HSMS-282x RF Schottky barrier diodes, one junction of the family.
+* SPICE parameters as published in the manufacturer's data sheet "HSMS-282x Surface Mount RF Schottky Barrier
+* Diodes" (table "SPICE Parameters", values for the whole family): BV 15 V, CJ0 0.7 pF, EG 0.69 eV, IBV 1E-4 A,
+* IS 2.2E-8 A, N 1.08, RS 6.0 ohm, PB 0.65 V, PT 2, M 0.5. PB is the junction potential (VJ) and PT the
+* saturation-current temperature exponent (XTI) in the usual SPICE names.
+* The HSMS-2829 cross-over quad holds four such junctions as a ring (SOT-143). The package is not in this card.
+.model HSMS282X D(IS=2.2E-8 RS=6 N=1.08 CJO=0.7p VJ=0.65 M=0.5 EG=0.69 XTI=2 BV=15 IBV=1E-4)

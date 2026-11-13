@@ -19,6 +19,11 @@ the GitHub release notes.
   switches to its circuit model with a warning; without one the analysis stops with an error instead of using the
   nearest data point. The block's colour shows the model: blue full-wave FEM, red circuit, red dashed switched,
   grey no usable model. A block of a generated 3D layout takes its circuit as the circuit model.
+- **Mixer analysis in circuit designs.** A two-tone harmonic balance (LO and RF) by circuitRF on Hertzon's
+  network: conversion loss, LO-RF, LO-IF and RF-IF isolation over an RF band and a list of LO powers, results in
+  `mixer.csv`. Diode model cards of SPICE libraries now run in harmonic balance. New example
+  `examples/make_mixer.py`: a broadband double-balanced diode mixer (about 1.25 to 4 GHz) with two stripline
+  Marchand baluns as a 3D design and the HSMS-2829 ring quad; checked against an ngspice transient analysis.
 - Units V, mV, A, mA, uA, kohm in expressions.
 - **macOS:** the mesher library `libhzmesh.dylib` (universal, arm64 and x86_64) is included; `build.sh` builds
   it on macOS and a CI workflow on a macOS runner keeps it up to date. EMerge comes as a prebuilt wheel on
@@ -33,6 +38,10 @@ the GitHub release notes.
   Touchstone). Both tabs are built by one function, so they stay alike.
 
 ### Fixed
+- Circuit designs: a part with two pins on the same net (for example both cold ends of a balun block on one IF
+  node, or a 3D block with two ports tied together) lost one of the two in the network; now both count.
+- Harmonic balance with 3D blocks or Touchstone data that start above 0 Hz: DC takes the real part of the lowest
+  point (an imaginary part at DC is not physical and kept the balance from converging).
 - Interpolating sweep on macOS: no more spurious "divide by zero / overflow in matmul" warnings from Apple's
   Accelerate in the reduced-basis step; a reduced solution that is really not finite is rejected and solved
   directly (#405).

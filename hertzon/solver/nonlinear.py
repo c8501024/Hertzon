@@ -11,7 +11,10 @@ Analyses:
                      small-signal admittance of every device about that point; Hertzon adds them to its own
                      network and gives the S-parameters of the whole circuit.
   harmonic_balance   circuitRF: the linear network as a Touchstone N-port at DC and the harmonics, the devices
-                     as compiled Verilog-A models; single tone, swept available power at the drive port.
+                     as compiled Verilog-A models or diode model cards; single tone, swept available power at the
+                     drive port.
+  mixer              circuitRF: two-tone harmonic balance (LO and RF) over an RF sweep with a fixed IF;
+                     conversion loss and the isolations.
 """
 from __future__ import annotations
 
@@ -80,10 +83,18 @@ class NonlinearCircuit:
         return kron(self.net.assemble(f, short), np.array(self.terminals) - 1)
 
 
+EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
+
+
 def _path(text: str, base: Path | None) -> Path:
+    """A file of a part, relative to the project. An example saved somewhere else still finds the library it
+    ships with (relative to the examples folder) when there is no such file next to the project."""
     p = Path(text.strip().strip('"'))
-    if not p.is_absolute() and base is not None:
-        p = base / p
+    if not p.is_absolute():
+        q = base / p if base is not None else p
+        if not q.exists() and (EXAMPLES / p).is_file():
+            return EXAMPLES / p
+        return q
     return p
 
 
@@ -249,12 +260,202 @@ def harmonic_balance(project: Project, design: Design, f0: float, harmonics: int
     names = [c.name for c in nl.ports]
     if drive not in names:
         raise CircuitError(f"no port named {drive}; the ports are {', '.join(names)}")
-    bad = [d.name for d in nl.devices if d.kind != "Verilog-A"]
-    if bad:
-        raise EngineError(f"{', '.join(bad)}: harmonic balance runs compiled Verilog-A models only (Kind "
-                          "Verilog-A). SPICE subcircuits and model cards run in the bias and S-parameter "
-                          "analysis (ngspice)")
+    check_hb_devices(nl)
     return circuitrf.harmonic_balance(nl, f0, harmonics, drive, np.atleast_1d(np.asarray(power_dbm, float)))
+
+
+def check_hb_devices(nl: NonlinearCircuit) -> None:
+    """circuitRF's harmonic balance runs compiled Verilog-A models and diode model cards (its built-in junction
+    diode with the card's parameters); read the cards now, so a missing one is reported before the run."""
+    bad = []
+    for d in nl.devices:
+        if d.kind == "Model card":
+            typ, _ = model_card(nl, d.model)
+            if typ != "d":
+                bad.append(d.name)
+        elif d.kind != "Verilog-A":
+            bad.append(d.name)
+    if bad:
+        raise EngineError(f"{', '.join(bad)}: harmonic balance runs compiled Verilog-A models and diode model "
+                          "cards (Kind Verilog-A, or Model card of type D). SPICE subcircuits and other model "
+                          "cards run in the bias and S-parameter analysis (ngspice)")
+
+
+# ---- SPICE model cards -----------------------------------------------------------------------------------
+_SPICE_SCALE = {"t": 1e12, "g": 1e9, "meg": 1e6, "k": 1e3, "mil": 25.4e-6, "m": 1e-3, "u": 1e-6, "n": 1e-9,
+                "p": 1e-12, "f": 1e-15, "a": 1e-18}
+
+
+def spice_number(text: str) -> float:
+    """A SPICE number: 0.7p, 2.2E-8, 1meg, 15V (letters after the scale factor are a unit and ignored)."""
+    m = re.match(r"\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)([a-zA-Z]*)", text)
+    if not m:
+        raise ValueError(f"not a number: {text}")
+    v, suf = float(m.group(1)), m.group(2).lower()
+    for k in ("meg", "mil", "t", "g", "k", "m", "u", "n", "p", "f", "a"):
+        if suf.startswith(k):
+            return v * _SPICE_SCALE[k]
+    return v
+
+
+def _cards(text: str) -> dict[str, tuple[str, dict[str, str]]]:
+    """The .model cards of a SPICE text: name (lower case) -> (type, {PARAM: value text})."""
+    text = re.sub(r"\n\s*\+", " ", text.replace("\r", ""))           # continuation lines
+    out = {}
+    for line in text.splitlines():
+        line = line.split(";")[0].split("$")[0]
+        m = re.match(r"\s*\.model\s+(\S+)\s+([A-Za-z]+)\s*\(?(.*?)\)?\s*$", line, re.I)
+        if m:
+            params = {k.upper(): v for k, v in re.findall(r"(\w+)\s*=\s*([^\s,()=]+)", m.group(3))}
+            out[m.group(1).lower()] = (m.group(2).lower(), params)
+    return out
+
+
+def model_card(nl: NonlinearCircuit, name: str) -> tuple[str, dict[str, str]]:
+    """Type and parameters of the .model card `name` in the SPICE libraries of the circuit (and the files they
+    include)."""
+    seen = set()
+
+    def scan(f: Path, depth: int):
+        if f in seen or depth > 3 or not f.is_file():
+            return None
+        seen.add(f)
+        text = f.read_text(errors="replace")
+        card = _cards(text).get(name.lower())
+        if card:
+            return card
+        for inc in re.findall(r"^\s*\.(?:include|inc|lib)\s+['\"]?([^'\"\s]+)", text, re.I | re.M):
+            c = scan((f.parent / inc).resolve(), depth + 1)
+            if c:
+                return c
+        return None
+    for lib in nl.libraries:
+        c = scan(lib.file, 0)
+        if c:
+            return c
+    raise EngineError(f"no .model {name} in the SPICE libraries")
+
+
+@dataclass
+class MixerResult:
+    rf_freq: np.ndarray             # (F,) RF frequency of each point
+    lo_freq: np.ndarray             # (F,)
+    if_freq: float
+    lo_power_dbm: np.ndarray        # (L,) available LO power
+    rf_power_dbm: float
+    port_names: list[str]
+    lo: str
+    rf: str
+    if_port: str
+    products: list[str]             # "(k1,k2)": k1 f_LO + k2 f_RF
+    port_power_dbm: np.ndarray      # (L, F, ports, products) power into each port's termination
+    spectra: np.ndarray             # (L, F, ports, products) complex port voltages, peak
+    converged: np.ndarray           # (L, F)
+    warnings: list[str] = field(default_factory=list)
+
+    def power(self, port: str, product: str) -> np.ndarray:
+        """(L, F) power of a product at a port, dBm."""
+        return self.port_power_dbm[:, :, self.port_names.index(port), self.products.index(product)]
+
+    def conversion_loss_db(self) -> np.ndarray:
+        """(L, F) available RF power over the IF power delivered to the IF port (product LO - RF)."""
+        return self.rf_power_dbm - self.power(self.if_port, "(1,-1)")
+
+    def isolation_db(self, source: str, port: str) -> np.ndarray:
+        """(L, F) available power of the LO (source "LO") or the RF over its power at another port."""
+        if source == "LO":
+            return self.lo_power_dbm[:, None] - self.power(port, "(1,0)")
+        return self.rf_power_dbm - self.power(port, "(0,1)")
+
+
+def mixer(project: Project, design: Design, lo: str, rf: str, if_port: str, rf_freq: np.ndarray, if_freq: float,
+          lo_side: str, lo_power: np.ndarray, rf_power: float, order: int = 13, workers: int | None = None
+          ) -> MixerResult:
+    """Two-tone harmonic balance of a mixer with circuitRF: at every RF frequency the LO sits IF below (lo_side
+    "Low") or above it, the LO port is a source of the LO power (swept), the RF port of the small RF power; all
+    other ports terminate in their Z0. One circuitRF run per frequency, run in parallel."""
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+    from . import circuitrf
+    rf_freq = np.atleast_1d(np.asarray(rf_freq, float))
+    lo_freq = rf_freq - if_freq if lo_side == "Low" else rf_freq + if_freq
+    if np.any(lo_freq <= 0) or if_freq <= 0:
+        raise CircuitError("The LO frequency must be positive: RF above the IF for a low-side LO")
+    if order < 3:
+        raise CircuitError("The mixing order must be at least 3")
+    probe = np.unique(np.concatenate([rf_freq, lo_freq, [if_freq]]))
+    nl = gather(project, design, probe)
+    names = [c.name for c in nl.ports]
+    for nm, what in ((lo, "LO"), (rf, "RF"), (if_port, "IF")):
+        if nm not in names:
+            raise CircuitError(f"{what} port: no port named {nm}; the ports are {', '.join(names)}")
+    if len({lo, rf, if_port}) < 3:
+        raise CircuitError("LO, RF and IF must be three different ports")
+    check_hb_devices(nl)
+    p_lo = np.atleast_1d(np.asarray(lo_power, float))
+    workers = workers or max(1, min(4, (os.cpu_count() or 2) // 2))
+
+    def one(k):
+        return circuitrf.mixer_point(nl, lo, rf, lo_freq[k], rf_freq[k], p_lo, rf_power, order)
+    with ThreadPoolExecutor(workers) as ex:
+        runs = list(ex.map(one, range(len(rf_freq))))
+    labels = runs[0][0]
+    pw = np.stack([r[2] for r in runs], axis=1)
+    sp = np.stack([r[1] for r in runs], axis=1)
+    conv = np.stack([r[3] for r in runs], axis=1)
+    warns = list(dict.fromkeys(nl.net.warnings + [m for r in runs for m in r[4]]))
+    if np.any(conv < 0.5):
+        warns.append(f"harmonic balance did not converge at {int(np.sum(conv < 0.5))} of {conv.size} points")
+    return MixerResult(rf_freq, lo_freq, if_freq, p_lo, rf_power, names, lo, rf, if_port, labels, pw, sp, conv,
+                       warns)
+
+
+def run_mixer(project: Project, design: Design, setup, store) -> list[str]:
+    """The mixer analysis of a circuit setup, written to its results folder (mixer.csv, .npz and .json)."""
+    import time
+    ev = design.evaluator(project)
+    p = setup.props
+    n = int(float(p.get("RFPoints", "21") or 21))
+    f1, f2 = ev.freq(p.get("RFStart", "2GHz")), ev.freq(p.get("RFStop", "4GHz"))
+    rf = np.linspace(f1, f2, max(1, n)) if n > 1 else np.array([f1])
+    try:
+        p_rf = float(p.get("RFPower", "-20").replace("dBm", ""))
+    except ValueError:
+        raise CircuitError("RF power: give one value in dBm") from None
+    m = mixer(project, design, p.get("LOPort", "LO").strip(), p.get("RFPort", "RF").strip(),
+              p.get("IFPort", "IF").strip(), rf, ev.freq(p.get("IFFreq", "200MHz")), p.get("LOSide", "Low"),
+              power_list(p.get("LOPower", "7")), p_rf, int(float(p.get("MixOrder", "13") or 13)))
+    write_mixer(m, store)
+    store.write_json("status.json", {"state": "done", "finished": time.time(), "circuit": True,
+                                     "analysis": "Mixer"})
+    return m.warnings
+
+
+def write_mixer(m: MixerResult, store) -> None:
+    folder = store.folder
+    np.savez(folder / "mixer.npz", rf_freq=m.rf_freq, lo_freq=m.lo_freq, if_freq=m.if_freq,
+             lo_power_dbm=m.lo_power_dbm, rf_power_dbm=m.rf_power_dbm, ports=np.array(m.port_names),
+             products=np.array(m.products), port_power_dbm=m.port_power_dbm, spectra=m.spectra,
+             converged=m.converged)
+    others = [x for x in m.port_names if x not in (m.lo, m.rf, m.if_port)]
+    head = ["Plo_dBm", "RF_GHz", "LO_GHz", "IF_GHz", "ConvLoss_dB", f"LO_to_{m.rf}_dB", f"LO_to_{m.if_port}_dB",
+            f"RF_to_{m.if_port}_dB", f"RF_to_{m.lo}_dB", f"IF_at_{m.if_port}_dBm", "Converged"]
+    cl = m.conversion_loss_db()
+    iso = [m.isolation_db("LO", m.rf), m.isolation_db("LO", m.if_port), m.isolation_db("RF", m.if_port),
+           m.isolation_db("RF", m.lo)]
+    pif = m.power(m.if_port, "(1,-1)")
+    rows = []
+    for a, plo in enumerate(m.lo_power_dbm):
+        for k, f in enumerate(m.rf_freq):
+            r = [plo, f / 1e9, m.lo_freq[k] / 1e9, m.if_freq / 1e9, cl[a, k]] + [x[a, k] for x in iso] \
+                + [pif[a, k], m.converged[a, k]]
+            rows.append(",".join(f"{x:.9g}" for x in r))
+    (folder / "mixer.csv").write_text(",".join(head) + "\n" + "\n".join(rows) + "\n")
+    store.write_json("mixer.json", {
+        "engine": "circuitRF (two-tone harmonic balance); circuit, linear network and N-port reduction: Hertzon",
+        "lo_port": m.lo, "rf_port": m.rf, "if_port": m.if_port, "other_ports": others, "if_Hz": m.if_freq,
+        "rf_power_dBm": m.rf_power_dbm, "lo_power_dBm": m.lo_power_dbm.tolist(),
+        "products": "k1 f_LO + k2 f_RF as (k1,k2); the IF is (1,-1)", "warnings": m.warnings})
 
 
 def openvaf() -> str:
