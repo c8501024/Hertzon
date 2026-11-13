@@ -46,4 +46,5 @@ hertzon-cli = "hertzon.cli:main"
 include = ["hertzon*"]
 
 [tool.setuptools.package-data]
+"hertzon.model" = ["data/*.json"]
 "hertzon.gui" = ["*.ico", "*.png", "*.jpg", "formula/*.html", "formula/*.js", "formula/*.txt", "formula/fonts/*.woff2"]

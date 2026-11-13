@@ -832,6 +832,107 @@ def t_import_3d_designs(args):
             "next": "edit_circuit add [{type: 'EM', props: {Design: name}}] places one as a block"}
 
 
+# ------------------------------------------------------------------------------------------------
+# edge-launch connectors at lumped ports
+def _connector_summary(ctx: Ctx) -> dict:
+    from ..model import connectors as CN
+    out = []
+    for c in ctx.des.connectors:
+        row = {"name": c.name, "part": c.part, "label": CN.label(CN.part(c.part)), "port": c.port, "mode": c.mode,
+               "variables": {v: ctx.des.variables.get(v) for v in CN.parts_of(c).variables},
+               "wave_port": c.props.get("WavePort")}
+        if c.mode == "Transition":
+            row["transition_design"] = c.props.get("Transition")
+            row["transition_state"] = CN.transition_state(ctx.proj, ctx.des, c)
+        out.append(row)
+    res = {"design": ctx.des.name, "connectors": out, "modes": CN.MODE_LABELS}
+    if any(c.mode == "Transition" for c in ctx.des.connectors):
+        res["cascade_design"] = CN.cascade_name(ctx.des)
+        res["solve_first"] = CN.designs_to_solve(ctx.proj, ctx.des)
+        res["cascade_problems"] = CN.cascade_problems(ctx.proj, ctx.des)
+    return res
+
+
+def t_list_edge_connectors(args):
+    from ..model import connectors as CN
+    it = args.get("interface")
+    if it and it not in CN.INTERFACES:
+        raise ToolError(f"interface: one of {list(CN.INTERFACES)}")
+    q = str(args.get("search") or "").lower()
+    h = args.get("board_mm")
+    rows = []
+    for p in CN.parts(it):
+        text = " ".join(str(p.get(k, "")) for k in ("manufacturer", "part_number", "mounting", "notes")).lower()
+        if q and q not in text:
+            continue
+        rng = [x for x in (p.get("pcb_thickness_mm") or []) if x is not None]
+        if h is not None and len(rng) >= 2 and not rng[0] - 0.05 <= float(h) <= rng[1] + 0.05:
+            continue
+        rows.append({"id": p["id"], "label": CN.label(p), "mounting": p.get("mounting"), "f_max_GHz": CN.f_max(p),
+                     "board_mm": rng or None, "launch_pin_mm": p.get("launch_pin_od_mm"),
+                     "datasheet": p.get("datasheet_url")})
+    return {"count": len(rows), "parts": rows[:int(args.get("limit") or 60)],
+            "next": "attach_edge_connector port=<lumped port> part=<id>"}
+
+
+def t_attach_edge_connector(args):
+    from ..model import connectors as CN
+    from .tools import tessellate
+    ctx = load(args)
+    if ctx.des.kind != "3d":
+        raise ToolError("Connectors go into a 3D design")
+    tess, errors = tessellate(ctx.proj, ctx.des)
+    try:
+        inst = CN.attach_connector(ctx.proj, ctx.des, args["port"], args["part"], CN.bboxes_from_tess(tess),
+                                   args.get("name") or "J1")
+        warns = [w for w in inst.props.get("Warnings", "").split(" | ") if w]
+        mode = args.get("mode") or "Ideal"
+        if mode != "Ideal":
+            warns += CN.set_mode(ctx.proj, ctx.des, mode, [inst.name])
+    except (KeyError, ValueError) as e:
+        raise ToolError(str(e)) from None
+    errs = commit(ctx, f"connector {inst.name} at {args['port']}")
+    return {**_connector_summary(ctx), "warnings": warns, "geometry_errors": errs,
+            "next": "set_connector_mode to switch between Ideal, Transition and 3D"}
+
+
+def t_set_connector_mode(args):
+    from ..model import connectors as CN
+    ctx = load(args)
+    names = args.get("connectors") or None
+    action = args.get("action") or "mode"
+    try:
+        warns = []
+        if action == "mode":
+            warns = CN.set_mode(ctx.proj, ctx.des, args.get("mode") or "Ideal", names)
+        elif action == "flatten":
+            for n in names or [c.name for c in ctx.des.connectors]:
+                warns += CN.flatten(ctx.proj, ctx.des, n)
+        elif action == "remove":
+            for n in names or []:
+                CN.remove_connector(ctx.proj, ctx.des, n)
+        elif action == "optimize_launch":
+            for n in names or [c.name for c in ctx.des.connectors]:
+                t = CN.ensure_transition(ctx.proj, ctx.des, CN.instance(ctx.des, n))
+                op = CN.add_launch_optimization(t, rl_db=float(args.get("return_loss_db") or 20))
+                warns.append(f"{n}: optimization '{op.name}' in {t.name}; run it there, then action "
+                             "apply_footprint")
+        elif action == "apply_footprint":
+            for n in names or [c.name for c in ctx.des.connectors]:
+                vals = CN.pull_footprint(ctx.proj, ctx.des, CN.instance(ctx.des, n))
+                warns.append(f"{n}: {vals}")
+        else:
+            raise ToolError("action: mode, flatten, remove, optimize_launch or apply_footprint")
+    except (KeyError, ValueError) as e:
+        raise ToolError(str(e)) from None
+    errs = commit(ctx, f"connectors: {action}")
+    return {**_connector_summary(ctx), "warnings": warns, "geometry_errors": errs}
+
+
+def t_get_connectors(args):
+    return _connector_summary(load(args))
+
+
 def render_schematic(proj, d: Design, w: int, h: int) -> list:
     """Picture of a schematic: parts as labelled boxes with their pins, wires, nets of the pins."""
     import io
@@ -1013,4 +1114,30 @@ TOOLS = [
     Tool("import_3d_designs", "Copy the 3D designs with ports (and their results) of another .hzn file into the "
          "project, to use them as blocks in a circuit.",
          _schema({"file": {"type": "string"}}, ["file"]), t_import_3d_designs),
+    Tool("list_edge_connectors", "The library of PCB edge-launch connectors (SMA, 2.92 mm, 2.4 mm; 131 parts of "
+         "Southwest Microwave, Cinch, Amphenol, HUBER+SUHNER, Rosenberger, Samtec, Molex): id, interface, mounting, maximum "
+         "frequency, board thickness range, launch pin, data sheet. Filter by interface, text, board thickness.",
+         _schema({"interface": {"type": "string", "enum": ["SMA", "2.92mm", "2.4mm"]}, "search": {"type": "string"},
+                  "board_mm": NUM, "limit": {"type": "integer"}}), t_list_edge_connectors, True),
+    Tool("attach_edge_connector", "Simulate with Real Connector: put a connector of the library at a lumped port "
+         "at a board edge (the port sheet from ground to trace gives edge, direction, board thickness and trace "
+         "width). It brings its launch footprint (pad, taper, grounded coplanar gap, via fence; variables "
+         "<name>_wp, _lp, _gl, _lt). Nothing is deleted: mode Ideal (default) solves the lumped port and shows the "
+         "connector transparent; Transition cascades a solved 3D model of the connector-to-board transition in a "
+         "circuit design; 3D solves the connector with a wave port on the coax.",
+         _schema({"port": {"type": "string"}, "part": {"type": "string", "description": "id or part number"},
+                  "name": {"type": "string"}, "mode": {"type": "string", "enum": ["Ideal", "Transition", "3D"]}},
+                 ["port", "part"]), t_attach_edge_connector),
+    Tool("set_connector_mode", "Switch connectors (all, or the given names) between Ideal, Transition and 3D "
+         "without losing anything; or action flatten (plain geometry, lumped port deleted), remove, "
+         "optimize_launch (optimization of the footprint in the transition design) or apply_footprint (take the "
+         "optimized footprint of the transition design).",
+         _schema({"mode": {"type": "string", "enum": ["Ideal", "Transition", "3D"]},
+                  "connectors": {"type": "array", "items": {"type": "string"}},
+                  "action": {"type": "string", "enum": ["mode", "flatten", "remove", "optimize_launch",
+                                                        "apply_footprint"]},
+                  "return_loss_db": NUM}), t_set_connector_mode),
+    Tool("get_connectors", "The connectors of a 3D design: part, lumped port, mode, footprint variables, transition "
+         "design and its state, the cascade circuit design and what it still needs.",
+         _schema({}), t_get_connectors, True),
 ]

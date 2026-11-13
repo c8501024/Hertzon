@@ -146,6 +146,9 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    The **Lumped Elements** tab inserts chip resistors, inductors and capacitors (0201 to 1206 and RF
    series of Coilcraft and Murata) with a click on the board: pads, element sheet and Lumped RLC boundary
    with an ideal value, typical ESL/ESR or a Touchstone file of the vendor ([docs/LUMPED_ELEMENTS.md](docs/LUMPED_ELEMENTS.md)).
+   The **Connectors** tab puts an SMA, 2.92 mm or 2.4 mm edge-launch connector of the library (131 parts) with
+   its launch footprint at a lumped port at the board edge, simulated as ideal port, as a cascaded transition
+   model or in full 3D, switched at any time ([docs/CONNECTORS.md](docs/CONNECTORS.md)).
 4. **Analysis > Add Solution Setup**: solution frequency (single / multi / broadband), maximum
    passes, maximum Delta S, matrix convergence, minimum (converged) passes, percent refinement,
    maximum refinement, lambda refinement, solver choice, mesh refinement method (hzAURA, EMerge's AURA
