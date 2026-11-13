@@ -287,3 +287,37 @@ def test_step_export_is_in_millimetres(tmp_path):
         assert bb[3] - bb[0] == pytest.approx(0.147, rel=1e-3)
     finally:
         gmsh.model.remove()
+
+
+def test_switching_on_the_patch_sweep_keeps_the_model(server, tmp_path):
+    """The patch assistant gives the open region a fixed padding (lambda/3 at f0, the automatic padding of the
+    setup alone): switching the sweep on keeps the model key, so run_simulation(sweep=...) reuses the adaptive
+    mesh. A design whose automatic air box grows gets a note from set_sweep and run_simulation(sweep=...)."""
+    import numpy as np
+    from hertzon.model.design import Project
+    from hertzon.solver.keys import model_key, open_region_frequency
+    from hertzon.solver.results import results_dir
+    path = str(tmp_path / "s.hzn")
+    call(server, "create_project", path=path)
+    call(server, "create_patch_antenna", frequency_ghz=2.45)
+    p = Project.load(path)
+    d = p.design("Patch_2.45GHz")
+    st = d.setup("Setup1")
+    assert float(d.settings["AutoOpenPadding"].removesuffix("mm")) == pytest.approx(299792458 / 2.45e9 / 3 * 1e3,
+                                                                                    rel=1e-5)
+    k0 = model_key(p, d, st)
+    st.sweeps[0].props["Enabled"] = "True"
+    assert model_key(p, d, st) == k0 and open_region_frequency(p, d, st) is None
+    r = call(server, "set_sweep", name="Sweep", props={"Enabled": "True"})
+    assert "note" not in r
+    # a stored adaptive mesh of this model is reused without a note
+    out = results_dir(path, d.name, "Setup1")
+    out.mkdir(parents=True)
+    np.savez(out / "amr_state.npz", key=np.array(k0))
+    assert tools._stale_mesh_reason(tools.load({}), "Setup1", out) == ""
+    # without the fixed padding the switched-on sweep enlarges the air box: the tools say so
+    call(server, "set_sweep", name="Sweep", props={"Enabled": "False"})
+    call(server, "set_design", settings={"AutoOpenPadding": ""})
+    r = call(server, "set_sweep", name="Sweep", props={"Enabled": "True"})
+    assert "air box" in r["note"] and "AutoOpenPadding" in r["note"]
+    assert "air box" in tools._stale_mesh_reason(tools.load({}), "Setup1", out)
