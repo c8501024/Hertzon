@@ -1562,23 +1562,8 @@ class ModelerView(QWidget):
         if len(t.tris):
             # one vertex per (point, CAD face): normals are smooth inside a curved face and sharp at its
             # edges, so spheres and cones look round instead of faceted
-            tris = np.asarray(t.tris)
-            tf = np.asarray(t.tri_face)
-            key = tris.astype(np.int64) * (int(tf.max()) + 1 if len(tf) else 1) + tf[:, None]
-            uk, inv = np.unique(key.ravel(), return_inverse=True)
-            pts = np.asarray(t.points)[uk // (int(tf.max()) + 1 if len(tf) else 1)]
-            tris2 = inv.reshape(-1, 3)
-            faces = np.hstack([np.full((len(tris2), 1), 3), tris2]).ravel()
-            mesh = pv.PolyData(pts, faces)
-            mesh.cell_data["face"] = t.tri_face
-            try:
-                nm = mesh.compute_normals(cell_normals=False, split_vertices=False, consistent_normals=True,
-                                          auto_orient_normals=False, feature_angle=180)
-                if nm.n_cells == mesh.n_cells:
-                    mesh = nm
-                    mesh.point_data.active_normals_name = "Normals"
-            except Exception:  # noqa: BLE001
-                pass
+            from ..kernel.display import face_smooth_polydata
+            mesh = face_smooth_polydata(t.points, t.tris, t.tri_face)
             a.mesh = mesh
             a.surface = self._plain_actor(mesh, "#999999", pickable=True)
             a.surface.GetProperty().SetInterpolationToPhong()

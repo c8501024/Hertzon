@@ -101,11 +101,12 @@ def warm() -> None:
 
 
 def build(project_dict: dict, path: str | None, design: str, names: list[str] | None, timeout: float,
-          on_progress=None, should_stop=None, kind: str = "tess"):
-    """Build and tessellate the named live objects (all: None) of a design in the child process. Raises
-    BuildTimeout or BuildCancelled after stopping the child; the next call starts a new one."""
-    return _run({"project": project_dict, "path": path, "design": design, "names": names, "kind": kind},
-                timeout, on_progress, should_stop)
+          on_progress=None, should_stop=None, kind: str = "tess", quality: str = "coarse"):
+    """Build and tessellate the named live objects (all: None) of a design in the child process, with the
+    display quality ``quality`` (coarse, normal, fine). Raises BuildTimeout or BuildCancelled after stopping
+    the child; the next call starts a new one."""
+    return _run({"project": project_dict, "path": path, "design": design, "names": names, "kind": kind,
+                 "quality": quality}, timeout, on_progress, should_stop)
 
 
 def probe(file: str, unit_scale: float, timeout: float, on_progress=None, should_stop=None) -> list:
@@ -207,7 +208,8 @@ def main() -> int:
                 continue
             result = tessellate_here(
                 proj, des, job["names"],
-                lambda i, n, msg: send("P", json.dumps({"done": i, "total": n, "message": msg})))
+                lambda i, n, msg: send("P", json.dumps({"done": i, "total": n, "message": msg})),
+                quality=job.get("quality", "coarse"))
             send("R", pickle.dumps(result).hex())
         except Exception as e:  # noqa: BLE001
             send("R", pickle.dumps({"error": f"{type(e).__name__}: {e}"}).hex())
@@ -237,8 +239,9 @@ def sheets_here(proj, des) -> list:
     return K.sheet_placement(des, des.evaluator(proj), lambda n: is_conductor(proj.material(des.obj(n).material)))
 
 
-def tessellate_here(proj, des, names, progress=None) -> tuple[dict, dict]:
-    """Build and tessellate in this process: ({name: Tess}, {name: error})."""
+def tessellate_here(proj, des, names, progress=None, quality: str = "coarse") -> tuple[dict, dict]:
+    """Build and tessellate in this process: ({name: Tess}, {name: error}). Checks and face lists need only
+    the coarse display mesh; a picture uses the quality of the modeler (render_image)."""
     import gmsh
     from ..kernel import occ as K
     ev = des.evaluator(proj)
@@ -256,7 +259,7 @@ def tessellate_here(proj, des, names, progress=None) -> tuple[dict, dict]:
     ctx = K.build_design(des, ev, names=names, on_progress=step)
     if progress is not None:
         progress(n - 1, n, "display mesh of the built objects")
-    tess = K.tessellate(ctx, "coarse") if ctx.built else {}
+    tess = K.tessellate(ctx, quality) if ctx.built else {}
     return tess, dict(ctx.errors)
 
 
