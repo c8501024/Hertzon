@@ -12,7 +12,8 @@
     "AutoOpenPadding": "",
     "FilterAirMargin": "12mm",
     "MaterialOverride": "True",
-    "OutputVariables": "mu_load = (1 - mag(S(1,1))^2) / (mag(S(2,2) - conj(S(1,1)) * (S(1,1)*S(2,2) - S(1,2)*S(2,1))) + mag(S(1,2)*S(2,1)))\nmu_source = (1 - mag(S(2,2))^2) / (mag(S(1,1) - conj(S(2,2)) * (S(1,1)*S(2,2) - S(1,2)*S(2,1))) + mag(S(1,2)*S(2,1)))"
+    "OutputVariables": "mu_load = (1 - mag(S(1,1))^2) / (mag(S(2,2) - conj(S(1,1)) * (S(1,1)*S(2,2) - S(1,2)*S(2,1))) + mag(S(1,2)*S(2,1)))\nmu_source = (1 - mag(S(2,2))^2) / (mag(S(1,1) - conj(S(2,2)) * (S(1,1)*S(2,2) - S(1,2)*S(2,1))) + mag(S(1,2)*S(2,1)))",
+    "Board": "{\"placements\": {\"RF_in\": [0.0, 0.0, 0.0], \"TL_in\": [0.0, 0.0, 0.0], \"C1\": [5.6, 0.0, 0.0], \"L1\": [6.8, 0.0, 0.0], \"TL_b\": [7.4, 0.0, 0.0], \"R2\": [8.5, 0.75, 90.0], \"Q1\": [9.55, -0.65, 90.0], \"R3\": [11.9, 0.65, 270.0], \"C3\": [12.5, 1.25, 0.0], \"R1\": [11.9, 1.85, 270.0], \"TL_c\": [10.9, -1.3, 0.0], \"TL_e1\": [8.5, -1.5, 270.0], \"TL_e2\": [10.9, 0.0, 90.0], \"L2\": [11.9, -0.55, 270.0], \"V_c3\": [12.95, 1.25, 180.0], \"C4\": [12.5, 2.45, 0.0], \"VCC\": [11.9, 2.45, 90.0], \"C2\": [12.3, -1.3, 0.0], \"V_e1\": [8.5, -2.2, 90.0], \"V_e2\": [10.9, 1.0, 90.0], \"TL_out\": [12.9, -1.3, 0.0], \"RF_out\": [17.9, -1.3, 180.0]}, \"tracks\": [{\"pts\": [[8.5, 1.35], [8.5, 1.35], [11.9, 1.35], [11.9, 1.25]], \"w\": 0.3}]}"
    },
    "variables": {},
    "objects": [],
@@ -232,7 +233,8 @@
      "props": {
       "R": "0.15ohm",
       "L": "0.3nH",
-      "C": "3.6pF"
+      "C": "3.6pF",
+      "Footprint": "C_0402"
      },
      "mirror": false
     },
@@ -245,7 +247,8 @@
      "props": {
       "R": "738.9ohm",
       "L": "1.2nH",
-      "C": "0.1pF"
+      "C": "0.1pF",
+      "Footprint": "L_0402"
      },
      "mirror": false
     },
@@ -338,7 +341,8 @@
      "props": {
       "R": "4187ohm",
       "L": "6.8nH",
-      "C": "0.1pF"
+      "C": "0.1pF",
+      "Footprint": "L_0402"
      },
      "mirror": false
     },
@@ -349,7 +353,8 @@
      "y": -110,
      "rot": 90,
      "props": {
-      "R": "12ohm"
+      "R": "12ohm",
+      "Footprint": "R_0402"
      },
      "mirror": false
     },
@@ -362,7 +367,8 @@
      "props": {
       "R": "0.15ohm",
       "L": "0.3nH",
-      "C": "68pF"
+      "C": "68pF",
+      "Footprint": "C_0402"
      },
      "mirror": false
     },
@@ -387,7 +393,8 @@
      "y": -200,
      "rot": 90,
      "props": {
-      "R": "180ohm"
+      "R": "180ohm",
+      "Footprint": "R_0402"
      },
      "mirror": false
     },
@@ -398,7 +405,8 @@
      "y": -160,
      "rot": 0,
      "props": {
-      "R": "24kohm"
+      "R": "24kohm",
+      "Footprint": "R_0402"
      },
      "mirror": false
     },
@@ -411,7 +419,8 @@
      "props": {
       "R": "0.15ohm",
       "L": "0.3nH",
-      "C": "3.9pF"
+      "C": "3.9pF",
+      "Footprint": "C_0402"
      },
      "mirror": false
     },
@@ -451,7 +460,9 @@
       "Model": "",
       "Pins": "b c e1 e2",
       "Params": "",
-      "File": "models/nsvf4009sg4.va"
+      "File": "models/nsvf4009sg4.va",
+      "Footprint": "SC-82FL_MCPH4",
+      "Pads": "b=3; c=1; e1=4; e2=2"
      },
      "mirror": false
     },
@@ -464,7 +475,8 @@
      "props": {
       "R": "0.01ohm",
       "L": "0.5nH",
-      "C": "1uF"
+      "C": "1uF",
+      "Footprint": "C_0402"
      },
      "mirror": false
     },

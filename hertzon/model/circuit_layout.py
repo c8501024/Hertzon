@@ -1257,4 +1257,64 @@ def board_circuit(project: Project, layout: Design, name: str | None = None) -> 
     d.notes = (f"The 3D layout {layout.name} (block EM1, one port per pad) with the parts of {circuit.name} it "
                "cannot hold, connected by net labels: every pad port to the terminal of its part. Solve the "
                f"layout first; then this design simulates the board with the devices.")
+    model = board_model(project, layout, circuit, ports, pmap, f"{name}Model")
+    if model is not None:
+        project.designs.append(model)
+        em.props[CK.CIRCUIT_MODEL] = model.name
     return d, warnings
+
+
+def board_model(project: Project, layout: Design, circuit: Design, ports, pmap, name: str) -> Design | None:
+    """The circuit model of the layout block: the schematic without its devices and DC sources, a power port at
+    every terminal a pad port stands for (numbered as the layout's ports), so that the bias point has the DC paths
+    of the board (the full-wave data start above 0 Hz). Several pads of one terminal get their ports through a
+    resistor of 1 mOhm each (two ports may not share a node). None if a port cannot be told."""
+    import copy
+    from . import footprints as FPS
+    gone = {c.name for c in circuit.components if c.type in CK.NONLINEAR_TYPES or c.type in ("VDC", "IDC")}
+    m = Design(name=name, kind="circuit", units=circuit.units)
+    m.settings.update({k: v for k, v in circuit.settings.items() if k != PORT_MAP})
+    m.variables = dict(circuit.variables)
+    m.wires = copy.deepcopy(circuit.wires)
+    by_name = {c.name: c for c in circuit.components}
+    m.components = [copy.deepcopy(c) for c in circuit.components if c.name not in gone and c.type != "PORT"]
+    gx = CK.GRID
+    xs = [c.x for c in circuit.components] or [0]
+    ys = [c.y for c in circuit.components] or [0]
+    x0, y0 = max(xs) + 40 * gx, min(ys)
+    for k, p in enumerate(ports):
+        num = p.props.get("PortNumber", str(k + 1))
+        info = pmap.get(num, {})
+        part = by_name.get(info.get("part", ""))
+        if part is None:
+            return None
+        if part.type == "PORT":
+            c = copy.deepcopy(part)
+            c.props["Num"] = num
+            m.components.append(c)
+            continue
+        if part.type in ("VDC", "IDC"):
+            pin = CK.pins(part)[0]
+        else:
+            ts = FPS.terminals(part)
+            t = info.get("terminal", "")
+            if t not in ts:
+                return None
+            pin = CK.pins(part)[ts.index(t)]
+        net = f"_{part.name}_{info.get('terminal') or 'supply'}_{info.get('pad', '')}"
+        m.components.append(CK.Component(CK.next_name(m.components, "LABEL"), "LABEL", pin[0], pin[1], 0,
+                                         {"Net": f"_{part.name}_{info.get('terminal') or 'supply'}"}))
+        # port - 1 mOhm - terminal, off to the right of the schematic
+        y = y0 + k * 10 * gx
+        r = CK.Component(CK.next_name(m.components, "R"), "R", x0, y, 0, {"R": "0.001ohm"})
+        m.components.append(r)
+        a, b = CK.pins(r)
+        m.components.append(CK.Component(CK.next_name(m.components, "LABEL"), "LABEL", a[0], a[1], 0, {"Net": net}))
+        m.components.append(CK.Component(CK.next_name(m.components, "LABEL"), "LABEL", b[0], b[1], 0,
+                                         {"Net": f"_{part.name}_{info.get('terminal') or 'supply'}"}))
+        pc = CK.Component(f"P_{p.name}" if not p.name[:1].isdigit() else f"P{p.name}", "PORT", a[0], a[1] + 40, 0,
+                          {"Num": num, "Z0": "50ohm"})
+        m.components.append(pc)
+    m.notes = (f"Circuit model of the 3D layout {layout.name}: the schematic {circuit.name} without its devices and "
+               "DC sources, a port where each port of the layout is. Board Circuit uses it for the bias point.")
+    return m

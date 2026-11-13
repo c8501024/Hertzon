@@ -25,7 +25,7 @@ from ..model.materials import is_conductor, normalize_color
 from ..solver.results import results_dir, ResultStore
 from .doc import Document, Pick, material_targets, result_dir
 from .viewer import ModelerView, PLANE_NORMAL
-from .trees import ProjectTree, ModelTree
+from .trees import ProjectTree, ModelTree, ROLE as TREE_ROLE
 from .panels import PropertiesPanel, MessageManager, ProgressPanel, SolutionDataDialog, rename_object
 from .dialogs import (edit_assignment, edit_setup, edit_sweep, edit_sphere, ObjectPropertiesDialog, VariablesDialog,
                       MaterialsDialog, SolutionTypeDialog, ValidationDialog, GridDialog, NamedPropsDialog,
@@ -793,6 +793,35 @@ class MainWindow(QMainWindow):
                 tip="Component measured by a Touchstone file (.s1p/.s2p)" + tip)
         g = pg.group("Boundary")
         g.large("Lumped RLC", "boundary", bnd("Lumped RLC"), tip="Lumped RLC boundary on the selected sheet")
+
+        # ---- Connectors ---------------------------------------------------------------------
+        from ..model import connectors as CN
+        pg = rb.page("Connectors")
+        g = pg.group("Edge Launch")
+        g.large("Real Connector", "waveport", lambda: self.connector_at_port(),
+                menu=[(f"{it} ...", (lambda it=it: self.connector_at_port(it))) for it in CN.INTERFACES],
+                tip="Simulate with Real Connector: put an edge-launch connector of the library (SMA, 2.92 mm, "
+                    "2.4 mm) with its footprint at the selected lumped port at a board edge")
+        g = pg.group("Simulate As")
+        g.large("Ideal Port", "nonmodel", lambda: self.connector_mode("Ideal"),
+                tip="Solve the lumped ports; the connectors are shown transparent, outside the model (selected "
+                    "connectors, or all)")
+        g.large("Transition", "chip", lambda: self.connector_mode("Transition"),
+                tip="Keep the lumped ports in 3D and cascade a solved 3D model of the connector-to-board "
+                    "transition in a circuit design (selected connectors, or all)")
+        g.large("Full 3D", "cylinder", lambda: self.connector_mode("3D"),
+                tip="Solve the connectors and their footprints with the board, wave port on the coax (selected "
+                    "connectors, or all)")
+        g.large("Flatten", "group", lambda: self.connector_flatten(),
+                tip="Make the selected connectors plain geometry of the design and delete their lumped ports")
+        g = pg.group("Transition")
+        g.large("Optimize Launch", "wizard", lambda: self.connector_optimize(),
+                tip="Optimization of pad, gap and taper for return loss in the small transition design")
+        g.small("Apply Optimized Footprint", None, lambda: self.connector_pull(),
+                tip="Take the footprint of the transition design (after its optimization) into the connector")
+        g.small("Open Transition Design", None, lambda: self.connector_open_transition())
+        g.small("Open Cascade", None, lambda: self.connector_open_cascade(),
+                tip="The circuit design with the transition models in front of the lumped ports")
 
         # ---- Results -----------------------------------------------------------------------
         pg = rb.page("Results")
@@ -5773,6 +5802,13 @@ class MainWindow(QMainWindow):
                 self.doc.set_design(data[1])
                 self.view._first_fit = True
             self.props.show_design()
+        elif kind == "connector":
+            from ..model import connectors as CN
+            try:
+                pa = CN.parts_of(CN.instance(self.des, data[1]))
+            except KeyError:
+                return
+            self.doc.select([Pick(n) for n in pa.body + pa.footprint if self.des.has_obj(n)])
         elif kind == "fieldplot":
             self.doc.select([])
             self.show_overlays([data[1]])
@@ -5926,6 +5962,8 @@ class MainWindow(QMainWindow):
                 m.addAction("Draw Integration Line", lambda: self.draw_integration_line(data[1]))
                 m.addAction("Auto Integration Line", lambda: self.auto_integration_line(data[1]))
                 m.addSeparator()
+            if a.kind == "Lumped Port" and kind == "excitation":
+                self._connector_port_menu(m, data[1])
             if a.kind == "Wave Port":
                 m.addSeparator()
                 n = max(1, int(float(a.props.get("NumberOfModes", "1") or 1)))
@@ -5937,6 +5975,12 @@ class MainWindow(QMainWindow):
             if a.kind in ("Wave Port", "Lumped Port"):
                 m.addAction("Differential Pairs...", self.differential_pairs)
             m.addAction("Delete", self._delete_project_items)
+        elif kind == "connector":
+            self._connector_menu(m, data[1])
+        elif kind == "group" and data[1] == "Connectors":
+            sub = m.addMenu("Simulate All As")
+            for md in ("Ideal", "Transition", "3D"):
+                sub.addAction(_mode_label(md), lambda _=False, md=md: self.connector_mode(md, all_=True))
         elif kind == "setup" and self._is_circuit():
             m.addAction("Add Frequency Sweep...", lambda: self.add_sweep(data[1]))
             m.addAction("Analyze", lambda: self.analyze([data[1]]))
@@ -6087,6 +6131,231 @@ class MainWindow(QMainWindow):
             + ", ".join(k for k in self.des.variables if k.startswith(made[-1].name + "_")) + ")"
         self.msgs.add("info", f"Inserted {v['pkg'].name} '{made[-1].name}' {where}: "
                               f"{', '.join(o.name for o in made)}")
+
+    # ---- connectors (Connectors tab) ----------------------------------------------------------
+    def _selected_lumped_port(self) -> str | None:
+        """The lumped port picked in the project tree, or whose sheet is selected in 3D, or the only lumped port
+        of the design without a connector."""
+        from ..model import connectors as CN
+        data = self.project_tree.currentItem().data(0, TREE_ROLE) if self.project_tree.currentItem() else None
+        lumped = [e for e in self.des.excitations if e.kind == "Lumped Port"]
+        if data and data[0] == "excitation" and any(e.name == data[1] for e in lumped):
+            return data[1]
+        objs = set(self.doc.selected_objects())
+        for e in lumped:
+            if objs & (set(e.objects) | {f.obj for f in e.faces}):
+                return e.name
+        free = [e.name for e in lumped if CN.connector_at(self.des, e.name) is None]
+        return free[0] if len(free) == 1 else None
+
+    def _selected_connectors(self) -> list[str]:
+        """Connectors picked in the project tree or with an object selected in 3D (empty: none picked)."""
+        names = []
+        for it in self.project_tree.selectedItems():
+            d = it.data(0, TREE_ROLE)
+            if d and d[0] == "connector":
+                names.append(d[1])
+        groups = {self.des.obj(o).group for o in self.doc.selected_objects() if self.des.has_obj(o)}
+        names += [c.name for c in self.des.connectors if c.name in groups and c.name not in names]
+        return names
+
+    def _connector_messages(self, warns) -> None:
+        for w in warns:
+            self.msgs.add("warning" if "missing" in w or "no " in w[:3] else "info", w)
+
+    def connector_at_port(self, interface: str | None = None, port: str | None = None) -> None:
+        """Simulate with Real Connector: a connector of the library at a lumped port at the board edge."""
+        from ..model import connectors as CN
+        from .connector_dialogs import ConnectorDialog
+        if self._is_circuit():
+            return
+        port = port or self._selected_lumped_port()
+        if not port:
+            QMessageBox.information(self, "Real Connector", "Select the lumped port at the board edge (in the project "
+                                    "tree or its sheet in 3D) that the connector replaces.")
+            return
+        if CN.connector_at(self.des, port) is not None:
+            QMessageBox.information(self, "Real Connector", f"'{port}' has the connector "
+                                    f"'{CN.connector_at(self.des, port).name}' already.")
+            return
+        bboxes = CN.bboxes_from_tess(self.doc.tess)
+        try:
+            place, warns, material = CN.port_placement(self.doc.project, self.des, port, bboxes)
+        except (ValueError, KeyError) as e:
+            QMessageBox.warning(self, "Real Connector", str(e))
+            return
+        dlg = ConnectorDialog(self, port, place, material, interface)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        v = dlg.result_values()
+        self.doc.checkpoint()
+        try:
+            inst = CN.attach_connector(self.doc.project, self.des, port, v["part"], bboxes, v["name"])
+            if v["mode"] != "Ideal":
+                warns += CN.set_mode(self.doc.project, self.des, v["mode"], [inst.name])
+        except Exception as e:  # noqa: BLE001
+            self.doc.discard_last()
+            QMessageBox.warning(self, "Real Connector", str(e))
+            return
+        self.doc.commit("all")
+        self._connector_messages(warns + [w for w in inst.props.get("Warnings", "").split(" | ") if w])
+        self.msgs.add("info", f"{inst.name}: {CN.label(CN.part(inst.part))} at {port}, simulated as "
+                              f"{CN.MODE_LABELS[inst.mode]}. Switch with Connectors > Simulate As; footprint "
+                              f"variables {', '.join(v for v in CN.parts_of(inst).variables if v[-2:] != '_x' and v[-2:] != '_y' and v[-2:] != '_z')}")
+        self._connector_mode_notes()
+
+    def connector_mode(self, mode: str, names: list[str] | None = None, all_: bool = False) -> None:
+        from ..model import connectors as CN
+        if self._is_circuit() or not self.des.connectors:
+            QMessageBox.information(self, "Connectors", "This design has no connectors. Put one at a lumped port "
+                                    "with Connectors > Real Connector.")
+            return
+        names = None if all_ else (names or self._selected_connectors() or None)
+        self.doc.checkpoint()
+        try:
+            warns = CN.set_mode(self.doc.project, self.des, mode, names)
+        except Exception as e:  # noqa: BLE001
+            self.doc.discard_last()
+            QMessageBox.warning(self, "Connectors", str(e))
+            return
+        self.doc.commit("all")
+        self._connector_messages(warns)
+        which = ", ".join(names) if names else "all connectors"
+        self.msgs.add("info", f"{which}: {CN.MODE_LABELS[mode]}")
+        self._connector_mode_notes()
+
+    def _connector_mode_notes(self) -> None:
+        """What the Transition mode still needs (solve the transition designs, then the cascade)."""
+        from ..model import connectors as CN
+        if not any(c.mode == "Transition" for c in self.des.connectors):
+            return
+        todo = CN.designs_to_solve(self.doc.project, self.des)
+        self.msgs.add("info", f"Transition model: analyze {', '.join(todo)}, then the circuit design "
+                              f"{CN.cascade_name(self.des)} (the S-parameters with the connectors)")
+
+    def connector_flatten(self, names: list[str] | None = None) -> None:
+        from ..model import connectors as CN
+        names = names or self._selected_connectors()
+        if not names:
+            QMessageBox.information(self, "Flatten", "Select the connector(s) to flatten (project tree > Connectors, "
+                                    "or one of their objects).")
+            return
+        if QMessageBox.question(self, "Flatten", f"Make {', '.join(names)} plain geometry and delete the lumped "
+                                "port(s)? The connector can no longer be switched to the ideal port (Undo can).") \
+                != QMessageBox.Yes:
+            return
+        self.doc.checkpoint()
+        warns = []
+        for n in names:
+            warns += CN.flatten(self.doc.project, self.des, n)
+        self.doc.commit("all")
+        self._connector_messages(warns)
+
+    def connector_remove(self, name: str) -> None:
+        from ..model import connectors as CN
+        self.doc.checkpoint()
+        CN.remove_connector(self.doc.project, self.des, name)
+        self.doc.commit("all")
+
+    def _one_connector(self, title: str) -> str | None:
+        names = self._selected_connectors() or [c.name for c in self.des.connectors]
+        if not names:
+            QMessageBox.information(self, title, "This design has no connectors.")
+            return None
+        if len(names) > 1:
+            name, ok = QInputDialog.getItem(self, title, "Connector:", names, 0, False)
+            return name if ok else None
+        return names[0]
+
+    def connector_optimize(self, name: str | None = None) -> None:
+        """Adds the launch optimization to the transition design of a connector and shows that design."""
+        from ..model import connectors as CN
+        name = name or self._one_connector("Optimize Launch")
+        if not name:
+            return
+        inst = CN.instance(self.des, name)
+        self.doc.checkpoint()
+        t = CN.ensure_transition(self.doc.project, self.des, inst)
+        op = CN.add_launch_optimization(t)
+        self.doc.commit("all", geometry=False)
+        self.msgs.add("info", f"{t.name}: optimization '{op.name}' of {', '.join(v['name'] for v in op.variables)} "
+                              f"for {op.goals[0]['calc']} <= {op.goals[0]['value']} dB up to {op.goals[0]['stop']}. "
+                              f"Run it there, then Connectors > Apply Optimized Footprint in {self.des.name}.")
+        self._close_reports()
+        self.doc.set_design(t.name)
+
+    def connector_pull(self, name: str | None = None) -> None:
+        from ..model import connectors as CN
+        name = name or self._one_connector("Apply Optimized Footprint")
+        if not name:
+            return
+        inst = CN.instance(self.des, name)
+        if not inst.props.get("Transition") or not any(d.name == inst.props["Transition"]
+                                                      for d in self.doc.project.designs):
+            QMessageBox.information(self, "Apply Optimized Footprint", f"{name} has no transition design yet.")
+            return
+        self.doc.checkpoint()
+        vals = CN.pull_footprint(self.doc.project, self.des, inst)
+        self.doc.commit("all")
+        self.msgs.add("info", f"{name}: " + ", ".join(f"{k} = {v}" for k, v in vals.items()))
+
+    def connector_open_transition(self, name: str | None = None) -> None:
+        from ..model import connectors as CN
+        name = name or self._one_connector("Open Transition Design")
+        if not name:
+            return
+        inst = CN.instance(self.des, name)
+        if CN.transition_state(self.doc.project, self.des, inst) != "current":
+            self.doc.checkpoint()
+            CN.ensure_transition(self.doc.project, self.des, inst)
+            self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(inst.props["Transition"])
+
+    def connector_open_cascade(self) -> None:
+        from ..model import connectors as CN
+        des = self.des
+        if des.kind == "circuit":
+            return
+        if not any(c.mode == "Transition" for c in des.connectors):
+            QMessageBox.information(self, "Open Cascade", "No connector is simulated as Transition.")
+            return
+        self.doc.checkpoint()
+        CN.build_cascade(self.doc.project, des)
+        self.doc.commit("all", geometry=False)
+        for p in CN.cascade_problems(self.doc.project, des):
+            self.msgs.add("warning", p)
+        self._close_reports()
+        self.doc.set_design(CN.cascade_name(des))
+
+    def _connector_port_menu(self, m: QMenu, port: str) -> None:
+        from ..model import connectors as CN
+        inst = CN.connector_at(self.des, port)
+        m.addSeparator()
+        if inst is None:
+            sub = m.addMenu("Simulate with Real Connector")
+            for it in CN.INTERFACES:
+                sub.addAction(f"{it} ...", lambda _=False, it=it: self.connector_at_port(it, port))
+        else:
+            self._connector_menu(m.addMenu(f"Connector {inst.name}"), inst.name)
+        m.addSeparator()
+
+    def _connector_menu(self, m: QMenu, name: str) -> None:
+        from ..model import connectors as CN
+        inst = CN.instance(self.des, name)
+        grp = QActionGroup(m)
+        for md in CN.MODES:
+            a = m.addAction(CN.MODE_LABELS[md], lambda _=False, md=md: self.connector_mode(md, [name]))
+            a.setCheckable(True)
+            a.setChecked(inst.mode == md)
+            grp.addAction(a)
+        m.addSeparator()
+        m.addAction("Open Transition Design", lambda: self.connector_open_transition(name))
+        m.addAction("Optimize Launch", lambda: self.connector_optimize(name))
+        m.addAction("Apply Optimized Footprint", lambda: self.connector_pull(name))
+        m.addSeparator()
+        m.addAction("Flatten", lambda: self.connector_flatten([name]))
+        m.addAction("Remove Connector", lambda: self.connector_remove(name))
 
     def draw_integration_line(self, name: str) -> None:
         """Start and end point of the integration line picked in the 3D view (two clicks, with snapping)."""
@@ -6777,6 +7046,11 @@ class MainWindow(QMainWindow):
         lay.addWidget(tb)
         dlg.resize(900, 700)
         dlg.exec()
+
+
+def _mode_label(mode: str) -> str:
+    from ..model.connectors import MODE_LABELS
+    return MODE_LABELS[mode]
 
 
 def _attach_unit(text: str, unit: str) -> str:

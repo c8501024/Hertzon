@@ -144,3 +144,30 @@ def test_part_on_board_and_project_paths(tmp_path):
     p.save(tmp_path / "x.hzn")
     q = Project.load(tmp_path / "x.hzn").design("C").components[0]
     assert q.props["Footprint"] == str(tmp_path / "fp" / "Test_SOT.kicad_mod")
+
+
+def test_old_module_format_and_numbered_pin_names_of_vendor_libraries(tmp_path):
+    """Library downloads often come in the KiCad 5 format (module, unquoted pad numbers) and name the pins of a
+    transistor with two emitters EMITTER_1 and EMITTER_2."""
+    f = tmp_path / "Q.kicad_mod"
+    f.write_text('(module "Q" (layer F.Cu) (attr smd)\n'
+                 '  (fp_line (start -2 -2.35) (end 2 -2.35) (layer F.CrtYd) (width 0.1))\n'
+                 '  (pad 1 smd rect (at -0.650 1.05 0) (size 0.400 0.600) (layers F.Cu F.Paste F.Mask))\n'
+                 '  (pad 2 smd rect (at 0.650 1.05 0) (size 0.400 0.600) (layers F.Cu F.Paste F.Mask))\n'
+                 '  (pad 3 smd rect (at 0.650 -1.05 0) (size 0.400 0.600) (layers F.Cu F.Paste F.Mask))\n'
+                 '  (pad 4 smd rect (at -0.650 -1.05 0) (size 0.400 0.600) (layers F.Cu F.Paste F.Mask)))\n')
+    fp = K.read_footprint(f)
+    assert fp.numbers() == ["1", "2", "3", "4"] and (fp.pads[0].x, fp.pads[0].y) == (-0.65, -1.05)
+    sym = K.Symbol("Q", [("1", "COLLECTOR"), ("2", "EMITTER_1"), ("3", "BASE"), ("4", "EMITTER_2")])
+    assert F.auto_pads(["b", "c", "e"], fp, sym) == {"b": ["3"], "c": ["1"], "e": ["2", "4"]}
+    assert F.auto_pads(["b", "c", "e1", "e2"], fp, sym) == {"b": ["3"], "c": ["1"], "e1": ["2"], "e2": ["4"]}
+
+
+def test_sc82fl_is_onsemis_recommended_footprint():
+    """SC-82FL / MCPH4 (onsemi case 419AR): pads 0.40 x 0.60 mm, 1.30 mm and 2.10 mm apart (centre to centre),
+    pin 1 bottom left seen from the top, counter-clockwise."""
+    fp = F.builtin("SC-82FL_MCPH4")
+    assert [(p.number, p.x, p.y, p.w, p.h) for p in fp.pads] == [
+        ("1", -0.65, -1.05, 0.4, 0.6), ("2", 0.65, -1.05, 0.4, 0.6), ("3", 0.65, 1.05, 0.4, 0.6),
+        ("4", -0.65, 1.05, 0.4, 0.6)]
+    assert F.builtin("MCPH4").name == fp.name and "SC-82FL_MCPH4" in F.BUILTIN_NAMES

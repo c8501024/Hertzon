@@ -84,7 +84,7 @@ TYPES: dict[str, TypeInfo] = {
                       "plane spacing), metal thickness, loss tangent, metal conductivity (S/m)", "Transmission Lines"),
     "MLIN": TypeInfo("Microstrip Line", "MS", {**_SUB, "W": "1.1mm", "L": "10mm"}, [(-40, 0), (40, 0)],
                      "Microstrip line (Hammerstad-Jensen, dispersion after Kirschning-Jansen, conductor and "
-                     "dielectric loss)", "Transmission Lines"),
+                     "dielectric loss). A negative length L de-embeds that length of line", "Transmission Lines"),
     "MLOC": TypeInfo("Microstrip Open Stub", "MSO", {**_SUB, "W": "1.1mm", "L": "10mm"}, [(0, -40)],
                      "Microstrip stub open at its end, with the open-end length extension", "Transmission Lines"),
     "MLSC": TypeInfo("Microstrip Short Stub", "MSS", {**_SUB, "W": "1.1mm", "L": "10mm"}, [(0, -40)],

@@ -168,8 +168,9 @@ def _params(c: CK.Component, ev, subst: dict) -> object:
             raise CircuitError(f"no substrate named '{name}'. Place a Substrate (Transmission Lines) and "
                                "enter its name.")
         q = {k: ev.length(p[k]) for k in ("W", "S", "L", "W1", "W2", "W3", "W4") if k in p}
-        if any(v <= 0 for k, v in q.items() if k != "L") or q.get("L", 1) < 0:
-            raise CircuitError("W and S must be positive, L not negative")
+        if any(v <= 0 for k, v in q.items() if k != "L") or (q.get("L", 1) < 0 and t != "MLIN"):
+            raise CircuitError("W and S must be positive, L not negative (only a Microstrip Line may have a "
+                               "negative length: a de-embedding line)")
         return q, subst[name]
     if t == "MVIA":
         name = p.get("Subst", "")
