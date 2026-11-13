@@ -6,6 +6,19 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Edge-launch connectors at lumped ports.** A library of 131 PCB edge-launch connectors (SMA, 2.92 mm,
+  2.4 mm) and **Connectors › Real Connector** (or right-click a lumped port › *Simulate with Real Connector*):
+  the connector stands at a lumped port at the board edge, found from the port sheet (edge, direction, board
+  thickness, trace width, substrate), and brings a grounded coplanar launch footprint after Southwest Microwave's
+  50 GHz design rules (narrowed pad and taper, via fence, all dimensions variables). Three modes, switched at any
+  time without losing anything: **Ideal port** (the lumped port is solved, the connector is a transparent
+  preview), **Transition** (a small 3D design of the connector-to-board transition, cascaded with the lumped-port
+  solution in a generated circuit design) and **Full 3D** (connector and footprint solved, wave port on the coax,
+  air region and Auto Open adjusted and restored). **Flatten** makes it plain geometry; **Optimize Launch** tunes
+  the footprint in the small transition design. MCP tools `list_edge_connectors`, `attach_edge_connector`,
+  `set_connector_mode`, `get_connectors`. See [docs/CONNECTORS.md](docs/CONNECTORS.md).
+- Materials Ultem 1000 (support beads of precision connectors) and Kel-F (PCTFE).
+- A Microstrip Line of a circuit may have a negative length: a de-embedding line.
 - **Footprints of circuit parts and the board in 3D.** Parts carry a KiCad footprint and symbol (`.kicad_mod`,
   `.kicad_sym`, also the downloads of SamacSys, SnapEDA, Ultra Librarian) and the assignment of pads to the
   terminals of their model, shown to scale in the Component dialog. Create 3D Layout puts R, L and C on their
