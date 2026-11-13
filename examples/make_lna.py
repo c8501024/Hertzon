@@ -14,6 +14,10 @@ Both engines run the same transistor model, models/nsvf4009sg4.va (onsemi's Gumm
 values from the data sheet, in Verilog-A). The design "LNA_Measured" is the same board with onsemi's measured
 S-parameters of the transistor (VCE = 3 V, IC = 10 mA) in place of the model: Hertzon alone, as a check of the
 model.
+
+The parts carry their footprints (0402, the transistor in SC-82FL) and the board is placed (Simulation > 3D Layout
+> Board Layout): Create 3D Layout builds it for the full-wave solver, Board Circuit puts the solved board back
+under the transistor.
 """
 from __future__ import annotations
 
@@ -175,6 +179,55 @@ def four_pin_data(folder: Path) -> Path:
     return dst
 
 
+def footprints(d: Design) -> None:
+    """The packages as built: 0402 parts, the transistor in SC-82FL (onsemi case 419AR, the manufacturer's
+    recommended footprint, built into Hertzon), its emitter pads 4 and 2 on the emitter leads e1 and e2."""
+    for c in d.components:
+        if c.type in ("R", "SRLC", "PRLC"):
+            kind = "R" if c.type == "R" else ("L" if c.name.startswith("L") else "C")
+            c.props["Footprint"] = f"{kind}_0402"
+        elif c.name == "Q1":
+            c.props.update({"Footprint": "SC-82FL_MCPH4", "Pads": "b=3; c=1; e1=4; e2=2"})
+
+
+def board(p: Project, d: Design) -> None:
+    """The board as placed in Board Layout: the signal path in a row as the schematic is drawn (automatic), the
+    second emitter up to its vias, the collector feed (L2, R3) up from the output DC block, C3 and R1 at the feed
+    node, the supply with C4 above it, and R2 up from the base pad with a track over the emitter vias to the feed
+    node."""
+    from hertzon.model import board as BD
+    parts, nodes, _ = BD.board_parts(p, d)
+    b, _ = BD.auto_place(p, d)
+    pl = b.placements
+
+    def put(name, k, at, rot):
+        q = BD.rot_pt((parts[name].pins[k].x, parts[name].pins[k].y), rot)
+        pl[name] = BD.Placement(round(at[0] - q[0], 4), round(at[1] - q[1], 4), rot)
+
+    def pin(name, k):
+        return pl[name].world((parts[name].pins[k].x, parts[name].pins[k].y))
+
+    put("TL_e2", 0, pin("Q1", 3), 90)
+    put("V_e2", 0, pin("TL_e2", 1), 90)
+    x9, y9 = pin("C2", 0)
+    put("L2", 1, (x9 + 0.2, y9 + 0.15), 270)
+    put("R3", 1, pin("L2", 0), 270)
+    n12 = pin("R3", 0)
+    put("C3", 0, n12, 0)
+    put("V_c3", 0, pin("C3", 1), 180)
+    put("R1", 1, n12, 270)
+    n13 = pin("R1", 0)
+    put("C4", 0, n13, 0)
+    put("VCC", 0, n13, 90)
+    xb, yb = pin("Q1", 0)                       # outer edge of the base pad
+    put("R2", 0, (xb + 0.3, yb + 0.15), 90)
+    top = pin("R2", 1)
+    y = max(top[1], n12[1])
+    b.tracks = [BD.Track([top, (top[0], y), (n12[0], y), n12], 0.3)]
+    assert not BD.ratsnest(parts, b, nodes) and not BD.overlaps(parts, b, nodes)
+    BD.store(d, b)
+
+
 def lna() -> Project:
     p = Project("LNA_2G4")
     p.designs.clear()
@@ -201,6 +254,8 @@ def lna() -> Project:
     m.reports = [Report("Gain and match", "Rectangular", "SParameters : Band",
                         ["dB(S(2,1))", "dB(S(1,1))", "dB(S(2,2))", "dB(S(1,2))"])]
     p.designs += [d, m]
+    footprints(d)
+    board(p, d)
     return p
 
 

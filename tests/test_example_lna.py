@@ -109,3 +109,18 @@ def test_lna_compression(tmp_path):
     assert np.all(h.converged > 0.5)
     g = h.gain_db(1)
     assert 12.5 < g[0] < 13.5 and g[0] - g[1] < 1 and g[0] - g[2] > 1          # OP1dB between -9 and -3 dBm in
+
+
+def test_lna_board_is_placed_without_open_connections_and_lays_out_with_a_port_per_pad():
+    from hertzon.model import board as BD
+    from hertzon.model import circuit_layout as CL
+    p = Project.load(EXAMPLE)
+    d = p.design("LNA")
+    parts, nodes, _ = BD.board_parts(p, d)
+    b = BD.load(d)
+    assert b is not None and set(b.placements) == set(parts)
+    assert BD.ratsnest(parts, b, nodes) == [] and BD.overlaps(parts, b, nodes) == []
+    L, warn = CL.layout_design(p, d, "LNA_Layout")
+    assert [e.name for e in L.ports()] == ["1", "2", "Q1_c_pad1", "Q1_e2_pad2", "Q1_b_pad3", "Q1_e1_pad4",
+                                           "VCC_supply"]
+    assert any("C4: its ground pad" in w for w in warn)

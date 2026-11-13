@@ -8,12 +8,27 @@ the GitHub release notes.
 ### Added
 - **Realized gain per polarization:** RealizedGainTheta, RealizedGainPhi, RealizedGainLHCP and RealizedGainRHCP
   in far-field reports, 3D polar plots and equations (the component gains times accepted / incident power) (#439).
+- **Edge-launch connectors at lumped ports.** A library of 131 PCB edge-launch connectors (SMA, 2.92 mm,
+  2.4 mm) and **Connectors › Real Connector** (or right-click a lumped port › *Simulate with Real Connector*):
+  the connector stands at a lumped port at the board edge, found from the port sheet (edge, direction, board
+  thickness, trace width, substrate), and brings a grounded coplanar launch footprint after Southwest Microwave's
+  50 GHz design rules (narrowed pad and taper, via fence, all dimensions variables). Three modes, switched at any
+  time without losing anything: **Ideal port** (the lumped port is solved, the connector is a transparent
+  preview), **Transition** (a small 3D design of the connector-to-board transition, cascaded with the lumped-port
+  solution in a generated circuit design) and **Full 3D** (connector and footprint solved, wave port on the coax,
+  air region and Auto Open adjusted and restored). **Flatten** makes it plain geometry; **Optimize Launch** tunes
+  the footprint in the small transition design. MCP tools `list_edge_connectors`, `attach_edge_connector`,
+  `set_connector_mode`, `get_connectors`. See [docs/CONNECTORS.md](docs/CONNECTORS.md).
+- Materials Ultem 1000 (support beads of precision connectors) and Kel-F (PCTFE).
+- A Microstrip Line of a circuit may have a negative length: a de-embedding line.
 - **Footprints of circuit parts and the board in 3D.** Parts carry a KiCad footprint and symbol (`.kicad_mod`,
   `.kicad_sym`, also the downloads of SamacSys, SnapEDA, Ultra Librarian) and the assignment of pads to the
   terminals of their model, shown to scale in the Component dialog. Create 3D Layout puts R, L and C on their
   pads and transistors and ICs on their footprints with one port per pad; **Board Circuit** puts the solved
   layout back into a schematic with every device pin on its pad port. KiCad library folders in Tools › Options.
   **Board Layout** places the parts in 2D before the 3D layout: drag, turn, ratsnest, overlap check, tracks.
+  The LNA_2G4 example comes with its board placed (0402 parts, the transistor in SC-82FL); Board Circuit adds a
+  circuit model of the layout so that the bias point has the DC paths of the board.
 - **Subdesigns connected automatically on the board.** 3D design blocks (Wilkinson, rat-race, filters of the
   Design Wizard, any 3D design with edge ports, slanted ports too) are parts of the Board Layout. **Connect** lays
   the missing connections as lines of one impedance round the other copper, with circular or mitered bends and a

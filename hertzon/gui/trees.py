@@ -93,7 +93,7 @@ class ProjectTree(QTreeWidget):
         # a 3D design dragged into a schematic becomes a block with its S-parameters
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragOnly)
-        self._expanded: set[str] = {"project", "design", "Boundaries", "Excitations", "Analysis", "Equations",
+        self._expanded: set[str] = {"project", "design", "Boundaries", "Excitations", "Connectors", "Analysis", "Equations",
                                     "Results", "Mesh", "Radiation", "Field Overlays"}
         doc.changed.connect(lambda *_: self.rebuild())
         self.rebuild()
@@ -194,6 +194,24 @@ class ProjectTree(QTreeWidget):
                 it = self._item(g, e.name, ("excitation", e.name), color_icon(EXCITATION_COLORS.get(e.kind, "#888")))
                 if not e.enabled:
                     it.setForeground(0, QBrush(QColor("#999")))
+            if des.connectors:
+                from ..model.connectors import MODE_LABELS, transition_state
+                g = self._item(dn, "Connectors", ("group", "Connectors"))
+                for c in des.connectors:
+                    short = {"Ideal": "ideal port", "Transition": "transition", "3D": "full 3D"}.get(c.mode, c.mode)
+                    it = self._item(g, f"{c.name}  ({c.port}, {short})", ("connector", c.name),
+                                    color_icon({"Ideal": "#9aa3aa", "Transition": "#2e86c1", "3D": "#c8732a"}
+                                               .get(c.mode, "#888")))
+                    tip = f"{c.part}: {MODE_LABELS.get(c.mode, c.mode)} at the lumped port {c.port}"
+                    if c.mode == "Transition":
+                        try:
+                            st = transition_state(self.doc.project, des, c)
+                        except Exception:  # noqa: BLE001
+                            st = "missing"
+                        if st != "current":
+                            it.setForeground(0, QBrush(QColor("#b36b00")))
+                            tip += f"\nTransition model {st}: set the mode again to update it"
+                    it.setToolTip(0, tip)
             g = self._item(dn, "Mesh", ("group", "Mesh"))
             for m in des.mesh_ops:
                 self._item(g, m.name, ("meshop", m.name))
