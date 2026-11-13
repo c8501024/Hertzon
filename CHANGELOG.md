@@ -14,11 +14,19 @@ the GitHub release notes.
   Hertzon's network. Both programs are optional and installed separately. Checked against ngspice alone
   (IHP SG13G2 NMOS and HBT to 30 GHz, within 1e-5) and an ngspice transient (harmonics within 0.25 %).
 - Units V, mV, A, mA, uA, kohm in expressions.
+- **macOS:** the mesher library `libhzmesh.dylib` (universal, arm64 and x86_64) is included; `build.sh` builds
+  it on macOS and a CI workflow on a macOS runner keeps it up to date. EMerge comes as a prebuilt wheel on
+  Apple Silicon, so the install no longer needs Rust there. README section on macOS (#405).
 
 ### Changed
 - **Filter Design and Antenna Design are gone from the ribbon and the Tools menu.** Everything they offered is in
   **Tools › Design Wizard**: the cards *Rectangular patch*, *Hairpin bandpass* and the new card
   *Hairpin diplexer / triplexer* open the same designers as before.
+
+### Fixed
+- Interpolating sweep on macOS: no more spurious "divide by zero / overflow in matmul" warnings from Apple's
+  Accelerate in the reduced-basis step; a reduced solution that is really not finite is rejected and solved
+  directly (#405).
 
 ## 0.3.22 (2026-11-13)
 

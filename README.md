@@ -6,7 +6,7 @@
 [![Downloads](https://img.shields.io/github/downloads/c8501024/Hertzon/total)](https://github.com/c8501024/Hertzon/releases)
 [![License: GPL v2+](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)](LICENSE)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
-[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)](https://github.com/c8501024/Hertzon/releases/latest)
+[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](https://github.com/c8501024/Hertzon/releases/latest)
 [![Solver: EMerge](https://img.shields.io/badge/solver-EMerge-orange)](https://github.com/FennisRobert/EMerge)
 
 ![Hertzon](hertzon/gui/splash.jpg)
@@ -105,8 +105,14 @@ pip install -e .                                        # installs emerge, PySid
 python -m hertzon examples/WaveguidePost.hzn             # or just: hertzon
 ```
 
-EMerge comes from a pinned commit (see docs/EMERGE_CHANGES.md): prebuilt wheels for Windows x64 and Linux
-x86_64; on other platforms pip builds it from source, which needs a Rust compiler.
+EMerge comes from a pinned commit (see docs/EMERGE_CHANGES.md): prebuilt wheels for Windows x64, Linux
+x86_64 and macOS on Apple Silicon (arm64); on other platforms pip builds it from source, which needs a Rust
+compiler.
+
+**macOS:** there is no installer yet; use the manual route above with Python 3.13 (e.g. from python.org or
+Homebrew). It runs on Apple Silicon, and the mesher library `libhzmesh.dylib` is included. On an
+Intel Mac, pip builds EMerge from source, so install Rust first (`curl https://sh.rustup.rs -sSf | sh`). NumPy
+on macOS uses Apple's Accelerate, so EMerge picks its Accelerate solver; reports from Mac users are welcome.
 
 EMerge 3 ships its solver kernels compiled; the first solve only compiles Hertzon's own numba kernels
 (matrix handling, the size field of the re-mesh refinement), which takes about a minute once; later

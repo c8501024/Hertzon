@@ -1,0 +1,95 @@
+# Builds libhzmesh.dylib (the mesher library for macOS, a universal binary for arm64 and x86_64) on a macOS
+# runner with hertzon/mesher/src/build.sh and checks that hertzon/mesher/core.py loads it. A second job
+# installs Hertzon on Apple Silicon the way the README describes (EMerge from its prebuilt wheel), runs the
+# sweep and mesher tests and solves the Microstrip example from the command line.
+#
+# On a feature branch, a dylib that differs from the committed one is committed back to that branch, so a
+# change to the mesher sources gets its macOS build in the same pull request. On dev and main the workflow
+# only warns when the committed dylib is out of date (it never pushes there).
+name: macOS
+
+on:
+  push:
+    paths:
+      - "hertzon/mesher/src/**"
+      - ".github/workflows/hzmesh-macos.yml"
+      - "pyproject.toml"
+      - "hertzon/solver/hybrid_sweep.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hzmesh-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dylib:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build libhzmesh.dylib
+        run: |
+          cp hertzon/mesher/_bin/libhzmesh.dylib /tmp/committed.dylib 2>/dev/null || true
+          sh hertzon/mesher/src/build.sh
+          file hertzon/mesher/_bin/libhzmesh.dylib
+          lipo -info hertzon/mesher/_bin/libhzmesh.dylib
+      - name: Load it through hertzon/mesher/core.py
+        run: |
+          pip install numpy
+          python - <<'EOF'
+          import importlib.util
+          spec = importlib.util.spec_from_file_location("core", "hertzon/mesher/core.py")
+          core = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(core)
+          print("loaded", core.lib())
+          EOF
+      - name: Commit the dylib if it changed
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          if cmp -s /tmp/committed.dylib hertzon/mesher/_bin/libhzmesh.dylib; then
+            echo "libhzmesh.dylib is up to date"
+          elif [ "$REF" = "main" ] || [ "$REF" = "dev" ]; then
+            echo "::warning::libhzmesh.dylib in $REF does not match the sources; rebuild it on a branch"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add hertzon/mesher/_bin/libhzmesh.dylib
+            git commit -m "Build libhzmesh.dylib for macOS"
+            git push origin "HEAD:$REF"
+          fi
+
+  install:
+    needs: dylib
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      HERTZON_NO_UPDATE_CHECK: "1"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}       # includes the dylib the first job may just have committed
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Hertzon with the test extras
+        run: |
+          python -m venv .venv && source .venv/bin/activate
+          pip install -e ".[test]"
+          pip show emerge | head -2
+      - name: Sweep and mesher tests
+        run: |
+          source .venv/bin/activate
+          python -m pytest -q tests/test_fast_sweep.py tests/test_sweep_solvers.py tests/test_waveguide_cutoff.py \
+            tests/test_mesh_gate.py
+      - name: Solve the Microstrip example
+        run: |
+          source .venv/bin/activate
+          hertzon-cli solve examples/Microstrip.hzn --design Microstrip50 2>&1 | tee solve.log
+          if grep -q "RuntimeWarning" solve.log; then echo "::error::RuntimeWarning in the solve"; exit 1; fi
