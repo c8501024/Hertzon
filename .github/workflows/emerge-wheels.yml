@@ -43,7 +43,7 @@ jobs:
           # platform: runner, maturin target, pattern of its wheel file name
           ALL='[{"os":"ubuntu-latest","target":"x86_64","tag":"manylinux"},
                 {"os":"windows-latest","target":"x64","tag":"win_amd64"},
-                {"os":"macos-14","target":"aarch64","tag":"macosx"}]'
+                {"os":"macos-15","target":"aarch64","tag":"macosx"}]'
           if ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'); then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "$TAG exists with:"; echo "$ASSETS"
