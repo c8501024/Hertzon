@@ -9,6 +9,9 @@ the GitHub release notes.
 - **Filter Design and Antenna Design are gone from the ribbon and the Tools menu.** Everything they offered is in
   **Tools › Design Wizard**: the cards *Rectangular patch*, *Hairpin bandpass* and the new card
   *Hairpin diplexer / triplexer* open the same designers as before.
+- **The Desktop tab of a circuit design has the tools of the 3D Desktop tab:** Options, Materials, Design Wizard,
+  Help with Feature Overview, Copy/Paste, and an Import / Export group (3D designs from a project file,
+  Touchstone). Both tabs are built by one function, so they stay alike.
 
 ## 0.3.22 (2026-11-13)
 

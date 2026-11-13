@@ -515,38 +515,7 @@ class MainWindow(QMainWindow):
         exc = lambda k: (lambda: self.assign("excitation", k))  # noqa: E731
 
         # ---- Desktop -----------------------------------------------------------------------
-        pg = rb.page("Desktop")
-        g = pg.group("Project")
-        g.large("Save", "save", self.a_save)
-        g.small("New", "new", self.a_new)
-        g.small("Open", "open", self.a_open)
-        g.small("Save As", "saveas", self.a_saveas)
-        g = pg.group("Edit")
-        g.small("Undo", "undo", self.a_undo)
-        g.small("Redo", "redo", self.a_redo)
-        g.small("Delete", "delete", self.a_delete)
-        g.small("Copy", "copy", self.a_copy)
-        g.small("Paste", "paste", self.a_paste)
-        g.small("Properties", "variables", self.a_props)
-        g = pg.group("Design")
-        g.large("Insert Design", "design", self.insert_design)
-        g.small("Copy Design", "copy", self.copy_design)
-        g.small("Project Variables", "variables", lambda: self.edit_variables(True))
-        g.small("Design Properties", "variables", lambda: self.edit_variables(False))
-        g = pg.group("Import / Export")
-        g.small("Import Geometry", "import", self.import_geometry)
-        g.small("Import PCB", "import", self.import_pcb)
-        g.small("Export STEP", "export", self.export_step)
-        g.small("Export Script", "export", self.export_script)
-        g.small("Export Gerber", "export", self.export_gerber)
-        g = pg.group("Tools")
-        g.large("Options", "options", self.options)
-        g.large("Materials", "material", self.edit_materials)
-        g.large("Design Wizard", "wizard", self.design_wizard,
-                tip="Couplers, dividers, matching networks, filters and antennas from a specification: circuit, 3D "
-                    "design and a multi-fidelity optimization")
-        g.large("Help", "help", self.show_help, menu=[("Property Help (F1)", self.show_help),
-                                                      ("Feature Overview", self.show_feature_matrix)])
+        self._desktop_page(rb, circuit=False)
 
         # ---- View --------------------------------------------------------------------------
         pg = rb.page("View")
@@ -841,6 +810,53 @@ class MainWindow(QMainWindow):
                 tip="Fields Calculator: equations of E, H and J in the Equations tab")
         rb.setCurrentIndex(2)
 
+    def _desktop_page(self, rb, circuit: bool) -> None:
+        """The Desktop page of the 3D and the circuit ribbon: project, edit, design, import/export and the tools
+        (Options, Materials, Design Wizard, Help). Only the import/export group and the selection properties differ
+        with the kind of design."""
+        pg = rb.page("Desktop")
+        g = pg.group("Project")
+        g.large("Save", "save", self.a_save)
+        g.small("New", "new", self.a_new)
+        g.small("Open", "open", self.a_open)
+        g.small("Save As", "saveas", self.a_saveas)
+        g = pg.group("Edit")
+        g.small("Undo", "undo", self.a_undo)
+        g.small("Redo", "redo", self.a_redo)
+        if circuit:
+            g.small("Delete", "delete", self.circuit.delete_selected, tip="Delete the selected parts and wires (Del)")
+        else:
+            g.small("Delete", "delete", self.a_delete)
+        g.small("Copy", "copy", self.a_copy)
+        g.small("Paste", "paste", self.a_paste)
+        if not circuit:                 # the parts of a schematic are edited in the Properties dock
+            g.small("Properties", "variables", self.a_props)
+        g = pg.group("Design")
+        g.large("Insert Design", "design", self.insert_design)
+        g.small("Copy Design", "copy", self.copy_design)
+        g.small("Project Variables", "variables", lambda: self.edit_variables(True))
+        g.small("Design Properties", "variables", lambda: self.edit_variables(False))
+        g = pg.group("Import / Export")
+        if circuit:
+            g.small("Import 3D Designs", "import", self._circuit_import_designs,
+                    tip="The 3D designs of another project file (.hzn) as blocks of the schematic")
+            g.small("Export Touchstone", "export", lambda: self.export_touchstone(),
+                    tip="S-parameters of a solved sweep as a Touchstone file (.sNp)")
+        else:
+            g.small("Import Geometry", "import", self.import_geometry)
+            g.small("Import PCB", "import", self.import_pcb)
+            g.small("Export STEP", "export", self.export_step)
+            g.small("Export Script", "export", self.export_script)
+            g.small("Export Gerber", "export", self.export_gerber)
+        g = pg.group("Tools")
+        g.large("Options", "options", self.options)
+        g.large("Materials", "material", self.edit_materials)
+        g.large("Design Wizard", "wizard", self.design_wizard,
+                tip="Couplers, dividers, matching networks, filters and antennas from a specification: circuit, 3D "
+                    "design and a multi-fidelity optimization")
+        g.large("Help", "help", self.show_help, menu=[("Property Help (F1)", self.show_help),
+                                                      ("Feature Overview", self.show_feature_matrix)])
+
     def _circuit_ribbon(self, t) -> None:
         """The ribbon of circuit designs: schematic editing, the parts by category, analysis and results. It
         replaces the 3D ribbon while a circuit design is active."""
@@ -861,23 +877,7 @@ class MainWindow(QMainWindow):
             return fn(info.label, component_icon(k), place(k), tip=f"{info.label}: {info.help}")
 
         # ---- Desktop
-        pg = rb.page("Desktop")
-        g = pg.group("Project")
-        g.large("Save", "save", self.a_save)
-        g.small("New", "new", self.a_new)
-        g.small("Open", "open", self.a_open)
-        g.small("Save As", "saveas", self.a_saveas)
-        g = pg.group("Edit")
-        g.small("Undo", "undo", self.a_undo)
-        g.small("Redo", "redo", self.a_redo)
-        g.small("Delete", "delete", ed.delete_selected)
-        g = pg.group("Design")
-        g.large("Insert Design", "design", self.insert_design)
-        g.small("Copy Design", "copy", self.copy_design)
-        g.small("Project Variables", "variables", lambda: self.edit_variables(True))
-        g.small("Design Variables", "variables", lambda: self.edit_variables(False))
-        g = pg.group("Help")
-        g.large("Help", "help", self.show_help)
+        self._desktop_page(rb, circuit=True)
 
         # ---- Schematic
         pg = rb.page("Schematic")
