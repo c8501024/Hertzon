@@ -15,6 +15,11 @@ the GitHub release notes.
   (IHP SG13G2 NMOS and HBT to 30 GHz, within 1e-5) and an ngspice transient (harmonics within 0.25 %).
 - Units V, mV, A, mA, uA, kohm in expressions.
 
+### Changed
+- **Filter Design and Antenna Design are gone from the ribbon and the Tools menu.** Everything they offered is in
+  **Tools › Design Wizard**: the cards *Rectangular patch*, *Hairpin bandpass* and the new card
+  *Hairpin diplexer / triplexer* open the same designers as before.
+
 ## 0.3.22 (2026-11-13)
 
 ### Fixed

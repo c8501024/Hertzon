@@ -19,7 +19,8 @@ The wizard is also on the start page (*Start from a template › Design Wizard*)
 The structures are shown as cards by category (antennas, matching, couplers and hybrids, power dividers,
 filters, feed networks, bias). A search field filters them. Cards marked *Available* can be built; cards marked
 *Planned* show what comes next and what each one still needs (switch them off with *Show planned structures*).
-The rectangular patch and the hairpin filter open their own designers, which have more options.
+The rectangular patch, the hairpin filter and the hairpin diplexer / triplexer open their own designers, which have
+more options.
 
 ## Step 2: specification
 

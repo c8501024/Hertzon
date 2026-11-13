@@ -36,7 +36,7 @@ CATEGORIES = (("antenna", "Antennas"), ("match", "Matching"), ("coupler", "Coupl
 
 
 class Designer(Structure):
-    """A structure that has its own designer dialog already (Tools menu); the wizard opens it."""
+    """A structure that has its own designer dialog; the wizard opens it."""
     status = AVAILABLE
 
     def __init__(self, key, title, category, description, use, designer, icon, ports=1):
@@ -107,8 +107,9 @@ CATALOG: list[Structure] = [
     _built(StubBandstop, "stubbs"),
     Planned("interdigital", "Interdigital bandpass", "filter", "Quarter-wave fingers",
             "Compact, clean second harmonic", "inter", priority=3, needs="multi-conductor coupled lines"),
-    Planned("diplexer", "Hairpin diplexer", "filter", "Two hairpin channels at a junction", "Two bands on one antenna",
-            "diplex", status=IN_PROGRESS, ports=3),
+    Designer("diplexer", "Hairpin diplexer / triplexer", "filter", "Two or three hairpin channels at a junction",
+             "Two or three bands on one antenna; space mapping with its circuit", "filter_diplexer", "diplex",
+             ports=3),
     # ---- feed networks
     Planned("corporate", "Corporate feed 1:N", "feed", "Equal phase tree for patch arrays", "Feeding 2-16 elements",
             "corp", priority=2, ports=5),
@@ -134,7 +135,7 @@ def icon(s: Structure) -> str:
 def create_structure(key: str, values: dict | None = None, substrate: Substrate | None = None, **kw) -> Result:
     s = structure(key)
     if s.designer:
-        raise ValueError(f"{s.title} has its own designer (Tools menu); use it instead")
+        raise ValueError(f"{s.title} has its own designer (Design Wizard); use it instead")
     return s.create(values, substrate, **kw)
 
 

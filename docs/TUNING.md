@@ -104,7 +104,7 @@ Two examples on the patch antenna (variables Lp and inset, discrete sweep 2.2 to
 the solution of the setup, without solving again: S-parameters, reports, Solution Data and the adaptive
 passes, and for the best evaluation also the mesh and the fields at the adaptive frequency, so field overlays
 and **Derivative Tuning** work on it as after an analysis. **Results > Solution Data > Design Variation** lists
-every evaluation with its passes; while an optimization runs, it follows the evaluation being solved. The wizard **Tools > Antenna Design > Rectangular Patch** uses this optimizer with a goal at
+every evaluation with its passes; while an optimization runs, it follows the evaluation being solved. The patch designer (**Tools > Design Wizard > Rectangular patch**) uses this optimizer with a goal at
 the design frequency only, on the adaptive solution, so no sweep is solved per round.
 
 Use it for designs that are near their goals already, for example from a design formula or a wizard. A
