@@ -123,7 +123,7 @@ class BoardPart:
     vias: list[tuple[float, float, float, int]] = field(default_factory=list)   # x, y, diameter, pin
     shorts: list[tuple[float, float, tuple[int, int], float]] = field(default_factory=list)  # x, y, dir, w
     ports: list[PadPort] = field(default_factory=list)
-    body: list[tuple[float, float]] = field(default_factory=list)   # outline (courtyard), part coordinates
+    body: list[tuple[float, float]] = field(default_factory=list)   # outline (fabrication layer), part coordinates
     footprint: str = ""
     note: str = ""
     sheets: list = field(default_factory=list)            # Lumped RLC sheets of a 3D design block (outlines)
@@ -177,8 +177,35 @@ def board_parts(project, circuit) -> tuple[dict[str, BoardPart], dict[str, list[
         except (KicadError, KeyError, ValueError, CE.EmbedError) as ex:
             notes.append(f"{c.name}: {ex}; left out")
             continue
+        _ground_vias(bp, nodes.get(c.name, []), notes)
         parts[c.name] = bp
     return parts, nodes, notes
+
+
+VIA_D = 0.3                          # mm: vias of the ground pad of a shunt part (Via_D of the automatic layout)
+
+
+def _ground_vias(bp: BoardPart, ns: list[int], notes: list[str]) -> None:
+    """The ground pad of a shunt part on its footprint gets round vias across the pad, at its centre."""
+    if not bp.lumped or bp.type not in ("R", "L", "C", "SRLC", "PRLC"):
+        return
+    along_x = abs(bp.lumped.a[1] - bp.lumped.b[1]) < 1e-9
+    for k, net in enumerate(ns[:2]):
+        if net != 0:
+            continue
+        cu = next((q for q in bp.copper if q.pin == k), None)
+        if cu is None:
+            continue
+        x0, y0, x1, y1 = bbox(cu.pts)
+        w = (y1 - y0) if along_x else (x1 - x0)
+        nv = max(1, int((w - VIA_D) / (2 * VIA_D)) + 1)
+        pitch = (w - VIA_D) / (nv - 1) if nv > 1 else 0.0
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        for i in range(nv):
+            o = pitch * (i - (nv - 1) / 2)
+            bp.vias.append((cx, cy + o, VIA_D, k) if along_x else (cx + o, cy, VIA_D, k))
+        notes.append(f"{bp.name}: its ground pad has {nv} via{'s' if nv > 1 else ''} of {VIA_D:g} mm to the ground "
+                     "plane; the schematic has none, place a Via to Ground to model it there")
 
 
 def _fill(bp: BoardPart, c, ev, width, subs, pdir, notes) -> None:
@@ -351,7 +378,13 @@ def _pads(bp: BoardPart, c, board: FPS.OnBoard, ports: bool = False) -> None:
     x0, y0, x1, y1 = fp.bbox()
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     ts = FPS.terminals(c)
-    bp.body = rect(x0 - cx, y0 - cy, x1 - cx, y1 - cy)
+    # the body as drawn on the fabrication layer (the courtyard adds the assembly margin), else the pads
+    pts = [q for poly in fp.fab for q in poly] or [q for pad in fp.pads if pad.copper for q in pad.outline(2)]
+    if pts:
+        bx0, by0, bx1, by1 = bbox(pts)
+        bp.body = rect(bx0 - cx, by0 - cy, bx1 - cx, by1 - cy)
+    else:
+        bp.body = rect(x0 - cx, y0 - cy, x1 - cx, y1 - cy)
     anchors: dict[int, list[Pin]] = {}
     for q in fp.pads:
         if not q.copper or not q.number:
@@ -689,6 +722,18 @@ def _near_segment(p, a, b, r) -> bool:
     return math.hypot(p[0] - ax - t * dx, p[1] - ay - t * dy) <= r
 
 
+def copper_nets(bp: BoardPart, cu: Copper, nodes) -> set[int]:
+    """Every net a copper polygon touches: both ends of a line (its copper is one piece from one net to the
+    other), the net of its pin otherwise."""
+    ns = nodes.get(bp.name, [])
+    if cu.pin == -1:
+        return set(ns[:2])
+    if cu.pin == -2:
+        return set(ns[2:4])
+    n = copper_net(bp, cu, nodes)
+    return set() if n is None else {n}
+
+
 def world_copper(parts, board: Board, nodes) -> list[tuple[str, int | None, list[tuple[float, float]]]]:
     """Every copper polygon of the placed parts in world coordinates with its net: (part, net, points)."""
     out = []
@@ -725,18 +770,28 @@ def route_name(i: int) -> str:
 def overlaps(parts, board: Board, nodes) -> list[tuple[str, str]]:
     """Pairs of parts (and routes, Route1, ...) whose copper of different nets lies on each other (shapely); a
     route may touch the two parts it connects."""
+    from shapely.geometry import Polygon
     from . import routing as RT
-    polys = list(world_polys(parts, board, nodes))
+    polys = []                        # (part, the nets its copper touches, polygon): a line joins both its nets
+    for name, bp in parts.items():
+        pl = board.placements.get(name)
+        if pl is None:
+            continue
+        for cu in bp.copper:
+            if len(cu.pts) < 3:
+                continue
+            poly = Polygon([pl.world(p) for p in cu.pts], [[pl.world(p) for p in h] for h in cu.holes if len(h) >= 3])
+            polys.append((name, copper_nets(bp, cu, nodes), poly.buffer(0)))
     ends = {}
     for i, r in enumerate(board.routes):
         ns = nodes.get(r.a[0], [])
         net = ns[r.a[1]] if r.a[1] < len(ns) else None
-        polys.append((route_name(i), net, RT.polygon(r)))
+        polys.append((route_name(i), set() if net is None else {net}, RT.polygon(r)))
         ends[route_name(i)] = {r.a[0], r.b[0]}
     out = set()
-    for i, (an, anet, ap) in enumerate(polys):
-        for bn, bnet, bpoly in polys[:i]:
-            if an == bn or (anet is not None and anet == bnet):
+    for i, (an, anets, ap) in enumerate(polys):
+        for bn, bnets, bpoly in polys[:i]:
+            if an == bn or not anets or not bnets or anets & bnets:
                 continue
             if bn in ends.get(an, ()) or an in ends.get(bn, ()):
                 continue
@@ -960,7 +1015,7 @@ def layout_3d(project, circuit, board: Board, name: str | None = None):
 
     parts, nodes, warnings = board_parts(project, circuit)
     board, more = complete(project, circuit, board)
-    warnings += more
+    warnings += [w for w in more if w not in warnings]
     ev = circuit.evaluator(project)
     subs = [c for c in circuit.components if c.type == "SUBST"]
     if not subs:

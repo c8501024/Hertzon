@@ -43,8 +43,9 @@ def test_ratsnest_tracks_and_overlaps():
     assert len(rats) == 1 and rats[0][1:] == ((8.2, -0.95), (8.2, -2.95))   # pad 3 to the moved line
     b.tracks.append(BD.Track([(8.2, -0.95), (8.2, -2.95)], 0.6))
     assert BD.ratsnest(parts, b, nodes) == []                                # the track closes it
-    b.placements["Q1"].x = 3
-    assert ("MS1", "Q1") in BD.overlaps(parts, b, nodes)
+    assert BD.overlaps(parts, b, nodes) == []           # pad 1 (b) on the end of MS1: a line joins both its nets
+    b.placements["Q1"].x, b.placements["Q1"].y = 2.5, 0.0
+    assert ("MS1", "Q1") in BD.overlaps(parts, b, nodes)                     # pad 3 (c) on MS1
 
 
 def test_complete_places_parts_added_to_the_schematic_and_drops_removed_ones():
@@ -118,3 +119,28 @@ def test_board_editor_moves_snaps_turns_and_draws_tracks_with_undo():
     doc.undo()
     ed.rebuild()
     assert BD.load(doc.design).placements["V1"].rot == 90 and ed.items["V1"].placement().rot == 90
+
+
+def test_shunt_part_on_its_footprint_gets_ground_vias_and_board_circuit_a_dc_model():
+    """A capacitor to ground on a footprint gets vias in its ground pad (reported); Board Circuit makes the
+    schematic without its devices the circuit model of the layout block, with a port where each layout port is,
+    so that the bias point has the DC paths of the board."""
+    import numpy as np
+    from hertzon.model import circuit as CK
+    from hertzon.solver.circuit import circuit_ports
+    p, d = _amp()
+    d.components.append(C("C9", "C", 140, -80, 90, {"C": "1pF", "Footprint": "C_0603"}))
+    d.components.append(C("G9", "GND", 140, -40))
+    d.components.append(_line("MS9", 140, -140, rot=90, L="1mm", W="0.6mm"))
+    parts, nodes, notes = BD.board_parts(p, d)
+    assert len(parts["C9"].vias) == 1 and any("C9: its ground pad has 1 via of 0.3 mm" in n for n in notes)
+    assert nodes["C9"][1] == 0 and parts["C9"].vias[0][3] == 1                # in the pad of pin 2
+    L, _ = CL.layout_design(p, d, "L")
+    p.designs.append(L)
+    B, _ = CL.board_circuit(p, L)
+    model = p.design(B.components[0].props[CK.CIRCUIT_MODEL])
+    ports, nodes_, _ = circuit_ports(p, model)
+    assert [c.props["Num"] for c in ports] == [e.props["PortNumber"] for e in L.ports()]
+    assert not any(c.type in CK.NONLINEAR_TYPES for c in model.components) and len(set(nodes_)) == len(nodes_)
+    from hertzon.solver.circuit import linear_network
+    assert linear_network(p, model, np.array([0.0])) is not None                   # it evaluates at DC
