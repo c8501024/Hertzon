@@ -431,6 +431,26 @@ lines and a transistor (measured S-parameters on a SOT-23), laid out, solved in 
 ports, give the S-parameters of the schematic within 0.1 dB in S21 from 1 to 4 GHz
 (`tests/test_circuit_layout.py`).
 
+### Board Layout: placing the parts
+
+A schematic is drawn for the circuit, not for the board: bias parts, feedback loops and parallel branches drawn
+side by side would land on each other in 3D. **Board Layout** (Simulation › 3D Layout) shows the board of the
+schematic in 2D, seen from the top, and lets the parts be placed:
+
+* the first time, every part is placed automatically as the schematic is drawn (also **Auto Place**): lines
+  attach at the pad edge that faces them, a transistor turns so that the pad of the line's terminal faces it;
+* drag a part, **R** turns the selected parts by 90 degrees; a pin dropped near a pin of the same net snaps onto
+  it;
+* connections the copper does not make are drawn as dashed lines (ratsnest), copper of different nets on each
+  other is outlined in red, the status line counts both;
+* **Track** draws copper the schematic does not have (DC routing): click the corners, double-click or right-click
+  to end; Del removes a selected track.
+
+Each change is one undo step and is stored with the circuit design. Once a board has been placed, Create 3D
+Layout builds the 3D design as placed, with the same ports and port map as above, so Board Circuit works the
+same; open connections, overlaps and tracks are reported. The dimensions are still design variables, but a
+line made longer in the schematic does not push the parts behind it: the ratsnest shows the gap.
+
 ## AI assistants
 
 The MCP server covers circuit designs: `create_circuit`, `get_circuit`, `edit_circuit` (parts, wires, 3D

@@ -122,6 +122,12 @@ class MainWindow(QMainWindow):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(split)
         self.main_stack.addWidget(self.circuit)
+        from .board_editor import BoardEditor
+        self.board_editor = BoardEditor(self.doc)
+        self.board_editor.schematicRequested.connect(lambda: self.show_board(False))
+        self.board_editor.layoutRequested.connect(self.circuit_to_layout)
+        self._board_page = False
+        self.main_stack.addWidget(self.board_editor)
         self.tabs.addTab(self.main_stack, "3D Modeler")
         self.tabs.tabBar().setTabButton(0, self.tabs.tabBar().ButtonPosition.RightSide, None)
         self.setCentralWidget(self.tabs)
@@ -994,6 +1000,10 @@ class MainWindow(QMainWindow):
         g = pg.group("Analyze")
         g.large("Analyze", "analyze", self.analyze_all)
         g = pg.group("3D Layout")
+        g.large("Board Layout", "design", lambda: self.show_board(not self._board_page),
+                tip="The board of this schematic in 2D: the parts on their footprints, drag them and turn them "
+                    "(R), see the open connections (ratsnest), draw tracks. Create 3D Layout then builds the "
+                    "board as it is placed here")
         g.large("Create 3D Layout", "design", self.circuit_to_layout,
                 tip="A new 3D design with the physical layout of the schematic: substrate, traces, vias, lumped "
                     "parts and ports, every dimension a design variable. 3D design blocks are built in with their "
@@ -1145,10 +1155,11 @@ class MainWindow(QMainWindow):
     def _sync_design_page(self) -> None:
         """Tab 0 shows the schematic of a circuit design and the 3D modeler of a 3D design."""
         circ = self._is_circuit()
-        page = self.circuit if circ else self.main_stack.widget(0)
+        board = circ and self._board_page
+        page = (self.board_editor if board else self.circuit) if circ else self.main_stack.widget(0)
         if self.main_stack.currentWidget() is not page:
             self.main_stack.setCurrentWidget(page)
-        self.tabs.setTabText(0, "Schematic" if circ else "3D Modeler")
+        self.tabs.setTabText(0, ("Board" if board else "Schematic") if circ else "3D Modeler")
         if self._ribbon_circuit_action.isVisible() != circ:
             self._ribbon_circuit_action.setVisible(circ)
             self._ribbon_3d_action.setVisible(not circ)
@@ -1157,7 +1168,20 @@ class MainWindow(QMainWindow):
             self._auto_junctions.setChecked(self.des.settings.get(AUTO, "True") != "False")
             from ..model.circuit import LINE_MODEL
             self._full_wave.setChecked(self.des.settings.get(LINE_MODEL, "Closed form") == "Full wave")
-            self.circuit.rebuild()
+            if board:
+                self.board_editor.rebuild()
+            else:
+                self.circuit.rebuild()
+
+    def show_board(self, on: bool) -> None:
+        """Circuit > Simulation > Board Layout: switch tab 0 between the schematic and its board."""
+        if on and not self._is_circuit():
+            return
+        self._board_page = on
+        self.tabs.setCurrentIndex(0)
+        self._sync_design_page()
+        if on:
+            self.board_editor.fit_all()
 
     def _on_doc_changed(self, what: str) -> None:
         self._sync_design_page()

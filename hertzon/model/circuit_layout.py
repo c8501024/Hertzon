@@ -124,6 +124,10 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     """A new 3D design with the physical layout of the circuit design; the list says what was left out or
     approximated."""
     from . import microstrip as MS
+    from . import board as BD
+    saved = BD.load(circuit)
+    if saved is not None:              # the circuit has a board: its placement makes the layout
+        return BD.layout_3d(project, circuit, saved, name)
     warnings: list[str] = []
     comps, nodes, _, junctions = CK.netlist(circuit.components, circuit.wires,
                                             circuit.settings.get(CK.AUTO, "True") != "False")
