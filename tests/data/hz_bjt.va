@@ -1,0 +1,27 @@
+// Minimal bipolar transistor for the tests of the nonlinear circuit engines (Ebers-Moll transport model with
+// Early effect and constant junction capacitances). Written for Hertzon; not a device model of any process.
+`include "disciplines.vams"
+
+module hz_bjt(c, b, e);
+    inout c, b, e;
+    electrical c, b, e;
+    parameter real is = 1e-16;
+    parameter real bf = 100.0;
+    parameter real br = 1.0;
+    parameter real vaf = 50.0;
+    parameter real cje = 50e-15;
+    parameter real cjc = 20e-15;
+    parameter real tf = 5e-12;
+    real vbe, vbc, vt, ifw, irv, ict;
+    analog begin
+        vt = $vt;
+        vbe = V(b, e);
+        vbc = V(b, c);
+        ifw = is * (limexp(vbe / vt) - 1.0);
+        irv = is * (limexp(vbc / vt) - 1.0);
+        ict = (ifw - irv) * (1.0 - vbc / vaf);
+        I(c, e) <+ ict;
+        I(b, e) <+ ifw / bf + ddt(cje * vbe + tf * ifw);
+        I(b, c) <+ irv / br + ddt(cjc * vbc);
+    end
+endmodule

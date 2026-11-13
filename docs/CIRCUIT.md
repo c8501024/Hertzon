@@ -22,6 +22,7 @@ The [tutorial](TUTORIAL.md#11-a-stub-filter-as-a-circuit-and-its-3d-layout) buil
 * [Line model: closed form or full wave](#line-model-closed-form-or-full-wave)
 * [3D designs as blocks](#3d-designs-as-blocks)
 * [Analyze and results](#analyze-and-results)
+* [Nonlinear devices](#nonlinear-devices)
 * [Optimization](#optimization)
 * [3D layout](#3d-layout)
 * [AI assistants](#ai-assistants)
@@ -158,6 +159,58 @@ the port parameters (`dB(S(2,1))`, `Z(1,1)`, `VSWR(1)`, ...). **Results › Touc
 as `.sNp`. Problems (no port, a port shorted to ground, a line without a substrate, a 3D block that is not
 solved yet, a missing Touchstone file) are explained in the Message Manager.
 
+## Nonlinear devices
+
+Transistors and diodes go into the same schematic as the lines and the 3D blocks. **Who computes what:**
+
+| Part of the work | Done by |
+|---|---|
+| Schematic, parts, lines, junctions, Touchstone and 3D blocks, the full-wave line model | Hertzon |
+| The linear network: all linear parts reduced (Kron elimination) to one admittance matrix at the ports, the device pins and the DC sources, at DC and at every frequency | Hertzon |
+| Small-signal S-parameters of the whole circuit about the bias point | Hertzon, with the device admittances from ngspice |
+| DC bias point; small-signal admittance of each device (SPICE libraries of process design kits, model cards, compiled Verilog-A models) | [ngspice](https://ngspice.sourceforge.io) |
+| Harmonic balance (single tone, swept drive power, harmonics, compression) | [circuitRF](https://github.com/potatobeanradio/circuitRF), on Hertzon's linear network |
+
+The engines see only Hertzon's reduced network (as conductances at DC for ngspice, as one Touchstone N-port at DC
+and the harmonics for circuitRF), the devices, the DC sources and the ports. Both are separate programs the user
+installs; Hertzon writes their input, runs them and reads their output (see [THIRD_PARTY.md](THIRD_PARTY.md)).
+
+**Parts** (ribbon tab *Nonlinear*):
+
+| Part | Properties |
+|---|---|
+| Nonlinear Device | *Kind*: **Subcircuit** (a `.subckt` of a SPICE Library, e.g. a transistor of a PDK), **Model card** (a `.model` of type D, NPN/PNP, NMOS/PMOS, NJF/PJF) or **Verilog-A** (*File*: `.va` source or compiled `.osdi`); *Model*: subcircuit, model or Verilog-A module name; *Pins*: the terminal names in the model's order (`c b e`, `d g s b`); *Params*: instance parameters (`w=10u l=0.13u ng=4`) |
+| SPICE Library | *File* and *Section* as in `.lib File Section` (empty *Section*: `.include`); *OSDI*: compiled Verilog-A models the library needs, separated by `;` (for example the PSP model of IHP SG13G2) |
+| DC Voltage Source, DC Current Source | the value; the top pin is positive (the current flows out of it). A voltage source is a short for the RF signal |
+
+**Analyses** (properties of the setup):
+
+* **S-Parameters** with devices: ngspice solves the bias point (the ports are their Z0 to ground, as an instrument
+  is), then the small-signal admittance of each device about it; Hertzon adds those to its network and gives the
+  S-parameters of the whole circuit. Results as for a linear circuit, plus `operating_point.json` (pin voltages,
+  supply currents).
+* **Harmonic Balance**: *Fundamental*, *Harmonics*, *Drive port* and *Available power* in dBm (one value, a list
+  or `start:step:stop`). The drive port is a source of that available power, the other ports terminate in their
+  Z0. Results: `harmonic_balance.csv` (power of every harmonic at every port, gain, DC supply currents), `.npz`
+  (complex port voltages) and `.json`. Harmonic balance runs compiled Verilog-A models (Kind Verilog-A); SPICE
+  subcircuits and model cards run in the S-parameter analysis.
+
+**Setup.** Install ngspice 43 or later (older versions cannot load models compiled by current OpenVAF) and
+circuitRF, and put them on `PATH` or set `HERTZON_NGSPICE` and `HERTZON_CIRCUITRF` to the programs. Verilog-A
+sources are compiled with `openvaf-r` from OpenVAF-Reloaded on `PATH` (into `.hertzon-osdi` next to the source);
+a compiled `.osdi` needs no compiler. For a PDK such as IHP SG13G2, give its `.lib` file and corner section and
+the compiled models of its `.spiceinit` (OSDI).
+
+**Checked against** (2026-11): a common-emitter stage with a VBIC transistor (Verilog-A) gave the same harmonics
+in circuitRF's harmonic balance (0.6 s) and in an ngspice transient analysis (8.5 min): fundamental within
+0.03 %, 2nd to 4th harmonic within 0.25 %. The small-signal S-parameters of an IHP SG13G2 NMOS (PSP, OSDI) and
+HBT (VBIC) stage from 1 to 30 GHz match one ngspice AC analysis of the whole circuit within 1e-5. At low drive
+the harmonic-balance gain equals S21 within 0.003 dB.
+
+**Not yet:** transient analysis (needs a time-domain model of the frequency-dependent network, e.g. vector
+fitting), two-tone harmonic balance, load pull, noise, harmonic-balance results in the report dialog (they are
+in the result files), file pickers for the device and library files.
+
 ## Optimization
 
 Part values written as design variables (for example `L` = `ms_len` in a line, with `ms_len` = `12mm` under
@@ -268,6 +321,6 @@ See the [tutorial](TUTORIAL.md#5-let-an-ai-assistant-build-and-run-it-mcp).
 
 ## Not yet
 
-Transient analysis, harmonic balance and nonlinear parts; pushing the port voltages of the schematic back into
+Transient analysis and two-tone harmonic balance (see [Nonlinear devices](#nonlinear-devices)); pushing the port voltages of the schematic back into
 a 3D design (fields of the loaded structure); SPICE netlist import and export; a full coplanar layout (now
 the centre strip only). See [ROADMAP.md](ROADMAP.md#step-3-circuit-design).

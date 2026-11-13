@@ -47,6 +47,20 @@ Versions are those of a current installation; `pyproject.toml` lists the require
 | QtPy | 2.4.3 | MIT | pyvistaqt |
 | requests, urllib3, idna, charset-normalizer, certifi, platformdirs | | Apache-2.0 / MIT / BSD-3-Clause / MPL-2.0 | pooch |
 
+## External programs for nonlinear circuits (optional, not installed by the setup)
+
+Circuits with transistors or diodes hand part of the work to separate programs the user installs. Hertzon runs
+them as their own processes and exchanges files with them (a netlist, a Touchstone file, their output); nothing
+of them is linked into Hertzon or shipped with it. See [CIRCUIT.md](CIRCUIT.md#nonlinear-devices).
+
+| Program | Licence | Used for |
+|---|---|---|
+| [ngspice](https://ngspice.sourceforge.io) 43 or later | BSD-3-Clause | Bias point and small-signal admittance of the devices (SPICE libraries of process design kits, model cards, compiled Verilog-A models) |
+| [circuitRF](https://github.com/potatobeanradio/circuitRF) | MIT | Harmonic balance |
+| [OpenVAF-Reloaded](https://github.com/OpenVAF/OpenVAF-Reloaded) (`openvaf-r`) | GPL-3.0 | Compiles Verilog-A models (`.va`) to OSDI (`.osdi`) for both engines |
+
+`tests/data/hz_bjt.va` is a minimal transistor model written for Hertzon's tests (GPL-2.0-or-later like Hertzon).
+
 ## Code included in this repository
 
 | File | Origin | Licence |

@@ -958,6 +958,16 @@ class MainWindow(QMainWindow):
         part(g, "TLOC")
         part(g, "TLSC")
 
+        # ---- Nonlinear: Hertzon's schematic and linear network; ngspice gives the bias point and the device
+        # small-signal admittances, circuitRF the harmonic balance (see hertzon/solver/nonlinear.py)
+        pg = rb.page("Nonlinear")
+        g = pg.group("Devices")
+        part(g, "DEVICE", True)
+        part(g, "SPICELIB", True)
+        g = pg.group("Bias")
+        part(g, "VDC", True)
+        part(g, "IDC", True)
+
         # ---- Data
         pg = rb.page("Data")
         g = pg.group("S-Parameters")
@@ -4433,7 +4443,7 @@ class MainWindow(QMainWindow):
         for s in setups:
             t = time.time()
             try:
-                _, warns = run_setup(self.doc.project, self.des, self.des.setup(s))
+                folder, warns = run_setup(self.doc.project, self.des, self.des.setup(s))
             except CircuitError as e:
                 self.msgs.add("error", f"{self.des.name} {s}: {e}")
                 QMessageBox.warning(self, "Analyze", str(e))
@@ -4445,6 +4455,9 @@ class MainWindow(QMainWindow):
             for w in warns:
                 self.msgs.add("warning", f"{self.des.name}: {w}")
             self.msgs.add("info", f"{self.des.name} {s}: circuit solved in {time.time() - t:.2f} s")
+            if self.des.setup(s).props.get("CircuitAnalysis") == "Harmonic Balance":
+                self.msgs.add("info", f"{self.des.name} {s}: harmonic balance by circuitRF on Hertzon's circuit "
+                                      f"network; results in {folder / 'harmonic_balance.csv'}")
         self.project_tree.rebuild()
         self._refresh_reports()
 

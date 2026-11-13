@@ -168,7 +168,7 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
 
 ## Circuits
 
-A **Circuit** design is a schematic of a linear network next to the 3D designs, with its own ribbon and a part
+A **Circuit** design is a schematic of a network next to the 3D designs, with its own ribbon and a part
 library with search ([docs/CIRCUIT.md](docs/CIRCUIT.md), [tutorial](docs/TUTORIAL.md#11-a-stub-filter-as-a-circuit-and-its-3d-layout)):
 
 * **Parts**: power ports, ground, net labels; R, L, C, series and parallel RLC, attenuator, DC block and feed;
@@ -183,6 +183,11 @@ library with search ([docs/CIRCUIT.md](docs/CIRCUIT.md), [tutorial](docs/TUTORIA
 * **3D layout**: *Create 3D Layout* turns the schematic into a 3D design (substrate, traces, junctions, vias,
   lumped parts, ports and the 3D blocks with their geometry), every dimension a design variable;
   *Update 3D Layout* and *Update Schematic* keep the two in step in both directions.
+* **Transistors and diodes**: SPICE libraries of process design kits (e.g. IHP SG13G2), model cards and Verilog-A
+  models in the same schematic. Hertzon solves the schematic and its linear network; the bias point and the
+  small-signal device admittances come from [ngspice](https://ngspice.sourceforge.io), the harmonic balance from
+  [circuitRF](https://github.com/potatobeanradio/circuitRF) (both optional, installed separately;
+  [details](docs/CIRCUIT.md#nonlinear-devices)).
 * **Copy and paste** (Ctrl+C / Ctrl+V) across circuit designs; the reports, Smith chart, Touchstone export and
   Solution Data work as in a 3D design.
 
