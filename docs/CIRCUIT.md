@@ -233,6 +233,53 @@ the harmonic-balance gain equals S21 within 0.003 dB.
 fitting), two-tone harmonic balance, load pull, noise, harmonic-balance results in the report dialog (they are
 in the result files), file pickers for the device and library files.
 
+### Example: a 2.4 GHz LNA that can be built
+
+**File > Open Example > LNA_2G4** is a one-transistor amplifier for 2.4 to 2.5 GHz drawn as it is built: the
+onsemi **NSVF4009SG4** (in production, AEC-Q101) on a 0.508 mm RO4350B board, 0402 parts, 5 V supply. The
+schematic holds the 50 Ω feed lines, the traces at the transistor pins, the emitter traces with two vias per
+emitter lead, the bias network and the parasitics of the parts (capacitors with series inductance and
+resistance, wire-wound inductors with their loss and winding capacitance). It is made by
+[examples/make_lna.py](../examples/make_lna.py).
+
+| Part | Value | Purpose |
+|---|---|---|
+| C1, L1 | 3.6 pF, 1.2 nH | input: series resonant at 2.45 GHz; blocks DC and cuts the gain below the band |
+| TL_e1, TL_e2, V_e1, V_e2 | 0.4 × 0.85 mm, 2 vias Ø 0.3 mm each | emitter degeneration: input match and stability |
+| L2 | 6.8 nH | collector feed and shunt element of the output match |
+| C2 | 3.9 pF | output DC block and series element of the output match |
+| R3, C3 | 12 Ω, 68 pF | the feed is bypassed after R3: resistive load below the band (stability) |
+| R1, R2 | 180 Ω, 24 kΩ | collector-feedback bias from 5 V: VCE = 3.0 V, IC = 10 mA |
+| C4 | 1 µF | supply decoupling |
+
+Capacitors C0G (e.g. Murata GJM15 series), inductors wire-wound 0402 (e.g. Murata LQW15/LQP15 series), resistors
+0402 1 %. The values are E-series values; one step up or down in any of them keeps S11 and S22 below −13 dB and
+μ above 1.04.
+
+| Who | What |
+|---|---|
+| Hertzon | schematic, microstrip lines, junctions and vias, the parts, the reduction of the board to the transistor pins, the ports and the supply; S-parameters of the board with the measured transistor data (design *LNA_Measured*) |
+| ngspice | bias point and small-signal admittance of the transistor (setup *SParameters_ngspice*) |
+| circuitRF | harmonic balance at 2.45 GHz, −30 to 0 dBm (setup *Compression_circuitRF*) |
+
+Both engines run the same transistor model: [examples/models/nsvf4009sg4.va](../examples/models/nsvf4009sg4.va),
+onsemi's Gummel-Poon parameters and package values from the data sheet on Hertzon's Verilog-A Gummel-Poon
+([examples/models/README.md](../examples/models/README.md) has the checks against ngspice's own model and
+against onsemi's measured S-parameters).
+
+| Result (2.4 to 2.5 GHz) | Model (Hertzon + ngspice, circuitRF) | Measured transistor data (Hertzon) |
+|---|---|---|
+| Gain S21 | 13.2 to 12.9 dB | 13.6 to 13.3 dB |
+| S11, S22 | ≤ −14.3 dB, ≤ −14.7 dB | ≤ −14.0 dB, ≤ −13.9 dB |
+| Stability μ (the smaller of μ and μ′) | ≥ 1.05 from 0.3 to 12 GHz, ≥ 1.0006 below | ≥ 1.07 from 0.5 to 8 GHz (data range) |
+| Bias | VCE 3.01 V, supply current 10.3 mA | |
+| Output 1 dB compression | 6.1 dBm (input −5.9 dBm) | |
+| 2nd, 3rd harmonic at −20 dBm in | −49 dBc, −67 dBc | |
+
+The gain is highest near 1 GHz (17 dB), as usual for a single bipolar stage; put a band-pass filter in front
+where strong signals below the band are expected. The noise figure is not computed (Hertzon has no noise
+analysis yet); onsemi gives 1.1 dB at 2 GHz for the transistor.
+
 ## Optimization
 
 Part values written as design variables (for example `L` = `ms_len` in a line, with `ms_len` = `12mm` under

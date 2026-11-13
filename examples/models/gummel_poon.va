@@ -1,0 +1,21 @@
+// SPICE Gummel-Poon bipolar transistor in Verilog-A, written for Hertzon.
+//
+// The equations are those of the SPICE2/SPICE3 bipolar model (as in ngspice, level 1): transport current with Early
+// effect and high injection, base-emitter and base-collector leakage, bias-dependent base resistance (RB, RBM, IRB),
+// emitter and collector resistances, depletion capacitances with forward-bias linearisation (FC) and the split of CJC
+// (XCJC), forward transit time with its bias dependence (XTF, VTF, ITF), reverse transit time and the substrate
+// junction of a vertical device. Excess phase (PTF) is a second-order Bessel delay of the forward current. The model
+// is evaluated at the temperature TEMP (no temperature scaling of the parameters). AREA scales the device like the
+// SPICE area factor; MULT puts that many devices in parallel (the M of an instance).
+// Because ngspice and circuitRF both run this one file (compiled to OSDI), the bias point, the S-parameters and the
+// harmonic balance use the same transistor.
+`include "constants.vams"
+`include "disciplines.vams"
+
+module gummel_poon(c, b, e, s);
+    inout c, b, e, s;
+    electrical c, b, e, s;
+    electrical ci, bi, ei, x1, x2;
+`include "gummel_poon_core.vams"
+    end
+endmodule

@@ -15,9 +15,11 @@ Analyses:
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -271,9 +273,21 @@ def compiled(va: Path) -> Path:
     if va.suffix.lower() == ".osdi":
         return va
     out = va.parent / ".hertzon-osdi" / (va.stem + ".osdi")
-    if out.is_file() and out.stat().st_mtime >= va.stat().st_mtime:
+    # the source and the files it may include from its folder
+    newest = max([va.stat().st_mtime] + [f.stat().st_mtime for f in va.parent.glob("*.vams")])
+    if out.is_file() and out.stat().st_mtime >= newest:
         return out
-    out.parent.mkdir(exist_ok=True)
+    try:
+        out.parent.mkdir(exist_ok=True)
+        probe = out.parent / ".write-test"
+        probe.write_bytes(b"")
+        probe.unlink()
+    except OSError:                    # a read-only folder (e.g. the installed examples): the user's temp folder
+        key = hashlib.sha1(str(va.resolve()).encode()).hexdigest()[:12]
+        out = Path(tempfile.gettempdir()) / "hertzon-osdi" / key / (va.stem + ".osdi")
+        if out.is_file() and out.stat().st_mtime >= newest:
+            return out
+        out.parent.mkdir(parents=True, exist_ok=True)
     r = subprocess.run([openvaf(), "-I", str(va.parent), str(va), "-o", str(out)], capture_output=True, text=True,
                        timeout=600)
     if r.returncode != 0 or not out.is_file():

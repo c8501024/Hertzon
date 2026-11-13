@@ -1,0 +1,260 @@
+// Parameters and equations of the SPICE Gummel-Poon transistor, shared by gummel_poon.va and bfu730f.va.
+// The including module declares the terminals c, b, e, s and the internal nodes ci, bi, ei, x1, x2, includes this
+// file and closes the analog block (with "end") after any contributions of its own. A module sets its own parameter
+// defaults by defining GP_<NAME> (e.g. `define GP_IS 1e-16) before the include.
+`ifndef GP_IS
+`define GP_IS 1e-16
+`endif
+    parameter real is   = `GP_IS from (0:inf);
+`ifndef GP_BF
+`define GP_BF 100
+`endif
+    parameter real bf   = `GP_BF   from (0:inf);
+`ifndef GP_NF
+`define GP_NF 1
+`endif
+    parameter real nf   = `GP_NF     from (0:inf);
+`ifndef GP_VAF
+`define GP_VAF 0
+`endif
+    parameter real vaf  = `GP_VAF     from [0:inf);       // 0: no forward Early effect
+`ifndef GP_IKF
+`define GP_IKF 0
+`endif
+    parameter real ikf  = `GP_IKF     from [0:inf);       // 0: no high injection
+`ifndef GP_ISE
+`define GP_ISE 0
+`endif
+    parameter real ise  = `GP_ISE     from [0:inf);
+`ifndef GP_NE
+`define GP_NE 1.5
+`endif
+    parameter real ne   = `GP_NE   from (0:inf);
+`ifndef GP_BR
+`define GP_BR 1
+`endif
+    parameter real br   = `GP_BR     from (0:inf);
+`ifndef GP_NR
+`define GP_NR 1
+`endif
+    parameter real nr   = `GP_NR     from (0:inf);
+`ifndef GP_VAR
+`define GP_VAR 0
+`endif
+    parameter real var  = `GP_VAR     from [0:inf);
+`ifndef GP_IKR
+`define GP_IKR 0
+`endif
+    parameter real ikr  = `GP_IKR     from [0:inf);
+`ifndef GP_ISC
+`define GP_ISC 0
+`endif
+    parameter real isc  = `GP_ISC     from [0:inf);
+`ifndef GP_NC
+`define GP_NC 2
+`endif
+    parameter real nc   = `GP_NC     from (0:inf);
+`ifndef GP_RB
+`define GP_RB 0
+`endif
+    parameter real rb   = `GP_RB     from [0:inf);
+`ifndef GP_IRB
+`define GP_IRB 0
+`endif
+    parameter real irb  = `GP_IRB     from [0:inf);
+`ifndef GP_RBM
+`define GP_RBM -1
+`endif
+    parameter real rbm  = `GP_RBM;                       // < 0: equal to rb
+`ifndef GP_RE
+`define GP_RE 0
+`endif
+    parameter real re   = `GP_RE     from [0:inf);
+`ifndef GP_RC
+`define GP_RC 0
+`endif
+    parameter real rc   = `GP_RC     from [0:inf);
+`ifndef GP_CJE
+`define GP_CJE 0
+`endif
+    parameter real cje  = `GP_CJE     from [0:inf);
+`ifndef GP_VJE
+`define GP_VJE 0.75
+`endif
+    parameter real vje  = `GP_VJE  from (0:inf);
+`ifndef GP_MJE
+`define GP_MJE 0.33
+`endif
+    parameter real mje  = `GP_MJE  from [0:1);
+`ifndef GP_CJC
+`define GP_CJC 0
+`endif
+    parameter real cjc  = `GP_CJC     from [0:inf);
+`ifndef GP_VJC
+`define GP_VJC 0.75
+`endif
+    parameter real vjc  = `GP_VJC  from (0:inf);
+`ifndef GP_MJC
+`define GP_MJC 0.33
+`endif
+    parameter real mjc  = `GP_MJC  from [0:1);
+`ifndef GP_XCJC
+`define GP_XCJC 1
+`endif
+    parameter real xcjc = `GP_XCJC from [0:1];      // part of cjc at the internal base, the rest at b
+`ifndef GP_CJS
+`define GP_CJS 0
+`endif
+    parameter real cjs  = `GP_CJS     from [0:inf);
+`ifndef GP_VJS
+`define GP_VJS 0.75
+`endif
+    parameter real vjs  = `GP_VJS  from (0:inf);
+`ifndef GP_MJS
+`define GP_MJS 0
+`endif
+    parameter real mjs  = `GP_MJS     from [0:1);
+`ifndef GP_FC
+`define GP_FC 0.5
+`endif
+    parameter real fc   = `GP_FC   from [0:0.95];
+`ifndef GP_TF
+`define GP_TF 0
+`endif
+    parameter real tf   = `GP_TF     from [0:inf);
+`ifndef GP_XTF
+`define GP_XTF 0
+`endif
+    parameter real xtf  = `GP_XTF     from [0:inf);
+`ifndef GP_VTF
+`define GP_VTF 0
+`endif
+    parameter real vtf  = `GP_VTF;                        // 0: no dependence on vbc
+`ifndef GP_ITF
+`define GP_ITF 0
+`endif
+    parameter real itf  = `GP_ITF     from [0:inf);
+`ifndef GP_PTF
+`define GP_PTF 0
+`endif
+    parameter real ptf  = `GP_PTF;                        // degrees at 1/(2 pi tf)
+`ifndef GP_TR
+`define GP_TR 0
+`endif
+    parameter real tr   = `GP_TR     from [0:inf);
+`ifndef GP_TEMP
+`define GP_TEMP 25
+`endif
+    parameter real temp = `GP_TEMP;                       // degrees Celsius
+`ifndef GP_AREA
+`define GP_AREA 1
+`endif
+    parameter real area = `GP_AREA     from (0:inf);
+`ifndef GP_MULT
+`define GP_MULT 1
+`endif
+    parameter real mult = `GP_MULT     from (0:inf);
+
+    real a, vt, vbe, vbc, vsub, ifw, irv, ibe2, ibc2, q1, q2, qb, ict, ib, ic, rbb, z, tz, x, argtf, td;
+    real qbe, qbc, qsub, gmin;
+    real is_a, ise_a, isc_a, ikf_a, ikr_a, itf_a, irb_a, cje_a, cjc_a, cjs_a, rbm_v;
+
+    analog function real qdep;          // depletion charge of a junction, linear above fc*vj
+        input v, cj, vj, m, fcc;
+        real v, cj, vj, m, fcc, f1, f2, f3, vf;
+        begin
+            vf = fcc * vj;
+            if (v < vf)
+                qdep = cj * vj / (1 - m) * (1 - pow(1 - v / vj, 1 - m));
+            else begin
+                f1 = vj / (1 - m) * (1 - pow(1 - fcc, 1 - m));
+                f2 = pow(1 - fcc, 1 + m);
+                f3 = 1 - fcc * (1 + m);
+                qdep = cj * (f1 + (f3 * (v - vf) + m / (2 * vj) * (v * v - vf * vf)) / f2);
+            end
+        end
+    endfunction
+
+    analog begin
+        a = area * mult;
+        vt = `P_K * (temp + 273.15) / `P_Q;
+        gmin = 1e-12;
+        is_a = is * a; ise_a = ise * a; isc_a = isc * a;
+        ikf_a = ikf * a; ikr_a = ikr * a; itf_a = itf * a; irb_a = irb * a;
+        cje_a = cje * a; cjc_a = cjc * a; cjs_a = cjs * a;
+        rbm_v = (rbm < 0) ? rb : rbm;
+
+        vbe = V(bi, ei);
+        vbc = V(bi, ci);
+        vsub = V(s, ci);
+
+        ifw = is_a * (limexp(vbe / (nf * vt)) - 1) + gmin * vbe;
+        irv = is_a * (limexp(vbc / (nr * vt)) - 1) + gmin * vbc;
+        ibe2 = (ise > 0) ? ise_a * (limexp(vbe / (ne * vt)) - 1) : 0;
+        ibc2 = (isc > 0) ? isc_a * (limexp(vbc / (nc * vt)) - 1) : 0;
+
+        q1 = 1 / (1 - ((vaf > 0) ? vbc / vaf : 0) - ((var > 0) ? vbe / var : 0));
+        q2 = ((ikf > 0) ? ifw / ikf_a : 0) + ((ikr > 0) ? irv / ikr_a : 0);
+        qb = q1 * (1 + sqrt(1 + 4 * q2)) / 2;
+
+        ib = ifw / bf + ibe2 + irv / br + ibc2;
+
+        if (rb > 0) begin
+            if (irb > 0) begin
+                x = max(ib / irb_a, 1e-9);           // as in SPICE
+                z = (-1 + sqrt(1 + 144 * x / (`M_PI * `M_PI))) / (24 / (`M_PI * `M_PI) * sqrt(x));
+                tz = tan(z);
+                // (tan z - z) / (z tan^2 z), by its series where the difference loses its digits
+                if (z < 1e-2)
+                    rbb = (rbm_v + 3 * (rb - rbm_v) * (1.0 / 3 - 4 * z * z / 45)) / a;
+                else
+                    rbb = (rbm_v + 3 * (rb - rbm_v) * (tz - z) / (z * tz * tz)) / a;
+            end else
+                rbb = (rbm_v + (rb - rbm_v) / qb) / a;
+            I(b, bi) <+ V(b, bi) / rbb;
+            I(b, bi) <+ white_noise(4 * `P_K * (temp + 273.15) / rbb, "rb");
+        end else
+            V(b, bi) <+ 0;
+        if (re > 0) begin
+            I(e, ei) <+ V(e, ei) * a / re;
+            I(e, ei) <+ white_noise(4 * `P_K * (temp + 273.15) * a / re, "re");
+        end else
+            V(e, ei) <+ 0;
+        if (rc > 0) begin
+            I(c, ci) <+ V(c, ci) * a / rc;
+            I(c, ci) <+ white_noise(4 * `P_K * (temp + 273.15) * a / rc, "rc");
+        end else
+            V(c, ci) <+ 0;
+
+        // transport current; the forward part is delayed by the excess phase as in SPICE
+        td = (ptf * `M_PI / 180) * tf;
+        // td^2/3 x'' + td x' + x = ifw, a second-order Bessel delay (x1 carries x, x2 carries td x'); with td = 0
+        // it is x = ifw
+        I(x1) <+ V(x1) + V(x2) + ddt(td / 3 * V(x2)) - ifw;
+        I(x2) <+ V(x2) - td * ddt(V(x1));
+        ict = (V(x1) - irv) / qb;
+        I(ci, ei) <+ ict;
+        // shot noise of the collector and base currents (SPICE)
+        I(ci, ei) <+ white_noise(2 * `P_Q * abs(ict), "ic");
+        I(bi, ei) <+ ifw / bf + ibe2;
+        I(bi, ei) <+ white_noise(2 * `P_Q * abs(ifw / bf + ibe2), "ib");
+        I(bi, ci) <+ irv / br + ibc2;
+
+        // charges
+        argtf = 0;
+        if (tf > 0 && vbe > 0) begin
+            if (xtf > 0) begin
+                argtf = xtf * pow(ifw / (ifw + itf_a), 2);
+                if (vtf != 0) argtf = argtf * exp(vbc / (1.44 * vtf));
+            end
+        end
+        qbe = tf * (1 + argtf) * ifw / qb + qdep(vbe, cje_a, vje, mje, fc);
+        qbc = tr * irv + xcjc * qdep(vbc, cjc_a, vjc, mjc, fc);
+        if (vsub < 0)
+            qsub = cjs_a * vjs / (1 - mjs) * (1 - pow(1 - vsub / vjs, 1 - mjs));
+        else
+            qsub = cjs_a * (vsub + mjs * vsub * vsub / (2 * vjs));
+        I(bi, ei) <+ ddt(qbe);
+        I(bi, ci) <+ ddt(qbc);
+        I(b, ci) <+ ddt((1 - xcjc) * qdep(V(b, ci), cjc_a, vjc, mjc, fc));
+        I(s, ci) <+ ddt(qsub);
