@@ -213,7 +213,8 @@ def excitation_weights(design, ports: list) -> dict[int, complex] | None:
     """Port number -> complex amplitude sqrt(P) e^(j phase) from Edit Sources; None while the sources
     were never edited (then port 1 is excited with 1 W)."""
     from ..model import sources as SRC
-    names = [p["name"] for p in ports] if any(p.get("kind") == "Terminal" for p in ports) else None
+    # fields stored per terminal or per port mode (field_sources.json): Edit Sources lists those names
+    names = [p["name"] for p in ports] if any(p.get("kind") == "Terminal" or "mode" in p for p in ports) else None
     srcs = SRC.get(design, names) if design is not None else None
     if srcs is None or any(p.get("kind") == "Incident Plane Wave" for p in ports):
         return None

@@ -1723,17 +1723,22 @@ class EditSourcesDialog(QDialog):
         self.setWindowTitle("Edit Sources")
         self.resize(560, 320)
         lay = QVBoxLayout(self)
-        # names: the terminals of a solved terminal design (its fields are stored per terminal)
+        # names: the terminals of a solved terminal design (its fields are stored per terminal), or the modes
+        # of wave ports with several modes (fields stored per port mode)
         cur = SRC.get(design, names) or SRC.defaults(design, names)
         kinds = {e.name: e.kind for e in design.excitations}
+        ports = {e.name for e in design.ports()}
         self.names = list(cur)
         t = QTableWidget(len(self.names), 5)
         t.setHorizontalHeaderLabels(["Source", "Type", "Magnitude", "Unit", "Phase (deg)"])
         t.verticalHeader().setVisible(False)
-        self.mag, self.ph = {}, {}
+        self.mag, self.ph, self._types = {}, {}, {}
         for r, n in enumerate(self.names):
             pw = kinds.get(n) == "Incident Plane Wave"
-            for c, txt in ((0, n), (1, "Incident Wave" if pw else "Terminal" if names else "Port"),
+            typ = "Incident Wave" if pw else "Port" if not names or n in ports else \
+                "Terminal" if design.settings.get("SolutionType") == "Terminal" else "Port Mode"
+            self._types[n] = typ
+            for c, txt in ((0, n), (1, typ),
                            (3, "V/m" if pw else "W")):
                 it = QTableWidgetItem(txt)
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -1764,7 +1769,10 @@ class EditSourcesDialog(QDialog):
                              "Port fields are for 1 W incident power, scaled by sqrt(P)."
                              + ("\nTerminals: the other terminals are terminated in their reference "
                                 "impedance. Differential mode with 1 W: 0.5 W on the positive terminal "
-                                "at 0 deg and 0.5 W on the negative terminal at 180 deg." if names else "")))
+                                "at 0 deg and 0.5 W on the negative terminal at 180 deg."
+                                if names and any(t == "Terminal" for t in self._types.values()) else "")
+                             + ("\nPort modes: each mode of a wave port has its own power and phase."
+                                if any(t == "Port Mode" for t in self._types.values()) else "")))
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Apply | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
