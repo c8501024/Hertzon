@@ -509,6 +509,7 @@ def route_one(parts, board, nodes, a, b, w: float, style: str, gap_w: float = GA
         if path is None:
             continue
         full = _centre_legs(simplify([pa] + path + [pb]), pb_, s, e)
+        full = _smooth(full, pb_, s, e, w, want_r or RADIUS_W * w, la, lb)
         path = full[1:-1] if len(full) > 2 else path
         if gfac < gap_w:
             warnings.append(f"{a[0]}–{b[0]}: runs within {gap_w:g} line widths of other copper (gap "
@@ -517,6 +518,80 @@ def route_one(parts, board, nodes, a, b, w: float, style: str, gap_w: float = GA
         warnings += [f"{a[0]}–{b[0]}: {x}" for x in fit_radii(r, want_r)]
         return r, warnings
     raise RouteError(f"no path from {a[0]} pin {a[1] + 1} to {b[0]} pin {b[1] + 1}: move the parts apart")
+
+
+def _line_x(p, u, q, v):
+    """Intersection of the line p + t u with the line q + s v: (point, t, s), or None if parallel."""
+    den = u[0] * v[1] - u[1] * v[0]
+    if abs(den) < 1e-12:
+        return None
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    t = (dx * v[1] - dy * v[0]) / den
+    s_ = (dx * u[1] - dy * u[0]) / den
+    return (p[0] + u[0] * t, p[1] + u[1] * t), t, s_
+
+
+def _free(blocked, pts, s, e, first: bool, last: bool) -> bool:
+    """The polyline pts keeps clear of blocked; a piece out of a pin is checked from its stub end on."""
+    from shapely.geometry import LineString
+    pts = list(pts)
+    if first:
+        pts[0] = s
+    if last:
+        pts[-1] = e
+    return not any(blocked.intersects(LineString([a, b])) for a, b in zip(pts, pts[1:])
+                   if math.hypot(b[0] - a[0], b[1] - a[1]) > 1e-9)
+
+
+def _smooth(pts, blocked, s, e, w: float, r: float, la: float, lb: float):
+    """Two clean-ups of the orthogonal path from pin to pin (pts):
+    * a slanted pin is reached with one bend: the last straight run goes on until it meets the pin's axis, instead
+      of turning to an axis next to the pin and then onto the slant (also at the start);
+    * a small sideways jog (a Z with a short middle leg) becomes a gentle S: two shallow bends and a slanted
+      piece, instead of two 90 degree bends on top of each other."""
+    pts = [tuple(p) for p in pts]
+
+    def slanted(u):
+        return abs(u[0]) > 1e-6 and abs(u[1]) > 1e-6
+
+    for end in (1, 0):
+        q = pts if end else pts[::-1]
+        stub, lt = (e, lb) if end else (s, la)
+        if len(q) >= 4 and slanted(_unit(q[-2], q[-1])):
+            P, C = q[-4], q[-3]
+            u, v = _unit(P, C), _unit(q[-2], q[-1])
+            hit = _line_x(P, u, q[-1], (-v[0], -v[1]))
+            if hit is not None:
+                X, t, back = hit
+                th = _turn(u, v)
+                need = r * math.tan(th / 2) + lt
+                P_ = ((s if end else e) if len(q) == 4 else P)     # a piece out of a pin: from its stub on
+                if t > 1e-6 and back >= need and th < math.radians(120) and \
+                        _free(blocked, [P_, X], s, e, False, False):
+                    q = q[:-3] + [X, q[-1]]
+                    pts = q if end else q[::-1]
+    # gentle S for small jogs
+    i = 1
+    while i < len(pts) - 2:
+        a, b, c, d = pts[i - 1], pts[i], pts[i + 1], pts[i + 2]
+        u1, u2, u3 = _unit(a, b), _unit(b, c), _unit(c, d)
+        jog = math.hypot(c[0] - b[0], c[1] - b[1])
+        if abs(u1[0] - u3[0]) < 1e-9 and abs(u1[1] - u3[1]) < 1e-9 and abs(u1[0] * u2[0] + u1[1] * u2[1]) < 1e-9 \
+                and 1e-6 < jog < 3 * w:
+            th = min(math.radians(45), 0.9 * math.sqrt(jog / r))
+            half = jog / math.tan(th) / 2
+            nb = (b[0] - u1[0] * half, b[1] - u1[1] * half)
+            nc = (c[0] + u3[0] * half, c[1] + u3[1] * half)
+            ta = r * math.tan(th / 2)
+            lim_a = s if i - 1 == 0 else a
+            lim_d = e if i + 2 == len(pts) - 1 else d
+            room_a = (nb[0] - lim_a[0]) * u1[0] + (nb[1] - lim_a[1]) * u1[1]
+            room_d = (lim_d[0] - nc[0]) * u3[0] + (lim_d[1] - nc[1]) * u3[1]
+            if room_a >= ta and room_d >= ta and _free(blocked, [a, nb, nc, d], s, e, i - 1 == 0,
+                                                       i + 2 == len(pts) - 1):
+                pts[i], pts[i + 1] = nb, nc
+        i += 1
+    return pts
 
 
 def _centre_legs(path, blocked, s, e):
