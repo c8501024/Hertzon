@@ -3,6 +3,18 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.22 (2026-11-13)
+
+### Fixed
+- **Much smaller initial mesh on large or very thin boards.** Since 0.3.12 the element size in a thin substrate was
+  limited to six times its thickness, and the bound meant to keep that in check almost never applied: a user's
+  model started with 23,134 instead of 964 tetrahedra and each pass took up to 77 s instead of 4 s; a patch on a
+  0.1 mm substrate ran out of memory. The limit now adds at most as many elements as the mesh has without it.
+  Patch antenna on 0.5 / 0.25 / 0.1 mm: 24 / 15 / 25 s instead of 26 / 27 s / out of memory, S11 unchanged
+  against a fine reference.
+  The limit stays because without it a hairpin filter on 0.508 mm stopped after four passes with S21 0.6 dB off.
+- A mesh in which other random seeds still leave tetrahedra without volume is repaired with gmsh's optimizer.
+
 ## 0.3.21 (2026-11-12)
 
 ### Changed
