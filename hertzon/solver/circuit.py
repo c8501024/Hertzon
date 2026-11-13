@@ -605,6 +605,14 @@ def kron(Y: np.ndarray, keep: np.ndarray) -> np.ndarray:
     return Ykk
 
 
+def board_netlist(project: Project, design: Design):
+    """The netlist of the schematic (circuit.netlist), with the lines routed on its board in place of the ideal
+    connections they make (routing.expand): (components, nodes, node count, notes)."""
+    from ..model import routing as RT
+    comps, nodes_of, n, _ = CK.netlist(design.components, design.wires, auto_junctions(design))
+    return RT.expand(project, design, comps, nodes_of, n)
+
+
 def linear_network(project: Project, design: Design, freqs: np.ndarray, progress=None, dc_point: bool = False,
                    span: str = "", _stack: tuple = ()) -> LinearNetwork:
     """Evaluate the linear parts of a circuit for the frequencies freqs (data ranges are checked against them: a
@@ -613,8 +621,8 @@ def linear_network(project: Project, design: Design, freqs: np.ndarray, progress
     text) reports those solves. dc_point: the analysis also needs DC (bias point), see _block; span: added to the
     range of a range message (e.g. the harmonics of a harmonic balance)."""
     ev = design.evaluator(project)
-    comps, nodes_of, n, _ = CK.netlist(design.components, design.wires, auto_junctions(design))
-    warnings: list[str] = []
+    comps, nodes_of, n, notes = board_netlist(project, design)
+    warnings: list[str] = list(notes)
     base = Path(project.path).parent if project.path else None
     stack = tuple(_stack) or (design.name,)
     blocks: dict[str, NPortData | CircuitModel] = {}
@@ -658,7 +666,7 @@ def linear_network(project: Project, design: Design, freqs: np.ndarray, progress
 def circuit_ports(project: Project, design: Design) -> tuple[list, list[int], list[float]]:
     """The power ports in S-parameter order, their nodes (1-based) and reference impedances."""
     ev = design.evaluator(project)
-    comps, nodes_of, _, _ = CK.netlist(design.components, design.wires, auto_junctions(design))
+    comps, nodes_of, _, _ = board_netlist(project, design)
     ports = CK.port_order(comps)
     if not ports:
         raise CircuitError("The circuit has no port. Add a Power Port and connect it.")

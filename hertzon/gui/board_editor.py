@@ -5,6 +5,14 @@ move it (it snaps to the grid, and a pin snaps onto a pin of the same net nearby
 90 degrees. Thin lines (ratsnest) show connections of the schematic the board does not make yet; copper of two
 nets on each other is outlined in red. The Track tool draws copper: click the corners, double-click or
 right-click to end; Del deletes the selected parts' placement back to automatic or a selected track.
+
+3D design blocks (Wilkinson, rat-race, filters of the Design Wizard, any 3D design with ports on its edge) are
+parts too, with their copper seen from the top. Connect lays lines of one impedance (Z0) for the connections
+still missing (only those of the selected parts, if any are selected), round the other copper with circular
+(Arc) or mitered bends and a taper where a pin is wider or narrower; they are part of the circuit simulation.
+Match Phase gives the selected routes the same insertion phase at f0 with meanders. Double-click a bend of a
+route to set its radius, or a miter for a 90 degree bend. A route whose parts were
+moved is outlined in red: Connect lays it again after deleting it.
 Create 3D Layout (here or in the schematic) builds the 3D design from this board."""
 from __future__ import annotations
 
@@ -13,7 +21,12 @@ import math
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
+    QFormLayout,
     QGraphicsItem,
     QGraphicsPathItem,
     QGraphicsScene,
@@ -26,6 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..model import board as BD
+from ..model import routing as RT
 from .theme import MUTED
 
 S = 100.0                         # scene units per mm (y down on the screen: scene y = -S * board y)
@@ -66,7 +80,8 @@ class PartItem(QGraphicsItem):
         if bp.type in ("PORT", "VDC", "IDC"):
             self._rect = self._rect.united(QRectF(-0.4 * S, -0.4 * S, 0.8 * S, 0.8 * S))
         cx, cy = ((0.0, -0.55) if bp.type in ("PORT", "VDC", "IDC") else ((x0 + x1) / 2, (y0 + y1) / 2))
-        self._paint_rect = self._rect.united(QRectF((cx - 2) * S, (-cy - 2) * S, 4 * S, 4 * S))  # the name too
+        tw = 2.0 if bp.type != "EM" else max(2.0, 8 * min(2.0, 0.08 * max(x1 - x0, y1 - y0)))
+        self._paint_rect = self._rect.united(QRectF((cx - tw) * S, (-cy - tw) * S, 2 * tw * S, 2 * tw * S))  # the name
         self.setToolTip(f"{bp.name} ({bp.type}{', ' + bp.footprint if bp.footprint else ''})")
 
     def boundingRect(self) -> QRectF:
@@ -80,10 +95,21 @@ class PartItem(QGraphicsItem):
     def paint(self, p: QPainter, _opt, _w=None) -> None:
         sel = self.isSelected()
         for cu in self.bp.copper:
-            poly = QPolygonF([QPointF(x * S, -y * S) for x, y in cu.pts])
             p.setPen(QPen(BAD if self.bad else QColor("#3a2a10"), 0))
             p.setBrush(QBrush(COPPER_SEL if sel else COPPER))
-            p.drawPolygon(poly)
+            if cu.holes:
+                path = QPainterPath()
+                path.setFillRule(Qt.OddEvenFill)
+                for ring in [cu.pts] + list(cu.holes):
+                    path.addPolygon(QPolygonF([QPointF(x * S, -y * S) for x, y in ring]))
+                    path.closeSubpath()
+                p.drawPath(path)
+            else:
+                p.drawPolygon(QPolygonF([QPointF(x * S, -y * S) for x, y in cu.pts]))
+        for ring in self.bp.sheets:
+            p.setPen(QPen(QColor("#5a1010"), 0))
+            p.setBrush(QBrush(RLC))
+            p.drawPolygon(QPolygonF([QPointF(x * S, -y * S) for x, y in ring]))
         if self.bp.lumped:
             a, b, w = self.bp.lumped.a, self.bp.lumped.b, self.bp.lumped.w
             if abs(a[1] - b[1]) < 1e-9:
@@ -119,10 +145,12 @@ class PartItem(QGraphicsItem):
         p.translate(cx * S, -cy * S)
         p.rotate(-self.rotation())
         f = QFont(self.editor.font())
-        f.setPixelSize(max(6, int(0.25 * S)))
+        size = 0.25 if self.bp.type != "EM" else max(0.25, min(2.0, 0.08 * max(x1 - x0, y1 - y0)))
+        f.setPixelSize(max(6, int(size * S)))
         p.setFont(f)
         p.setPen(QColor("white"))
-        p.drawText(QRectF(-2 * S, -0.2 * S, 4 * S, 0.4 * S), Qt.AlignCenter, self.bp.name)
+        p.drawText(QRectF(-8 * size * S, -0.8 * size * S, 16 * size * S, 1.6 * size * S), Qt.AlignCenter,
+                   self.bp.name)
         p.restore()
 
     def itemChange(self, change, value):
@@ -151,6 +179,34 @@ class TrackItem(QGraphicsPathItem):
         self.setPen(pen)
         self.setFlags(QGraphicsItem.ItemIsSelectable)
         self.setToolTip(f"Track {index + 1}, {tr.w:g} mm (not in the schematic)")
+
+
+class RouteItem(QGraphicsPathItem):
+    """A line laid by Connect (routing.py)."""
+
+    def __init__(self, index: int, r: BD.Route, ok: bool, tip: str):
+        super().__init__()
+        self.index = index
+        geo = RT.polygon(r)
+        path = QPainterPath()
+        path.setFillRule(Qt.OddEvenFill)
+        for g in getattr(geo, "geoms", [geo]):
+            if g.is_empty:
+                continue
+            for ring in [g.exterior] + list(g.interiors):
+                path.addPolygon(QPolygonF([to_scene(x, y) for x, y in list(ring.coords)[:-1]]))
+                path.closeSubpath()
+        self.setPath(path)
+        self.ok = ok
+        self.setBrush(QBrush(COPPER))
+        self.setPen(QPen(QColor("#3a2a10") if ok else BAD, 0 if ok else 2, Qt.SolidLine if ok else Qt.DashLine))
+        self.setFlags(QGraphicsItem.ItemIsSelectable)
+        self.setZValue(1)
+        self.setToolTip(tip)
+
+    def paint(self, p: QPainter, opt, w=None) -> None:
+        self.setBrush(QBrush(COPPER_SEL if self.isSelected() else COPPER))
+        super().paint(p, opt, w)
 
 
 class BoardView(QGraphicsView):
@@ -182,6 +238,8 @@ class BoardView(QGraphicsView):
 
     def mouseDoubleClickEvent(self, e) -> None:
         if self.editor.track_finish():
+            return
+        if self.editor.edit_bend(self.mapToScene(e.position().toPoint())):
             return
         super().mouseDoubleClickEvent(e)
 
@@ -242,6 +300,29 @@ class BoardEditor(QWidget):
         self.track_w.setValue(0.3)
         self.track_w.setSuffix(" mm")
         bar.addWidget(self.track_w)
+        btn("Connect", "Lay lines of the impedance Z0 for the connections still missing (only those of the selected "
+            "parts, if any): round the other copper, with Arc or Miter bends and a taper where a pin is wider or "
+            "narrower. The lines are part of the circuit simulation", self.connect)
+        bar.addWidget(QLabel("Z0"))
+        self.z0 = QDoubleSpinBox()
+        self.z0.setRange(5.0, 200.0)
+        self.z0.setDecimals(1)
+        self.z0.setValue(50.0)
+        self.z0.setSuffix(" ohm")
+        bar.addWidget(self.z0)
+        self.bend_style = QComboBox()
+        self.bend_style.addItems(list(RT.STYLES))
+        self.bend_style.setToolTip("Bends of the lines Connect lays: circular (radius 3 line widths) or 50 % mitered")
+        bar.addWidget(self.bend_style)
+        btn("Match Phase", "Give the selected routes the same insertion phase at f0: the shorter ones get a meander",
+            self.match_phase)
+        bar.addWidget(QLabel("f0"))
+        self.f0 = QDoubleSpinBox()
+        self.f0.setRange(0.001, 1000.0)
+        self.f0.setDecimals(3)
+        self.f0.setValue(1.0)
+        self.f0.setSuffix(" GHz")
+        bar.addWidget(self.f0)
         btn("Fit", "Show the whole board", self.fit_all)
         btn("Create 3D Layout", "Build the 3D design (FEM) from this board: copper, lumped parts on their pads, a "
             "port at every pad of a transistor or IC", self.layoutRequested.emit)
@@ -282,11 +363,46 @@ class BoardEditor(QWidget):
             self.items[name] = it
         for i, tr in enumerate(self.board.tracks):
             self.scene.addItem(TrackItem(i, tr))
+        self._route_tips()
+        o = self.board.opts
+        if "z0" in o:
+            self.z0.setValue(float(o["z0"]))
+        if o.get("style") in RT.STYLES:
+            self.bend_style.setCurrentText(o["style"])
+        try:
+            f0 = float(o["f0"]) if "f0" in o else RT.analysis_frequency(self.doc.project, self.des)
+            self.f0.setValue(f0 / 1e9)
+        except (TypeError, ValueError):
+            pass
+        for i, r in enumerate(self.board.routes):
+            self.scene.addItem(RouteItem(i, r, BD.route_ok(self.parts, self.board, r), self._tips.get(i, "")))
         self.loading = False
         self.refresh()
 
+    def _route_tips(self) -> None:
+        self._tips = {}
+        try:
+            _, sub = RT.substrate(self.doc.project, self.des)
+        except RT.RouteError:
+            sub = None
+        f0 = float(self.board.opts.get("f0", 0) or 0) or None
+        for i, r in enumerate(self.board.routes):
+            t = (f"Route {i + 1}: {r.a[0]} pin {r.a[1] + 1} to {r.b[0]} pin {r.b[1] + 1}, {r.z0:g} ohm, "
+                 f"W {r.w:.4g} mm, length {RT.length(r):.4g} mm")
+            if sub is not None and f0:
+                try:
+                    t += f", phase {RT.phase(r, sub, f0):.2f} deg at {f0 / 1e9:g} GHz"
+                except Exception:  # noqa: BLE001
+                    pass
+            if r.group:
+                t += f", phase group {r.group}" + (f" ({r.offset:+g} deg)" if r.offset else "")
+            if not BD.route_ok(self.parts, self.board, r):
+                t += ". A part moved: delete it and Connect again"
+            self._tips[i] = t
+
     def _collect(self) -> BD.Board:
-        b = BD.Board({n: it.placement() for n, it in self.items.items()}, list(self.board.tracks))
+        b = BD.Board({n: it.placement() for n, it in self.items.items()}, list(self.board.tracks),
+                     list(self.board.routes), dict(self.board.opts))
         return b
 
     def store(self) -> None:
@@ -322,7 +438,8 @@ class BoardEditor(QWidget):
         return x, y
 
     def _collect_except(self, name: str) -> BD.Board:
-        return BD.Board({n: it.placement() for n, it in self.items.items() if n != name}, list(self.board.tracks))
+        return BD.Board({n: it.placement() for n, it in self.items.items() if n != name}, list(self.board.tracks),
+                        list(self.board.routes), dict(self.board.opts))
 
     def moved(self) -> None:
         self._dirty = True
@@ -344,12 +461,134 @@ class BoardEditor(QWidget):
 
     def delete_selected(self) -> None:
         tracks = sorted((it.index for it in self.scene.selectedItems() if isinstance(it, TrackItem)), reverse=True)
-        if not tracks:
+        routes = sorted((it.index for it in self.scene.selectedItems() if isinstance(it, RouteItem)), reverse=True)
+        if not tracks and not routes:
             return
         for i in tracks:
             del self.board.tracks[i]
+        for i in routes:
+            del self.board.routes[i]
         self.store()
         self.rebuild()
+
+    # ---- automatic connections -----------------------------------------------------------------------------
+    def connect(self) -> None:
+        only = {it.bp.name for it in self.scene.selectedItems() if isinstance(it, PartItem)} or None
+        try:
+            b, warnings = RT.connect(self.doc.project, self.des, self._collect(), self.z0.value(),
+                                     self.bend_style.currentText(), only, f=self.f0.value() * 1e9)
+        except RT.RouteError as e:
+            self.status.setText(f"Connect: {e}")
+            return
+        self._apply(b, warnings, "Connect")
+
+    def match_phase(self) -> None:
+        idx = sorted(it.index for it in self.scene.selectedItems() if isinstance(it, RouteItem))
+        if len(idx) < 2:
+            self.status.setText("Match Phase: select two or more routes (click, Ctrl+click)")
+            return
+        offsets = self._ask_offsets(idx)
+        if offsets is None:
+            return
+        try:
+            b, warnings, ph = RT.match_phase(self.doc.project, self.des, self._collect(), idx, self.f0.value() * 1e9,
+                                             offsets)
+        except RT.RouteError as e:
+            self.status.setText(f"Match Phase: {e}")
+            return
+        warnings = [", ".join(f"Route {i + 1}: {v:.2f} deg" for i, v in sorted(ph.items()))] + warnings
+        self._apply(b, warnings, "Match Phase")
+
+    def _ask_offsets(self, idx: list[int]) -> dict[int, float] | None:
+        """The phase of each selected route relative to the group, in degrees (0 for all: equal phase)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Match Phase")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(f"Insertion phase at {self.f0.value():g} GHz relative to the group\n"
+                           "(0 for all routes: equal phase; +90 deg: this route lags 90 deg more)"))
+        boxes = {}
+        for i in idx:
+            r = self.board.routes[i]
+            sb = QDoubleSpinBox()
+            sb.setRange(-3600.0, 3600.0)
+            sb.setDecimals(1)
+            sb.setSuffix(" deg")
+            sb.setValue(r.offset or 0.0)
+            form.addRow(f"Route {i + 1} ({r.a[0]} to {r.b[0]})", sb)
+            boxes[i] = sb
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec() != QDialog.Accepted:
+            return None
+        return {i: sb.value() for i, sb in boxes.items()}
+
+    def edit_bend(self, p: QPointF) -> bool:
+        """Double-click on a bend of a route: its radius, or a miter for a 90 degree bend."""
+        x, y = to_board(p)
+        hit = None
+        for it in self.scene.items(p):
+            if isinstance(it, RouteItem):
+                r = self.board.routes[it.index]
+                i = RT.corner_at(r, (x, y))
+                if i is not None:
+                    hit = (it.index, i)
+                    break
+        if hit is None:
+            for k, r in enumerate(self.board.routes):     # near a bend, not on its copper (inside an arc)
+                i = RT.corner_at(r, (x, y))
+                if i is not None:
+                    hit = (k, i)
+                    break
+        if hit is None:
+            return False
+        k, i = hit
+        r = self.board.routes[k]
+        ang = RT.corner_angle(r, i)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Bend {i + 1} of Route {k + 1}")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(f"{ang:.0f} degree bend, line width {r.w:.4g} mm"))
+        rad = QDoubleSpinBox()
+        rad.setRange(0.0, 100.0)
+        rad.setDecimals(3)
+        rad.setSuffix(" mm")
+        rad.setValue(r.radii[i] if i < len(r.radii) and r.radii[i] > 0 else RT.RADIUS_W * r.w)
+        rad.setToolTip("Radius of the centre line; made smaller where the straight pieces leave less room")
+        form.addRow("Radius", rad)
+        miter = QCheckBox("Mitered (50 %) instead of a circular bend")
+        miter.setEnabled(abs(ang - 90) < 1e-3)
+        miter.setChecked(i < len(r.radii) and r.radii[i] <= 0)
+        miter.toggled.connect(lambda on: rad.setEnabled(not on))
+        rad.setEnabled(not miter.isChecked())
+        form.addRow(miter)
+        every = QCheckBox("All bends of this route")
+        form.addRow(every)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec() != QDialog.Accepted:
+            return True
+        b = self._collect()
+        r = b.routes[k]
+        corners = list(range(len(r.pts) - 2)) if every.isChecked() else [i]
+        warnings = RT.set_bend(r, corners, 0.0 if miter.isChecked() else rad.value())
+        self._apply(b, warnings, "Bend")
+        return True
+
+    def _apply(self, b: BD.Board, warnings: list[str], what: str) -> None:
+        self.doc.checkpoint()
+        BD.store(self.des, b)
+        self._storing = True
+        try:
+            self.doc.commit("circuit", geometry=False)
+        finally:
+            self._storing = False
+        self.rebuild()
+        if warnings:
+            self.status.setText(f"{what}: " + " · ".join(warnings[:4]))
 
     def auto_place(self) -> None:
         self.doc.checkpoint()

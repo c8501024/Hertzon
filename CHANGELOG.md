@@ -12,6 +12,13 @@ the GitHub release notes.
   pads and transistors and ICs on their footprints with one port per pad; **Board Circuit** puts the solved
   layout back into a schematic with every device pin on its pad port. KiCad library folders in Tools › Options.
   **Board Layout** places the parts in 2D before the 3D layout: drag, turn, ratsnest, overlap check, tracks.
+- **Subdesigns connected automatically on the board.** 3D design blocks (Wilkinson, rat-race, filters of the
+  Design Wizard, any 3D design with edge ports, slanted ports too) are parts of the Board Layout. **Connect** lays
+  the missing connections as lines of one impedance round the other copper, with circular or mitered bends and a
+  taper where a pin width differs; **Match Phase** gives selected routes the same insertion phase at f0, or a
+  set phase difference per route, with meanders. Double-click a bend for its radius or a miter. The routes are
+  simulated with the circuit and copied into the 3D layout with the blocks. Example **VNA_TestSet_2G4**: the
+  test set of a network analyzer from wizard blocks, connected and phase matched on the board.
 - **Nonlinear devices in circuit designs.** Transistors and diodes from SPICE libraries of process design kits
   (subcircuits), model cards or Verilog-A models, DC voltage and current sources, a SPICE Library part. Hertzon
   solves the schematic and reduces all linear parts (lines, junctions, 3D blocks) to one network at the device
