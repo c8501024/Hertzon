@@ -508,6 +508,8 @@ def route_one(parts, board, nodes, a, b, w: float, style: str, gap_w: float = GA
         path = find_path(s, da, e, (-db[0], -db[1]), pb_, bend_cost=2 * bend_allow + 2 * w, bounds=bounds)
         if path is None:
             continue
+        full = _centre_legs(simplify([pa] + path + [pb]), pb_, s, e)
+        path = full[1:-1] if len(full) > 2 else path
         if gfac < gap_w:
             warnings.append(f"{a[0]}–{b[0]}: runs within {gap_w:g} line widths of other copper (gap "
                             f"{gfac:g} line widths)")
@@ -515,6 +517,38 @@ def route_one(parts, board, nodes, a, b, w: float, style: str, gap_w: float = GA
         warnings += [f"{a[0]}–{b[0]}: {x}" for x in fit_radii(r, want_r)]
         return r, warnings
     raise RouteError(f"no path from {a[0]} pin {a[1] + 1} to {b[0]} pin {b[1] + 1}: move the parts apart")
+
+
+def _centre_legs(path, blocked, s, e):
+    """In the centre line path (from pin to pin), a leg between two corners whose neighbours run on in the same
+    direction (a Z) is moved to the middle of the room they leave, where that keeps clear of the copper and of
+    the straight pieces out of the pins (to s and e): the bends then sit away from the pins."""
+    from shapely.geometry import LineString
+    pts = [tuple(p) for p in path]
+    for i in range(1, len(pts) - 2):
+        a, b, c, d = pts[i - 1], pts[i], pts[i + 1], pts[i + 2]
+        u1, u2, u3 = _unit(a, b), _unit(b, c), _unit(c, d)
+        if abs(u1[0] - u3[0]) > 1e-9 or abs(u1[1] - u3[1]) > 1e-9 or abs(u1[0] * u2[0] + u1[1] * u2[1]) > 1e-9:
+            continue
+        ax = 0 if abs(u1[0]) > 0.5 else 1               # the coordinate the leg slides along
+        lo, hi = a[ax], d[ax]
+        if i - 1 == 0:
+            lo = s[ax]
+        if i + 2 == len(pts) - 1:
+            hi = e[ax]
+        if (hi - lo) * (d[ax] - a[ax]) <= 0:
+            continue
+        for frac in (0.5, 0.35, 0.2):
+            want = lo + (hi - lo) * frac
+            nb = (want, b[1]) if ax == 0 else (b[0], want)
+            nc = (want, c[1]) if ax == 0 else (c[0], want)
+            a_ = s if i - 1 == 0 else a                  # the pieces out of the pins touch their own copper
+            d_ = e if i + 2 == len(pts) - 1 else d
+            segs = [LineString([a_, nb]), LineString([nb, nc]), LineString([nc, d_])]
+            if not any(blocked.intersects(g) for g in segs):
+                pts[i], pts[i + 1] = nb, nc
+                break
+    return pts
 
 
 class _Never:
