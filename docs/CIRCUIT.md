@@ -10,7 +10,11 @@ A schematic also turns into a **3D layout**: a new 3D design with the substrate,
 and ports, every dimension a design variable. The layout is solved full-wave, tuned in 3D if needed, and the
 changed dimensions go back into the schematic.
 
-The [tutorial](TUTORIAL.md#11-a-stub-filter-as-a-circuit-and-its-3d-layout) builds a stub filter step by step.
+Step by step in the tutorial: [a stub filter and its 3D layout](TUTORIAL.md#11-a-stub-filter-as-a-circuit-and-its-3d-layout),
+[a 2.4 GHz LNA from the schematic to the board](TUTORIAL.md#13-a-24-ghz-lna-from-the-schematic-to-the-board),
+[a broadband diode mixer](TUTORIAL.md#14-a-broadband-diode-mixer-with-harmonic-balance),
+[subdesigns connected on one board with matched phase](TUTORIAL.md#15-connect-subdesigns-into-one-large-schematic)
+and [a circuit from a 3D design, calibrated and kept in step](TUTORIAL.md#16-a-circuit-from-a-3d-design-calibrated-and-kept-in-step).
 
 ## Contents
 
@@ -416,7 +420,8 @@ of constant cross-section and every piece gets a circuit model:
   as 50 ohm ports at the line end.
 
 Every dimension is the 3D design's variable where one has the same value and belongs to the object of that
-piece, a number otherwise. An element whose dimensions are all variables of one prefix gets that name (`MS3`
+piece, a number otherwise. The circuit analyzes the band of the 3D design (the first sweep of its first
+setup), since its 3D design blocks are solved on that band and block data are never extrapolated. An element whose dimensions are all variables of one prefix gets that name (`MS3`
 with `MS3_W`, `MS3_L`), so a layout made with *Create 3D Layout* comes back as the schematic it was made from.
 
 Nothing is guessed. Copper with no circuit model that lines attach to (a patch, a wide area, a junction with two
@@ -565,6 +570,7 @@ See the [tutorial](TUTORIAL.md#5-let-an-ai-assistant-build-and-run-it-mcp).
 
 ## Not yet
 
-Transient analysis and two-tone harmonic balance (see [Nonlinear devices](#nonlinear-devices)); pushing the port voltages of the schematic back into
+Transient analysis, noise, and two-tone harmonic balance with transistors (diode mixers work, see
+[Nonlinear devices](#nonlinear-devices)); pushing the port voltages of the schematic back into
 a 3D design (fields of the loaded structure); SPICE netlist import and export; a full coplanar layout (now
 the centre strip only). See [ROADMAP.md](ROADMAP.md#step-3-circuit-design).
