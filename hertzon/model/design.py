@@ -399,6 +399,12 @@ class Project:
                     if v.strip():
                         c.props[key] = ";".join(str(base / x.strip()) if x.strip() and not Path(x.strip()).is_absolute()
                                                 else x for x in v.split(";"))
+                # footprint and symbol files (a library id "Lib:Name" stays as it is)
+                for key in ("Footprint", "Symbol"):
+                    v = c.props.get(key, "").strip()
+                    m = re.match(r"^(.*\.kicad_(?:mod|sym))(:.*)?$", v)
+                    if m and not Path(m.group(1)).is_absolute():
+                        c.props[key] = str(base / m.group(1)) + (m.group(2) or "")
         return p
 
     def clone(self) -> "Project":

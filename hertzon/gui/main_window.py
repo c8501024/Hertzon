@@ -75,6 +75,8 @@ class MainWindow(QMainWindow):
     def __init__(self, project: Project | None = None):
         super().__init__()
         self.settings = QSettings("Hertzon", "Hertzon")
+        from .dialogs import apply_kicad_dirs
+        apply_kicad_dirs(self.settings)
         self.doc = Document(project)
         self.solver = SolveManager(self)
         self.edit_new_primitives = self.settings.value("edit_new_primitives", True, type=bool)

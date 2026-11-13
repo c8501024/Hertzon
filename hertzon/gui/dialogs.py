@@ -1077,6 +1077,13 @@ class OptionsDialog(QDialog):
         row.addWidget(self.project_dir, 1)
         row.addWidget(browse)
         f.addRow("Default project folder", row)
+        self.kicad_dirs = QLineEdit(s.value("kicad/library_dirs", "") or "")
+        self.kicad_dirs.setPlaceholderText("empty: KiCad's own library folders")
+        self.kicad_dirs.setToolTip("Folders with KiCad footprint libraries (Name.pretty) and symbol libraries\n"
+                                   "(Name.kicad_sym, Name.kicad_symdir), separated by ;. Downloads of SamacSys,\n"
+                                   "SnapEDA or Ultra Librarian can go here. Searched before the folders of a KiCad\n"
+                                   "installation; the project folder is always searched first.")
+        f.addRow("KiCad library folders", self.kicad_dirs)
         tabs.addTab(gen, "General")
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -1692,7 +1699,16 @@ class OptionsDialog(QDialog):
         from .update_check import SETTING as UPDATE_SETTING
         s.setValue(UPDATE_SETTING, self.update_check.isChecked())
         self._store_project_dir(s)
+        s.setValue("kicad/library_dirs", self.kicad_dirs.text().strip())
+        apply_kicad_dirs(s)
         w.apply_hpc_settings()
+
+
+def apply_kicad_dirs(settings) -> None:
+    """The KiCad library folders of Tools > Options for the footprint and symbol lookup."""
+    from ..model import footprints
+    text = settings.value("kicad/library_dirs", "") or ""
+    footprints.user_dirs[:] = [d.strip() for d in str(text).split(";") if d.strip()]
 
 
 class EditSourcesDialog(QDialog):
