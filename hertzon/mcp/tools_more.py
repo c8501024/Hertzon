@@ -25,14 +25,28 @@ from .protocol import Image, ToolError, max_wait, pause
 from .tools import (ROOT, S, Ctx, _abspath, _r, _s, _schema, commit, load, sp_table)
 
 
+def _is_empty_design(d: Design) -> bool:
+    """Nothing defined yet: the design create_project (or File > New) starts with."""
+    return not (d.variables or d.objects or d.boundaries or d.excitations or d.mesh_ops or d.setups or d.spheres
+                or d.reports or d.field_plots or d.coord_systems or d.field_exprs or d.field_funcs or d.optimetrics
+                or d.parametrics or d.components or d.wires or d.connectors or d.stackup is not None
+                or d.notes.strip())
+
+
 def _new_design_ctx(ctx: Ctx, d: Design, label: str) -> dict:
-    """Add design d to the project (renamed if the name is taken), make it the shown design and commit."""
-    taken = {x.name for x in ctx.proj.designs}
+    """Add design d to the project (renamed if the name is taken), make it the shown design and commit. An
+    empty current design (the one of create_project) is replaced by d instead of being left behind next to it."""
+    replace = next((i for i, x in enumerate(ctx.proj.designs) if x is ctx.des), None) \
+        if ctx.des is not None and _is_empty_design(ctx.des) else None
+    taken = {x.name for k, x in enumerate(ctx.proj.designs) if k != replace}
     base, i = d.name, 1
     while d.name in taken:              # as Insert Design: Name, Name_2, Name_3 ...
         i += 1
         d.name = f"{base}_{i}"
-    ctx.proj.designs.append(d)
+    if replace is not None:
+        ctx.proj.designs[replace] = d
+    else:
+        ctx.proj.designs.append(d)
     errors = commit(Ctx(ctx.proj, d, ctx.gui), label)
     if ctx.proj.path:
         S.designs[_abspath(ctx.proj.path)] = d.name       # the new design is shown, and used next by default
