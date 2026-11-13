@@ -360,6 +360,24 @@ SETUP: list[Prop] = [
     P("Threads", "int", "0", label="Solver cores (0 = Tools > Options)", tab="Advanced"),
 ]
 
+# Analysis of a circuit design. Hertzon solves the schematic (lines, lumped parts, 3D blocks) itself; with
+# transistors the bias point and the small-signal device admittances come from ngspice, the harmonic balance from
+# circuitRF (see hertzon/solver/nonlinear.py).
+CIRCUIT_ANALYSES = ("S-Parameters", "Harmonic Balance")
+CIRCUIT_SETUP: list[Prop] = [
+    P("CircuitAnalysis", "choice", "S-Parameters", label="Analysis", choices=CIRCUIT_ANALYSES,
+      help="S-Parameters: Hertzon's linear circuit solver; with nonlinear devices the bias point and the "
+           "small-signal device admittances come from ngspice. Harmonic Balance: large-signal single tone, solved "
+           "by circuitRF on Hertzon's linear network"),
+    P("Tone", "freq", "1GHz", label="Fundamental", visible_if=("CircuitAnalysis", "Harmonic Balance")),
+    P("Harmonics", "int", "5", label="Harmonics", visible_if=("CircuitAnalysis", "Harmonic Balance")),
+    P("DrivePort", "text", "Port1", label="Drive port", visible_if=("CircuitAnalysis", "Harmonic Balance"),
+      help="The port that drives the circuit with its available power; the other ports terminate in Z0"),
+    P("Power", "text", "-30", label="Available power (dBm)", visible_if=("CircuitAnalysis", "Harmonic Balance"),
+      help="One value, a list (-30, -20, -10) or start:step:stop (-30:2:10)"),
+]
+
+
 SWEEP: list[Prop] = [
     P("Enabled", "bool", "True"),
     P("SweepType", "choice", "Interpolating", choices=("Discrete", "Interpolating", "Fast")),

@@ -146,7 +146,9 @@ class PropertiesPanel(QWidget):
             elif k == "Backed":
                 props.append(schema.P(k, "choice", "False", label="Ground under the substrate",
                                       choices=("False", "True")))
-            elif k in ("Net", "Num", "File", "Design", "Solution"):
+            elif k == "Kind":
+                props.append(schema.P(k, "choice", "Subcircuit", choices=("Subcircuit", "Model card", "Verilog-A")))
+            elif k in ("Net", "Num", "File", "Design", "Solution", "Model", "Pins", "Params", "Section", "OSDI"):
                 props.append(schema.P(k, "text", ""))
             else:
                 props.append(schema.P(k, "length" if k in length else "expr", ""))
@@ -207,8 +209,12 @@ class PropertiesPanel(QWidget):
             self.doc.checkpoint()
             self.doc.design.setup(name).props[k] = v
             self.doc.commit("analysis", geometry=False)
-        props = schema.EIGEN_SETUP if s.eigen else schema.SETUP
         des = self.doc.design
+        if getattr(des, "kind", "3d") == "circuit":
+            vals = {**schema.defaults(schema.CIRCUIT_SETUP), **vals}
+            self._grid("General", schema.CIRCUIT_SETUP, vals, ch)
+            return
+        props = schema.EIGEN_SETUP if s.eigen else schema.SETUP
         pw = not des.ports() and any(e.kind == "Incident Plane Wave" and e.enabled for e in des.excitations)
         # an incident wave design converges on Delta Energy, a port design on Delta S
         drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
