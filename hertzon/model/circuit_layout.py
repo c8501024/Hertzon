@@ -692,7 +692,8 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     for dp in dev_pads:
         q0, od, w = dp["edge"], dp["inward"], dp["across"]
         o = vertical(d.unique_name(f"{dp['part']}_P{dp['pad']}"), q0, od, w, zt)
-        assign(d.excitations, schema.EXCITATIONS, "Lumped Port", str(nxt), [o.name], PortNumber=str(nxt),
+        pname = f"{dp['part']}_{dp['terminal']}_pad{dp['pad']}"
+        assign(d.excitations, schema.EXCITATIONS, "Lumped Port", pname, [o.name], PortNumber=str(nxt),
                Impedance="50ohm", IntegrationLine=f"{q0.x.text()},{q0.y.text()},0;{q0.x.text()},{q0.y.text()},{zt.text()}")
         port_map[str(nxt)] = {"part": dp["part"], "terminal": dp["terminal"], "pad": dp["pad"]}
         nxt += 1
@@ -706,7 +707,7 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
             continue
         q0 = pos[n]
         o = vertical(d.unique_name(f"{c.name}_Supply"), q0, out_dir(n), width_at(n), zt)
-        assign(d.excitations, schema.EXCITATIONS, "Lumped Port", str(nxt), [o.name], PortNumber=str(nxt),
+        assign(d.excitations, schema.EXCITATIONS, "Lumped Port", f"{c.name}_supply", [o.name], PortNumber=str(nxt),
                Impedance="50ohm", IntegrationLine=f"{q0.x.text()},{q0.y.text()},0;{q0.x.text()},{q0.y.text()},{zt.text()}")
         port_map[str(nxt)] = {"part": c.name, "terminal": "+", "pad": ""}
         nxt += 1
@@ -1141,3 +1142,115 @@ def layout_differences(project: Project, layout: Design) -> list[str]:
         out.append(f"the layout {layout.name} differs from its schematic: use 'Update 3D Layout' first, so that "
                    "the 3D solves are of the circuit being optimized")
     return out
+
+
+# ---- the solved layout back in a schematic -------------------------------------------------------------------
+def board_circuit(project: Project, layout: Design, name: str | None = None) -> tuple[Design, list[str]]:
+    """A new circuit design that puts the parts the layout cannot hold back on its ports: the layout as a 3D
+    design block, every pad port wired (by a net label) to the terminal of its device, the power ports at their
+    ports, the DC sources at their supply ports; SPICE libraries, setups and variables of the source schematic
+    come along. Every pad port of a terminal connects to it: several pads of one terminal are in parallel, as on
+    the board. Returns the design and what could not be connected."""
+    import copy
+    circuit = source_circuit(project, layout)
+    if circuit is None:
+        raise LayoutError("this 3D design was not created from a schematic (or its circuit design was renamed "
+                          "or deleted)")
+    try:
+        pmap = json.loads(layout.settings.get(PORT_MAP, "") or "{}")
+    except ValueError:
+        pmap = {}
+    ports = layout.ports()
+    if not ports:
+        raise LayoutError(f"the layout {layout.name} has no ports")
+    names = {d.name for d in project.designs}
+    base = name or f"{circuit.name}_Board"
+    name, i = base, 1
+    while name in names:
+        i += 1
+        name = f"{base}{i}"
+    d = Design(name=name, kind="circuit", units=circuit.units)
+    d.settings.update({k: v for k, v in circuit.settings.items()})
+    d.variables = dict(circuit.variables)
+    d.setups = copy.deepcopy(circuit.setups)
+    warnings: list[str] = []
+    by_name = {c.name: c for c in circuit.components}
+    n = len(ports)
+    em = CK.Component("EM1", "EM", 0, 0, 0, {"Design": layout.name, "Solution": "", "Ports": str(n),
+                                             "PortNames": ",".join(p.name for p in ports)})
+    d.components.append(em)
+    pins = CK.pins(em)
+    gx = CK.GRID
+
+    def label(x, y, net):
+        d.components.append(CK.Component(CK.next_name(d.components, "LABEL"), "LABEL", x, y, 0, {"Net": net}))
+
+    def stub(k: int, net: str):
+        """A short wire out of block pin k and a label with the net at its end."""
+        x, y = pins[k]
+        side = -1 if x < 0 else 1
+        d.wires.append(CK.Wire([[x, y], [x + side * 4 * gx, y]]))
+        label(x + side * 4 * gx, y, net)
+        return x + side * 4 * gx, y
+
+    placed_parts: dict[str, CK.Component] = {}
+    right = CK.BLOCK_W + 30 * gx
+    row = [0]
+
+    def place(src: CK.Component) -> CK.Component:
+        if src.name in placed_parts:
+            return placed_parts[src.name]
+        c = copy.deepcopy(src)
+        c.x, c.y, c.rot, c.mirror = right, row[0], 0, False
+        row[0] += 16 * gx if c.type in CK.BLOCK_TYPES else 10 * gx
+        d.components.append(c)
+        placed_parts[src.name] = c
+        return c
+
+    for k, p in enumerate(ports):
+        info = pmap.get(p.props.get("PortNumber", str(k + 1)), {})
+        part = by_name.get(info.get("part", ""))
+        if part is None:
+            warnings.append(f"port {p.name} of {layout.name} stands for no part of {circuit.name}: left open")
+            continue
+        if part.type == "PORT":
+            x, y = stub(k, f"port_{part.name}")
+            c = copy.deepcopy(part)
+            c.x, c.y, c.rot = x, y + 40, 0           # the port's pin at (0, -40)
+            d.components.append(c)
+            continue
+        if part.type in ("VDC", "IDC"):
+            c = place(part)
+            pp = CK.pins(c)
+            stub(k, f"{part.name}_supply")
+            label(*pp[0], f"{part.name}_supply")
+            d.components.append(CK.Component(CK.next_name(d.components, "GND"), "GND", pp[1][0], pp[1][1] + gx))
+            continue
+        c = place(part)
+        from . import footprints as FPS
+        ts = FPS.terminals(part)
+        t = info.get("terminal", "")
+        if t not in ts:
+            warnings.append(f"port {p.name}: {part.name} has no terminal {t}")
+            continue
+        net = f"{part.name}_{t}"
+        stub(k, net)
+        label(*CK.pins(c)[ts.index(t)], net)
+    # the libraries and models the devices need
+    for c in circuit.components:
+        if c.type == "SPICELIB":
+            q = copy.deepcopy(c)
+            q.x, q.y = right, row[0] + 10 * gx
+            row[0] += 8 * gx
+            d.components.append(q)
+    # a terminal of a device that no pad port reaches (its pads are open in the layout)
+    for src, c in placed_parts.items():
+        if c.type in ("DEVICE", "SNP"):
+            from . import footprints as FPS
+            for j, t in enumerate(FPS.terminals(c)):
+                if not any(x.type == "LABEL" and x.props.get("Net") == f"{src}_{t}" for x in d.components):
+                    warnings.append(f"{src}.{t} reaches no port of the layout: open in {name}")
+    d.notes = (f"The 3D layout {layout.name} (block EM1, one port per pad) with the parts of {circuit.name} it "
+               "cannot hold, connected by net labels: every pad port to the terminal of its part. Solve the "
+               f"layout first; then this design simulates the board with the devices.")
+    return d, warnings

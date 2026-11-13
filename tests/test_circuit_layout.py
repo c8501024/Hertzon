@@ -401,3 +401,54 @@ def test_device_on_its_footprint_gets_a_port_at_every_pad():
     del q.props["Footprint"]
     _, warn = CL.layout_design(p, d)
     assert any("Q1: the device has no footprint" in w for w in warn)
+
+
+def test_board_circuit_connects_every_pad_port_to_its_terminal():
+    p, d = _circuit(P("Port1", 60, -10), _line("MS1", 100, -10, L="5mm", W="0.6mm"),
+                    C("Q1", "DEVICE", 200, 0, 0, {"Kind": "Verilog-A", "Pins": "b c e", "Footprint": "SOT-23",
+                                                  "Pads": "b=1; c=3; e=2"}),
+                    _line("MS2", 300, 0, L="5mm", W="0.6mm"), P("Port2", 340, 0),
+                    _line("MS3", 140, 50, rot=90, L="1mm", W="0.6mm"),
+                    C("V1", "MVIA", 140, 110, 0, {"Subst": "Sub1", "D": "0.3mm", "N": "1", "P": "1mm"}))
+    L, _ = CL.layout_design(p, d)
+    p.designs.append(L)
+    assert [e.name for e in L.ports()] == ["1", "2", "Q1_b_pad1", "Q1_e_pad2", "Q1_c_pad3"]
+    B, warn = CL.board_circuit(p, L)
+    assert not warn and B.name == "Net_Board" and B.setups[0].name == d.setups[0].name
+    comps, nodes_of, _, _ = CK.netlist(B.components, B.wires, [])
+    em = nodes_of["EM1"]
+    assert nodes_of["Q1"] == [em[2], em[4], em[3]]          # b, c, e on the ports of pads 1, 3, 2
+    assert nodes_of["Port1"] == [em[0]] and nodes_of["Port2"] == [em[1]]
+
+
+def test_board_from_fem_with_the_device_on_its_pads_matches_the_circuit(tmp_path):
+    """End to end: lines and a transistor (measured S-parameters, a Touchstone block on a SOT-23 footprint),
+    laid out, solved in 3D and put back with the transistor on its pad ports, give the S-parameters of the
+    schematic (the pads add little); a port of the transistor on the wrong pad would turn S21 into S12."""
+    import numpy as np
+    from pathlib import Path
+    from hertzon import cli
+    from hertzon.solver.circuit import analyze
+    s2p = str(Path(__file__).resolve().parents[1] / "examples" / "models" / "NSVF4009SG4_3V_10mA.s2p")
+    p, d = _circuit(P("Port1", 60, 0), _line("MS1", 100, 0, L="5mm", W="1.1mm"),
+                    C("Q1", "SNP", 200, 0, 0, {"File": s2p, "Ports": "2", "Footprint": "SOT-23",
+                                               "Pads": "1=1; 2=3; NC=2"}),
+                    _line("MS2", 300, 0, L="5mm", W="1.1mm"), P("Port2", 340, 0))
+    d.setups[0].sweeps[0].props.update(Start="1GHz", Stop="4GHz", Count="7")
+    L, warn = CL.layout_design(p, d)
+    assert not warn
+    p.designs.append(L)
+    p.save(tmp_path / "board.hzn")
+    assert cli.main(["solve", str(tmp_path / "board.hzn"), "--design", L.name, "-o", str(tmp_path / "b.s4p"),
+                     "--progress", "none"]) == 0
+    B, warn = CL.board_circuit(p, L)
+    em = next(c for c in B.components if c.name == "EM1")
+    em.type, em.props = "SNP", {"File": str(tmp_path / "b.s4p"), "Ports": "4"}      # the solved layout
+    p.designs.append(B)
+    f = np.linspace(1e9, 4e9, 7)
+    ref, board = analyze(p, d, f).S, analyze(p, B, f).S
+    db = lambda x: 20 * np.log10(np.abs(x))  # noqa: E731
+    assert np.max(np.abs(db(board[:, 1, 0]) - db(ref[:, 1, 0]))) < 0.4
+    assert np.max(np.abs(db(board[:, 0, 1]) - db(ref[:, 0, 1]))) < 0.6
+    # the pads lengthen the input a little: the phase of S11 turns, its magnitude stays
+    assert np.max(np.abs(db(board[:, 0, 0]) - db(ref[:, 0, 0]))) < 0.8

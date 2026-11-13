@@ -1018,6 +1018,11 @@ class MainWindow(QMainWindow):
                       "3D → schematic: copy the dimensions changed in the 3D layout (design variables, and sizes "
                       "edited on the objects) back into the schematic. A click takes the newest layout, the "
                       "arrow chooses one", "Copy Dimensions of {}")
+        layout_button("Board Circuit", "design", self.layout_board_circuit,
+                      "3D → schematic with the devices: a new circuit design with the solved 3D layout as a block "
+                      "(one port per pad of every transistor or IC) and the devices, DC sources and power ports "
+                      "connected pin by pin to their ports, with the setups of this schematic (ngspice, harmonic "
+                      "balance). A click takes the newest layout, the arrow chooses one", "Board Circuit of {}")
 
         # ---- Results
         pg = rb.page("Results")
@@ -6333,6 +6338,33 @@ class MainWindow(QMainWindow):
                                     f"{circ.name} has the dimensions of {layout_name} already. Change the "
                                     f"dimensions in {layout_name} first: its design variables (named after the "
                                     "parts, e.g. MS1_L) or the sizes of the traces.")
+
+    def layout_board_circuit(self, layout_name: str | None) -> None:
+        """A new circuit design of the solved layout with its devices on the pad ports (None: the newest layout
+        of the current schematic)."""
+        from ..model.circuit_layout import LayoutError, board_circuit
+        if layout_name is None:
+            names = self._layouts()
+            if not names:
+                QMessageBox.information(self, "Board Circuit", "This schematic has no 3D layout yet. Make one "
+                                        "with Create 3D Layout.")
+                return
+            layout_name = names[-1]
+        self.doc.checkpoint()
+        try:
+            d, warnings = board_circuit(self.doc.project, self.doc.project.design(layout_name))
+        except LayoutError as e:
+            QMessageBox.warning(self, "Board Circuit", str(e))
+            self.doc.discard_last()
+            return
+        self.doc.project.designs.append(d)
+        self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(d.name)
+        self.msgs.add("info", f"Created {d.name}: {layout_name} as a block with the devices on its pad ports; "
+                              f"solve {layout_name} first")
+        for w in warnings:
+            self.msgs.add("warning", f"{d.name}: {w}")
 
     def _insert_generated(self, dlg, what: str) -> None:
         if dlg.exec() != QDialog.Accepted or dlg.design is None:
