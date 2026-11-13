@@ -765,7 +765,11 @@ class MainWindow(QMainWindow):
         g.large("Create Circuit", "design", self.circuit_from_3d,
                 tip="A new circuit design recognized from this planar microstrip design: lines, stubs, coupled "
                     "lines, tees, corners, steps, gaps, vias, lumped parts and ports, every dimension the 3D "
-                    "variable where one fits. What has no circuit model is listed in the messages, not guessed")
+                    "variable where one fits. Copper without a circuit model becomes a 3D design block (analyze "
+                    "it before the circuit); everything else that was approximated is listed in the messages")
+        g.small("Sync Circuit", "layout_back", self.circuit_sync_3d,
+                tip="Compare the newest circuit made by Create Circuit with this 3D design and take each difference "
+                    "(variables, dimensions, elements) in the direction you choose")
         g = pg.group("Analyze")
         g.large("Validate", "validate", self.a_validate)
         g.large("Analyze All", "analyze", self.a_analyze)
@@ -1067,6 +1071,15 @@ class MainWindow(QMainWindow):
                       "(one port per pad of every transistor or IC) and the devices, DC sources and power ports "
                       "connected pin by pin to their ports, with the setups of this schematic (ngspice, harmonic "
                       "balance). A click takes the newest layout, the arrow chooses one", "Board Circuit of {}")
+        g = pg.group("3D Design")
+        g.small("Sync with 3D", "layout_back", self.circuit_sync_3d,
+                tip="For a circuit made by Create Circuit: what differs from its 3D design (variables, dimensions, "
+                    "elements), each taken in the direction you choose; a changed topology recognizes the circuit "
+                    "again, its variables and corrections stay")
+        g.small("Calibrate to 3D", "validate", self.circuit_calibrate_3d,
+                tip="For a circuit made by Create Circuit: fit correction factors (Cal_L on the line lengths, Cal_W "
+                    "on the widths, optionally Cal_Er on the permittivity) to the solved S-parameters of its 3D "
+                    "design. The dimension variables stay the physical sizes, so tuning keeps the correction")
 
         # ---- Results
         pg = rb.page("Results")
@@ -6592,12 +6605,13 @@ class MainWindow(QMainWindow):
         while name in names:
             i += 1
             name = f"{base}{i}"
+        self.doc.checkpoint()
         try:
             d, notes = circuit_from_design(self.doc.project, d3, name)
         except Exception as e:  # noqa: BLE001 (no substrate, geometry or expression errors)
+            self.doc.undo()
             QMessageBox.warning(self, "Create Circuit", f"No circuit could be made: {type(e).__name__}: {e}")
             return
-        self.doc.checkpoint()
         self.doc.project.designs.append(d)
         self.doc.commit("all", geometry=False)
         self._close_reports()
@@ -6606,6 +6620,91 @@ class MainWindow(QMainWindow):
                               "before tuning in the circuit")
         for w in notes:
             self.msgs.add("warning", f"{d.name}: {w}")
+
+    def _recognized_circuit(self, title: str):
+        """The circuit made by Create Circuit that the command acts on: the shown one, or the newest of the shown
+        3D design (None with a message if there is none)."""
+        from ..model import circuit_sync as CS
+        d = self.des
+        if getattr(d, "kind", "3d") != "circuit":
+            cs = CS.circuits_of(self.doc.project, d)
+            if not cs:
+                QMessageBox.information(self, title, f"{d.name} has no circuit made by Create Circuit yet.")
+                return None
+            return cs[-1]
+        try:
+            CS.source(self.doc.project, d)
+        except CS.SyncError as e:
+            QMessageBox.information(self, title, f"{e}. Create Circuit (Simulation tab of a 3D design) makes a "
+                                                 "circuit that is linked to its 3D design.")
+            return None
+        return d
+
+    def circuit_sync_3d(self) -> None:
+        """Sync with 3D: the differences between a recognized circuit and its 3D design, in chosen directions."""
+        from ..model import circuit_sync as CS
+        from .circuit_sync_dialog import SyncDialog
+        circ = self._recognized_circuit("Sync with 3D")
+        if circ is None:
+            return
+        try:
+            d3 = CS.source(self.doc.project, circ)
+            diffs = CS.compare(self.doc.project, circ)
+        except Exception as e:  # noqa: BLE001 (geometry and expression errors of either design)
+            QMessageBox.warning(self, "Sync with 3D", f"Could not compare: {type(e).__name__}: {e}")
+            return
+        if not diffs:
+            QMessageBox.information(self, "Sync with 3D", f"{circ.name} and {d3.name} are in step.")
+            return
+        dlg = SyncDialog(self, circ.name, d3.name, diffs)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.choices():
+            return
+        self.doc.checkpoint()
+        try:
+            done = CS.apply(self.doc.project, circ, dlg.choices())
+        except Exception as e:  # noqa: BLE001
+            self.doc.undo()
+            QMessageBox.warning(self, "Sync with 3D", f"Not applied: {type(e).__name__}: {e}")
+            return
+        self.doc.commit("all", geometry=self.des is d3)
+        for t in done:
+            self.msgs.add("info", f"Sync with 3D: {t}")
+
+    def circuit_calibrate_3d(self) -> None:
+        """Calibrate to 3D: correction factors of a recognized circuit fitted to its solved 3D design."""
+        from PySide6.QtWidgets import QApplication
+
+        from ..model import circuit_sync as CS
+        circ = self._recognized_circuit("Calibrate to 3D")
+        if circ is None:
+            return
+        if not self.doc.project.path:
+            QMessageBox.information(self, "Calibrate to 3D", "Save the project first: the calibration reads the "
+                                                             "saved solution of the 3D design.")
+            return
+        sets = {"Lengths and widths (Cal_L, Cal_W), recommended": ("Cal_L", "Cal_W"),
+                "Lengths, widths and permittivity (Cal_L, Cal_W, Cal_Er)": ("Cal_L", "Cal_W", "Cal_Er"),
+                "Lengths only (Cal_L)": ("Cal_L",)}
+        item, ok = QInputDialog.getItem(self, "Calibrate to 3D", "Correction factors to fit:", list(sets), 0, False)
+        if not ok:
+            return
+        self.doc.checkpoint()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            r = CS.calibrate(self.doc.project, circ, sets[item])
+        except Exception as e:  # noqa: BLE001 (no solution, port mismatch, circuit errors)
+            QApplication.restoreOverrideCursor()
+            self.doc.undo()
+            QMessageBox.warning(self, "Calibrate to 3D", str(e))
+            return
+        QApplication.restoreOverrideCursor()
+        self.doc.commit("all", geometry=False)
+        vals = ", ".join(f"{k} = {v:.4g}" for k, v in r.values.items())
+        self.msgs.add("info", f"Calibrated {circ.name} to {CS.source(self.doc.project, circ).name} "
+                              f"({r.solution}, {r.points} frequencies): RMS |S_circuit - S_3D| {r.rms_before:.3g} → "
+                              f"{r.rms_after:.3g}; {vals}. Analyze the circuit to see it")
+        for w in r.warnings:
+            self.msgs.add("warning", f"{circ.name}: {w}")
 
     def _layouts(self) -> list[str]:
         """The 3D layouts made from the current schematic, the newest last."""

@@ -152,6 +152,12 @@ def test_circuit_build_solve_layout_and_back(server, tmp_path):
     assert rc["from"] == "Line_Layout" and rc["circuit"] == "Line_Layout_Circuit"
     ms = [p for p in call(server, "get_circuit", design=rc["circuit"])["parts"] if p["type"] == "MLIN"]
     assert len(ms) == 1 and ms[0]["props"]["L"] == "MS1_L"
+    assert call(server, "circuit_layout", design=rc["circuit"], action="sync")["differences"] == []
+    call(server, "set_design", design="Line_Layout", variables={"MS1_L": "21mm"})
+    sy = call(server, "circuit_layout", design=rc["circuit"], action="sync")
+    assert [d["name"] for d in sy["differences"]] == ["MS1_L"]
+    sy = call(server, "circuit_layout", design="Line_Layout", action="sync", direction="to_circuit")
+    assert sy["circuit"] == rc["circuit"] and sy["done"]
     assert "not a circuit design" in error(server, "get_circuit", design="Line_Layout")
 
 

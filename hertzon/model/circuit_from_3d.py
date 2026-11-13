@@ -19,6 +19,7 @@ circuit_from_design() is the entry point used by the GUI and the MCP tool.
 """
 from __future__ import annotations
 
+import copy
 import math
 import re
 from dataclasses import dataclass, field
@@ -31,7 +32,11 @@ from shapely.ops import unary_union
 from ..kernel import occ as K
 from . import circuit as CK
 from . import materials as MAT
-from .design import Design, Project, circuit_setup
+from .design import Assignment, Design, Project, Setup, Sweep, circuit_setup
+
+SOURCE = "CircuitOf"              # circuit setting: the name of the 3D design it was recognized from
+TABLE = "CircuitOfTable"          # circuit setting: element -> 3D objects and variables (JSON)
+EM_OF = "EmBlockOf"               # 3D design setting: the 3D design an EM block of a recognized circuit is cut from
 
 TOL = 1e-6          # mm: coordinates closer than this are the same
 COUPLE_H = 2.0      # coupled pair if the gap is below COUPLE_H * h
@@ -43,6 +48,7 @@ GAP_H = 2.0         # end-to-end gap below GAP_H * h is a series gap (MGAP)
 @dataclass
 class Board:
     h: float = 0.0                 # mm
+    mat: str = ""                  # material of the substrate
     t: float = 0.035               # mm
     er: float = 1.0
     tand: float = 0.0
@@ -161,6 +167,7 @@ def _extract(project: Project, design: Design) -> Board:
             and abs(pl[0][2]) > 0.999]
     zt = max(tops) if tops else bb[5]
     b.h = zt * 1e3
+    b.mat = o.material
     b.er = ev.value(m.permittivity)
     b.tand = ev.value(m.loss_tangent)
     if len(subs) > 1:
@@ -294,6 +301,10 @@ class Recognition:
     via_terms: list = field(default_factory=list)
     gaps: list = field(default_factory=list)
     n_nodes: int = 0
+    # copper without a circuit model and the line ends there: {"geom": Polygon, "ports": [(node, (x, y),
+    # direction from the region into the line, line width)]}; em_blocks() makes them 3D design blocks
+    em_regions: list = field(default_factory=list)
+    blocks: list = field(default_factory=list)        # the 3D designs made for them
 
 
 def _r(v):
@@ -701,8 +712,11 @@ def _connect(rec: Recognition):
         for a, bq in ((i, j), (j, i)):
             if id(terms[bq][0]) in rec.bad_junctions and terms[a][0].kind != "junction" and terms[a][1].node < 0:
                 node += 1
-                terms[a][1].node = node
+                t = terms[a][1]
+                t.node = node
                 rec.em_ports.append(node)
+                c = g.centroid
+                _em_region(rec, terms[bq][0].rect, (node, (c.x, c.y), (-t.out[0], -t.out[1]), t.width))
 
     def at(pt: Point, i: int) -> bool:
         return terms[i][1].seg.distance(pt) < 1e-3
@@ -842,8 +856,11 @@ def elements(rec: Recognition) -> list[Element]:
                     t.node = rec.n_nodes
                     rec.em_ports.append(t.node)
                     open_.remove(t)
+                    g = next(g for g in unrec if t.seg.distance(g) < 1e-3 and t.seg.intersection(g).length > TOL)
+                    c = t.seg.intersection(g).centroid
+                    _em_region(rec, g, (t.node, (c.x, c.y), (-t.out[0], -t.out[1]), t.width))
                     rec.notes.append(f"line at ({cen[0]:.2f}, {cen[1]:.2f}) mm ends at a region without a circuit "
-                                     "model: that end is a port of an EM block (left open)")
+                                     "model: that end is a port of an EM block")
             if len(open_) == 1 and not shorted:
                 t_in = next(t for t in ends if t.node >= 0)
                 out.append(Element("MLOC", name("MSO"), {"W": p.width, "L": p.length}, [t_in.node], [t_in.out], cen))
@@ -927,6 +944,7 @@ def elements(rec: Recognition) -> list[Element]:
                                  f"({p.x1 - p.x0:.3g} x {p.y1 - p.y0:.3g} mm) has no line model (patch or wide area): "
                                  "not recognized (needs an EM block)")
                 rec.unrecognized_area += (p.x1 - p.x0) * (p.y1 - p.y0)
+                _em_region(rec, p.rect, None)
     # width steps: two line ends meeting with different widths
     seen = set()
     for i, (pa, ta) in enumerate(rec.terms):
@@ -973,18 +991,184 @@ def elements(rec: Recognition) -> list[Element]:
     out += rec.ring_elements
     # lines far wider than the line models allow are patches or radiators: no circuit model
     lam0 = 299792458.0 / rec.board.fmax * 1e3 if rec.board.fmax else 0.0
-    keep = []
+    wide = []
     for e in out:
-        w = e.props.get("W") if e.type in ("MLIN", "MLOC", "MLSC", "MCLIN") else None
+        w = e.props.get("W") if e.type in ("MLIN", "MLOC", "MLSC") else None
         if isinstance(w, float) and ((lam0 and w > 0.1 * lam0) or w > 20 * rec.board.h):
             rec.notes.append(f"{e.type} at ({e.centre[0]:.2f}, {e.centre[1]:.2f}) mm is {w:.3g} mm wide "
                              f"({w / lam0 if lam0 else 0:.2f} free-space wavelengths, W/h = {w / rec.board.h:.3g}): a "
-                             "patch or radiator outside the line models; not recognized (an EM block in a full "
-                             "implementation)")
+                             "patch or radiator outside the line models; not recognized (needs an EM block)")
             rec.unrecognized_area += w * e.props.get("L", 0.0)
+            wide.append(e)
+    for e in wide:
+        out.remove(e)
+        x, y = e.centre
+        L, W = e.props.get("L", 0.0), e.props["W"]
+        ax = e.dirs[0][0] != 0
+        r = box(x - L / 2, y - W / 2, x + L / 2, y + W / 2) if ax else box(x - W / 2, y - L / 2, x + W / 2, y + L / 2)
+        ports = []
+        for k, n in enumerate(e.nodes):
+            if n <= 0:
+                continue
+            # a width step between the line and the patch belongs to the patch
+            st = next((s for s in out if s.type == "MSTEP" and n in s.nodes), None)
+            if st is not None:
+                out.remove(st)
+                n = next(m for m in st.nodes if m != n)
+            # the line end on the edge of the patch, of a piece outside it, on the patch's side of the node
+            edge_pt = (x + e.dirs[k][0] * (L / 2 if ax else W / 2), y + e.dirs[k][1] * (W / 2 if ax else L / 2))
+            t = min((t for q, t in rec.terms if q.kind != "junction" and t.width
+                     and t.seg.distance(r.exterior) < 1e-3 and q.rect.intersection(r).area < 1e-9),
+                    key=lambda t: t.seg.distance(Point(edge_pt)), default=None)
+            if t is None:
+                continue
+            c = t.seg.centroid
+            ports.append((n, (c.x, c.y), (-t.out[0], -t.out[1]), t.width))
+            rec.em_ports.append(n)
+        _em_region(rec, r, ports)
+    return out
+
+
+def _em_region(rec: Recognition, geom, port) -> None:
+    """Add copper without a circuit model (and a line end at it) to the EM regions, merged with the regions it
+    touches."""
+    ports = [] if port is None else (list(port) if isinstance(port, list) else [port])
+    hit = [r for r in rec.em_regions if r["geom"].distance(geom) < 1e-6]
+    for r in hit:
+        rec.em_regions.remove(r)
+        geom = unary_union([geom, r["geom"]])
+        ports = r["ports"] + ports
+    seen, uniq = set(), []
+    for q in ports:
+        if q[0] not in seen:
+            seen.add(q[0])
+            uniq.append(q)
+    rec.em_regions.append({"geom": geom, "ports": uniq})
+
+
+STUB_H = 2.0                     # a line into an EM block keeps up to 2 h of its length inside the block
+
+
+def em_blocks(project: Project, design: Design, rec: Recognition, elems: list[Element]) -> list[Design]:
+    """A 3D design for every region without a circuit model that lines attach to: its copper with a short
+    piece of each line, the substrate under it, a Lumped Port at the end of each line piece. The element list
+    gets a 3D design block ("EM") on those nodes, and the lines are shortened by the pieces the block took
+    over. The designs are returned (not added to the project); they are solved like any 3D design."""
+    from . import schema
+    b = rec.board
+    h = b.h
+    taken = {d.name for d in project.designs}
+    out = []
+    for region in rec.em_regions:
+        ports = [q for q in region["ports"] if q[0] > 0]
+        if not ports:
             continue
-        keep.append(e)
-    return keep
+        k = len(out) + 1
+        name = f"{design.name}_EM{k}"
+        while name in taken:
+            k += 1
+            name = f"{design.name}_EM{k}"
+        taken.add(name)
+        # the line piece each port takes over, and its shortened line
+        stubs = []
+        for n, (px, py), away, w in ports:
+            line = next((e for e in elems if e.type in ("MLIN", "MLOC", "MLSC") and n in e.nodes
+                         and isinstance(e.props.get("L"), float)), None)
+            ls = 0.0
+            if line is not None:
+                ls = min(STUB_H * h, 0.25 * line.props["L"])
+                line.props["L"] -= ls
+            stubs.append((n, (px, py), away, w, ls, line))
+        # the copper inside the region (a region taken as its bounding box may have notches)
+        allcu = unary_union([g for g, _ in b.copper])
+        geoms = [region["geom"].intersection(allcu)]
+        for n, (px, py), away, w, ls, line in stubs:
+            if ls > 0:
+                ex, ey = px + away[0] * ls, py + away[1] * ls
+                if away[0]:
+                    geoms.append(box(min(px, ex), py - w / 2, max(px, ex), py + w / 2))
+                else:
+                    geoms.append(box(px - w / 2, min(py, ey), px + w / 2, max(py, ey)))
+        cu = unary_union(geoms).buffer(1e-7, join_style=2).buffer(-1e-7, join_style=2).simplify(1e-6)
+        polys = list(cu.geoms) if hasattr(cu, "geoms") else [cu]
+        x0, y0, x1, y1 = cu.bounds
+        m = max(5 * h, 2.0)
+        ends = [(px + away[0] * ls, py + away[1] * ls, away) for _, (px, py), away, _, ls, _ in stubs]
+        sx0 = x0 if any(a == (-1, 0) and abs(ex - x0) < 1e-6 for ex, _, a in ends) else x0 - m
+        sx1 = x1 if any(a == (1, 0) and abs(ex - x1) < 1e-6 for ex, _, a in ends) else x1 + m
+        sy0 = y0 if any(a == (0, -1) and abs(ey - y0) < 1e-6 for _, ey, a in ends) else y0 - m
+        sy1 = y1 if any(a == (0, 1) and abs(ey - y1) < 1e-6 for _, ey, a in ends) else y1 + m
+        d = Design(name=name, units="mm")
+        def mm(v):
+            return f"{v:.9g}mm"
+        d.add_object("CreateBox", name="Substrate", material=b.mat or "vacuum", Position=f"{mm(sx0)},{mm(sy0)},0mm",
+                     XSize=mm(sx1 - sx0), YSize=mm(sy1 - sy0), ZSize=mm(h))
+        gnd = d.add_object("CreateRectangle", name="Ground", Position=f"{mm(sx0)},{mm(sy0)},0mm", Axis="Z",
+                           XSize=mm(sx1 - sx0), YSize=mm(sy1 - sy0))
+        metal = []
+        for i, pg in enumerate(polys):
+            pg = _orient_ccw(pg)
+            if pg.interiors:
+                rec.notes.append(f"{name}: the holes of its copper are left out")
+            pts = ";".join(f"{mm(px)},{mm(py)},{mm(h)}" for px, py in list(pg.exterior.coords)[:-1])
+            metal.append(d.add_object("CreatePolyline", name=f"Copper{i + 1}" if len(polys) > 1 else "Copper",
+                                      material="vacuum", Points=pts, Closed="True", Covered="True").name)
+
+        def assign(lst, table, kind, nm, objects, **props):
+            q = schema.defaults(table[kind])
+            q.update(props)
+            lst.append(Assignment(nm, kind, q, objects=list(objects)))
+        cuprops = {"UseMaterial": "False", "Conductivity": f"{b.cond:g}", "UseThickness": "True",
+                   "Thickness": mm(b.t), "TwoSided": "True"}
+        assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Traces", metal, **cuprops)
+        assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Ground", [gnd.name], **cuprops)
+        names, nodes, dirs = [], [], []
+        for i, ((n, (px, py), away, w, ls, line), (ex, ey, _)) in enumerate(zip(stubs, ends), 1):
+            if away[0]:
+                o = d.add_object("CreateRectangle", name=f"Port{i}", Position=f"{mm(ex)},{mm(ey - w / 2)},0mm",
+                                 Axis="X", YSize=mm(w), ZSize=mm(h))
+            else:
+                o = d.add_object("CreateRectangle", name=f"Port{i}", Position=f"{mm(ex - w / 2)},{mm(ey)},0mm",
+                                 Axis="Y", XSize=mm(w), ZSize=mm(h))
+            assign(d.excitations, schema.EXCITATIONS, "Lumped Port", str(i), [o.name], PortNumber=str(i),
+                   Impedance="50ohm", IntegrationLine=f"{mm(ex)},{mm(ey)},0mm;{mm(ex)},{mm(ey)},{mm(h)}")
+            names.append(str(i))
+            nodes.append(n)
+            dirs.append((-away[0], -away[1]))
+        if design.setups:
+            d.setups = copy.deepcopy([st for st in design.setups if not st.eigen]) or []
+        if not d.setups:
+            st = Setup("Setup1")
+            fmax = b.fmax or 10e9
+            st.props.update(Frequency=f"{fmax / 1e9:g}GHz")
+            sw = Sweep("Sweep")
+            sw.props.update(Start=f"{fmax / 1e10:g}GHz", Stop=f"{fmax / 1e9:g}GHz")
+            st.sweeps.append(sw)
+            d.setups = [st]
+        st = d.setups[0]
+        sol = f"{st.name} : {st.sweeps[0].name}" if st.sweeps else f"{st.name} : LastAdaptive"
+        lam0 = 299792458.0 / b.fmax * 1e3 if b.fmax else 0.0
+        patch = any(min(e.bounds[2] - e.bounds[0], e.bounds[3] - e.bounds[1]) > min(20 * h, 0.1 * lam0 or 1e9)
+                    for e in polys)
+        d.settings["AutoOpen"] = "Auto Open" if patch else "Auto Open - Filter"
+        d.settings[EM_OF] = design.name
+        d.notes = (f"EM block made by Create Circuit from '{design.name}': copper without a circuit model with "
+                   f"{STUB_H:g} h of each line attached (shortened in the circuit by the same length) and a Lumped Port "
+                   "at the end of each line piece. Analyze it, then the circuit uses its S-parameters.")
+        c = unary_union([region["geom"]]).centroid
+        elems.append(Element("EM", f"EM{len(out) + 1}", {"Design": name, "Solution": sol, "Model": "Data",
+                                                       "CircuitModel": "", "Ports": str(len(names)),
+                                                       "PortNames": ",".join(names)}, nodes, dirs, (c.x, c.y)))
+        rec.notes.append(f"{name}: a 3D design block for the copper without a circuit model at "
+                         f"({x0:.2f}..{x1:.2f}, {y0:.2f}..{y1:.2f}) mm with {len(names)} port(s); analyze it before "
+                         "the circuit")
+        out.append(d)
+    return out
+
+
+def _orient_ccw(pg: Polygon) -> Polygon:
+    from shapely.geometry.polygon import orient
+    return orient(pg, 1.0)
 
 
 def _owns(e: Element, p: Piece) -> bool:
@@ -1129,8 +1313,13 @@ def _fmt(v):
     return f"{v:.6g}mm" if isinstance(v, float) else str(v)
 
 
-def to_circuit(project: Project, design: Design, rec: Recognition, name: str = "") -> tuple[Design, dict]:
+def to_circuit(project: Project, design: Design, rec: Recognition, name: str = "", blocks: bool = False) \
+        -> tuple[Design, dict]:
+    """The circuit design of a recognition and the link table; blocks: copper without a circuit model becomes
+    3D design blocks (rec.blocks, to be added to the project)."""
     elems = elements(rec)
+    if blocks:
+        rec.blocks = em_blocks(project, design, rec, elems)
     table = link_variables(project, design, elems, rec.board)
     # an element whose dimensions are all variables "<P>_<prop>" of one prefix P gets the name P (Hertzon's
     # convention of generated layouts): the link reads the same on both sides
@@ -1250,13 +1439,12 @@ def compare_netlists(a: Design, b: Design) -> list[str]:
     return diff
 
 
-SOURCE = "CircuitOf"              # circuit setting: the name of the 3D design it was recognized from
-TABLE = "CircuitOfTable"          # circuit setting: element -> 3D objects and variables (JSON)
-
-
-def circuit_from_design(project: Project, design: Design, name: str | None = None) -> tuple[Design, list[str]]:
+def circuit_from_design(project: Project, design: Design, name: str | None = None, blocks: bool = True) \
+        -> tuple[Design, list[str]]:
     """A new circuit design recognized from the planar 3D design; the list says what was not recognized,
-    neglected or approximated (nothing is guessed silently)."""
+    neglected or approximated (nothing is guessed silently). blocks: copper without a circuit model becomes
+    3D design blocks, added to the project (to be analyzed before the circuit); otherwise its line ends stay
+    open."""
     import json
     if getattr(design, "kind", "3d") == "circuit":
         raise ValueError(f"{design.name} is a circuit design")
@@ -1265,11 +1453,19 @@ def circuit_from_design(project: Project, design: Design, name: str | None = Non
         raise ValueError("no substrate with copper on top found: the recognition takes planar microstrip "
                          "(conductors on top of one dielectric layer over ground)")
     rec = recognize(board)
-    d, table = to_circuit(project, design, rec, name or "")
+    if not name:
+        taken = {x.name for x in project.designs}
+        name, i = f"{design.name}_Circuit", 1
+        while name in taken:
+            i += 1
+            name = f"{design.name}_Circuit{i}"
+    d, table = to_circuit(project, design, rec, name, blocks)
+    project.designs += rec.blocks
     d.settings[SOURCE] = design.name
     d.settings[TABLE] = json.dumps(table)
     notes = list(rec.notes)
     if rec.copper_area > 0 and rec.unrecognized_area > 0:
         notes.append(f"{100 * rec.unrecognized_area / rec.copper_area:.1f} % of the copper area has no circuit "
-                     "model; the line ends there are left open")
+                     "model" + ("; it is in the 3D design blocks " + ", ".join(b.name for b in rec.blocks)
+                                if rec.blocks else "; the line ends there are left open"))
     return d, notes

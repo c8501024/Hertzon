@@ -419,10 +419,28 @@ Every dimension is the 3D design's variable where one has the same value and bel
 piece, a number otherwise. An element whose dimensions are all variables of one prefix gets that name (`MS3`
 with `MS3_W`, `MS3_L`), so a layout made with *Create 3D Layout* comes back as the schematic it was made from.
 
-Nothing is guessed: copper with no circuit model (patches, wide areas, slanted or round shapes, a junction with
-two lines on one side) is listed in the Message Manager with the share of the copper area it has, its line ends
-are left open; weaker coupling (gaps up to four substrate heights) is listed as neglected. The circuit is as
-accurate as its closed-form models, so compare it with the 3D results before tuning in the circuit.
+Nothing is guessed. Copper with no circuit model that lines attach to (a patch, a wide area, a junction with two
+lines on one side) becomes a **3D design block**: a small 3D design `<design>_EM1` with that copper, the
+substrate under it, a short piece (up to two substrate heights) of every line that attaches, and a Lumped Port
+at the end of each piece; the lines in the circuit are shortened by those pieces. Analyze the block, then the
+circuit uses its S-parameters (the Wilkinson divider of the Design Wizard: RMS |S − S₃D| 0.10 with the circuit
+models, 0.06 with the junction as a block). Slanted or round copper without lines is listed, not modelled;
+weaker coupling (gaps up to four substrate heights) is listed as neglected.
+
+**Calibrate to 3D** (Simulation › 3D Design in the circuit) fits correction factors to the solved
+S-parameters of the 3D design: `Cal_L` multiplies the line lengths, `Cal_W` the widths, optionally `Cal_Er`
+the substrate permittivity. They are design variables in the part properties (`MS3_L*Cal_L`), so the
+dimension variables stay the physical sizes shared with the 3D design and tuning in the circuit keeps the
+correction. On the Design Wizard filters the RMS deviation from the 3D solution drops from 0.15–0.21 to
+0.05–0.09 with `Cal_L` and `Cal_W`. A factor at the limit of the fit (0.7 or 1.3) is reported: it then
+stands in for something the models lack, such as neglected coupling.
+
+**Sync with 3D** (in the circuit, or *Sync Circuit* in the 3D design) lists what differs between the circuit
+and its 3D design: variables of the same name with other values, a dimension of an element (a number typed in
+the circuit, or a 3D size that is no variable), and elements only on one side. Each row is taken in the
+direction chosen there: *→ Circuit* or *→ 3D design*. A changed topology is taken to the circuit by
+recognizing it again in place; its variables, correction factors, setups and reports stay, and 3D design
+blocks with the same copper are reused.
 
 ### Footprints: parts on their pads
 
