@@ -6,6 +6,10 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Edit Sources for every mode of a wave port.** With wave or Floquet ports of several modes the fields and far
+  fields are stored per port mode, and Edit Sources lists each mode (e.g. WP1_M1, WP1_M2) with its own power and
+  phase; field plots, animations and far-field results superpose them like ports. Before, only the first mode
+  of each port had fields (#437).
 - **Footprints of circuit parts and the board in 3D.** Parts carry a KiCad footprint and symbol (`.kicad_mod`,
   `.kicad_sym`, also the downloads of SamacSys, SnapEDA, Ultra Librarian) and the assignment of pads to the
   terminals of their model, shown to scale in the Component dialog. Create 3D Layout puts R, L and C on their

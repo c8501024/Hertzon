@@ -166,3 +166,43 @@ def test_cutoff_of_a_two_mode_wave_port_between_solved_frequencies():
     fc = 299792458 / A                      # TE20
     assert len(cuts) == 1 and cuts[0][0] == pytest.approx(fc, rel=2e-3)
     assert sorted(cuts[0][1]) == ["wave port 1 mode 2", "wave port 2 mode 2"]
+
+
+def test_fields_are_stored_per_port_mode_for_edit_sources(tmp_path):
+    """#437: with wave ports of several modes the fields are stored per port mode (field_sources.json, one entry
+    per S row), so Edit Sources lists every mode and a field plot can excite TE01 instead of TE10."""
+    import numpy as np
+
+    from hertzon.model import sources as SRC
+    from hertzon.solver.ffquant import excitation_weights
+    from hertzon.solver.results import ResultStore
+    p = Project()
+    d = p.designs[0]
+    d.add_object("CreateBox", "Guide", Position="-11.43mm,0,0", XSize="22.86mm", YSize="30mm", ZSize="15mm",
+                 material="vacuum")
+    for i, y in enumerate(("0", "30mm"), 1):
+        d.add_object("CreateRectangle", f"P{i}", Position=f"-11.43mm,{y},0", Axis="Y", XSize="22.86mm", ZSize="15mm")
+        props = schema.defaults(schema.EXCITATIONS["Wave Port"])
+        props.update(PortNumber=str(i), NumberOfModes="2" if i == 1 else "1")
+        d.excitations.append(Assignment(f"WP{i}", "Wave Port", props, objects=[f"P{i}"]))
+    st = Setup("Setup1")
+    st.props.update(Frequency="12GHz", MaximumPasses="1", MinimumPasses="1", SaveFields="True")
+    d.setups.append(st)
+    B.Bridge(p, d, st, tmp_path).run()
+    store = ResultStore(tmp_path)
+    fs = store.read_json("field_sources.json")
+    assert [(q["name"], q["number"], q["port"], q["mode"]) for q in fs] == \
+        [("WP1_M1", 1, 1, 1), ("WP1_M2", 2, 1, 2), ("WP2", 3, 2, 1)]
+    assert SRC.field_names(store) == ["WP1_M1", "WP1_M2", "WP2"]
+    f = store.npz("fields_LastAdaptive.npz")
+    assert all(f"E_0_{n}" in f for n in (1, 2, 3))
+    # the two modes of WP1 are different fields: the guide is 22.86 mm along x and 15 mm along z, so TE10 has
+    # E along z and TE01 along x
+    e1, e2 = np.abs(f["E_0_1"]), np.abs(f["E_0_2"])
+    assert np.sum(e1[:, 2] ** 2) > 10 * np.sum(e1[:, 0] ** 2)
+    assert np.sum(e2[:, 0] ** 2) > 10 * np.sum(e2[:, 2] ** 2)
+    # Edit Sources: power on the second mode of WP1 only
+    SRC.set_(d, {"WP1_M1": {"mag": 0.0, "phase": 0.0}, "WP1_M2": {"mag": 2.0, "phase": 90.0},
+                 "WP2": {"mag": 0.0, "phase": 0.0}}, "Total")
+    w = excitation_weights(d, fs)
+    assert set(w) == {2} and w[2] == pytest.approx(np.sqrt(2) * 1j)
