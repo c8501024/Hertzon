@@ -74,7 +74,7 @@ click. While placing, **R** rotates and **M** mirrors; right-click or **Esc** en
 * **Values** are shown at each part and accept expressions with units and design variables (`Wline`,
   `lambda_g/4`, `2*L1`). **Simulation > Design Variables** defines them.
 * **Right-click** a part: Properties, Rotate, Mirror, Copy, Delete; on a 3D design block also *Update ports and
-  picture* and *Open 3D design*. Right-click on empty space: place a part, Paste, Fit All, Analyze.
+  picture*, *Open 3D design* and the choice between its full-wave FEM model and its circuit model. Right-click on empty space: place a part, Paste, Fit All, Analyze.
 
 ## Parts
 
@@ -96,8 +96,8 @@ click. While placing, **R** rotates and **M** mirrors; right-click or **Esc** en
 | | Stripline | W, L | centred strip between two ground planes spaced H |
 | | Coaxial Line | Di, Do, Er, TanD, Cond, L | TEM with dielectric and conductor loss |
 | Ideal (TEM) | Ideal Line, Ideal Open Stub, Ideal Short Stub | Z0, E, F | lossless, impedance and electrical length E at frequency F, no substrate |
-| Data | Touchstone | File | N-port from a `.sNp` file, ports against ground |
-| | 3D Design | Design, Solution | the solved S-parameters of a 3D design of the project, see [below](#3d-designs-as-blocks) |
+| Data | Touchstone | File, Model | N-port from a `.sNp` file, ports against ground (or its circuit model, as a 3D design block) |
+| | 3D Design | Design, Solution, Model | the solved S-parameters of a 3D design of the project, or its circuit model, see [below](#3d-designs-as-blocks) |
 
 Against full-wave solves: a shorted 18 mm microstrip line with one and with two 0.4 mm vias agrees within
 3 degrees rms in the S11 phase from 1 to 10 GHz; a stub notch filter with the tee model agrees within 0.4 %
@@ -150,6 +150,28 @@ coupled lines and the open-end corrections keep their closed-form models.
 * **3D designs from another project**: **Data › 3D Design › From Project File...**, or drag a `.hzn` file into
   the schematic. The 3D designs with ports of that project are copied into this one with their project
   variables, materials and solved results, and placed as blocks.
+
+### Full-wave FEM or circuit model
+
+Every 3D design block (and every Touchstone block) has a **Model**: its data (the full-wave FEM solution, or the
+file) or a **circuit model**, a circuit design of this project with the same ports (matched by port name, else by
+port number). Choose it in the block's Properties, or right-click the block > *Use Full-Wave FEM Model* /
+*Use Circuit Model*. A block in a layout made with *Create 3D Layout* takes the circuit it was made from as its
+circuit model.
+
+The data are never extrapolated. When the analysis needs frequencies the data do not cover (for a harmonic
+balance: up to the highest harmonic), the block switches to its circuit model and the analysis says so in a
+warning; a block without a circuit model stops the analysis with an error that names the ranges. A bias point
+needs DC, below the data: it comes from the circuit model if the block has one.
+
+The colour of a block shows the model the next analysis takes:
+
+| Colour | Meaning |
+|---|---|
+| blue, *FULL-WAVE FEM* (or *TOUCHSTONE*) | the data, which cover the analyses |
+| red, *CIRCUIT* | the circuit model, as chosen |
+| red dashed, *CIRCUIT (AUTO)*, gold mark | the data were chosen but do not cover the analyses: the circuit model stands in |
+| grey, *NO MODEL*, crimson mark | no usable model (no data yet, or not covering the analyses and no circuit model): the analysis stops |
 
 ## Analyze and results
 

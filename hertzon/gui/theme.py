@@ -9,6 +9,12 @@ INK = "#1f2633"
 MUTED = "#6b7385"
 LINE = "#e2e5ea"
 WINDOW = "#f4f5f7"
+# which model a circuit block uses: full-wave FEM in cobalt blue (the complement of the gold), the circuit model in
+# brick red; switched automatically (dashed, gold mark) or not usable (grey, crimson mark)
+MODEL_FEM, MODEL_FEM_BG = "#2f6db5", "#e3ecf8"
+MODEL_CIRCUIT, MODEL_CIRCUIT_BG = "#c4473a", "#f8e4e1"
+MODEL_NONE, MODEL_NONE_BG = "#8a909c", "#eef0f3"
+MODEL_ERROR = "#a3123a"
 
 STYLE = f"""
 QMenuBar {{ background: {NAVY}; color: #dfe5ef; padding: 2px 4px; }}

@@ -13,6 +13,12 @@ the GitHub release notes.
   admittances from ngspice; a new **Harmonic Balance** analysis (single tone, swept drive power) runs circuitRF on
   Hertzon's network. Both programs are optional and installed separately. Checked against ngspice alone
   (IHP SG13G2 NMOS and HBT to 30 GHz, within 1e-5) and an ngspice transient (harmonics within 0.25 %).
+- **Full-wave FEM or circuit model per block.** A 3D design block (or Touchstone block) in a circuit uses its
+  full-wave data or a circuit model, a circuit design of the project with the same ports (Properties or
+  right-click). Where the data do not cover the analysis (harmonics of a harmonic balance included), the block
+  switches to its circuit model with a warning; without one the analysis stops with an error instead of using the
+  nearest data point. The block's colour shows the model: blue full-wave FEM, red circuit, red dashed switched,
+  grey no usable model. A block of a generated 3D layout takes its circuit as the circuit model.
 - Units V, mV, A, mA, uA, kohm in expressions.
 - **macOS:** the mesher library `libhzmesh.dylib` (universal, arm64 and x86_64) is included; `build.sh` builds
   it on macOS and a CI workflow on a macOS runner keeps it up to date. EMerge comes as a prebuilt wheel on

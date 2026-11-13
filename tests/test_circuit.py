@@ -420,3 +420,170 @@ def test_editor_copy_and_paste_with_the_clipboard():
     assert [it.comp.name for it in ed.selected_components()] == ["R3"]
     doc.undo()
     assert [c.name for c in doc.design.components] == ["R1", "C1", "R2"]
+
+
+# ---- model of a block: full-wave data or circuit model --------------------------------------------------------
+def _em_project(tmp_path, f_stop=3e9, port_names=("In", "Out")):
+    """A project with a solved 3D design 'Filter' (data 1 GHz to f_stop: a line of 90 degrees at 2 GHz, as the circuit
+    'Line' gives it) and an empty circuit 'Top'."""
+    p = Project()
+    p.path = str(tmp_path / "p.hzn")
+    em = p.designs[0]
+    em.name = "Filter"
+    fr = np.linspace(1e9, f_stop, 5)
+    S = np.zeros((5, 2, 2), complex)
+    S[:, 1, 0] = S[:, 0, 1] = np.exp(-1j * np.pi / 2 * fr / 2e9)
+    results_dir(p.path, "Filter", "Setup1").mkdir(parents=True)
+    st = ResultStore(results_dir(p.path, "Filter", "Setup1"))
+    ports = [{"name": n, "number": i + 1, "kind": "Lumped Port", "modes": 1} for i, n in enumerate(port_names)]
+    st.save_sparams("Sweep", fr, S, 50.0, ports)
+    st.write_json("ports.json", ports)
+    em.setups.append(circuit_setup())
+    line = Design(name="Line", kind="circuit")
+    line.components = [P("P1", 20, 0, Num="1"), C("TL1", "TLIN", 60, 0, 0, {"Z0": "50ohm", "E": "90deg", "F": "2GHz"}),
+                       P("P2", 100, 0, Num="2")]
+    top = Design(name="Top", kind="circuit")
+    blk = C("EM1", "EM", 0, 0, 0, {"Design": "Filter", "Solution": "Setup1 : Sweep", "Ports": "2",
+                                   "PortNames": ",".join(port_names)})
+    a, b = CK.pins(blk)
+    top.components = [blk, P("Port1", a[0], a[1]), P("Port2", b[0], b[1])]
+    p.designs += [line, top]
+    return p, top, blk
+
+
+def test_block_uses_its_circuit_model_when_chosen(tmp_path):
+    p, top, blk = _em_project(tmp_path)
+    blk.props.update({CK.MODEL: CK.MODEL_CIRCUIT, CK.CIRCUIT_MODEL: "Line"})
+    fr = np.array([0.5e9, 2e9, 6e9])                # beyond the data: no matter, the data are not used
+    r = analyze(p, top, fr)
+    ref = analyze(p, p.design("Line"), fr)
+    assert np.allclose(r.S, ref.S, atol=1e-9) and not r.warnings
+    blk.props[CK.CIRCUIT_MODEL] = ""
+    with pytest.raises(CircuitError, match="no circuit model chosen"):
+        analyze(p, top, fr)
+
+
+def test_data_inside_their_range_are_used_as_before(tmp_path):
+    p, top, blk = _em_project(tmp_path)
+    blk.props[CK.CIRCUIT_MODEL] = "Line"
+    r = analyze(p, top, np.array([1e9, 2e9, 3e9]))
+    assert np.allclose(r.S[:, 1, 0], np.exp(-1j * np.pi / 2 * np.array([0.5, 1, 1.5])), atol=1e-9)
+    assert not r.warnings
+
+
+def test_beyond_the_data_the_block_switches_to_its_circuit_model_or_stops(tmp_path):
+    p, top, blk = _em_project(tmp_path)
+    blk.props[CK.CIRCUIT_MODEL] = "Line"
+    fr = np.array([1e9, 2e9, 4e9])
+    r = analyze(p, top, fr)
+    assert np.allclose(r.S, analyze(p, p.design("Line"), fr).S, atol=1e-9)
+    assert len(r.warnings) == 1 and "1 to 4 GHz" in r.warnings[0] and "cover 1 to 3 GHz" in r.warnings[0] \
+        and "circuit model 'Line'" in r.warnings[0]
+    blk.props[CK.CIRCUIT_MODEL] = ""                 # no circuit model: never extrapolated
+    with pytest.raises(CircuitError, match="no circuit model to switch to"):
+        analyze(p, top, fr)
+    with pytest.raises(CircuitError, match="needs 0.5 to 2 GHz"):     # below the data as well
+        analyze(p, top, np.array([0.5e9, 2e9]))
+
+
+def test_a_generated_layout_takes_its_circuit_as_the_circuit_model(tmp_path):
+    from hertzon.model.circuit_layout import LINK
+    from hertzon.solver.circuit import circuit_model_name
+    p, top, blk = _em_project(tmp_path)
+    assert circuit_model_name(p, blk) == ""
+    p.design("Filter").settings[LINK] = "Line"
+    assert circuit_model_name(p, blk) == "Line"
+    r = analyze(p, top, np.array([2e9, 5e9]))
+    assert "circuit model 'Line'" in r.warnings[0]
+    blk.props[CK.CIRCUIT_MODEL] = ""                 # chosen "none" wins over the link
+    assert circuit_model_name(p, blk) == ""
+
+
+def test_circuit_model_ports_match_by_name_else_by_number(tmp_path):
+    p, top, blk = _em_project(tmp_path, port_names=("P2", "P1"))
+    line = p.design("Line")
+    line.components[1] = C("R1", "R", 60, 0, 0, {"R": "50ohm"})
+    line.components.append(C("R2", "R", 20, 30, 90, {"R": "50ohm"}))      # shunt R at P1 only: asymmetric
+    line.components.append(C("G", "GND", 20, 70))
+    blk.props.update({CK.MODEL: CK.MODEL_CIRCUIT, CK.CIRCUIT_MODEL: "Line"})
+    ref = analyze(p, line, np.array([1e9])).S[0]
+    got = analyze(p, top, np.array([1e9])).S[0]
+    assert np.allclose(got, ref[::-1, ::-1])          # block pin 1 is the circuit's P2
+    blk.props["PortNames"] = "1,2"
+    assert np.allclose(analyze(p, top, np.array([1e9])).S[0], ref)
+
+
+def test_circuit_model_errors(tmp_path):
+    p, top, blk = _em_project(tmp_path)
+    blk.props.update({CK.MODEL: CK.MODEL_CIRCUIT, CK.CIRCUIT_MODEL: "Top"})
+    with pytest.raises(CircuitError, match="contains itself"):
+        analyze(p, top, np.array([1e9]))
+    blk.props[CK.CIRCUIT_MODEL] = "Filter"
+    with pytest.raises(CircuitError, match="not a circuit design"):
+        analyze(p, top, np.array([1e9]))
+    blk.props[CK.CIRCUIT_MODEL] = "Line"
+    p.design("Line").components.pop()                 # one port left
+    with pytest.raises(CircuitError, match="2 ports, its circuit model 'Line' 1"):
+        analyze(p, top, np.array([1e9]))
+
+
+def test_bias_and_harmonics_check_the_range_without_dc(tmp_path):
+    """A bias analysis needs DC below the data: from the circuit model when there is one; the harmonics of a harmonic
+    balance must lie inside the data or the block switches."""
+    from hertzon.solver.circuit import CircuitModel, NPortData, linear_network
+    p, top, blk = _em_project(tmp_path)
+    net = linear_network(p, top, np.array([0.0, 1e9, 2e9, 3e9]), dc_point=True)
+    nd = net.blocks["EM1"]
+    assert isinstance(nd, NPortData) and nd.dc is None and not net.warnings
+    blk.props[CK.CIRCUIT_MODEL] = "Line"
+    net = linear_network(p, top, np.array([0.0, 1e9, 2e9, 3e9]), dc_point=True)
+    nd = net.blocks["EM1"]
+    assert isinstance(nd.dc, CircuitModel) and "DC point" in net.warnings[0]
+    ydc = net.block_y("EM1", 0.0)
+    assert np.allclose(ydc, net.blocks["EM1"].dc.y_at(0.0))
+    with pytest.raises(CircuitError, match=r"harmonics up to 4"):
+        blk.props[CK.CIRCUIT_MODEL] = ""
+        linear_network(p, top, 1e9 * np.arange(5.0), dc_point=True, span=" (harmonics up to 4 x 1 GHz)")
+
+
+def test_editor_switches_the_model_and_colours_the_block(tmp_path):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from hertzon.gui.circuit_editor import CircuitEditor, ComponentDialog, ComponentItem
+    from hertzon.gui.doc import Document
+    from hertzon.model.circuit_layout import LINK
+    p, top, blk = _em_project(tmp_path)
+    top.setups.append(circuit_setup())
+    top.setups[0].sweeps[0].props.update({"Start": "1GHz", "Stop": "3GHz", "Count": "3"})
+    p.design("Filter").settings[LINK] = "Line"
+    doc = Document(p)
+    doc.set_design("Top")
+    ed = CircuitEditor(doc)
+    ed.rebuild()
+
+    def state():
+        return next(i for i in ed.scene.items() if isinstance(i, ComponentItem) and i.comp.name == "EM1").state
+    assert state() == "data"
+    ed.set_block_model("EM1", CK.MODEL_CIRCUIT)
+    ed.rebuild()
+    assert blk.props[CK.MODEL] == CK.MODEL_CIRCUIT and state() == "circuit"
+    doc.undo()
+    ed.rebuild()
+    blk = doc.design.components[0]
+    assert blk.props.get(CK.MODEL, CK.MODEL_DATA) == CK.MODEL_DATA
+    top = doc.design
+    top.setups[0].sweeps[0].props["Stop"] = "4GHz"             # beyond the data: switched, or no model
+    ed.rebuild()
+    assert state() == "auto"
+    blk.props[CK.CIRCUIT_MODEL] = ""
+    ed.rebuild()
+    assert state() == "error"
+    dlg = ComponentDialog(doc, blk)                             # the dialog offers the other circuit designs
+    names = [dlg.circuit_model.itemData(i) for i in range(dlg.circuit_model.count())]
+    assert names == ["", "Line"]
+    dlg.model.setCurrentIndex(1)
+    dlg.circuit_model.setCurrentIndex(1)
+    assert dlg.values()[1][CK.MODEL] == CK.MODEL_CIRCUIT and dlg.values()[1][CK.CIRCUIT_MODEL] == "Line"
+    ed.add_em_block("Filter", 300, 0)                           # a generated layout brings its circuit along
+    assert doc.design.components[-1].props[CK.CIRCUIT_MODEL] == "Line"
