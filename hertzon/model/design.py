@@ -391,6 +391,14 @@ class Project:
                     f = c.props.get("File", "") if c.kind == "Import" else ""
                     if f and not Path(f).is_absolute():
                         c.props["File"] = str(base / f)
+            # model and data files of circuit parts (Verilog-A, SPICE libraries, Touchstone), so that an example
+            # opened as an untitled copy still finds them
+            for c in d.components:
+                for key in ("File", "OSDI"):
+                    v = c.props.get(key, "") if c.type in ("DEVICE", "SPICELIB", "SNP") else ""
+                    if v.strip():
+                        c.props[key] = ";".join(str(base / x.strip()) if x.strip() and not Path(x.strip()).is_absolute()
+                                                else x for x in v.split(";"))
         return p
 
     def clone(self) -> "Project":
