@@ -1119,9 +1119,45 @@ def t_set_sweep(args):
         s = ctx.des.setup(args.get("setup") or "Setup1")
     except KeyError:
         raise ToolError(f"Setup '{args.get('setup')}' not found") from None
+    f_before = _open_region_f(ctx, s)
     w = _set_sweep(s, args.get("name") or "Sweep", args.get("props"))
     commit(ctx, f"sweep {w.name}")
-    return {"setup": s.name, "sweep": w.name, "props": w.props}
+    out = {"setup": s.name, "sweep": w.name, "props": w.props}
+    f_after = _open_region_f(ctx, s)
+    if f_after != f_before:
+        where = f"the lowest sweep frequency, {f_after / 1e9:.4g} GHz" if f_after else "the solution frequency"
+        out["note"] = (f"The automatic air box of {s.name} is now sized for {where}: the model changed, so the next "
+                       f"analysis (also run_simulation(sweep=...)) adapts a new mesh instead of reusing the stored "
+                       f"one. A fixed padding (set_design settings AutoOpenPadding) keeps the air box and the mesh "
+                       f"when sweeps are switched on or off.")
+    return out
+
+
+def _open_region_f(ctx: Ctx, s: Setup):
+    """Frequency the automatic open region of setup s is sized for when a sweep sizes it, else None."""
+    from ..solver.keys import open_region_frequency
+    try:
+        return open_region_frequency(ctx.proj, ctx.des, s)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _stale_mesh_reason(ctx: Ctx, setup: str, out: Path) -> str:
+    """Why the stored adaptive mesh of `setup` cannot be reused for a single sweep ("" when it can)."""
+    from ..solver.keys import model_key
+    try:
+        with np.load(out / "amr_state.npz", allow_pickle=False) as z:
+            stored = str(z["key"])
+    except Exception:  # noqa: BLE001
+        return "there is no adaptive mesh of the setup"
+    s = ctx.des.setup(setup)
+    if stored == model_key(ctx.proj, ctx.des, s):
+        return ""
+    f = _open_region_f(ctx, s)
+    if f:
+        return (f"the design changed since the setup was analyzed (for example a switched-on sweep enlarged the "
+                f"automatic air box to {f / 1e9:.4g} GHz)")
+    return "the design changed since the setup was analyzed"
 
 
 def t_set_far_field_sphere(args):
@@ -1659,9 +1695,14 @@ def t_run_simulation(args):
     p = S.procs.get(key)
     if p is not None and p.poll() is None:
         raise ToolError("This setup is already running (abort_simulation to stop it)")
+    note = ""
     if sweep:
         if not (out / "amr_state.npz").exists():
             raise ToolError("Analyze the setup first; a single sweep reuses its adaptive mesh")
+        why = _stale_mesh_reason(ctx, setup, out)
+        if why:
+            note = (f"The stored adaptive mesh cannot be reused: {why}. The setup is analyzed anew (adaptive passes, "
+                    f"then '{sweep}' and the switched-on sweeps).")
         for f in list(out.glob(f"sparams_{sweep}.npz")) + list(out.glob(f"fields_{sweep}.npz")) + \
                 list(out.glob(f"solution_{sweep}.npz")):
             f.unlink(missing_ok=True)
@@ -1695,7 +1736,7 @@ def t_run_simulation(args):
                                     cwd=str(Path(ctx.proj.path).parent), **kw)
     log.close()
     return {"started": True, "in_window": False, "setup": setup, "results": str(out), "cores": n,
-            "next": "get_status with wait_seconds to follow the passes"}
+            **({"note": note} if note else {}), "next": "get_status with wait_seconds to follow the passes"}
 
 
 def _log_tail(out: Path, n: int = 12) -> list[str]:
@@ -2500,7 +2541,9 @@ TOOLS = [
     Tool("run_simulation", "Analyze a setup (adaptive passes, sweeps, far fields). Runs in the Hertzon window "
          "when linked, otherwise as a background process. Returns at once; follow with get_status.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string", "description": "only this sweep, "
-                                                         "reusing the adaptive mesh"},
+                                                         "reusing the adaptive mesh of the analyzed setup (when the "
+                                                         "model is unchanged: a switched-on sweep that enlarges the "
+                                                         "automatic air box needs a new adaptive mesh)"},
                   "mesh_only": {"type": "boolean"}, "cores": {"type": "integer"},
                   "skip_validation": {"type": "boolean"}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_run_simulation),
