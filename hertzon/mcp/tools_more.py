@@ -790,14 +790,48 @@ def t_circuit_layout(args):
             d3 = proj.design(args["layout"]) if args.get("layout") else ctx.des
         except KeyError:
             raise ToolError(f"No design '{args['layout']}'") from None
+        from ..model.circuit_from_3d import EM_OF
+        before = {x.name for x in proj.designs}
         try:
-            d, notes = circuit_from_design(proj, d3, args.get("name") or None)
+            d, notes = circuit_from_design(proj, d3, args.get("name") or None, bool(args.get("blocks", True)))
         except Exception as e:  # noqa: BLE001
             raise ToolError(f"No circuit could be made: {type(e).__name__}: {e}") from None
+        blocks = [x.name for x in proj.designs if x.name not in before and x.settings.get(EM_OF)]
         _new_design_ctx(ctx, d, f"circuit from {d3.name}")
-        return {"circuit": d.name, "from": d3.name, "notes": notes,
+        return {"circuit": d.name, "from": d3.name, "notes": notes, "em_blocks": blocks,
                 "components": sum(1 for c in d.components if c.type not in ("LABEL", "GND")),
-                "next": "get_circuit / analyze the circuit and compare it with the 3D results before tuning"}
+                "next": ("run_simulation on each em_blocks design first; " if blocks else "")
+                + "run_simulation(design=circuit) and compare it with the 3D results; circuit_layout("
+                  "action='calibrate') fits correction factors once the 3D design is solved"}
+    if action in ("sync", "calibrate"):
+        from ..model import circuit_sync as CSY
+        circ = ctx.des
+        if getattr(circ, "kind", "3d") != "circuit":
+            cs = CSY.circuits_of(proj, circ)
+            if not cs:
+                raise ToolError(f"{circ.name} has no circuit made by circuit_layout(action='from_3d')")
+            circ = cs[-1]
+        try:
+            if action == "calibrate":
+                r = CSY.calibrate(proj, circ, tuple(args.get("factors") or CSY.DEFAULT_CAL))
+                commit(Ctx(proj, circ, ctx.gui), f"calibrate {circ.name}")
+                return {"circuit": circ.name, "solution": r.solution, "factors": r.values,
+                        "rms_before": r.rms_before, "rms_after": r.rms_after, "warnings": r.warnings}
+            diffs = CSY.compare(proj, circ)
+            direction = args.get("direction")
+            rows = [{"kind": x.kind, "name": x.name, "circuit": x.circuit, "3d": x.model,
+                     "directions": list(x.directions), **({"note": x.note} if x.note else {})} for x in diffs]
+            if not direction:
+                return {"circuit": circ.name, "differences": rows,
+                        "next": "circuit_layout(action='sync', direction='to_circuit' or 'to_3d') takes them"}
+            if direction not in (CSY.TO_CIRCUIT, CSY.TO_3D):
+                raise ToolError("direction is 'to_circuit' or 'to_3d'")
+            done = CSY.apply(proj, circ, [(x, direction) for x in diffs if direction in x.directions])
+        except CSY.SyncError as e:
+            raise ToolError(str(e)) from None
+        commit(Ctx(proj, circ, ctx.gui), f"sync {circ.name} {direction}")
+        return {"circuit": circ.name, "done": done,
+                "skipped": [r for r in rows if direction not in r["directions"]]}
     if ctx.des.kind == "circuit":
         circ = ctx.des
         names = [x.name for x in proj.designs if x.settings.get(CL.LINK) == circ.name]
@@ -826,7 +860,7 @@ def t_circuit_layout(args):
         commit(Ctx(proj, circ, ctx.gui), f"update {circ.name} from {lname}")
         S.designs[_abspath(proj.path)] = circ.name if proj.path else None
         return {"circuit": circ.name, "from": lname, "changes": changes}
-    raise ToolError("action is 'create', 'update', 'to_schematic' or 'from_3d'")
+    raise ToolError("action is 'create', 'update', 'to_schematic', 'from_3d', 'sync' or 'calibrate'")
 
 
 def t_import_3d_designs(args):
@@ -1121,8 +1155,15 @@ TOOLS = [
          "ground, traces end to end, lumped parts, ports, 3D design blocks with their geometry; every dimension a "
          "variable like MS1_L); 'update' rebuilds an existing layout from the schematic; 'to_schematic' copies the "
          "layout's dimensions back into the schematic; 'from_3d' recognizes a new circuit design (MLIN, MTEE, MCLIN, "
-         "... with the 3D variables) from a planar microstrip 3D design and lists what has no circuit model.",
-         _schema({"action": {"type": "string", "enum": ["create", "update", "to_schematic", "from_3d"]},
+         "... with the 3D variables) from a planar microstrip 3D design, copper without a circuit model as 3D design "
+         "blocks; 'sync' lists (or with direction takes) the differences between such a circuit and its 3D design; "
+         "'calibrate' fits correction factors (Cal_L, Cal_W, Cal_Er) to the solved 3D design.",
+         _schema({"action": {"type": "string", "enum": ["create", "update", "to_schematic", "from_3d", "sync",
+                                                         "calibrate"]},
+                  "blocks": {"type": "boolean", "description": "from_3d: copper without a circuit model as 3D "
+                                                                "design blocks (default true)"},
+                  "direction": {"type": "string", "enum": ["to_circuit", "to_3d"]},
+                  "factors": {"type": "array", "items": {"type": "string", "enum": ["Cal_L", "Cal_W", "Cal_Er"]}},
                   "layout": {"type": "string", "description": "layout design (default: the newest of the "
                                                               "circuit; from_3d: the shown 3D design)"},
                   "name": {"type": "string", "description": "name of a new layout or circuit"}}), t_circuit_layout),

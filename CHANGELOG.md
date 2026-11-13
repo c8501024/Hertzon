@@ -6,6 +6,11 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Create Circuit: 3D design blocks, Calibrate to 3D, Sync with 3D.** Copper without a circuit model (a
+  patch, a junction with two lines on one side) becomes a small 3D design with Lumped Ports at the lines, used
+  as a block in the circuit. *Calibrate to 3D* fits correction factors (Cal_L, Cal_W, optionally Cal_Er) of the
+  circuit to the solved 3D design; *Sync with 3D* lists the differences between the circuit and its 3D design
+  and takes each in the chosen direction. Also `circuit_layout(action='sync' / 'calibrate')`.
 - **Create Circuit from a 3D design.** Simulation › Circuit › Create Circuit recognizes a circuit design from
   planar microstrip: lines, stubs, coupled lines, tees, crosses, corners, mitered bends, steps, gaps, vias,
   rat-race rings, Lumped RLC parts and ports, every dimension linked to the 3D variable of the same value. A

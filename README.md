@@ -194,7 +194,8 @@ library with search ([docs/CIRCUIT.md](docs/CIRCUIT.md), [tutorial](docs/TUTORIA
   *Update 3D Layout* and *Update Schematic* keep the two in step in both directions.
 * **Circuit from 3D**: *Create Circuit* recognizes a schematic (lines, stubs, coupled lines, junctions, steps,
   gaps, vias, rings, lumped parts) from a planar microstrip 3D design, its dimensions linked to the 3D variables;
-  what has no circuit model is listed, not guessed.
+  copper without a circuit model becomes a 3D design block. *Calibrate to 3D* fits correction factors to the
+  solved 3D design, *Sync with 3D* takes the differences between the two in the direction you choose.
 * **Transistors and diodes**: SPICE libraries of process design kits (e.g. IHP SG13G2), model cards and Verilog-A
   models in the same schematic. Hertzon solves the schematic and its linear network; the bias point and the
   small-signal device admittances come from [ngspice](https://ngspice.sourceforge.io), the harmonic balance from
