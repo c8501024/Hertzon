@@ -6,6 +6,8 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Realized gain per polarization:** RealizedGainTheta, RealizedGainPhi, RealizedGainLHCP and RealizedGainRHCP
+  in far-field reports, 3D polar plots and equations (the component gains times accepted / incident power) (#439).
 - **Footprints of circuit parts and the board in 3D.** Parts carry a KiCad footprint and symbol (`.kicad_mod`,
   `.kicad_sym`, also the downloads of SamacSys, SnapEDA, Ultra Librarian) and the assignment of pads to the
   terminals of their model, shown to scale in the Component dialog. Create 3D Layout puts R, L and C on their
