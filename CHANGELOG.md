@@ -5,6 +5,16 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Nonlinear devices in circuit designs.** Transistors and diodes from SPICE libraries of process design kits
+  (subcircuits), model cards or Verilog-A models, DC voltage and current sources, a SPICE Library part. Hertzon
+  solves the schematic and reduces all linear parts (lines, junctions, 3D blocks) to one network at the device
+  pins, ports and sources. With devices, the S-parameter analysis takes the bias point and the small-signal device
+  admittances from ngspice; a new **Harmonic Balance** analysis (single tone, swept drive power) runs circuitRF on
+  Hertzon's network. Both programs are optional and installed separately. Checked against ngspice alone
+  (IHP SG13G2 NMOS and HBT to 30 GHz, within 1e-5) and an ngspice transient (harmonics within 0.25 %).
+- Units V, mV, A, mA, uA, kohm in expressions.
+
 ### Changed
 - **Filter Design and Antenna Design are gone from the ribbon and the Tools menu.** Everything they offered is in
   **Tools › Design Wizard**: the cards *Rectangular patch*, *Hairpin bandpass* and the new card

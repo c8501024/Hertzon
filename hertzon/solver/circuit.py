@@ -141,6 +141,7 @@ class CircuitResult:
     z0: np.ndarray                    # (N,) port reference impedances
     ports: list[str]
     warnings: list[str] = field(default_factory=list)
+    extra: dict = field(default_factory=dict)          # e.g. the operating point of a circuit with devices
 
 
 def _params(c: CK.Component, ev, subst: dict) -> object:
@@ -334,28 +335,75 @@ def auto_junctions(design: Design) -> bool:
     return design.settings.get(CK.AUTO, "True") != "False"
 
 
-def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) -> CircuitResult:
-    """S-parameters at freqs. With the full-wave line model the cross-sections of the lines are solved first
-    (or read from the cache); progress(done, total, text) reports those solves."""
+@dataclass
+class LinearNetwork:
+    """The linear parts of a circuit, evaluated once: assemble(f) gives the nodal admittance matrix at f."""
+    comps: list
+    nodes_of: dict[str, list[int]]
+    n: int                                   # nodes without ground
+    values: dict
+    blocks: dict[str, NPortData]
+    tables: dict
+    open_ends: dict
+    where: dict
+    warnings: list[str]
+
+    def assemble(self, f: float, short: float | None = None) -> np.ndarray:
+        """Nodal admittance matrix (n x n, ground removed) of the linear parts at frequency f, GMIN included.
+        short: largest admittance of a one- or two-terminal part (an ideal short at DC is 1e12 S, which is too
+        stiff for a bias point solved in double precision; 1e6 S, 1 micro-ohm, is as good a short there)."""
+        n, nodes_of = self.n, self.nodes_of
+        Y = np.zeros((n + 1, n + 1), complex)
+        for c in self.comps:
+            nd = nodes_of[c.name]
+            if c.type in CK.NPORT_TYPES:
+                Sb, zb, _ = self.blocks[c.name].at(f)
+                m = Sb.shape[0]
+                r = 1.0 / np.sqrt(zb)
+                Ym = (r[:, None] * (np.eye(m) - Sb) @ np.linalg.inv(np.eye(m) + Sb)) * r[None, :]
+            elif c.type == "MLIN" and 0 in nd and nd[0] != nd[1]:
+                # a microstrip line to ground ends in a via (as laid out): a shorted stub at its other pin
+                q, sb = self.values[c.name]
+                z0, g = (self.tables[c.name].at(f, sb["cond"]) if c.name in self.tables else
+                         TL.microstrip(f, q["W"], sb["h"], sb["t"], sb["er"], sb["tand"], sb["cond"]))
+                y = TL.shorted_line_y(z0, g * q["L"], 1j * 2 * np.pi * f * TL.via_inductance(q["W"], sb["h"]))
+                Ym = np.diag([y, 0.0]) if nd[0] != 0 else np.diag([0.0, y])
+            else:
+                Ym = element_y(c, f, self.values[c.name], self.tables.get(c.name))
+            if Ym is None:
+                continue
+            if short is not None and Ym.shape[0] <= 2 and c.type not in CK.NPORT_TYPES:
+                big = np.max(np.abs(Ym))
+                if big > short:
+                    Ym = Ym * (short / big)
+            if self.open_ends.get(c.name):
+                q, sb = self.values[c.name]
+                om = 2 * np.pi * max(f, 1.0)
+                z0, g = TL.microstrip(max(f, 1.0), q["W"], sb["h"], sb["t"], sb["er"], sb["tand"], sb["cond"])
+                ce = g.imag / om / z0 * TL.open_end_dl(f, q["W"], sb["h"], sb["t"], sb["er"])
+                Ym = Ym.copy()
+                for j in self.open_ends[c.name]:
+                    Ym[j, j] += 1j * om * ce
+            Y[self.where[c.name]] += Ym
+        return Y[1:, 1:] + GMIN * np.eye(n)
+
+
+def kron(Y: np.ndarray, keep: np.ndarray) -> np.ndarray:
+    """Admittance matrix at the nodes keep (0-based) with all other nodes eliminated."""
+    inner = np.array(sorted(set(range(Y.shape[0])) - set(np.asarray(keep).tolist())), int)
+    Ykk = Y[np.ix_(keep, keep)]
+    if inner.size:
+        Ykk = Ykk - Y[np.ix_(keep, inner)] @ np.linalg.solve(Y[np.ix_(inner, inner)], Y[np.ix_(inner, keep)])
+    return Ykk
+
+
+def linear_network(project: Project, design: Design, freqs: np.ndarray, progress=None) -> LinearNetwork:
+    """Evaluate the linear parts of a circuit for the frequencies freqs (data ranges are checked against them).
+    With the full-wave line model the cross-sections of the lines are solved first (or read from the cache);
+    progress(done, total, text) reports those solves."""
     ev = design.evaluator(project)
-    ids, _ = CK.nets(design.components, design.wires)
     comps, nodes_of, n, _ = CK.netlist(design.components, design.wires, auto_junctions(design))
-    ports = CK.port_order(comps)
-    if not ports:
-        raise CircuitError("The circuit has no port. Add a Power Port and connect it.")
     warnings: list[str] = []
-    port_nodes, z_ref = [], []
-    for c in ports:
-        node = ids[CK.pins(c)[0]]
-        if node == 0:
-            raise CircuitError(f"{c.name} is connected to ground")
-        if node in port_nodes:
-            raise CircuitError(f"{c.name} is on the same node as another port")
-        port_nodes.append(node)
-        z = ev.value(c.props.get("Z0", "50ohm"))
-        if z <= 0:
-            raise CircuitError(f"{c.name}: Z0 must be positive")
-        z_ref.append(z)
     base = Path(project.path).parent if project.path else None
     blocks: dict[str, NPortData] = {}
     for c in comps:
@@ -393,11 +441,6 @@ def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) 
             except XS.XSecError as e:
                 raise CircuitError(f"Full-wave line model: {e}") from e
             tables = {n: solved[x] for n, x in xs.items()}
-    P = len(ports)
-    S_out = np.zeros((len(freqs), P, P), complex)
-    pidx = np.array(port_nodes) - 1
-    inner = np.array(sorted(set(range(n)) - set(pidx.tolist())), int)
-    sq = np.sqrt(np.array(z_ref))
     where = {c.name: np.ix_(nodes_of[c.name], nodes_of[c.name]) for c in comps}
     # the free ends of coupled lines (a pin on no other part) carry the open end capacitance, as in the layout
     uses: dict[int, int] = {}
@@ -406,43 +449,53 @@ def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) 
             uses[x] = uses.get(x, 0) + 1
     open_ends = {c.name: [j for j, x in enumerate(nodes_of[c.name]) if x != 0 and uses[x] == 1]
                  for c in comps if c.type == "MCLIN"}
+    return LinearNetwork(comps, nodes_of, n, values, blocks, tables, open_ends, where, warnings)
+
+
+def circuit_ports(project: Project, design: Design) -> tuple[list, list[int], list[float]]:
+    """The power ports in S-parameter order, their nodes (1-based) and reference impedances."""
+    ev = design.evaluator(project)
+    comps, nodes_of, _, _ = CK.netlist(design.components, design.wires, auto_junctions(design))
+    ports = CK.port_order(comps)
+    if not ports:
+        raise CircuitError("The circuit has no port. Add a Power Port and connect it.")
+    port_nodes, z_ref = [], []
+    for c in ports:
+        node = nodes_of[c.name][0]
+        if node == 0:
+            raise CircuitError(f"{c.name} is connected to ground")
+        if node in port_nodes:
+            raise CircuitError(f"{c.name} is on the same node as another port")
+        port_nodes.append(node)
+        z = ev.value(c.props.get("Z0", "50ohm"))
+        if z <= 0:
+            raise CircuitError(f"{c.name}: Z0 must be positive")
+        z_ref.append(z)
+    return ports, port_nodes, z_ref
+
+
+def y_to_s(Y: np.ndarray, z_ref) -> np.ndarray:
+    sq = np.sqrt(np.asarray(z_ref, float))
+    Yn = sq[:, None] * Y * sq[None, :]
+    P = Y.shape[0]
+    return (np.eye(P) - Yn) @ np.linalg.inv(np.eye(P) + Yn)
+
+
+def analyze(project: Project, design: Design, freqs: np.ndarray, progress=None) -> CircuitResult:
+    """S-parameters at freqs. With the full-wave line model the cross-sections of the lines are solved first
+    (or read from the cache); progress(done, total, text) reports those solves. Circuits with nonlinear parts
+    go to the external circuit engine (bias point, then the small-signal S-parameters about it)."""
+    if any(c.type in CK.NONLINEAR_TYPES for c in design.components):
+        from .nonlinear import bias_sparams
+        return bias_sparams(project, design, freqs, progress)
+    ports, port_nodes, z_ref = circuit_ports(project, design)
+    net = linear_network(project, design, freqs, progress)
+    P = len(ports)
+    S_out = np.zeros((len(freqs), P, P), complex)
+    pidx = np.array(port_nodes) - 1
     for k, f in enumerate(freqs):
-        Y = np.zeros((n + 1, n + 1), complex)
-        for c in comps:
-            nd = nodes_of[c.name]
-            if c.type in CK.NPORT_TYPES:
-                Sb, zb, _ = blocks[c.name].at(f)
-                m = Sb.shape[0]
-                r = 1.0 / np.sqrt(zb)
-                Ym = (r[:, None] * (np.eye(m) - Sb) @ np.linalg.inv(np.eye(m) + Sb)) * r[None, :]
-            elif c.type == "MLIN" and 0 in nd and nd[0] != nd[1]:
-                # a microstrip line to ground ends in a via (as laid out): a shorted stub at its other pin
-                q, sb = values[c.name]
-                z0, g = (tables[c.name].at(f, sb["cond"]) if c.name in tables else
-                         TL.microstrip(f, q["W"], sb["h"], sb["t"], sb["er"], sb["tand"], sb["cond"]))
-                y = TL.shorted_line_y(z0, g * q["L"], 1j * 2 * np.pi * f * TL.via_inductance(q["W"], sb["h"]))
-                Ym = np.diag([y, 0.0]) if nd[0] != 0 else np.diag([0.0, y])
-            else:
-                Ym = element_y(c, f, values[c.name], tables.get(c.name))
-            if Ym is None:
-                continue
-            if open_ends.get(c.name):
-                q, sb = values[c.name]
-                om = 2 * np.pi * max(f, 1.0)
-                z0, g = TL.microstrip(max(f, 1.0), q["W"], sb["h"], sb["t"], sb["er"], sb["tand"], sb["cond"])
-                ce = g.imag / om / z0 * TL.open_end_dl(f, q["W"], sb["h"], sb["t"], sb["er"])
-                Ym = Ym.copy()
-                for j in open_ends[c.name]:
-                    Ym[j, j] += 1j * om * ce
-            Y[where[c.name]] += Ym
-        Y = Y[1:, 1:] + GMIN * np.eye(n)
-        Ypp = Y[np.ix_(pidx, pidx)]
-        if inner.size:
-            Ypi, Yip, Yii = Y[np.ix_(pidx, inner)], Y[np.ix_(inner, pidx)], Y[np.ix_(inner, inner)]
-            Ypp = Ypp - Ypi @ np.linalg.solve(Yii, Yip)
-        Yn = sq[:, None] * Ypp * sq[None, :]
-        S_out[k] = (np.eye(P) - Yn) @ np.linalg.inv(np.eye(P) + Yn)
-    return CircuitResult(np.asarray(freqs, float), S_out, np.array(z_ref), [c.name for c in ports], warnings)
+        S_out[k] = y_to_s(kron(net.assemble(f), pidx), z_ref)
+    return CircuitResult(np.asarray(freqs, float), S_out, np.array(z_ref), [c.name for c in ports], net.warnings)
 
 
 def run_setup(project: Project, design: Design, setup: Setup, progress=None) -> tuple[Path, list[str]]:
@@ -453,6 +506,9 @@ def run_setup(project: Project, design: Design, setup: Setup, progress=None) -> 
     out = results_dir(project.path, design.name, setup.name)
     out.mkdir(parents=True, exist_ok=True)
     st = ResultStore(out)
+    if setup.props.get("CircuitAnalysis", "S-Parameters") == "Harmonic Balance":
+        from .nonlinear import run_harmonic_balance
+        return out, run_harmonic_balance(project, design, setup, st)
     for old in out.glob("sparams_*.npz"):
         old.unlink()
     warns: list[str] = []
@@ -467,6 +523,10 @@ def run_setup(project: Project, design: Design, setup: Setup, progress=None) -> 
                  for i, n in enumerate(res.ports)]
         st.save_sparams(sw.name, res.freq, res.S, res.z0, ports)
         warns += res.warnings
+        if res.extra.get("operating_point"):
+            st.write_json("operating_point.json", {"engine": "ngspice (bias point and small-signal device "
+                                                             "admittances); circuit: Hertzon",
+                                                   **res.extra["operating_point"]})
     st.write_json("ports.json", ports)
     st.write_json("status.json", {"state": "done", "finished": time.time(), "circuit": True})
     return out, list(dict.fromkeys(warns))

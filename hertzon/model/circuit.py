@@ -128,13 +128,34 @@ TYPES: dict[str, TypeInfo] = {
                     "Data"),
     "EM": TypeInfo("3D Design", "EM", {"Design": "", "Solution": ""}, [],
                    "S-parameters of a 3D design of this project, ports against ground", "Data"),
+    # ---- nonlinear (simulated by an external circuit engine, see hertzon/solver/nonlinear.py)
+    "DEVICE": TypeInfo("Nonlinear Device", "Q", {"Kind": "Subcircuit", "Model": "", "Pins": "c b e",
+                                                  "Params": "", "File": ""}, [],
+                       "Transistor or diode from a compact model. Kind Subcircuit: a .subckt of a SPICE Library "
+                       "(PDK); Model card: a .model of a SPICE Library (D, NPN/PNP, NMOS/PMOS, NJF/PJF); "
+                       "Verilog-A: File is a .va source or a compiled .osdi. Pins names the terminals in the "
+                       "model's order, Params holds instance parameters such as w=1u l=0.13u",
+                       "Nonlinear"),
+    "SPICELIB": TypeInfo("SPICE Library", "LIB", {"File": "", "Section": "", "OSDI": ""}, [],
+                         "Model library of the devices: a SPICE file read with .lib File Section (Section empty: "
+                         ".include). OSDI lists compiled Verilog-A models the library needs, separated by ;",
+                         "Nonlinear"),
+    "VDC": TypeInfo("DC Voltage Source", "VDC", {"V": "1V"}, [(0, -30), (0, 30)],
+                    "Ideal DC voltage source: the top pin is positive. A short circuit for the RF signal",
+                    "Nonlinear"),
+    "IDC": TypeInfo("DC Current Source", "IDC", {"I": "1mA"}, [(0, -30), (0, 30)],
+                    "Ideal DC current source: I flows into the circuit at the top pin. Open for the RF signal",
+                    "Nonlinear"),
 }
 NPORT_TYPES = ("SNP", "EM")
 LINE_TYPES = ("MLIN", "MLOC", "MLSC", "MCLIN", "MTEE", "MCORN", "MMBEND", "MSTEP", "MGAP", "MCROSS",
               "SLIN", "CPWLIN")
 LINE_MODEL = "LineModel"            # design setting: "Closed form" or "Full wave" (cross-section solve)
 FULL_WAVE_TYPES = ("MLIN", "MLOC", "MLSC", "CPWLIN")     # lines the full-wave line model applies to
-CATEGORIES = ("Basic", "Lumped Elements", "Transmission Lines", "Data")
+DEVICE_TYPES = ("DEVICE",)          # drawn as a block with one pin per terminal
+NONLINEAR_TYPES = ("DEVICE", "VDC", "IDC")       # parts only an external circuit engine simulates
+BLOCK_TYPES = NPORT_TYPES + DEVICE_TYPES
+CATEGORIES = ("Basic", "Lumped Elements", "Transmission Lines", "Data", "Nonlinear")
 BLOCK_W = 100                       # width of an N-port block
 
 
@@ -152,7 +173,15 @@ def nport_pins(n: int) -> list[tuple[int, int]]:
     return out
 
 
+def device_pins(c: Component) -> list[str]:
+    """Terminal names of a nonlinear device, in the model's order."""
+    return c.props.get("Pins", "").replace(",", " ").split()
+
+
 def nport_count(c: Component) -> int:
+    """Pins of a block: ports of an N-port, terminals of a device."""
+    if c.type in DEVICE_TYPES:
+        return max(1, len(device_pins(c)))
     try:
         return max(1, int(c.props.get("Ports", "0") or 0))
     except ValueError:
@@ -172,7 +201,7 @@ def rotate(dx: int, dy: int, rot: int) -> tuple[int, int]:
 
 def pin_offsets(c: Component) -> list[tuple[int, int]]:
     """Pin offsets at rotation 0, not mirrored."""
-    return nport_pins(nport_count(c)) if c.type in NPORT_TYPES else TYPES[c.type].pins
+    return nport_pins(nport_count(c)) if c.type in BLOCK_TYPES else TYPES[c.type].pins
 
 
 def pins(c: Component) -> list[tuple[int, int]]:

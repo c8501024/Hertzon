@@ -36,7 +36,8 @@ SIZES = {"GND": (24, 28), "MVIA": (28, 44), "PORT": (26, 80), "LABEL": (20, 20),
          "TLSC": (24, 80), "MLIN": (80, 20), "MLOC": (18, 70), "MLSC": (24, 80), "MCLIN": (80, 40),
          "MTEE": (60, 40), "MCORN": (60, 60), "MMBEND": (60, 60), "MSTEP": (60, 22), "MGAP": (60, 18),
          "MCROSS": (60, 60), "SLIN": (80, 24), "CPWLIN": (80, 26), "COAX": (80, 22), "SUBST": (80, 46), "SRLC": (80, 20), "PRLC": (80, 40),
-         "ATTEN": (60, 24), "DCBLOCK": (60, 44), "DCFEED": (60, 44)}
+         "ATTEN": (60, 24), "DCBLOCK": (60, 44), "DCFEED": (60, 44), "VDC": (28, 60), "IDC": (28, 60),
+         "SPICELIB": (80, 46)}
 
 
 def snap(v: float) -> int:
@@ -44,7 +45,7 @@ def snap(v: float) -> int:
 
 
 def body_size(c: CK.Component) -> tuple[int, int]:
-    if c.type in CK.NPORT_TYPES:
+    if c.type in CK.BLOCK_TYPES:
         return CK.BLOCK_W, CK.block_height(CK.nport_count(c))
     return SIZES.get(c.type, (60, 24))
 
@@ -93,6 +94,25 @@ def _small_text(p: QPainter, rect: QRectF, text: str, size: float = 6.5) -> None
     p.save()
     p.setFont(f)
     p.drawText(rect, Qt.AlignCenter, text)
+    p.restore()
+
+
+def _item_transform(c: CK.Component) -> QTransform:
+    """Rotation and mirror of a part's item (see CompItem.sync_transform)."""
+    tr = QTransform()
+    tr.rotate(c.rot)
+    if c.mirror:
+        tr.scale(1, -1)
+    return tr
+
+
+def _upright(p: QPainter, c: CK.Component, at: QPointF, draw) -> None:
+    """Run draw() with the origin at the symbol point at and the part's rotation and mirror undone, so that
+    text inside a turned or mirrored block reads normally."""
+    p.save()
+    p.translate(at)
+    p.setTransform(_item_transform(c).inverted()[0], True)
+    draw()
     p.restore()
 
 
@@ -282,7 +302,27 @@ def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = N
         p.drawRect(QRectF(-32, 8, 64, 3))
         p.setPen(QPen(pen.color(), 0.8))
         _small_text(p, QRectF(-40, -22, 80, 11), "SUBSTRATE", 5.5)
-    elif t in CK.NPORT_TYPES:
+    elif t in ("VDC", "IDC"):
+        # DC source: pin 1 at the top (positive / current out), pin 2 at the bottom
+        p.drawLine(0, -30, 0, -12)
+        p.drawLine(0, 12, 0, 30)
+        p.setBrush(QColor("#ffffff"))
+        p.drawEllipse(QPointF(0, 0), 12, 12)
+        p.setBrush(Qt.NoBrush)
+        if t == "VDC":
+            p.drawLine(QPointF(-4, -6), QPointF(4, -6))
+            p.drawLine(QPointF(0, -10), QPointF(0, -2))
+            p.drawLine(QPointF(-4, 6), QPointF(4, 6))
+        else:
+            p.drawLine(QPointF(0, 7), QPointF(0, -7))
+            p.drawLine(QPointF(0, -7), QPointF(-4, -2))
+            p.drawLine(QPointF(0, -7), QPointF(4, -2))
+    elif t == "SPICELIB":
+        p.setBrush(QColor("#ffffff"))
+        p.drawRect(QRectF(-40, -23, 80, 46))
+        _small_text(p, QRectF(-40, -20, 80, 20), "SPICE", 9)
+        _small_text(p, QRectF(-40, 0, 80, 20), "LIBRARY", 6)
+    elif t in CK.BLOCK_TYPES:
         w, h = body_size(c)
         p.setBrush(QColor("#ffffff"))
         p.drawRoundedRect(QRectF(-w / 2, -h / 2, w, h), 6, 6)
@@ -293,16 +333,22 @@ def paint_symbol(p: QPainter, c: CK.Component, pen: QPen, img: QImage | None = N
             p.drawImage(QRectF(-side / 2, -side / 2, side, side), img)
         else:
             p.setPen(QPen(QColor(MUTED)))
-            _small_text(p, QRectF(-w / 2, -h / 2, w, h), "S" if t == "SNP" else "3D", 12)
-        names = [n for n in c.props.get("PortNames", "").split(",") if n]
+            mark = {"SNP": "S", "EM": "3D"}.get(t) or ("VA" if c.props.get("Kind") == "Verilog-A" else "NL")
+            _upright(p, c, QPointF(0, 0), lambda: _small_text(p, QRectF(-w / 2, -h / 2, w, h), mark, 12))
+        names = ([n for n in c.props.get("PortNames", "").split(",") if n] if t in CK.NPORT_TYPES
+                 else CK.device_pins(c))
         f = QFont(p.font())
         f.setPointSizeF(7)
         p.setFont(f)
         p.setPen(QPen(QColor(MUTED)))
+        tr = _item_transform(c)
         for k, (dx, dy) in enumerate(CK.nport_pins(CK.nport_count(c))):
             label = names[k] if k < len(names) else str(k + 1)
-            r = QRectF(-w / 2 + 3, dy - 7, w / 2 - 6, 14) if dx < 0 else QRectF(3, dy - 7, w / 2 - 6, 14)
-            p.drawText(r, (Qt.AlignLeft if dx < 0 else Qt.AlignRight) | Qt.AlignVCenter, label)
+            sx = tr.map(QPointF(dx, dy)).x()           # the pin's side on screen: the text stays upright
+            al = Qt.AlignLeft if sx < -1 else Qt.AlignRight if sx > 1 else Qt.AlignHCenter
+            r = QRectF(-(w / 2 - 6) / 2, -7, w / 2 - 6, 14)
+            _upright(p, c, QPointF(w / 4 if dx > 0 else -w / 4, dy),
+                     lambda r=r, al=al, label=label: p.drawText(r, al | Qt.AlignVCenter, label))
     if pins:
         p.setPen(Qt.NoPen)
         p.setBrush(PIN)
@@ -410,7 +456,7 @@ class ComponentItem(QGraphicsItem):
 
     def boundingRect(self) -> QRectF:
         w, h = body_size(self.comp)
-        if self.comp.type in CK.NPORT_TYPES:
+        if self.comp.type in CK.BLOCK_TYPES:
             return QRectF(-w / 2 - 14, -h / 2 - 36, w + 28, h + 72)
         r = max(w, h) / 2 + 160                # labels stay upright, beside the part
         return QRectF(-r, -r, 2 * r, 2 * r)
@@ -476,7 +522,7 @@ class ComponentItem(QGraphicsItem):
             p.setPen(QPen(QColor(MUTED)))
             for i, line in enumerate(lines):
                 p.drawText(QRectF(-110, y0 + (i + 1) * lh, 220, lh), Qt.AlignCenter, line)
-        elif h > w and c.type not in CK.NPORT_TYPES:          # vertical part: text to the right (mirrored: left)
+        elif h > w and c.type not in CK.BLOCK_TYPES:          # vertical part: text to the right (mirrored: left)
             x, y0 = (-w / 2 - 6 - 220 if c.mirror else w / 2 + 6), -(1 + len(lines)) * lh / 2
             al = (Qt.AlignRight if c.mirror else Qt.AlignLeft) | Qt.AlignVCenter
             p.setPen(QPen(INKC))

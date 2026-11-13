@@ -18,7 +18,8 @@ LENGTH_UNITS = {
 FREQ_UNITS = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9, "THz": 1e12}
 ANGLE_UNITS = {"deg": math.pi / 180.0, "rad": 1.0, "degree": math.pi / 180.0}
 OTHER_UNITS = {
-    "ohm": 1.0, "Ohm": 1.0, "kOhm": 1e3, "MOhm": 1e6,
+    "ohm": 1.0, "Ohm": 1.0, "kOhm": 1e3, "MOhm": 1e6, "kohm": 1e3, "Mohm": 1e6,
+    "V": 1.0, "mV": 1e-3, "uV": 1e-6, "kV": 1e3, "A": 1.0, "mA": 1e-3, "uA": 1e-6, "nA": 1e-9,
     "nH": 1e-9, "pH": 1e-12, "uH": 1e-6, "mH": 1e-3, "H": 1.0,
     "fF": 1e-15, "pF": 1e-12, "nF": 1e-9, "uF": 1e-6, "F": 1.0,
     "S_per_m": 1.0, "siemens/m": 1.0, "W": 1.0, "mW": 1e-3, "s": 1.0, "ns": 1e-9, "ps": 1e-12,

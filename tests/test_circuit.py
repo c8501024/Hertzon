@@ -197,7 +197,7 @@ def test_part_icons_and_library():
     doc.set_design("Net")
     ed = CircuitEditor(doc)
     cats = [ed.library.tree.topLevelItem(i).text(0) for i in range(ed.library.tree.topLevelItemCount())]
-    assert cats == ["Basic", "Lumped Elements", "Transmission Lines", "Data", "3D Designs"]
+    assert cats == ["Basic", "Lumped Elements", "Transmission Lines", "Data", "Nonlinear", "3D Designs"]
     ed.library.search.setText("microstrip")
     assert ed.library.tree.topLevelItemCount() == 1
     ed.place("MLIN", 0, 0)                     # the first line brings a substrate
