@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## 0.3.23 (2026-11-13)
+## Unreleased
 
 ### Added
 - **Tutorials for the circuit features** (docs/TUTORIAL.md, sections 13 to 16, with screenshots): a 2.4 GHz LNA
@@ -11,6 +11,15 @@ the GitHub release notes.
   two-tone mixer analysis and the choice of full-wave block or circuit model; Design Wizard blocks connected on
   one board with Connect and Match Phase (with a phase offset); a circuit recognized from a 3D design, calibrated
   to it and kept in step with Sync with 3D.
+
+### Fixed
+- **Create Circuit analyzes the band of the 3D design.** The recognized circuit took the default sweep of 1 to
+  10 GHz, so with a 3D design block (solved on the band of the 3D design) its first analysis stopped because the
+  block data do not cover it. It now takes the first sweep of the 3D design.
+
+## 0.3.23 (2026-11-13)
+
+### Added
 - **Create Circuit: 3D design blocks, Calibrate to 3D, Sync with 3D.** Copper without a circuit model (a
   patch, a junction with two lines on one side) becomes a small 3D design with Lumped Ports at the lines, used
   as a block in the circuit. *Calibrate to 3D* fits correction factors (Cal_L, Cal_W, optionally Cal_Er) of the
@@ -105,9 +114,6 @@ the GitHub release notes.
 - Design assistants replace the empty design that `create_project` makes instead of adding theirs next to it.
 
 ### Fixed
-- **Create Circuit analyzes the band of the 3D design.** The recognized circuit took the default sweep of 1 to
-  10 GHz, so with a 3D design block (solved on the band of the 3D design) its first analysis stopped because the
-  block data do not cover it. It now takes the first sweep of the 3D design.
 - **render_image shows round faces as the modeler does.** The picture of the model used the coarse display mesh
   (18 segments per turn) and flat shading, so small cylinders such as coax conductors, pins and vias looked
   angular, unlike the viewer. It now uses the modeler's display quality (normal, 36 segments; `quality` to
