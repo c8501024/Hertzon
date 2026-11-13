@@ -1329,6 +1329,10 @@ class CircuitEditor(QWidget):
                     o.props["Subst"] = new_name
         c.name = new_name
         c.props.update(props)
+        from ..model.footprints import PROPS as FP_PROPS
+        for k in FP_PROPS:                 # an empty footprint property is not kept
+            if not c.props.get(k, "x").strip():
+                del c.props[k]
         if c.type == "EM":
             from ..solver.circuit import em_port_names
             names = em_port_names(self.doc.project, c.props.get("Design", ""), c.props.get("Solution", ""))
@@ -1515,6 +1519,12 @@ class ComponentDialog(QDialog):
                 self.fields[k] = e
                 form.addRow(LABELS.get(k, k), e)
         lay.addLayout(form)
+        from ..model import footprints as FPS
+        self.footprint_box = None
+        if comp.type in FPS.BOARD_TYPES:
+            from .footprint_box import FootprintBox
+            self.footprint_box = FootprintBox(doc, comp, self)
+            lay.addWidget(self.footprint_box)
         if comp.type in CALC_TYPES:
             lay.addWidget(self._calculator())
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -1654,6 +1664,12 @@ class ComponentDialog(QDialog):
         self.accept()
 
     def values(self) -> tuple[str, dict]:
+        name, props = self._values()
+        if self.footprint_box is not None:
+            props.update(self.footprint_box.values())
+        return name, props
+
+    def _values(self) -> tuple[str, dict]:
         name = self.name.text().strip() or self.comp.name
         if self.comp.type == "EM":
             return name, {"Design": self.design.currentText(), "Solution": self.solution.currentText(),

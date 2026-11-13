@@ -6,6 +6,12 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Footprints of circuit parts and the board in 3D.** Parts carry a KiCad footprint and symbol (`.kicad_mod`,
+  `.kicad_sym`, also the downloads of SamacSys, SnapEDA, Ultra Librarian) and the assignment of pads to the
+  terminals of their model, shown to scale in the Component dialog. Create 3D Layout puts R, L and C on their
+  pads and transistors and ICs on their footprints with one port per pad; **Board Circuit** puts the solved
+  layout back into a schematic with every device pin on its pad port. KiCad library folders in Tools › Options.
+  **Board Layout** places the parts in 2D before the 3D layout: drag, turn, ratsnest, overlap check, tracks.
 - **Nonlinear devices in circuit designs.** Transistors and diodes from SPICE libraries of process design kits
   (subcircuits), model cards or Verilog-A models, DC voltage and current sources, a SPICE Library part. Hertzon
   solves the schematic and reduces all linear parts (lines, junctions, 3D blocks) to one network at the device

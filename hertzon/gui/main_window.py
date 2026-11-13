@@ -75,6 +75,8 @@ class MainWindow(QMainWindow):
     def __init__(self, project: Project | None = None):
         super().__init__()
         self.settings = QSettings("Hertzon", "Hertzon")
+        from .dialogs import apply_kicad_dirs
+        apply_kicad_dirs(self.settings)
         self.doc = Document(project)
         self.solver = SolveManager(self)
         self.edit_new_primitives = self.settings.value("edit_new_primitives", True, type=bool)
@@ -120,6 +122,12 @@ class MainWindow(QMainWindow):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(split)
         self.main_stack.addWidget(self.circuit)
+        from .board_editor import BoardEditor
+        self.board_editor = BoardEditor(self.doc)
+        self.board_editor.schematicRequested.connect(lambda: self.show_board(False))
+        self.board_editor.layoutRequested.connect(self.circuit_to_layout)
+        self._board_page = False
+        self.main_stack.addWidget(self.board_editor)
         self.tabs.addTab(self.main_stack, "3D Modeler")
         self.tabs.tabBar().setTabButton(0, self.tabs.tabBar().ButtonPosition.RightSide, None)
         self.setCentralWidget(self.tabs)
@@ -992,6 +1000,10 @@ class MainWindow(QMainWindow):
         g = pg.group("Analyze")
         g.large("Analyze", "analyze", self.analyze_all)
         g = pg.group("3D Layout")
+        g.large("Board Layout", "design", lambda: self.show_board(not self._board_page),
+                tip="The board of this schematic in 2D: the parts on their footprints, drag them and turn them "
+                    "(R), see the open connections (ratsnest), draw tracks. Create 3D Layout then builds the "
+                    "board as it is placed here")
         g.large("Create 3D Layout", "design", self.circuit_to_layout,
                 tip="A new 3D design with the physical layout of the schematic: substrate, traces, vias, lumped "
                     "parts and ports, every dimension a design variable. 3D design blocks are built in with their "
@@ -1016,6 +1028,11 @@ class MainWindow(QMainWindow):
                       "3D → schematic: copy the dimensions changed in the 3D layout (design variables, and sizes "
                       "edited on the objects) back into the schematic. A click takes the newest layout, the "
                       "arrow chooses one", "Copy Dimensions of {}")
+        layout_button("Board Circuit", "design", self.layout_board_circuit,
+                      "3D → schematic with the devices: a new circuit design with the solved 3D layout as a block "
+                      "(one port per pad of every transistor or IC) and the devices, DC sources and power ports "
+                      "connected pin by pin to their ports, with the setups of this schematic (ngspice, harmonic "
+                      "balance). A click takes the newest layout, the arrow chooses one", "Board Circuit of {}")
 
         # ---- Results
         pg = rb.page("Results")
@@ -1138,10 +1155,11 @@ class MainWindow(QMainWindow):
     def _sync_design_page(self) -> None:
         """Tab 0 shows the schematic of a circuit design and the 3D modeler of a 3D design."""
         circ = self._is_circuit()
-        page = self.circuit if circ else self.main_stack.widget(0)
+        board = circ and self._board_page
+        page = (self.board_editor if board else self.circuit) if circ else self.main_stack.widget(0)
         if self.main_stack.currentWidget() is not page:
             self.main_stack.setCurrentWidget(page)
-        self.tabs.setTabText(0, "Schematic" if circ else "3D Modeler")
+        self.tabs.setTabText(0, ("Board" if board else "Schematic") if circ else "3D Modeler")
         if self._ribbon_circuit_action.isVisible() != circ:
             self._ribbon_circuit_action.setVisible(circ)
             self._ribbon_3d_action.setVisible(not circ)
@@ -1150,7 +1168,20 @@ class MainWindow(QMainWindow):
             self._auto_junctions.setChecked(self.des.settings.get(AUTO, "True") != "False")
             from ..model.circuit import LINE_MODEL
             self._full_wave.setChecked(self.des.settings.get(LINE_MODEL, "Closed form") == "Full wave")
-            self.circuit.rebuild()
+            if board:
+                self.board_editor.rebuild()
+            else:
+                self.circuit.rebuild()
+
+    def show_board(self, on: bool) -> None:
+        """Circuit > Simulation > Board Layout: switch tab 0 between the schematic and its board."""
+        if on and not self._is_circuit():
+            return
+        self._board_page = on
+        self.tabs.setCurrentIndex(0)
+        self._sync_design_page()
+        if on:
+            self.board_editor.fit_all()
 
     def _on_doc_changed(self, what: str) -> None:
         self._sync_design_page()
@@ -6334,6 +6365,33 @@ class MainWindow(QMainWindow):
                                     f"{circ.name} has the dimensions of {layout_name} already. Change the "
                                     f"dimensions in {layout_name} first: its design variables (named after the "
                                     "parts, e.g. MS1_L) or the sizes of the traces.")
+
+    def layout_board_circuit(self, layout_name: str | None) -> None:
+        """A new circuit design of the solved layout with its devices on the pad ports (None: the newest layout
+        of the current schematic)."""
+        from ..model.circuit_layout import LayoutError, board_circuit
+        if layout_name is None:
+            names = self._layouts()
+            if not names:
+                QMessageBox.information(self, "Board Circuit", "This schematic has no 3D layout yet. Make one "
+                                        "with Create 3D Layout.")
+                return
+            layout_name = names[-1]
+        self.doc.checkpoint()
+        try:
+            d, warnings = board_circuit(self.doc.project, self.doc.project.design(layout_name))
+        except LayoutError as e:
+            QMessageBox.warning(self, "Board Circuit", str(e))
+            self.doc.discard_last()
+            return
+        self.doc.project.designs.append(d)
+        self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(d.name)
+        self.msgs.add("info", f"Created {d.name}: {layout_name} as a block with the devices on its pad ports; "
+                              f"solve {layout_name} first")
+        for w in warnings:
+            self.msgs.add("warning", f"{d.name}: {w}")
 
     def _insert_generated(self, dlg, what: str) -> None:
         if dlg.exec() != QDialog.Accepted or dlg.design is None:

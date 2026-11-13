@@ -392,7 +392,8 @@ than about eight variables the fit of the circuit to the 3D response is no longe
 Every dimension is a design variable named after its part (`MS1_W`, `MS1_L`, `Sub1_H`), so the layout can be
 swept, optimized or tuned with sliders. Ideal lines become microstrip of the same impedance and electrical
 length (an ideal short stub is laid out shorter by the length of its via); a DC block becomes a direct
-connection; Touchstone blocks, attenuators, coaxial lines and DC feeds have no layout and are left out. The
+connection; Touchstone blocks without a footprint, attenuators, coaxial lines and DC feeds have no layout
+and are left out. The
 coplanar line is drawn as its centre strip only for now. The Message Manager lists everything that was changed
 or left out.
 
@@ -400,6 +401,76 @@ or left out.
 removed or exchanged; its setups and reports stay, the variables of removed parts go. **Update Schematic**
 (3D → schematic) copies the dimensions changed in the layout back, also trace sizes edited directly on the
 objects. A click on either button takes the newest layout of the schematic, the drop-down arrow chooses one.
+
+### Footprints: parts on their pads
+
+A part that goes on the board (R, L, C, the RLC networks, a nonlinear device, a Touchstone block) can carry a
+**footprint** (Component dialog, group *Footprint*):
+
+* **Footprint**: a KiCad library id `Library:Name` or a `.kicad_mod` file. KiCad's files are the common format:
+  SamacSys (Component Search Engine), SnapEDA, Ultra Librarian and the distributors deliver it, so their downloads
+  can be used as they are. A library id is looked up in the project folder, the *KiCad library folders* of
+  **Tools › Options › General**, `HERTZON_KICAD_LIBS` and the folders of a KiCad installation (`Name.pretty`).
+  Only where no file is found, a built-in package of the same name is used (chip R, C, L 0201 to 1206, SOT-23,
+  SOT-323, SOT-343, QFN): a typical land pattern, and the dialog says so. A file picked from outside the project
+  is copied into its `footprints` folder.
+* **Symbol** (optional): a KiCad symbol (`Library:Name`, `file.kicad_sym:Name`, also `.kicad_symdir`
+  libraries) that names the pins of the pads.
+* **Pads**: which pads belong to which terminal of the model, for example `b=3; c=1; e1=2; e2=4` for a
+  transistor with two emitter pins or `d=5,6,7,8; g=4; s=1,2,3,17` for a MOSFET in a QFN (17 the exposed pad).
+  `NC=...` marks pads that stay open on purpose. Empty: assigned automatically, pad 1 and 2 of a two-terminal
+  part, otherwise by the pin names of the symbol (D/Drain, G/Gate, S/Source, B/Base, C/Collector, E/Emitter,
+  ...; an exposed pad the symbol does not name goes with the source or emitter).
+
+The dialog draws the footprint to scale, seen from the top, every pad coloured by its terminal, and lists what
+does not fit: a terminal without a pad or a pad that does not exist (errors), pads left open (warning).
+
+With footprints, **Create 3D Layout** builds the board as it is soldered:
+
+* a two-terminal part gets its two pads as copper, the line attaches at the outer edge of the pad, the Lumped
+  RLC sheet fills the gap between the pads in pad width; a shunt part to ground gets its ground pad with vias
+  of `Via_D` (0.3 mm) to the ground plane (reported: they are not in the schematic);
+* a nonlinear device or a Touchstone block is turned in steps of 90 degrees so that the pad of the terminal the
+  line reaches faces that line (or by the part's `LayoutRot`), moved so that the pad edge touches the line end;
+  the lines of its other terminals leave from the edge of their pad that faces the next part in the schematic;
+  plated holes of the footprint (thermal vias of an exposed pad) become vias;
+* **every pad of a device gets a Lumped Port of its own** to the ground plane, at its inner edge, named
+  `Q1_b_pad3` (part, terminal, pad); a DC source gets a port at the end of its line (`VCC_supply`). The layout
+  remembers which port stands for which part, terminal and pad;
+* copper of two different nets that lies on each other is reported (the schematic is not drawn as the board),
+  and a loop of the circuit that the parts do not close is closed by a thin trace of `Route_W` (reported).
+
+Pads are laid out as their bounding rectangle (round corners and ovals as rectangles). A device without a
+footprint is reported and left out, with the parts behind it.
+
+**Board Circuit** (Simulation › 3D Layout) then makes a new circuit design: the layout as a 3D design block,
+and every pad port connected by a net label to the terminal of its device (several pads of one terminal in
+parallel, as on the board), the power ports at theirs, the DC sources at their supply ports, with the setups,
+variables and SPICE libraries of the schematic. After the layout is solved, this design simulates the board
+with the devices: S-parameters with the bias of ngspice, harmonic balance with circuitRF. Checked end to end:
+lines and a transistor (measured S-parameters on a SOT-23), laid out, solved in 3D and put back on its pad
+ports, give the S-parameters of the schematic within 0.1 dB in S21 from 1 to 4 GHz
+(`tests/test_circuit_layout.py`).
+
+### Board Layout: placing the parts
+
+A schematic is drawn for the circuit, not for the board: bias parts, feedback loops and parallel branches drawn
+side by side would land on each other in 3D. **Board Layout** (Simulation › 3D Layout) shows the board of the
+schematic in 2D, seen from the top, and lets the parts be placed:
+
+* the first time, every part is placed automatically as the schematic is drawn (also **Auto Place**): lines
+  attach at the pad edge that faces them, a transistor turns so that the pad of the line's terminal faces it;
+* drag a part, **R** turns the selected parts by 90 degrees; a pin dropped near a pin of the same net snaps onto
+  it;
+* connections the copper does not make are drawn as dashed lines (ratsnest), copper of different nets on each
+  other is outlined in red, the status line counts both;
+* **Track** draws copper the schematic does not have (DC routing): click the corners, double-click or right-click
+  to end; Del removes a selected track.
+
+Each change is one undo step and is stored with the circuit design. Once a board has been placed, Create 3D
+Layout builds the 3D design as placed, with the same ports and port map as above, so Board Circuit works the
+same; open connections, overlaps and tracks are reported. The dimensions are still design variables, but a
+line made longer in the schematic does not push the parts behind it: the ratsnest shows the gap.
 
 ## AI assistants
 
