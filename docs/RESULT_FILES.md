@@ -38,6 +38,12 @@ interface.
 After a solve only `solution_<solution>.npz` (the FEM coefficients) may exist; `fields_<solution>.npz` is
 computed from it the first time a plot or `ResultStore.npz("fields_<solution>.npz")` asks for it.
 
+`<port>` is the port number. When the fields are stored per terminal (a port with several terminals) or per
+port mode (wave or Floquet ports with several modes), `field_sources.json` lists the excitations instead, one
+per row of S and numbered 1, 2, ...: `<port>` is then that number, and an entry of a port mode has `port` (the
+port number) and `mode` (1, 2, ...). Edit Sources, the far field files and `losses_<solution>.npz` use the same
+numbers.
+
 ## farfield_\<sphere\>_\<solution\>.npz: far field of an infinite sphere
 
 | key | content |

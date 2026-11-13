@@ -5598,7 +5598,9 @@ class MainWindow(QMainWindow):
         from .dialogs import EditSourcesDialog
         from .terminal_dialogs import field_terminal_names
         from ..model import sources as SRC
-        names = field_terminal_names(self.doc) if self.des.settings.get("SolutionType") == "Terminal" else None
+        # the terminals of a terminal solution, or the modes of wave ports with several modes (#437): the
+        # excitations whose fields the newest solution stores
+        names = field_terminal_names(self.doc)
         if not SRC.defaults(self.des, names):
             QMessageBox.information(self, "Edit Sources", "Assign a port or an incident wave first.")
             return

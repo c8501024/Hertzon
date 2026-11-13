@@ -12,6 +12,10 @@ the GitHub release notes.
   layout made with Create 3D Layout comes back as its schematic (Design Wizard structures tested as a round
   trip). Copper without a circuit model is listed in the messages, not guessed. Also as
   `circuit_layout(action='from_3d')` for assistants.
+- **Edit Sources for every mode of a wave port.** With wave or Floquet ports of several modes the fields and far
+  fields are stored per port mode, and Edit Sources lists each mode (e.g. WP1_M1, WP1_M2) with its own power and
+  phase; field plots, animations and far-field results superpose them like ports. Before, only the first mode
+  of each port had fields (#437).
 - **Realized gain per polarization:** RealizedGainTheta, RealizedGainPhi, RealizedGainLHCP and RealizedGainRHCP
   in far-field reports, 3D polar plots and equations (the component gains times accepted / incident power) (#439).
 - **Edge-launch connectors at lumped ports.** A library of 131 PCB edge-launch connectors (SMA, 2.92 mm,
