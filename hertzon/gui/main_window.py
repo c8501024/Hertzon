@@ -4479,6 +4479,9 @@ class MainWindow(QMainWindow):
             if self.des.setup(s).props.get("CircuitAnalysis") == "Harmonic Balance":
                 self.msgs.add("info", f"{self.des.name} {s}: harmonic balance by circuitRF on Hertzon's circuit "
                                       f"network; results in {folder / 'harmonic_balance.csv'}")
+            elif self.des.setup(s).props.get("CircuitAnalysis") == "Mixer":
+                self.msgs.add("info", f"{self.des.name} {s}: two-tone harmonic balance by circuitRF on Hertzon's "
+                                      f"circuit network; results in {folder / 'mixer.csv'}")
         self.project_tree.rebuild()
         self._refresh_reports()
 

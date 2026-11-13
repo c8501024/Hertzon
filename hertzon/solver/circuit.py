@@ -42,6 +42,10 @@ class NPortData:
     def at(self, f: float) -> tuple[np.ndarray, np.ndarray, bool]:
         """S and z0 at f, linear in real and imaginary part; outside the data the nearest point (flag True)."""
         fr = self.freq
+        if f == 0 and fr[0] > 0:
+            # DC from data that start above it: the lowest point without its reactive part (an imaginary part at
+            # DC is not physical, and a harmonic balance does not converge on it)
+            return self.S[0].real.astype(complex), self.z0[0], True
         if f <= fr[0]:
             return self.S[0], self.z0[0], f < fr[0] * (1 - 1e-9)
         if f >= fr[-1]:
@@ -426,6 +430,7 @@ class LinearNetwork:
     open_ends: dict
     where: dict
     warnings: list[str]
+    repeated: dict = field(default_factory=dict)  # parts with two or more pins on the same node
 
     def block_y(self, name: str, f: float, short: float | None = None) -> np.ndarray:
         """Admittance matrix of an N-port block at f: from its data, or from its circuit model (exact at every
@@ -473,7 +478,10 @@ class LinearNetwork:
                 Ym = Ym.copy()
                 for j in self.open_ends[c.name]:
                     Ym[j, j] += 1j * om * ce
-            Y[self.where[c.name]] += Ym
+            if self.repeated.get(c.name):
+                np.add.at(Y, self.where[c.name], Ym)    # two pins on one node: += would add only one of them
+            else:
+                Y[self.where[c.name]] += Ym
         return Y[1:, 1:] + GMIN * np.eye(n)
 
 
@@ -643,7 +651,8 @@ def linear_network(project: Project, design: Design, freqs: np.ndarray, progress
             uses[x] = uses.get(x, 0) + 1
     open_ends = {c.name: [j for j, x in enumerate(nodes_of[c.name]) if x != 0 and uses[x] == 1]
                  for c in comps if c.type == "MCLIN"}
-    return LinearNetwork(comps, nodes_of, n, values, blocks, tables, open_ends, where, warnings)
+    repeated = {c.name: True for c in comps if len(set(nodes_of[c.name])) < len(nodes_of[c.name])}
+    return LinearNetwork(comps, nodes_of, n, values, blocks, tables, open_ends, where, warnings, repeated)
 
 
 def circuit_ports(project: Project, design: Design) -> tuple[list, list[int], list[float]]:
@@ -703,6 +712,9 @@ def run_setup(project: Project, design: Design, setup: Setup, progress=None) -> 
     if setup.props.get("CircuitAnalysis", "S-Parameters") == "Harmonic Balance":
         from .nonlinear import run_harmonic_balance
         return out, run_harmonic_balance(project, design, setup, st)
+    if setup.props.get("CircuitAnalysis", "S-Parameters") == "Mixer":
+        from .nonlinear import run_mixer
+        return out, run_mixer(project, design, setup, st)
     for old in out.glob("sparams_*.npz"):
         old.unlink()
     warns: list[str] = []
