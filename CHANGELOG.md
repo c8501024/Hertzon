@@ -6,6 +6,8 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Realized gain per polarization:** RealizedGainTheta, RealizedGainPhi, RealizedGainLHCP and RealizedGainRHCP
+  in far-field reports, 3D polar plots and equations (the component gains times accepted / incident power) (#439).
 - **Edge-launch connectors at lumped ports.** A library of 131 PCB edge-launch connectors (SMA, 2.92 mm,
   2.4 mm) and **Connectors › Real Connector** (or right-click a lumped port › *Simulate with Real Connector*):
   the connector stands at a lumped port at the board edge, found from the port sheet (edge, direction, board
