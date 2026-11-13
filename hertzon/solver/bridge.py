@@ -1117,6 +1117,9 @@ class Bridge:
         if TERMINALS is not None and any(len(q["terminals"]) > 1 for q in TERMINALS.ports):
             self.field_map = [{"name": n, "number": i + 1, "kind": "Terminal"} for i, n in enumerate(TERMINALS.names)]
             self.store.write_json("field_sources.json", self.field_map)
+        elif any(int(q.get("modes") or 1) > 1 for q in self.port_map):
+            self.field_map = mode_field_map(self.port_map)
+            self.store.write_json("field_sources.json", self.field_map)
         else:
             (self.store.folder / "field_sources.json").unlink(missing_ok=True)
 
@@ -3307,11 +3310,45 @@ def keep_global_max_size(m) -> None:
         mesher.set_global_max_size(h / float(getattr(mesher, "_scale", 1.0) or 1.0))
 
 
+def mode_field_map(port_map: list) -> list[dict]:
+    """With wave ports of several modes the fields are stored per port mode (#437): one entry per row of S, in
+    the same order, numbered 1, 2, ...; "port" and "mode" say which port and which of its modes. The names are
+    those of the S rows (WP1_M1, WP1_M2, a port with one mode keeps its name), so Edit Sources lists every mode."""
+    from .results import port_entries, row_names
+    rows = port_entries(port_map)
+    names = row_names(port_map)
+    out = []
+    for i, (q, name) in enumerate(zip(rows, names)):
+        e = dict(q, name=name if not name.isdigit() else f"{q.get('name', '')}_M{q['mode']}", number=i + 1,
+                 port=int(q["number"]), mode=int(q["mode"]))
+        e.pop("label", None)
+        out.append(e)
+    return out
+
+
+def mode_key(fld, port: int, mode: int):
+    """S-matrix index (the key excite_port takes) of mode `mode` (1, 2, ...) of port `port` in the solution fld."""
+    pms = sorted((pm for pm in getattr(fld, "port_modes", []) if pm.port_number == port),
+                 key=lambda pm: (pm.mode_number, pm.smat_index))
+    if not pms:
+        return port
+    seen, keys = set(), []
+    for pm in pms:                       # port_modes may list a mode once per frequency
+        if pm.smat_index not in seen:
+            seen.add(pm.smat_index)
+            keys.append(pm.smat_index)
+    if mode > len(keys):
+        raise KeyError(f"port {port} has no mode {mode} in this solution")
+    return keys[mode - 1]
+
+
 def excite(fld, port: dict) -> None:
     if port.get("kind") == "Terminal":
         fld.excitation = terminal_excitation(fld, port["number"] - 1)
     elif port.get("kind") == "Incident Plane Wave":
         fld.set_field_vector()
+    elif "mode" in port and "port" in port:          # one mode of a port (mode_field_map)
+        fld.excite_port(mode_key(fld, int(port["port"]), int(port["mode"])))
     else:
         # a port with several modes has the S indices n.1, n.2, ...: its field is that of the first mode
         n = port["number"]

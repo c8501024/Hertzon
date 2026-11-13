@@ -33,6 +33,7 @@ SKIP = {"ATTEN": "the attenuator has no layout and was left out",
         "DCFEED": "the DC feed is open at RF and was left out",
         "SNP": "Touchstone blocks have no layout and were left out"}
 LINK = "LayoutOf"                # design setting of a generated layout: the name of its circuit design
+PORT_MAP = "LayoutPorts"         # layout setting: port number -> part, terminal and pad it stands for (JSON)
 GAP = "1mm"                      # gap of a series lumped part (pad to pad)
 MARGIN = "5mm"                   # substrate beyond the traces where no port sits on the board edge
 
@@ -123,6 +124,10 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     """A new 3D design with the physical layout of the circuit design; the list says what was left out or
     approximated."""
     from . import microstrip as MS
+    from . import board as BD
+    saved = BD.load(circuit)
+    if saved is not None:              # the circuit has a board: its placement makes the layout
+        return BD.layout_3d(project, circuit, saved, name)
     warnings: list[str] = []
     comps, nodes, _, junctions = CK.netlist(circuit.components, circuit.wires,
                                             circuit.settings.get(CK.AUTO, "True") != "False")
@@ -208,7 +213,7 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
         if node in pos:
             vals = _values(d, project)
             if abs(pos[node].x.num(vals) - p.x.num(vals)) + abs(pos[node].y.num(vals) - p.y.num(vals)) > 1e-7:
-                warnings.append(f"{comp.name}: the layout does not close at a loop of the circuit")
+                routes.append((node, p, comp))
             return
         pos[node] = p
         queue.append(node)
@@ -222,6 +227,10 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
         return f"{v * 1e3:.6g}mm"
 
     via_parts: list = []
+    routes: list[tuple] = []          # loops that do not close: (node, where the part ends, part)
+    ground_pads: list[tuple] = []     # ground pad of a shunt part on its footprint: (part, centre, dir, half, w)
+    dev_pads: list[dict] = []         # pads of devices and blocks on their footprints (each gets a port)
+    supplies: list[tuple] = []        # DC sources: (part, node of the + pin), each gets a port
     blocks: list[tuple] = []          # 3D design blocks: (component, geometry, quarter turns, origin, z shift)
     em_out: dict[int, tuple] = {}     # node at a block port -> direction out of the block
     while queue:
@@ -237,6 +246,20 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                 continue
             placed.add(c.name)
             if t == "PORT":
+                continue
+            if t in ("DEVICE", "SNP") and c.props.get("Footprint", "").strip():
+                _place_device(c, k, node, here, comps, nodes, placed, node_dirs, rects, dev_pads, project, warnings,
+                              reach)
+                continue
+            if t == "DEVICE":
+                warnings.append(f"{c.name}: the device has no footprint and was left out; the parts behind it are "
+                                "not in the layout (set its Footprint)")
+                continue
+            if t in ("VDC", "IDC"):
+                if nodes[c.name][1 - k] != 0:
+                    warnings.append(f"{c.name}: the other pin of the source is not on ground; its port is between "
+                                    "this end and ground")
+                supplies.append((c, node))
                 continue
             if t in SKIP:
                 warnings.append(f"{c.name}: {SKIP[t]}")
@@ -269,6 +292,24 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                 other = 1 - k
                 dd = _dir(pp[k], pp[other])
                 na, nb = nodes[c.name][k], nodes[c.name][other]
+                if t in LUMPED:
+                    fpp = _chip_pads(c, k, project, warnings)
+                    if fpp is not None:            # on the pads of its footprint
+                        ek, eo, g_m, wk, wo = fpp
+                        a0 = here + along(dd, const(2 * ek))
+                        rects.append(_Rect(f"{c.name}_Pad{k + 1}", here, dd, const(2 * ek), const(wk), (na,)))
+                        node_dirs.setdefault(na, []).append((dd, const(wk)))
+                        b0 = a0 + along(dd, const(g_m))
+                        gaps.append((c, a0, dd, const(g_m), na, nb, const(min(wk, wo))))
+                        end = b0 + along(dd, const(2 * eo))
+                        if nb == 0:                # the ground pad, with vias to the ground plane
+                            rects.append(_Rect(f"{c.name}_Pad{2 - k}", b0, dd, const(2 * eo), const(wo), ()))
+                            ground_pads.append((c, b0 + along(dd, const(eo)), dd, eo, wo))
+                        else:
+                            rects.append(_Rect(f"{c.name}_Pad{2 - k}", b0, dd, const(2 * eo), const(wo), (nb,)))
+                            node_dirs.setdefault(nb, []).append(((-dd[0], -dd[1]), const(wo)))
+                            reach(nb, end, c)
+                        continue
                 if t in LUMPED and nb == 0:
                     shunts.append((c, na))
                     continue
@@ -279,7 +320,7 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                     continue
                 if t in LUMPED:
                     g = setvar(f"{c.name}_Gap", c.props.get("Gap") or GAP)     # pad to pad, an expression too
-                    gaps.append((c, here, dd, g, na, nb))
+                    gaps.append((c, here, dd, g, na, nb, None))
                     reach(nb, here + along(dd, g), c)
                     continue
                 if t == "TLIN":
@@ -390,6 +431,26 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
 
     vals = _values(d, project)
 
+    # a loop of the circuit that the parts do not close: a thin trace, along x and then along y, from where the
+    # last part ends to where the node lies (it is not in the schematic: reported)
+    for node, p0, comp in routes:
+        rw = setvar("Route_W", "0.3mm")
+        vals = _values(d, project)
+        q = pos[node]
+        dxv, dyv = q.x.num(vals) - p0.x.num(vals), q.y.num(vals) - p0.y.num(vals)
+        corner = Pt(q.x, p0.y)
+        if abs(dxv) > 1e-9:
+            dx = q.x - p0.x
+            rects.append(_Rect(f"{comp.name}_Route", p0 - along((1 if dxv > 0 else -1, 0), rw * 0.5),
+                               (1 if dxv > 0 else -1, 0), (dx if dxv > 0 else dx * -1) + rw, rw, (node,)))
+        if abs(dyv) > 1e-9:
+            dy = q.y - p0.y
+            rects.append(_Rect(f"{comp.name}_Route", corner - along((0, 1 if dyv > 0 else -1), rw * 0.5),
+                               (0, 1 if dyv > 0 else -1), (dy if dyv > 0 else dy * -1) + rw, rw, (node,)))
+        warnings.append(f"{comp.name}: the parts do not close a loop of the circuit; a trace of Route_W "
+                        f"({abs(dxv) * 1e3 + abs(dyv) * 1e3:.3g} mm, not in the schematic) closes it. Draw the "
+                        "loop with lines in the schematic to control it")
+
     def width_at(node: int) -> Lin:
         ws = [w for _, w in node_dirs.get(node, [])]
         return max(ws, key=lambda w: w.num(vals)) if ws else setvar("W_Pad", "1mm")
@@ -401,7 +462,7 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
             return -ds[0][0][0], -ds[0][0][1]
         if node in em_out:
             return em_out[node]
-        for c, p, dd, g, na, nb in gaps:
+        for c, p, dd, g, na, nb, _ in gaps:
             if na == node:
                 return -dd[0], -dd[1]
             if nb == node:
@@ -426,8 +487,8 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
         a, b = ext(r)
         xs += a
         ys += b
-    for c, p, dd, g, na, nb in gaps:
-        w = max(width_at(na), width_at(nb), key=lambda q: q.num(vals))
+    for c, p, dd, g, na, nb, wg in gaps:
+        w = wg or max(width_at(na), width_at(nb), key=lambda q: q.num(vals))
         r = _Rect("", p, dd, g, w)
         a, b = ext(r)
         xs += a
@@ -467,6 +528,8 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     d.settings["AutoOpen"] = "Auto Open - Filter"
     d.settings["FilterAirMargin"] = "10mm"
     d.settings[LINK] = circuit.name
+
+    warnings += _overlaps(rects, vals)
 
     # ---- traces, joined where they touch
     def sheet(nm: str, r: _Rect):
@@ -566,6 +629,22 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
                              Radius=(dv * 0.5).text(), Height=zt.text())
             o.color = "#c08040"
 
+    # the ground pad of a shunt part: round vias across the pad, at its centre
+    for c, q0, dd, half, w in ground_pads:
+        dv = setvar("Via_D", "0.3mm")
+        vals = _values(d, project)
+        dvm = dv.num(vals)
+        nv = max(1, int((w - dvm) / (2 * dvm)) + 1)
+        pitch = (w - dvm) / (nv - 1) if nv > 1 else 0.0
+        for i in range(nv):
+            q = q0 + along(_perp(dd), const(pitch * (i - (nv - 1) / 2)))
+            o = d.add_object("CreateCylinder", name=d.unique_name(f"{c.name}_Via{i + 1}" if nv > 1 else f"{c.name}_Via"),
+                             material="pec", CenterPosition=f"{q.x.text()},{q.y.text()},0", Axis="Z",
+                             Radius=(dv * 0.5).text(), Height=zt.text())
+            o.color = "#c08040"
+        warnings.append(f"{c.name}: its ground pad has {nv} via{'s' if nv > 1 else ''} of {dvm * 1e3:g} mm (Via_D) "
+                        "to the ground plane; the schematic has none, place a Via to Ground to model it there")
+
     def assign(lst, table, kind, nm, objects, **props):
         q = schema.defaults(table[kind])
         q.update(props)
@@ -577,8 +656,8 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     assign(d.boundaries, schema.BOUNDARIES, "Finite Conductivity", "Copper_Ground", [g.name for g in grounds], **cu)
 
     # ---- lumped parts
-    for c, p, dd, g, na, nb in gaps:
-        w = max(width_at(na), width_at(nb), key=lambda q: q.num(vals))
+    for c, p, dd, g, na, nb, wg in gaps:
+        w = wg or max(width_at(na), width_at(nb), key=lambda q: q.num(vals))
         o = sheet(d.unique_name(c.name), _Rect("", p, dd, g, w))
         e = p + along(dd, g)
         line = f"{p.x.text()},{p.y.text()},{zt.text()};{e.x.text()},{e.y.text()},{zt.text()}"
@@ -597,7 +676,9 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
     em_port_nodes = _embed_blocks(d, blocks, comps, nodes, ports, node_dirs, em_out, grounds[0], zt, vals, warnings)
 
     # ---- ports, mesh, analysis
+    port_map: dict[str, dict] = {}
     for i, c in enumerate(ports, 1):
+        port_map[str(i)] = {"part": c.name, "terminal": "", "pad": ""}
         n = nodes[c.name][0]
         if n not in pos:
             warnings.append(f"{c.name}: not connected to the layout, left out")
@@ -609,6 +690,32 @@ def layout_design(project: Project, circuit: Design, name: str | None = None) ->
         assign(d.excitations, schema.EXCITATIONS, "Lumped Port", str(i), [o.name], PortNumber=str(i),
                Impedance=c.props.get("Z0", "50ohm") or "50ohm",
                IntegrationLine=f"{p.x.text()},{p.y.text()},0;{p.x.text()},{p.y.text()},{zt.text()}")
+    # a port from every pad of a device or block on its footprint to the ground plane, at the pad's inner edge;
+    # then a port at the end of the line of every DC source
+    nxt = len(ports) + 1
+    for dp in dev_pads:
+        q0, od, w = dp["edge"], dp["inward"], dp["across"]
+        o = vertical(d.unique_name(f"{dp['part']}_P{dp['pad']}"), q0, od, w, zt)
+        pname = f"{dp['part']}_{dp['terminal']}_pad{dp['pad']}"
+        assign(d.excitations, schema.EXCITATIONS, "Lumped Port", pname, [o.name], PortNumber=str(nxt),
+               Impedance="50ohm", IntegrationLine=f"{q0.x.text()},{q0.y.text()},0;{q0.x.text()},{q0.y.text()},{zt.text()}")
+        port_map[str(nxt)] = {"part": dp["part"], "terminal": dp["terminal"], "pad": dp["pad"]}
+        nxt += 1
+        for j, (hx, hy, r) in enumerate(dp["holes"]):
+            o = d.add_object("CreateCylinder", name=d.unique_name(f"{dp['part']}_Hole{dp['pad']}"),
+                             material="pec", CenterPosition=f"{hx.text()},{hy.text()},0", Axis="Z",
+                             Radius=f"{r * 1e3:.6g}mm", Height=zt.text())
+            o.color = "#c08040"
+    for c, n in supplies:
+        if n not in pos:
+            continue
+        q0 = pos[n]
+        o = vertical(d.unique_name(f"{c.name}_Supply"), q0, out_dir(n), width_at(n), zt)
+        assign(d.excitations, schema.EXCITATIONS, "Lumped Port", f"{c.name}_supply", [o.name], PortNumber=str(nxt),
+               Impedance="50ohm", IntegrationLine=f"{q0.x.text()},{q0.y.text()},0;{q0.x.text()},{q0.y.text()},{zt.text()}")
+        port_map[str(nxt)] = {"part": c.name, "terminal": "+", "pad": ""}
+        nxt += 1
+    d.settings[PORT_MAP] = json.dumps(port_map)
     if rects:
         # half the narrowest trace, and not more than the smallest gap of coupled lines: a gap must be resolved
         # from the first pass (the adaptive mesh at a frequency in the stopband would not refine it)
@@ -691,6 +798,222 @@ def _embed_blocks(d: Design, blocks, comps, nodes, ports, node_dirs, em_out, gro
             hole.consumed_by = ground.name
             ground.history.append(Command.new("Subtract", Tools=hole.name, KeepOriginals="False"))
     return port_nodes
+
+
+def _overlaps(rects, vals) -> list[str]:
+    """Copper of two different nets that lies on each other (the schematic is not drawn as the board): one
+    warning per pair of parts."""
+    boxes = []
+    for i, r in enumerate(rects):
+        a = r.p - along(_perp(r.d), r.w * 0.5)
+        b = r.p + along(r.d, r.ln) + along(_perp(r.d), r.w * 0.5)
+        x0, x1 = sorted((a.x.num(vals), b.x.num(vals)))
+        y0, y1 = sorted((a.y.num(vals), b.y.num(vals)))
+        net = frozenset(r.nodes) if r.nodes else ("own", i)
+        boxes.append((x0, y0, x1, y1, net, r.name.split("_Pad")[0].split("_Route")[0]))
+    out, seen = [], set()
+    tol = 1e-6
+    for i, (ax0, ay0, ax1, ay1, an, aname) in enumerate(boxes):
+        for bx0, by0, bx1, by1, bn, bname in boxes[:i]:
+            if aname == bname or (isinstance(an, frozenset) and isinstance(bn, frozenset) and an & bn):
+                continue
+            if ax0 < bx1 - tol and bx0 < ax1 - tol and ay0 < by1 - tol and by0 < ay1 - tol:
+                key = tuple(sorted((aname, bname)))
+                if key not in seen:
+                    seen.add(key)
+                    out.append(f"{key[0]} and {key[1]} lie on each other in the layout (different nets): the "
+                               "schematic is not drawn as the board; move or turn the parts or add lines")
+    return out
+
+
+def _turn_q(v: tuple[float, float], q: int) -> tuple[float, float]:
+    x, y = v
+    for _ in range(q % 4):
+        x, y = -y, x
+    return x, y
+
+
+def _place_device(c, k, node, here, comps, nodes, placed, node_dirs, rects, dev_pads, project, warnings, reach):
+    """Put a nonlinear device (or a Touchstone block) on its footprint: turned in quarter turns so that the pads
+    of terminal k face the line that reached them (or by the part's LayoutRot), moved so that the edge of that
+    pad touches the line end; every copper pad becomes a conductor of its terminal's node with a port of its own
+    (made later from dev_pads), plated holes of the footprint become vias; the lines of the other terminals go on
+    from the edge of their pad that faces the direction of the next part in the schematic."""
+    from pathlib import Path
+    from . import footprints as FPS
+    from .kicad import KicadError
+    try:
+        board = FPS.on_board(c, Path(project.path).parent if project.path else None)
+    except KicadError as ex:
+        warnings.append(f"{c.name}: {ex}; the device was left out")
+        return
+    if board.check.errors:
+        warnings.append(f"{board.check.errors[0]}; the device was left out")
+        return
+    warnings += board.check.warnings
+    fp = board.footprint
+    ts = FPS.terminals(c)
+    cx0, cy0, cx1, cy1 = fp.bbox()
+    fc = ((cx0 + cx1) / 2, (cy0 + cy1) / 2)
+    copper = [q for q in fp.pads if q.copper and q.number]
+
+    def term_pads(t):
+        return [q for q in copper if q.number in board.pads.get(t, [])]
+
+    def centre(q):
+        b = q.bbox()
+        return (b[0] + b[2]) / 2 - fc[0], (b[1] + b[3]) / 2 - fc[1]
+
+    ds = node_dirs.get(node)
+    d_in = ds[0][0] if ds else (-1, 0)          # from the node back along the line: where the line lies
+    rot = c.props.get("LayoutRot", "").strip()
+    pk = term_pads(ts[k])
+    if rot:
+        try:
+            qt = int(round(float(rot.removesuffix("deg")) / 90)) % 4
+        except ValueError:
+            warnings.append(f"{c.name}: LayoutRot '{rot}' is not 0, 90, 180 or 270; turned automatically")
+            rot = ""
+    if not rot:
+        def score(qq):
+            return max(sum(a * b for a, b in zip(_turn_q(centre(q), qq), d_in)) for q in pk)
+        qt = max(range(4), key=score)
+
+    def rbox(q):
+        """Pad bounding box turned by qt, relative to the footprint centre (mm)."""
+        b = q.bbox()
+        pts = [_turn_q((x - fc[0], y - fc[1]), qt) for x in (b[0], b[2]) for y in (b[1], b[3])]
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        return min(xs), min(ys), max(xs), max(ys)
+
+    def edge(q, dd):
+        """Middle of the pad's edge on the side dd (turned frame, mm) and the pad's extent across dd."""
+        x0, y0, x1, y1 = rbox(q)
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        if dd[0]:
+            return (x1 if dd[0] > 0 else x0, my), y1 - y0
+        return (mx, y1 if dd[1] > 0 else y0), x1 - x0
+
+    def pick(qs, dd):
+        return max(qs, key=lambda q: sum(a * b for a, b in zip(_turn_q(centre(q), qt), dd)))
+
+    first = pick(pk, d_in)
+    (ex, ey), across = edge(first, d_in)
+    origin = here - Pt(const(ex * 1e-3), const(ey * 1e-3))
+    node_dirs.setdefault(node, []).append(((-d_in[0], -d_in[1]), const(across * 1e-3)))
+
+    def at(x, y):
+        return origin + Pt(const(x * 1e-3), const(y * 1e-3))
+
+    users = {}
+    for x in comps:
+        for n in nodes.get(x.name, ()):
+            users.setdefault(n, []).append(x)
+    for j, t in enumerate(ts):
+        nj = nodes[c.name][j]
+        if j == k:
+            continue
+        qs = term_pads(t)
+        if not qs:
+            continue
+        dj = _next_dir(nj, c, users, nodes, placed)
+        if dj is None:                              # outward from the package at that pad
+            cx, cy = _turn_q(centre(qs[0]), qt)
+            dj = (1 if cx > 0 else -1, 0) if abs(cx) >= abs(cy) else (0, 1 if cy > 0 else -1)
+        q = pick(qs, dj)
+        (px, py), acr = edge(q, dj)
+        cx, cy = _turn_q(centre(q), qt)
+        if cx * dj[0] + cy * dj[1] < -1e-9:
+            warnings.append(f"{c.name}: the line at {t} (pad {q.number}) leaves towards the package; turn the part "
+                            "(LayoutRot) or the line in the schematic")
+        if nj != 0:
+            node_dirs.setdefault(nj, []).append(((-dj[0], -dj[1]), const(acr * 1e-3)))
+            reach(nj, at(px, py), c)
+        else:
+            warnings.append(f"{c.name}: {t} is on ground in the schematic; draw its vias in the layout or place a "
+                            "Via to Ground at it")
+    # the pads: conductors of their nodes, and a port each
+    ts_node = {t: nodes[c.name][j] for j, t in enumerate(ts)}
+    for q in copper:
+        t = board.terminal_of(q.number)
+        x0, y0, x1, y1 = rbox(q)
+        n = ts_node.get(t, 0) if t and t != FPS.NC else 0
+        rects.append(_Rect(f"{c.name}_Pad{q.number}", at(x0, (y0 + y1) / 2), (1, 0), const((x1 - x0) * 1e-3),
+                           const((y1 - y0) * 1e-3), (n,) if n else ()))
+        if not t or t == FPS.NC:
+            continue
+        cx, cy = _turn_q(centre(q), qt)
+        if abs(cx) < 1e-9 and abs(cy) < 1e-9:
+            inward = (-1, 0)                        # a pad in the middle (exposed pad): its left edge
+        elif abs(cx) >= abs(cy):
+            inward = (-1 if cx > 0 else 1, 0)
+        else:
+            inward = (0, -1 if cy > 0 else 1)
+        (px, py), acr = edge(q, inward)
+        holes = []
+        if q.plated_hole:
+            hx, hy = _turn_q((q.x - fc[0], q.y - fc[1]), qt)
+            pt = at(hx, hy)
+            holes.append((pt.x, pt.y, q.drill / 2 * 1e-3))
+        dev_pads.append({"part": c.name, "terminal": t, "pad": q.number, "edge": at(px, py), "inward": inward,
+                         "across": const(acr * 1e-3), "holes": holes})
+    placed.add(c.name)
+
+
+def _next_dir(node: int, c, users, nodes, placed):
+    """The direction (layout axes) in which the next part at a node leaves it, from the schematic; None when it
+    cannot be told (a junction, a via, nothing)."""
+    for x in users.get(node, []):
+        if x is c or x.name in placed:
+            continue
+        pp = CK.pins(x)
+        if x.type in LINE2 or x.type in LUMPED or x.type == "DCBLOCK":
+            idx = nodes[x.name].index(node)
+            return _dir(pp[idx], pp[1 - idx])
+        if x.type in STUBS:
+            return _dir(pp[0], (x.x, x.y))
+    return None
+
+
+def _chip_pads(c: CK.Component, k: int, project: Project, warnings: list[str]):
+    """The pads of a two-terminal part on its footprint, seen from terminal k: (half length along the part of the
+    pad of terminal k, the same of the other pad, the gap between the pads, the width of the pad of terminal k,
+    of the other pad), in metres. None when the part has no footprint (or its pads do not lie in a row, or the
+    footprint cannot be read: then it is laid out in a gap, with a warning)."""
+    from pathlib import Path
+    from . import footprints as FPS
+    from .kicad import KicadError
+    try:
+        board = FPS.on_board(c, Path(project.path).parent if project.path else None)
+    except KicadError as ex:
+        warnings.append(f"{c.name}: {ex}; laid out in a gap")
+        return None
+    if board is None:
+        return None
+    if board.check.errors:
+        warnings.append(f"{board.check.errors[0]}; laid out in a gap")
+        return None
+    ts = FPS.terminals(c)
+    boxes = []
+    for t in (ts[k], ts[1 - k]):
+        pads = [q for n in board.pads.get(t, []) for q in board.footprint.pads_of(n) if q.copper]
+        bb = [q.bbox() for q in pads]
+        boxes.append((min(b[0] for b in bb), min(b[1] for b in bb), max(b[2] for b in bb), max(b[3] for b in bb)))
+    (a0, a1, a2, a3), (b0, b1, b2, b3) = boxes
+    ca, cb = ((a0 + a2) / 2, (a1 + a3) / 2), ((b0 + b2) / 2, (b1 + b3) / 2)
+    dx, dy = cb[0] - ca[0], cb[1] - ca[1]
+    if abs(dy) < 1e-6 and abs(dx) > 1e-6:
+        ea, eb, wa, wb, dist = (a2 - a0) / 2, (b2 - b0) / 2, a3 - a1, b3 - b1, abs(dx)
+    elif abs(dx) < 1e-6 and abs(dy) > 1e-6:
+        ea, eb, wa, wb, dist = (a3 - a1) / 2, (b3 - b1) / 2, a2 - a0, b2 - b0, abs(dy)
+    else:
+        warnings.append(f"{c.name}: the two pads of {board.footprint.name} do not lie in a row; laid out in a gap")
+        return None
+    g = dist - ea - eb
+    if g <= 0:
+        warnings.append(f"{c.name}: the pads of {board.footprint.name} overlap; laid out in a gap")
+        return None
+    return ea * 1e-3, eb * 1e-3, g * 1e-3, wa * 1e-3, wb * 1e-3
 
 
 def _values(d: Design, project: Project) -> dict[str, float]:
@@ -823,3 +1146,175 @@ def layout_differences(project: Project, layout: Design) -> list[str]:
         out.append(f"the layout {layout.name} differs from its schematic: use 'Update 3D Layout' first, so that "
                    "the 3D solves are of the circuit being optimized")
     return out
+
+
+# ---- the solved layout back in a schematic -------------------------------------------------------------------
+def board_circuit(project: Project, layout: Design, name: str | None = None) -> tuple[Design, list[str]]:
+    """A new circuit design that puts the parts the layout cannot hold back on its ports: the layout as a 3D
+    design block, every pad port wired (by a net label) to the terminal of its device, the power ports at their
+    ports, the DC sources at their supply ports; SPICE libraries, setups and variables of the source schematic
+    come along. Every pad port of a terminal connects to it: several pads of one terminal are in parallel, as on
+    the board. Returns the design and what could not be connected."""
+    import copy
+    circuit = source_circuit(project, layout)
+    if circuit is None:
+        raise LayoutError("this 3D design was not created from a schematic (or its circuit design was renamed "
+                          "or deleted)")
+    try:
+        pmap = json.loads(layout.settings.get(PORT_MAP, "") or "{}")
+    except ValueError:
+        pmap = {}
+    ports = layout.ports()
+    if not ports:
+        raise LayoutError(f"the layout {layout.name} has no ports")
+    names = {d.name for d in project.designs}
+    base = name or f"{circuit.name}_Board"
+    name, i = base, 1
+    while name in names:
+        i += 1
+        name = f"{base}{i}"
+    d = Design(name=name, kind="circuit", units=circuit.units)
+    d.settings.update({k: v for k, v in circuit.settings.items()})
+    d.variables = dict(circuit.variables)
+    d.setups = copy.deepcopy(circuit.setups)
+    warnings: list[str] = []
+    by_name = {c.name: c for c in circuit.components}
+    n = len(ports)
+    em = CK.Component("EM1", "EM", 0, 0, 0, {"Design": layout.name, "Solution": "", "Ports": str(n),
+                                             "PortNames": ",".join(p.name for p in ports)})
+    d.components.append(em)
+    pins = CK.pins(em)
+    gx = CK.GRID
+
+    def label(x, y, net):
+        d.components.append(CK.Component(CK.next_name(d.components, "LABEL"), "LABEL", x, y, 0, {"Net": net}))
+
+    def stub(k: int, net: str):
+        """A short wire out of block pin k and a label with the net at its end."""
+        x, y = pins[k]
+        side = -1 if x < 0 else 1
+        d.wires.append(CK.Wire([[x, y], [x + side * 4 * gx, y]]))
+        label(x + side * 4 * gx, y, net)
+        return x + side * 4 * gx, y
+
+    placed_parts: dict[str, CK.Component] = {}
+    right = CK.BLOCK_W + 30 * gx
+    row = [0]
+
+    def place(src: CK.Component) -> CK.Component:
+        if src.name in placed_parts:
+            return placed_parts[src.name]
+        c = copy.deepcopy(src)
+        c.x, c.y, c.rot, c.mirror = right, row[0], 0, False
+        row[0] += 16 * gx if c.type in CK.BLOCK_TYPES else 10 * gx
+        d.components.append(c)
+        placed_parts[src.name] = c
+        return c
+
+    for k, p in enumerate(ports):
+        info = pmap.get(p.props.get("PortNumber", str(k + 1)), {})
+        part = by_name.get(info.get("part", ""))
+        if part is None:
+            warnings.append(f"port {p.name} of {layout.name} stands for no part of {circuit.name}: left open")
+            continue
+        if part.type == "PORT":
+            x, y = stub(k, f"port_{part.name}")
+            c = copy.deepcopy(part)
+            c.x, c.y, c.rot = x, y + 40, 0           # the port's pin at (0, -40)
+            d.components.append(c)
+            continue
+        if part.type in ("VDC", "IDC"):
+            c = place(part)
+            pp = CK.pins(c)
+            stub(k, f"{part.name}_supply")
+            label(*pp[0], f"{part.name}_supply")
+            d.components.append(CK.Component(CK.next_name(d.components, "GND"), "GND", pp[1][0], pp[1][1] + gx))
+            continue
+        c = place(part)
+        from . import footprints as FPS
+        ts = FPS.terminals(part)
+        t = info.get("terminal", "")
+        if t not in ts:
+            warnings.append(f"port {p.name}: {part.name} has no terminal {t}")
+            continue
+        net = f"{part.name}_{t}"
+        stub(k, net)
+        label(*CK.pins(c)[ts.index(t)], net)
+    # the libraries and models the devices need
+    for c in circuit.components:
+        if c.type == "SPICELIB":
+            q = copy.deepcopy(c)
+            q.x, q.y = right, row[0] + 10 * gx
+            row[0] += 8 * gx
+            d.components.append(q)
+    # a terminal of a device that no pad port reaches (its pads are open in the layout)
+    for src, c in placed_parts.items():
+        if c.type in ("DEVICE", "SNP"):
+            from . import footprints as FPS
+            for j, t in enumerate(FPS.terminals(c)):
+                if not any(x.type == "LABEL" and x.props.get("Net") == f"{src}_{t}" for x in d.components):
+                    warnings.append(f"{src}.{t} reaches no port of the layout: open in {name}")
+    d.notes = (f"The 3D layout {layout.name} (block EM1, one port per pad) with the parts of {circuit.name} it "
+               "cannot hold, connected by net labels: every pad port to the terminal of its part. Solve the "
+               f"layout first; then this design simulates the board with the devices.")
+    model = board_model(project, layout, circuit, ports, pmap, f"{name}Model")
+    if model is not None:
+        project.designs.append(model)
+        em.props[CK.CIRCUIT_MODEL] = model.name
+    return d, warnings
+
+
+def board_model(project: Project, layout: Design, circuit: Design, ports, pmap, name: str) -> Design | None:
+    """The circuit model of the layout block: the schematic without its devices and DC sources, a power port at
+    every terminal a pad port stands for (numbered as the layout's ports), so that the bias point has the DC paths
+    of the board (the full-wave data start above 0 Hz). Several pads of one terminal get their ports through a
+    resistor of 1 mOhm each (two ports may not share a node). None if a port cannot be told."""
+    import copy
+    from . import footprints as FPS
+    gone = {c.name for c in circuit.components if c.type in CK.NONLINEAR_TYPES or c.type in ("VDC", "IDC")}
+    m = Design(name=name, kind="circuit", units=circuit.units)
+    m.settings.update({k: v for k, v in circuit.settings.items() if k != PORT_MAP})
+    m.variables = dict(circuit.variables)
+    m.wires = copy.deepcopy(circuit.wires)
+    by_name = {c.name: c for c in circuit.components}
+    m.components = [copy.deepcopy(c) for c in circuit.components if c.name not in gone and c.type != "PORT"]
+    gx = CK.GRID
+    xs = [c.x for c in circuit.components] or [0]
+    ys = [c.y for c in circuit.components] or [0]
+    x0, y0 = max(xs) + 40 * gx, min(ys)
+    for k, p in enumerate(ports):
+        num = p.props.get("PortNumber", str(k + 1))
+        info = pmap.get(num, {})
+        part = by_name.get(info.get("part", ""))
+        if part is None:
+            return None
+        if part.type == "PORT":
+            c = copy.deepcopy(part)
+            c.props["Num"] = num
+            m.components.append(c)
+            continue
+        if part.type in ("VDC", "IDC"):
+            pin = CK.pins(part)[0]
+        else:
+            ts = FPS.terminals(part)
+            t = info.get("terminal", "")
+            if t not in ts:
+                return None
+            pin = CK.pins(part)[ts.index(t)]
+        net = f"_{part.name}_{info.get('terminal') or 'supply'}_{info.get('pad', '')}"
+        m.components.append(CK.Component(CK.next_name(m.components, "LABEL"), "LABEL", pin[0], pin[1], 0,
+                                         {"Net": f"_{part.name}_{info.get('terminal') or 'supply'}"}))
+        # port - 1 mOhm - terminal, off to the right of the schematic
+        y = y0 + k * 10 * gx
+        r = CK.Component(CK.next_name(m.components, "R"), "R", x0, y, 0, {"R": "0.001ohm"})
+        m.components.append(r)
+        a, b = CK.pins(r)
+        m.components.append(CK.Component(CK.next_name(m.components, "LABEL"), "LABEL", a[0], a[1], 0, {"Net": net}))
+        m.components.append(CK.Component(CK.next_name(m.components, "LABEL"), "LABEL", b[0], b[1], 0,
+                                         {"Net": f"_{part.name}_{info.get('terminal') or 'supply'}"}))
+        pc = CK.Component(f"P_{p.name}" if not p.name[:1].isdigit() else f"P{p.name}", "PORT", a[0], a[1] + 40, 0,
+                          {"Num": num, "Z0": "50ohm"})
+        m.components.append(pc)
+    m.notes = (f"Circuit model of the 3D layout {layout.name}: the schematic {circuit.name} without its devices and "
+               "DC sources, a port where each port of the layout is. Board Circuit uses it for the bias point.")
+    return m

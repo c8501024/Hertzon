@@ -3,14 +3,15 @@
 # use any commit of EMerge (normally of its hertzon branch) without waiting for a release on PyPI, and
 # neither the installer nor a developer needs a Rust compiler.
 #
-# Runs when packaging/emerge-commit changes on any branch, or by hand from the Actions tab. A release that
-# already exists is left as it is. After a new commit, copy the wheel file names from the release into
-# the emerge entries of pyproject.toml.
+# Runs when packaging/emerge-commit (or this file) changes on any branch, or by hand from the Actions tab.
+# Wheels are built for Linux x86_64, Windows x64 and macOS arm64. When the release already exists, only the
+# platforms it has no wheel for yet are built and added to it; existing wheels are never replaced. After a
+# new commit, copy the wheel file names from the release into the emerge entries of pyproject.toml.
 name: EMerge wheels
 
 on:
   push:
-    paths: ["packaging/emerge-commit"]
+    paths: ["packaging/emerge-commit", ".github/workflows/emerge-wheels.yml"]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +28,8 @@ jobs:
       sha: ${{ steps.read.outputs.sha }}
       tag: ${{ steps.read.outputs.tag }}
       build: ${{ steps.read.outputs.build }}
+      exists: ${{ steps.read.outputs.exists }}
+      matrix: ${{ steps.read.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - id: read
@@ -37,12 +40,21 @@ jobs:
           TAG="emerge-${SHA::7}"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "$TAG exists, nothing to build"
-            echo "build=false" >> "$GITHUB_OUTPUT"
+          # platform: runner, maturin target, pattern of its wheel file name
+          ALL='[{"os":"ubuntu-latest","target":"x86_64","tag":"manylinux"},
+                {"os":"windows-latest","target":"x64","tag":"win_amd64"},
+                {"os":"macos-15","target":"aarch64","tag":"macosx"}]'
+          if ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'); then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "$TAG exists with:"; echo "$ASSETS"
+            MISSING=$(echo "$ALL" | jq -c --arg a "$ASSETS" '[.[] | select(.tag as $t | ($a | contains($t)) | not)]')
           else
-            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            MISSING=$(echo "$ALL" | jq -c '.')
           fi
+          echo "to build: $MISSING"
+          echo "matrix=$MISSING" >> "$GITHUB_OUTPUT"
+          if [ "$MISSING" = "[]" ]; then echo "build=false" >> "$GITHUB_OUTPUT"; else echo "build=true" >> "$GITHUB_OUTPUT"; fi
 
   wheels:
     needs: check
@@ -52,9 +64,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - { os: ubuntu-latest, target: x86_64 }
-          - { os: windows-latest, target: x64 }
+        include: ${{ fromJSON(needs.check.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,7 +81,12 @@ jobs:
           VER="$BASE.post$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M)"
           echo "EMerge $BASE at ${{ needs.check.outputs.sha }} -> $VER"
           for f in pyproject.toml src/emerge/__init__.py src/emerge/core.py; do
-            [ -f "$f" ] && sed -i "0,/\"$BASE\"/s//\"$VER\"/" "$f"
+            [ -f "$f" ] && python - "$f" "$BASE" "$VER" <<'EOF'
+          import sys
+          f, base, ver = sys.argv[1:]
+          s = open(f, newline="").read()
+          open(f, "w", newline="").write(s.replace(f'"{base}"', f'"{ver}"', 1))
+          EOF
           done
           grep -n "$VER" pyproject.toml src/emerge/__init__.py
       - name: Build abi3 wheel
@@ -98,17 +113,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ needs.check.outputs.sha }}
           TAG: ${{ needs.check.outputs.tag }}
+          EXISTS: ${{ needs.check.outputs.exists }}
         run: |
+          if [ "$EXISTS" = "true" ]; then
+            gh release upload "$TAG" dist/*.whl --repo "$GITHUB_REPOSITORY"
+            NAMES=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep '\.whl$')
+          else
+            NAMES=$(cd dist && ls *.whl)
+          fi
           {
             echo "EMerge wheels built from [FennisRobert/EMerge@${SHA::7}](https://github.com/FennisRobert/EMerge/commit/$SHA)"
             echo "for Hertzon. EMerge is GPL-2.0-or-later; its source is that commit."
             echo
             echo "pyproject.toml entries:"
             echo
-            for w in dist/*.whl; do
-              echo "    https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$(basename "$w")"
+            for w in $NAMES; do
+              echo "    https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$w"
             done
           } > notes.md
           cat notes.md
-          gh release create "$TAG" dist/*.whl --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
-            --target "$GITHUB_SHA" --title "EMerge ${SHA::7} wheels" --notes-file notes.md
+          if [ "$EXISTS" = "true" ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+          else
+            gh release create "$TAG" dist/*.whl --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+              --target "$GITHUB_SHA" --title "EMerge ${SHA::7} wheels" --notes-file notes.md
+          fi

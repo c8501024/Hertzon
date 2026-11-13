@@ -1,0 +1,71 @@
+// onsemi NSVF4009SG4 (NPN RF transistor, fT 25 GHz, SC-82FL / MCPH4) for Hertzon.
+//
+// The Gummel-Poon parameters and the package inductances and capacitances are onsemi's, printed in the data sheet
+// NSVF4009SG4/D (Rev. 1, March 2024, "SPICE Parameters"); the Verilog-A code is Hertzon's, so that ngspice (bias point,
+// small-signal) and circuitRF (harmonic balance) run the same transistor. One change to the printed set: CJS is 0 (the
+// printed VJS = 140 fV and MJS = 150 cannot be evaluated); XTF = 11e-15 and the small VJE and MJE are kept as printed.
+// The data sheet draws the package network only as a figure; the connection used here (bond wire Lw and lead Ll in
+// series at each terminal, Cbe1, Cec1 and Ccb at the pins, Cbe2 and Cec2 where wire and lead meet) is the one that
+// agrees best with the data sheet's measured S-parameters (examples/models/README.md).
+// Terminals in the order of the module: base (pin 3), collector (pin 1), emitter lead e1 (pin 2), emitter lead e2 (pin
+// 4); both emitter leads join at the package's emitter lead inductance.
+`include "constants.vams"
+`include "disciplines.vams"
+
+module nsvf4009sg4(bx, cx, ex, e2x);
+    inout bx, cx, ex, e2x;
+    electrical bx, cx, ex, e2x;
+    electrical c, b, e, s, ci, bi, ei, x1, x2;
+    electrical cp, bp, ep;
+// onsemi chip model
+`define GP_IS 38.78e-18
+`define GP_BF 107.6
+`define GP_NF 1.002
+`define GP_VAF 34.79
+`define GP_IKF 199.6e-3
+`define GP_ISE 138.1e-15
+`define GP_NE 2.5
+`define GP_BR 1.5
+`define GP_NR 1.05
+`define GP_VAR 200
+`define GP_IKR 20e-6
+`define GP_ISC 0
+`define GP_NC 2
+`define GP_RB 8.5
+`define GP_IRB 143.2e-3
+`define GP_RBM 1.584
+`define GP_RE 1.022
+`define GP_RC 3.675
+`define GP_CJE 250e-15
+`define GP_VJE 23e-3
+`define GP_MJE 21.6e-3
+`define GP_TF 5.398e-12
+`define GP_XTF 11e-15
+`define GP_VTF 81.1
+`define GP_ITF 1.55
+`define GP_PTF 32
+`define GP_CJC 214e-15
+`define GP_VJC 111.7e-3
+`define GP_MJC 118e-3
+`define GP_XCJC 833.8e-3
+`define GP_TR 50e-12
+`define GP_FC 8.105e-3
+`define GP_CJS 0
+`define GP_TEMP 25
+`include "gummel_poon_core.vams"
+        V(s, e) <+ 0;                                     // substrate on the emitter (CJS = 0)
+        I(e2x, ex) <+ V(e2x, ex) / 1e-3;                  // the two emitter leads, joined by 1 mOhm
+        // package: lead (pin side) and bond wire (chip side) at each terminal
+        V(cx, cp) <+ 651.5e-12 * ddt(I(cx, cp));          // Llc
+        V(cp, c) <+ 330e-12 * ddt(I(cp, c));              // Lwc
+        V(bx, bp) <+ 210e-12 * ddt(I(bx, bp));            // Llb
+        V(bp, b) <+ 415e-12 * ddt(I(bp, b));              // Lwb
+        V(ex, ep) <+ 12.8e-12 * ddt(I(ex, ep));           // Lle
+        V(ep, e) <+ 243.6e-12 * ddt(I(ep, e));            // Lwe
+        I(bx, ex) <+ ddt(65e-15 * V(bx, ex));             // Cbe1
+        I(ex, cx) <+ ddt(185.4e-15 * V(ex, cx));          // Cec1
+        I(cx, bx) <+ ddt(26.7e-15 * V(cx, bx));           // Ccb
+        I(bp, ep) <+ ddt(25.2e-15 * V(bp, ep));           // Cbe2
+        I(ep, cp) <+ ddt(40e-15 * V(ep, cp));             // Cec2
+    end
+endmodule

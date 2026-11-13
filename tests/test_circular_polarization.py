@@ -37,3 +37,22 @@ def test_rotation_in_time_follows_the_right_hand():
     assert v[1, 1] > 0 and v[0, -1] == pytest.approx(0, abs=1e-12)
     q = farfield_quantities(_ff(-1), 1, 0, None)
     assert q["DirRHCP"][0, 0] == pytest.approx(q["DirTotal"][0, 0])
+
+
+def test_realized_gain_has_the_same_components_as_gain():
+    """#439: RealizedGainTheta/Phi/LHCP/RHCP are the component gains times accepted / incident power, so they
+    add up to RealizedGainTotal like the gains add up to GainTotal."""
+    q = farfield_quantities(_ff(-1), 1, 0, None, pacc=0.75)
+    r = 0.75 / 1.0
+    for c in ("Theta", "Phi", "LHCP", "RHCP"):
+        assert np.allclose(q[f"RealizedGain{c}"], q[f"Gain{c}"] * r)
+    assert np.allclose(q["RealizedGainTheta"] + q["RealizedGainPhi"], q["RealizedGainTotal"])
+    assert np.allclose(q["RealizedGainLHCP"] + q["RealizedGainRHCP"], q["RealizedGainTotal"])
+    assert np.allclose(q["RealizedGainRHCP"], q["RealizedGainTotal"])     # a right-hand wave
+
+
+def test_realized_gain_components_are_offered_in_reports():
+    from hertzon.gui.reports import FF_CATEGORIES, FF_QUANTITIES
+    for c in ("Theta", "Phi", "LHCP", "RHCP"):
+        assert f"RealizedGain{c}" in FF_CATEGORIES["Realized Gain"][0]
+        assert f"RealizedGain{c}" in FF_QUANTITIES

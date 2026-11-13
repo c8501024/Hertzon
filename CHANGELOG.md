@@ -3,6 +3,118 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.23 (2026-11-13)
+
+### Added
+- **Create Circuit: 3D design blocks, Calibrate to 3D, Sync with 3D.** Copper without a circuit model (a
+  patch, a junction with two lines on one side) becomes a small 3D design with Lumped Ports at the lines, used
+  as a block in the circuit. *Calibrate to 3D* fits correction factors (Cal_L, Cal_W, optionally Cal_Er) of the
+  circuit to the solved 3D design; *Sync with 3D* lists the differences between the circuit and its 3D design
+  and takes each in the chosen direction. Also `circuit_layout(action='sync' / 'calibrate')`.
+- **Create Circuit from a 3D design.** Simulation › Circuit › Create Circuit recognizes a circuit design from
+  planar microstrip: lines, stubs, coupled lines, tees, crosses, corners, mitered bends, steps, gaps, vias,
+  rat-race rings, Lumped RLC parts and ports, every dimension linked to the 3D variable of the same value. A
+  layout made with Create 3D Layout comes back as its schematic (Design Wizard structures tested as a round
+  trip). Copper without a circuit model is listed in the messages, not guessed. Also as
+  `circuit_layout(action='from_3d')` for assistants.
+- **Edit Sources for every mode of a wave port.** With wave or Floquet ports of several modes the fields and far
+  fields are stored per port mode, and Edit Sources lists each mode (e.g. WP1_M1, WP1_M2) with its own power and
+  phase; field plots, animations and far-field results superpose them like ports. Before, only the first mode
+  of each port had fields (#437).
+- **Realized gain per polarization:** RealizedGainTheta, RealizedGainPhi, RealizedGainLHCP and RealizedGainRHCP
+  in far-field reports, 3D polar plots and equations (the component gains times accepted / incident power) (#439).
+- **Edge-launch connectors at lumped ports.** A library of 131 PCB edge-launch connectors (SMA, 2.92 mm,
+  2.4 mm) and **Connectors › Real Connector** (or right-click a lumped port › *Simulate with Real Connector*):
+  the connector stands at a lumped port at the board edge, found from the port sheet (edge, direction, board
+  thickness, trace width, substrate), and brings a grounded coplanar launch footprint after Southwest Microwave's
+  50 GHz design rules (narrowed pad and taper, via fence, all dimensions variables). Three modes, switched at any
+  time without losing anything: **Ideal port** (the lumped port is solved, the connector is a transparent
+  preview), **Transition** (a small 3D design of the connector-to-board transition, cascaded with the lumped-port
+  solution in a generated circuit design) and **Full 3D** (connector and footprint solved, wave port on the coax,
+  air region and Auto Open adjusted and restored). **Flatten** makes it plain geometry; **Optimize Launch** tunes
+  the footprint in the small transition design. MCP tools `list_edge_connectors`, `attach_edge_connector`,
+  `set_connector_mode`, `get_connectors`. See [docs/CONNECTORS.md](docs/CONNECTORS.md).
+- Materials Ultem 1000 (support beads of precision connectors) and Kel-F (PCTFE).
+- A Microstrip Line of a circuit may have a negative length: a de-embedding line.
+- **Footprints of circuit parts and the board in 3D.** Parts carry a KiCad footprint and symbol (`.kicad_mod`,
+  `.kicad_sym`, also the downloads of SamacSys, SnapEDA, Ultra Librarian) and the assignment of pads to the
+  terminals of their model, shown to scale in the Component dialog. Create 3D Layout puts R, L and C on their
+  pads and transistors and ICs on their footprints with one port per pad; **Board Circuit** puts the solved
+  layout back into a schematic with every device pin on its pad port. KiCad library folders in Tools › Options.
+  **Board Layout** places the parts in 2D before the 3D layout: drag, turn, ratsnest, overlap check, tracks.
+  The LNA_2G4 example comes with its board placed (0402 parts, the transistor in SC-82FL); Board Circuit adds a
+  circuit model of the layout so that the bias point has the DC paths of the board.
+- **Subdesigns connected automatically on the board.** 3D design blocks (Wilkinson, rat-race, filters of the
+  Design Wizard, any 3D design with edge ports, slanted ports too) are parts of the Board Layout. **Connect** lays
+  the missing connections as lines of one impedance round the other copper, with circular or mitered bends and a
+  taper where a pin width differs; **Match Phase** gives selected routes the same insertion phase at f0, or a
+  set phase difference per route, with meanders. Double-click a bend for its radius or a miter. The routes are
+  simulated with the circuit and copied into the 3D layout with the blocks. Example **VNA_TestSet_2G4**: the
+  test set of a network analyzer from wizard blocks, connected and phase matched on the board.
+- **Nonlinear devices in circuit designs.** Transistors and diodes from SPICE libraries of process design kits
+  (subcircuits), model cards or Verilog-A models, DC voltage and current sources, a SPICE Library part. Hertzon
+  solves the schematic and reduces all linear parts (lines, junctions, 3D blocks) to one network at the device
+  pins, ports and sources. With devices, the S-parameter analysis takes the bias point and the small-signal device
+  admittances from ngspice; a new **Harmonic Balance** analysis (single tone, swept drive power) runs circuitRF on
+  Hertzon's network. Both programs are optional and installed separately. Checked against ngspice alone
+  (IHP SG13G2 NMOS and HBT to 30 GHz, within 1e-5) and an ngspice transient (harmonics within 0.25 %).
+- **Full-wave FEM or circuit model per block.** A 3D design block (or Touchstone block) in a circuit uses its
+  full-wave data or a circuit model, a circuit design of the project with the same ports (Properties or
+  right-click). Where the data do not cover the analysis (harmonics of a harmonic balance included), the block
+  switches to its circuit model with a warning; without one the analysis stops with an error instead of using the
+  nearest data point. The block's colour shows the model: blue full-wave FEM, red circuit, red dashed switched,
+  grey no usable model. A block of a generated 3D layout takes its circuit as the circuit model.
+- **Mixer analysis in circuit designs.** A two-tone harmonic balance (LO and RF) by circuitRF on Hertzon's
+  network: conversion loss, LO-RF, LO-IF and RF-IF isolation over an RF band and a list of LO powers, results in
+  `mixer.csv`. Diode model cards of SPICE libraries now run in harmonic balance. New example
+  `examples/make_mixer.py`: a broadband double-balanced diode mixer (about 1.25 to 4 GHz) with two stripline
+  Marchand baluns as a 3D design and the HSMS-2829 ring quad; checked against an ngspice transient analysis.
+- Units V, mV, A, mA, uA, kohm in expressions.
+- **Example LNA_2G4**: a 2.4 GHz amplifier that can be built (onsemi NSVF4009SG4 on RO4350B, 0402 parts, 5 V):
+  13 dB gain, S11 and S22 below −14 dB, unconditionally stable, output P1dB 6 dBm. Bias and S-parameters by
+  ngspice, compression by circuitRF, both on a Verilog-A Gummel-Poon model with onsemi's data-sheet parameters
+  (`examples/models/`); a second design uses onsemi's measured transistor S-parameters on the same board.
+- Model files of circuit parts (Verilog-A, SPICE libraries, Touchstone) given relative to the project are found
+  when an example is opened as an untitled copy; a Verilog-A model in a read-only folder is compiled into the
+  temporary folder.
+- **macOS:** the mesher library `libhzmesh.dylib` (universal, arm64 and x86_64) is included; `build.sh` builds
+  it on macOS and a CI workflow on a macOS runner keeps it up to date. EMerge comes as a prebuilt wheel on
+  Apple Silicon, so the install no longer needs Rust there. README section on macOS (#405).
+
+### Changed
+- **Filter Design and Antenna Design are gone from the ribbon and the Tools menu.** Everything they offered is in
+  **Tools › Design Wizard**: the cards *Rectangular patch*, *Hairpin bandpass* and the new card
+  *Hairpin diplexer / triplexer* open the same designers as before.
+- **The Desktop tab of a circuit design has the tools of the 3D Desktop tab:** Options, Materials, Design Wizard,
+  Help with Feature Overview, Copy/Paste, and an Import / Export group (3D designs from a project file,
+  Touchstone). Both tabs are built by one function, so they stay alike.
+- **Sweep warnings.** Analysis Setup checks, `set_sweep` and `run_simulation` warn when a switched-on sweep
+  reaches more than 1.5x the highest adaptive frequency (the sweep never refines the mesh; adapt at the upper end
+  with Broadband or Multi-Frequencies) and when a fixed AutoOpenPadding is below a quarter wavelength at the
+  lowest frequency of the setup.
+- **The patch assistant keeps its mesh for the sweep.** `create_patch_antenna` sets a fixed air box padding
+  (lambda/3 at f0, the same as the automatic one), so switching the sweep on reuses the adaptive mesh instead of
+  adapting a new one; `set_sweep` and `run_simulation` say when a mesh cannot be reused.
+- **Trust region optimization starts from the analyzed design.** When the start design was just solved with the
+  same model and setup, its solution is taken over as the first evaluation instead of being solved again.
+- Design assistants replace the empty design that `create_project` makes instead of adding theirs next to it.
+
+### Fixed
+- **render_image shows round faces as the modeler does.** The picture of the model used the coarse display mesh
+  (18 segments per turn) and flat shading, so small cylinders such as coax conductors, pins and vias looked
+  angular, unlike the viewer. It now uses the modeler's display quality (normal, 36 segments; `quality` to
+  choose) and the viewer's normals, smooth inside a curved face and sharp at its edges. Checks and face lists
+  keep the cheap coarse mesh. Display only: the FEM mesh is not touched.
+- Circuit designs: a part with two pins on the same net (for example both cold ends of a balun block on one IF
+  node, or a 3D block with two ports tied together) lost one of the two in the network; now both count.
+- Harmonic balance with 3D blocks or Touchstone data that start above 0 Hz: DC takes the real part of the lowest
+  point (an imaginary part at DC is not physical and kept the balance from converging).
+- Properties panel: changing a design variable now updates the Evaluated Value of the variables that use it
+  right away, not only after selecting the design again (#430).
+- Interpolating sweep on macOS: no more spurious "divide by zero / overflow in matmul" warnings from Apple's
+  Accelerate in the reduced-basis step; a reduced solution that is really not finite is rejected and solved
+  directly (#405).
+
 ## 0.3.22 (2026-11-13)
 
 ### Fixed

@@ -6,7 +6,7 @@
 [![Downloads](https://img.shields.io/github/downloads/c8501024/Hertzon/total)](https://github.com/c8501024/Hertzon/releases)
 [![License: GPL v2+](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)](LICENSE)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
-[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)](https://github.com/c8501024/Hertzon/releases/latest)
+[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](https://github.com/c8501024/Hertzon/releases/latest)
 [![Solver: EMerge](https://img.shields.io/badge/solver-EMerge-orange)](https://github.com/FennisRobert/EMerge)
 
 ![Hertzon](hertzon/gui/splash.jpg)
@@ -105,8 +105,14 @@ pip install -e .                                        # installs emerge, PySid
 python -m hertzon examples/WaveguidePost.hzn             # or just: hertzon
 ```
 
-EMerge comes from a pinned commit (see docs/EMERGE_CHANGES.md): prebuilt wheels for Windows x64 and Linux
-x86_64; on other platforms pip builds it from source, which needs a Rust compiler.
+EMerge comes from a pinned commit (see docs/EMERGE_CHANGES.md): prebuilt wheels for Windows x64, Linux
+x86_64 and macOS on Apple Silicon (arm64); on other platforms pip builds it from source, which needs a Rust
+compiler.
+
+**macOS:** there is no installer yet; use the manual route above with Python 3.13 (e.g. from python.org or
+Homebrew). It runs on Apple Silicon, and the mesher library `libhzmesh.dylib` is included. On an
+Intel Mac, pip builds EMerge from source, so install Rust first (`curl https://sh.rustup.rs -sSf | sh`). NumPy
+on macOS uses Apple's Accelerate, so EMerge picks its Accelerate solver; reports from Mac users are welcome.
 
 EMerge 3 ships its solver kernels compiled; the first solve only compiles Hertzon's own numba kernels
 (matrix handling, the size field of the re-mesh refinement), which takes about a minute once; later
@@ -140,6 +146,9 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
    The **Lumped Elements** tab inserts chip resistors, inductors and capacitors (0201 to 1206 and RF
    series of Coilcraft and Murata) with a click on the board: pads, element sheet and Lumped RLC boundary
    with an ideal value, typical ESL/ESR or a Touchstone file of the vendor ([docs/LUMPED_ELEMENTS.md](docs/LUMPED_ELEMENTS.md)).
+   The **Connectors** tab puts an SMA, 2.92 mm or 2.4 mm edge-launch connector of the library (131 parts) with
+   its launch footprint at a lumped port at the board edge, simulated as ideal port, as a cascaded transition
+   model or in full 3D, switched at any time ([docs/CONNECTORS.md](docs/CONNECTORS.md)).
 4. **Analysis > Add Solution Setup**: solution frequency (single / multi / broadband), maximum
    passes, maximum Delta S, matrix convergence, minimum (converged) passes, percent refinement,
    maximum refinement, lambda refinement, solver choice, mesh refinement method (hzAURA, EMerge's AURA
@@ -168,7 +177,7 @@ solves start immediately. On Linux without a desktop, run under `xvfb-run`.
 
 ## Circuits
 
-A **Circuit** design is a schematic of a linear network next to the 3D designs, with its own ribbon and a part
+A **Circuit** design is a schematic of a network next to the 3D designs, with its own ribbon and a part
 library with search ([docs/CIRCUIT.md](docs/CIRCUIT.md), [tutorial](docs/TUTORIAL.md#11-a-stub-filter-as-a-circuit-and-its-3d-layout)):
 
 * **Parts**: power ports, ground, net labels; R, L, C, series and parallel RLC, attenuator, DC block and feed;
@@ -183,6 +192,15 @@ library with search ([docs/CIRCUIT.md](docs/CIRCUIT.md), [tutorial](docs/TUTORIA
 * **3D layout**: *Create 3D Layout* turns the schematic into a 3D design (substrate, traces, junctions, vias,
   lumped parts, ports and the 3D blocks with their geometry), every dimension a design variable;
   *Update 3D Layout* and *Update Schematic* keep the two in step in both directions.
+* **Circuit from 3D**: *Create Circuit* recognizes a schematic (lines, stubs, coupled lines, junctions, steps,
+  gaps, vias, rings, lumped parts) from a planar microstrip 3D design, its dimensions linked to the 3D variables;
+  copper without a circuit model becomes a 3D design block. *Calibrate to 3D* fits correction factors to the
+  solved 3D design, *Sync with 3D* takes the differences between the two in the direction you choose.
+* **Transistors and diodes**: SPICE libraries of process design kits (e.g. IHP SG13G2), model cards and Verilog-A
+  models in the same schematic. Hertzon solves the schematic and its linear network; the bias point and the
+  small-signal device admittances come from [ngspice](https://ngspice.sourceforge.io), the harmonic balance from
+  [circuitRF](https://github.com/potatobeanradio/circuitRF) (both optional, installed separately;
+  [details](docs/CIRCUIT.md#nonlinear-devices)).
 * **Copy and paste** (Ctrl+C / Ctrl+V) across circuit designs; the reports, Smith chart, Touchstone export and
   Solution Data work as in a 3D design.
 
@@ -227,6 +245,9 @@ reports and field plots ready: after **Analyze All** (F5) double-click a report,
 | `examples/FSS_UnitCell.hzn` | Frequency selective surface: a cross dipole on RO3003 as the **periodic unit cell** of an infinite array (Primary / Secondary boundaries, scan angle `scan_theta`), **Floquet ports** below and above with TE00 and TM00, transmission and reflection 6-18 GHz |
 | `examples/GerberTestBoard.hzn` | Two-layer board with copper shapes, cut-outs, a via (grouped with its pad) and holes: the test case of **File > Export > Gerber** ([docs](docs/GERBER_EXPORT.md)) |
 | `examples/StubFilter.hzn` | **Circuit design**: a 2.45 GHz band-stop filter of two open microstrip stubs on RO4350B with automatic tee junctions, analyzed in a moment, and its **3D layout** created from the schematic (every dimension a variable), solved full-wave and tuned ([tutorial](docs/TUTORIAL.md#11-a-stub-filter-as-a-circuit-and-its-3d-layout), [docs](docs/CIRCUIT.md)) |
+| `examples/Mixer_DBM.hzn` | **Circuit design with nonlinear devices**: a broadband double-balanced diode mixer (about 1.25-4 GHz, IF 100 MHz) on a 1.6 mm 4-layer RO4350B board. Two broadside Marchand baluns in stripline as a 3D design (solved full-wave), the HSMS-2829 ring quad with the manufacturer's SPICE card, bypass capacitors, coplanar IF lines and an IF choke; the **Mixer** analysis (two-tone harmonic balance by circuitRF) gives conversion loss and LO-RF, LO-IF and RF-IF isolation over the band and the LO power. Built by `python examples/make_mixer.py`; `examples/mixer/check_ngspice.py` checks the harmonic balance against an ngspice transient ([docs](docs/CIRCUIT.md#nonlinear-devices)) |
+| `examples/LNA_2G4.hzn` | **Circuit design with a transistor**: a 2.4 GHz amplifier that can be built (onsemi NSVF4009SG4 on RO4350B, 0402 parts, 5 V), 13 dB gain, S11 and S22 below −14 dB, unconditionally stable; bias point and S-parameters with **ngspice**, gain compression with **circuitRF** (harmonic balance), and the same board with the measured transistor data ([docs](docs/CIRCUIT.md#example-a-24-ghz-lna-that-can-be-built)). Needs ngspice, circuitRF and OpenVAF-Reloaded |
+| `examples/VNA_TestSet_2G4.hzn` | **Subdesigns connected on the board**: the reflectometer test set of a two-port network analyzer at 2.45 GHz, built from Design Wizard blocks (a Wilkinson divider and two 15 dB coupled-line couplers, each a 3D design with its circuit model) and 50 ohm loads on vias. **Connect** laid all lines with 50 ohm and circular bends, **Match Phase** gave the lines to the receivers R, A and B the same phase with meanders; the circuit simulation includes the routes. Built by `python examples/make_vna_testset.py` ([docs](docs/CIRCUIT.md#connecting-subdesigns-automatically)) |
 | `examples/SphereRCS.hzn` | RCS of a 100 mm PEC sphere at 1 GHz, plane wave, **Auto Open**, bistatic and monostatic RCS reports, checked against the Mie series ([tutorial](docs/TUTORIAL.md#4-radar-cross-section-of-a-sphere)) |
 | `examples/Showcase_AllFeatures.hzn` | Test project that uses nearly every feature in eight designs: patch array (all report types, reports against a design variable, field overlays, Fields Calculator, output variables with S, Y, Z and VSWR, conjugate-gradient and Derivative Trust Region optimizations with goals on antenna parameters, parametric sweeps, setups with every matrix solver family, all sweep types, all mesh operations, coordinate systems), half-model iris filter (Symmetry, de-embedding, renormalization, ports-only setup), eigenmode cavity, a geometry zoo with every create command and operation under a plane wave (RCS), a terminal coax monopole with PML, a periodic unit cell (Floquet port, scan angles), a terminal differential pair (two terminals per wave port, reference conductor, mixed-mode S-parameters) and an over-moded waveguide (two-mode wave ports with TE10 and TE01, mode conversion). Built by `python examples/make_showcase.py` |
 

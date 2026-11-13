@@ -26,8 +26,8 @@ def solved_terminals(doc) -> list[dict] | None:
 
 
 def field_terminal_names(doc) -> list[str] | None:
-    """Terminals whose fields the newest solution of the design stores (a port with several terminals), for
-    Edit Sources; None when the fields are stored per port."""
+    """Terminals (a port with several terminals) or port modes (wave ports with several modes) whose fields the
+    newest solution of the design stores, for Edit Sources; None when the fields are stored per port."""
     from .doc import result_dir
     best, t_best = None, -1.0
     for s in doc.design.setups:

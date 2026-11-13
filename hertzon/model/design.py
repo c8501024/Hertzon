@@ -221,6 +221,22 @@ class ParametricSetup:
 
 
 @dataclass
+class ConnectorInstance:
+    """A connector of the library (hertzon.model.connectors) standing at a lumped port of a 3D design.
+
+    Its objects (group ``name``) and the footprint stay in the design in every mode; the mode only switches them
+    on or off: "Ideal" (the lumped port is solved, the connector a transparent preview outside the model),
+    "Transition" (as Ideal in 3D; a circuit design cascades the solution with a solved 3D model of the
+    connector-to-board transition) and "3D" (the connector and its footprint are solved, with a wave port on the
+    coax). ``props`` holds the placement and the names of the parts (see connectors.py)."""
+    name: str
+    part: str
+    port: str
+    mode: str = "Ideal"
+    props: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class Design:
     name: str = "Design1"
     units: str = "mm"
@@ -245,6 +261,7 @@ class Design:
     stackup: Stackup | None = None        # PCB layer stack (hertzon.model.stackup), None: no board
     components: list[Component] = field(default_factory=list)   # circuit designs: schematic (model/circuit.py)
     wires: list[Wire] = field(default_factory=list)
+    connectors: list[ConnectorInstance] = field(default_factory=list)   # 3D designs: connectors at lumped ports
 
     def cs(self, name: str) -> CoordSys:
         for c in self.coord_systems:
@@ -391,6 +408,20 @@ class Project:
                     f = c.props.get("File", "") if c.kind == "Import" else ""
                     if f and not Path(f).is_absolute():
                         c.props["File"] = str(base / f)
+            # model and data files of circuit parts (Verilog-A, SPICE libraries, Touchstone), so that an example
+            # opened as an untitled copy still finds them
+            for c in d.components:
+                for key in ("File", "OSDI"):
+                    v = c.props.get(key, "") if c.type in ("DEVICE", "SPICELIB", "SNP") else ""
+                    if v.strip():
+                        c.props[key] = ";".join(str(base / x.strip()) if x.strip() and not Path(x.strip()).is_absolute()
+                                                else x for x in v.split(";"))
+                # footprint and symbol files (a library id "Lib:Name" stays as it is)
+                for key in ("Footprint", "Symbol"):
+                    v = c.props.get(key, "").strip()
+                    m = re.match(r"^(.*\.kicad_(?:mod|sym))(:.*)?$", v)
+                    if m and not Path(m.group(1)).is_absolute():
+                        c.props[key] = str(base / m.group(1)) + (m.group(2) or "")
         return p
 
     def clone(self) -> "Project":
@@ -472,6 +503,9 @@ def design_from_dict(d: dict) -> Design:
     des.notes = d.get("notes", "")
     des.stackup = Stackup.from_dict(d["stackup"]) if d.get("stackup") else None
     des.components, des.wires = circuit_from_dict(d)
+    des.connectors = [ConnectorInstance(c["name"], c["part"], c.get("port", ""), c.get("mode", "Ideal"),
+                                        {k: str(v) for k, v in c.get("props", {}).items()})
+                      for c in d.get("connectors", [])]
     return des
 
 

@@ -147,6 +147,17 @@ def test_circuit_build_solve_layout_and_back(server, tmp_path):
     assert ms1["props"]["L"] == "22mm"
     up = call(server, "circuit_layout", design="Line", action="update")
     assert up["rebuilt"]
+    # and a circuit recognized from the 3D layout
+    rc = call(server, "circuit_layout", design="Line_Layout", action="from_3d")
+    assert rc["from"] == "Line_Layout" and rc["circuit"] == "Line_Layout_Circuit"
+    ms = [p for p in call(server, "get_circuit", design=rc["circuit"])["parts"] if p["type"] == "MLIN"]
+    assert len(ms) == 1 and ms[0]["props"]["L"] == "MS1_L"
+    assert call(server, "circuit_layout", design=rc["circuit"], action="sync")["differences"] == []
+    call(server, "set_design", design="Line_Layout", variables={"MS1_L": "21mm"})
+    sy = call(server, "circuit_layout", design=rc["circuit"], action="sync")
+    assert [d["name"] for d in sy["differences"]] == ["MS1_L"]
+    sy = call(server, "circuit_layout", design="Line_Layout", action="sync", direction="to_circuit")
+    assert sy["circuit"] == rc["circuit"] and sy["done"]
     assert "not a circuit design" in error(server, "get_circuit", design="Line_Layout")
 
 
@@ -276,3 +287,63 @@ def test_step_export_is_in_millimetres(tmp_path):
         assert bb[3] - bb[0] == pytest.approx(0.147, rel=1e-3)
     finally:
         gmsh.model.remove()
+
+
+def test_switching_on_the_patch_sweep_keeps_the_model(server, tmp_path):
+    """The patch assistant gives the open region a fixed padding (lambda/3 at f0, the automatic padding of the
+    setup alone): switching the sweep on keeps the model key, so run_simulation(sweep=...) reuses the adaptive
+    mesh. A design whose automatic air box grows gets a note from set_sweep and run_simulation(sweep=...)."""
+    import numpy as np
+    from hertzon.model.design import Project
+    from hertzon.solver.keys import model_key, open_region_frequency
+    from hertzon.solver.results import results_dir
+    path = str(tmp_path / "s.hzn")
+    call(server, "create_project", path=path)
+    call(server, "create_patch_antenna", frequency_ghz=2.45)
+    p = Project.load(path)
+    d = p.design("Patch_2.45GHz")
+    st = d.setup("Setup1")
+    assert float(d.settings["AutoOpenPadding"].removesuffix("mm")) == pytest.approx(299792458 / 2.45e9 / 3 * 1e3,
+                                                                                    rel=1e-5)
+    k0 = model_key(p, d, st)
+    st.sweeps[0].props["Enabled"] = "True"
+    assert model_key(p, d, st) == k0 and open_region_frequency(p, d, st) is None
+    r = call(server, "set_sweep", name="Sweep", props={"Enabled": "True"})
+    assert "note" not in r
+    # a stored adaptive mesh of this model is reused without a note
+    out = results_dir(path, d.name, "Setup1")
+    out.mkdir(parents=True)
+    np.savez(out / "amr_state.npz", key=np.array(k0))
+    assert tools._stale_mesh_reason(tools.load({}), "Setup1", out) == ""
+    # without the fixed padding the switched-on sweep enlarges the air box: the tools say so
+    call(server, "set_sweep", name="Sweep", props={"Enabled": "False"})
+    call(server, "set_design", settings={"AutoOpenPadding": ""})
+    r = call(server, "set_sweep", name="Sweep", props={"Enabled": "True"})
+    assert "air box" in r["note"] and "AutoOpenPadding" in r["note"]
+    assert "air box" in tools._stale_mesh_reason(tools.load({}), "Setup1", out)
+
+
+def test_wideband_sweep_and_short_padding_are_flagged(server, tmp_path):
+    """A sweep is solved on the mesh adapted at the setup's frequencies (also when run alone on the stored mesh):
+    a sweep far above them (UWB) and a fixed padding below lambda/4 at the lowest frequency are warned about by
+    validate, set_sweep and run_simulation; the patch assistant's +-15 % sweep and its padding are not, and a
+    broadband adaptation over the sweep clears the mesh warning."""
+    from hertzon.model.design import Project
+    from hertzon.model.validate import sweep_coverage
+    path = str(tmp_path / "w.hzn")
+    call(server, "create_project", path=path)
+    call(server, "create_patch_antenna", frequency_ghz=2.45)
+    r = call(server, "set_sweep", name="Sweep", props={"Enabled": "True"})
+    assert "warnings" not in r
+    r = call(server, "set_sweep", name="UWB", props={"SweepType": "Interpolating", "Distribution": "Linear Count",
+                                                     "Start": "1GHz", "Stop": "6GHz", "Count": "101"})
+    w = r["warnings"]
+    assert any("UWB reaches 6 GHz" in x and "Broadband" in x for x in w), w
+    assert any("below lambda/4" in x and "1 GHz" in x for x in w), w
+    p = Project.load(path)
+    d = p.design("Patch_2.45GHz")
+    st = d.setup("Setup1")
+    st.props.update(SolutionFrequencyMode="Broadband", LowFrequency="1GHz", HighFrequency="6GHz")
+    assert not any("reaches" in x for x in sweep_coverage(p, d, st))
+    d.settings["AutoOpenPadding"] = ""                 # automatic: lambda/3 at the lowest sweep frequency
+    assert sweep_coverage(p, d, st) == []

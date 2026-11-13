@@ -44,6 +44,7 @@ class PortGeo:
     zmin: float                           # ground level
     zmax: float                           # top of the port (a lumped port: the trace height)
     kind: str
+    normal: tuple[float, float] = (0.0, 0.0)   # horizontal unit normal out of the design (slanted ports too)
 
 
 @dataclass
@@ -52,6 +53,9 @@ class EmGeometry:
     ports: list[PortGeo]                  # in the order of the block pins
     bbox: tuple[float, float, float, float]   # x0, y0, x1, y1 of the design without the air region
     grounds: list[tuple[float, float, float, float]] = field(default_factory=list)  # ground sheet boxes at zmin
+    # top view of the conductors above the ground and of the Lumped RLC sheets: (outline, holes) in m
+    copper: list[tuple[list, list]] = field(default_factory=list)
+    lumped: list[tuple[list, list]] = field(default_factory=list)
 
 
 def source(project: Project, c: CK.Component) -> Design:
@@ -82,8 +86,10 @@ def pin_ports(s: Design, c: CK.Component) -> list[Assignment]:
     return out
 
 
-def geometry(project: Project, c: CK.Component) -> EmGeometry:
-    """Build the 3D design of the block and find its ports and extent."""
+def geometry(project: Project, c: CK.Component, slanted: bool = False) -> EmGeometry:
+    """Build the 3D design of the block and find its ports and extent. slanted: vertical port sheets at any angle
+    are accepted (their direction is PortGeo.normal; out is then the nearest axis), else only sheets that face
+    along x or y."""
     import gmsh
 
     from ..kernel import occ as K
@@ -99,7 +105,7 @@ def geometry(project: Project, c: CK.Component) -> EmGeometry:
     gmsh.model.remove()
     gmsh.model.add("hertzon_embed")
     try:
-        return _geometry(project, s, c, ports)
+        return _geometry(project, s, c, ports, slanted)
     finally:
         try:
             gmsh.model.remove()
@@ -112,7 +118,8 @@ def geometry(project: Project, c: CK.Component) -> EmGeometry:
                 pass
 
 
-def _geometry(project: Project, s: Design, c: CK.Component, ports: list[Assignment]) -> EmGeometry:
+def _geometry(project: Project, s: Design, c: CK.Component, ports: list[Assignment], slanted: bool = False) \
+        -> EmGeometry:
     import gmsh
 
     from ..kernel import occ as K
@@ -153,17 +160,25 @@ def _geometry(project: Project, s: Design, c: CK.Component, ports: list[Assignme
         x0, y0, z0, x1, y1, z1 = box(dts)
         sx, sy, sz = x1 - x0, y1 - y0, z1 - z0
         scale = max(sx, sy, sz)
+        px, py = (x0 + x1) / 2, (y0 + y1) / 2
+        nrm = _sheet_normal(dts) if slanted and sz > 1e-3 * scale else None
+        if nrm is not None:
+            nx, ny = nrm
+            if nx * (px - cx) + ny * (py - cy) < 0:
+                nx, ny = -nx, -ny
+            out = (1 if nx > 0 else -1, 0) if abs(nx) >= abs(ny) else (0, 1 if ny > 0 else -1)
+            geos.append(PortGeo(p.name, (px, py), out, (sx * sx + sy * sy) ** 0.5, z0, z1, p.kind, (nx, ny)))
+            continue
         if sz <= 1e-3 * scale or min(sx, sy) > 1e-3 * scale + 1e-6:
             raise EmbedError(f"{c.name}: the port {p.name} of '{s.name}' is not a vertical sheet on the edge of "
                              "the design; only such ports (a line entering from the side) can be connected")
-        px, py = (x0 + x1) / 2, (y0 + y1) / 2
         if sx <= sy:                                  # the port faces along x
             out = (1 if px >= cx else -1, 0)
             width = sy
         else:
             out = (0, 1 if py >= cy else -1)
             width = sx
-        geos.append(PortGeo(p.name, (px, py), out, width, z0, z1, p.kind))
+        geos.append(PortGeo(p.name, (px, py), out, width, z0, z1, p.kind, (float(out[0]), float(out[1]))))
     # the design's own ground: horizontal conductor sheets at the ground level of the ports
     zg = min((g.zmin for g in geos), default=bb[2])
     cond = _conductor_objects(s)
@@ -177,7 +192,74 @@ def _geometry(project: Project, s: Design, c: CK.Component, ports: list[Assignme
         x0, y0, z0, x1, y1, z1 = box(sheets)
         if abs(z1 - z0) < 1e-6 and abs(z0 - zg) < 1e-6:
             grounds.append((x0, y0, x1, y1))
-    return EmGeometry(s, geos, (bb[0], bb[1], bb[3], bb[4]), grounds)
+    rlc = {n for a in s.boundaries if a.kind == "Lumped RLC" and a.enabled for n in a.objects}
+    copper = _top_rings(ctx, [n for n in ctx.built if n in cond and n not in regions and n not in port_objs], zg)
+    lumped = _top_rings(ctx, [n for n in ctx.built if n in rlc], zg)
+    return EmGeometry(s, geos, (bb[0], bb[1], bb[3], bb[4]), grounds, copper, lumped)
+
+
+def _sheet_normal(dts) -> tuple[float, float] | None:
+    """Horizontal unit normal of a flat vertical sheet (its first face); None if it is not vertical."""
+    import gmsh
+    faces = [t for d, t in dts if d == 2]
+    if not faces:
+        return None
+    lo, hi = gmsh.model.getParametrizationBounds(2, faces[0])
+    n = gmsh.model.getNormal(faces[0], [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2])
+    nx, ny, nz = n[0], n[1], n[2]
+    h = (nx * nx + ny * ny) ** 0.5
+    if h < 1e-9 or abs(nz) > 1e-6 * max(h, 1.0) + 1e-9:
+        return None
+    return nx / h, ny / h
+
+
+def _curve_points(tag: int) -> list[tuple[float, float, float]]:
+    import gmsh
+    lo, hi = gmsh.model.getParametrizationBounds(1, tag)
+    n = 2 if gmsh.model.getType(1, tag) == "Line" else 33
+    ts = [lo[0] + (hi[0] - lo[0]) * i / (n - 1) for i in range(n)]
+    xyz = gmsh.model.getValue(1, tag, ts)
+    return [tuple(xyz[3 * i:3 * i + 3]) for i in range(n)]
+
+
+def _top_rings(ctx, names: list[str], zg: float) -> list[tuple[list, list]]:
+    """The horizontal faces of the objects names that lie above the ground level zg, seen from the top, joined:
+    (outline, holes) per piece, x, y in m."""
+    import gmsh
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import polygonize, unary_union
+
+    from ..kernel import occ as K
+    polys = []
+    for n in names:
+        for f in K.object_faces(ctx.built.get(n, [])):
+            x0, y0, z0, x1, y1, z1 = gmsh.model.occ.getBoundingBox(2, f)
+            if z1 - z0 > 1e-6 or z0 < zg + 1e-6:
+                continue
+            lines = []
+            for _d, e in gmsh.model.getBoundary([(2, f)], combined=False, oriented=False, recursive=False):
+                pts = [(round(p[0], 9), round(p[1], 9)) for p in _curve_points(abs(e))]   # ends meet exactly
+                if len(pts) >= 2:
+                    lines.append(LineString(pts))
+            faces = list(polygonize(unary_union(lines))) if lines else []
+            if not faces:
+                continue
+            # polygonize fills the holes with faces of their own: the face is made of the pieces that lie inside
+            # an even number of outlines of the other pieces
+            outer = [Polygon(q.exterior) for q in faces]
+            for i, q in enumerate(faces):
+                pt = q.representative_point()
+                if sum(1 for j, o in enumerate(outer) if j != i and o.contains(pt)) % 2 == 0:
+                    polys.append(q)
+    if not polys:
+        return []
+    out = []
+    geo = unary_union(polys).buffer(0)
+    for g in getattr(geo, "geoms", [geo]):
+        if isinstance(g, Polygon) and not g.is_empty:
+            out.append(([tuple(map(float, p)) for p in list(g.exterior.coords)[:-1]],
+                        [[tuple(map(float, p)) for p in list(r.coords)[:-1]] for r in g.interiors]))
+    return out
 
 
 def _conductor_objects(s: Design) -> set[str]:

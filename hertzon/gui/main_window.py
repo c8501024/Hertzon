@@ -25,7 +25,7 @@ from ..model.materials import is_conductor, normalize_color
 from ..solver.results import results_dir, ResultStore
 from .doc import Document, Pick, material_targets, result_dir
 from .viewer import ModelerView, PLANE_NORMAL
-from .trees import ProjectTree, ModelTree
+from .trees import ProjectTree, ModelTree, ROLE as TREE_ROLE
 from .panels import PropertiesPanel, MessageManager, ProgressPanel, SolutionDataDialog, rename_object
 from .dialogs import (edit_assignment, edit_setup, edit_sweep, edit_sphere, ObjectPropertiesDialog, VariablesDialog,
                       MaterialsDialog, SolutionTypeDialog, ValidationDialog, GridDialog, NamedPropsDialog,
@@ -75,6 +75,8 @@ class MainWindow(QMainWindow):
     def __init__(self, project: Project | None = None):
         super().__init__()
         self.settings = QSettings("Hertzon", "Hertzon")
+        from .dialogs import apply_kicad_dirs
+        apply_kicad_dirs(self.settings)
         self.doc = Document(project)
         self.solver = SolveManager(self)
         self.edit_new_primitives = self.settings.value("edit_new_primitives", True, type=bool)
@@ -120,6 +122,12 @@ class MainWindow(QMainWindow):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(split)
         self.main_stack.addWidget(self.circuit)
+        from .board_editor import BoardEditor
+        self.board_editor = BoardEditor(self.doc)
+        self.board_editor.schematicRequested.connect(lambda: self.show_board(False))
+        self.board_editor.layoutRequested.connect(self.circuit_to_layout)
+        self._board_page = False
+        self.main_stack.addWidget(self.board_editor)
         self.tabs.addTab(self.main_stack, "3D Modeler")
         self.tabs.tabBar().setTabButton(0, self.tabs.tabBar().ButtonPosition.RightSide, None)
         self.setCentralWidget(self.tabs)
@@ -479,11 +487,6 @@ class MainWindow(QMainWindow):
         m.addAction("Keyboard Shortcuts...", self.edit_shortcuts)
         m.addSeparator()
         m.addAction("Design Wizard...", self.design_wizard)
-        fd = m.addMenu("Filter Design")
-        fd.addAction("Tapped Hairpin...", self.filter_hairpin)
-        fd.addAction("Hairpin Diplexer...", self.filter_diplexer)
-        ad = m.addMenu("Antenna Design")
-        ad.addAction("Rectangular Patch...", self.antenna_patch)
         m.addSeparator()
         m.addAction("Python Console", self.show_console)
         m.addAction("Run Script...", self.run_script)
@@ -520,43 +523,7 @@ class MainWindow(QMainWindow):
         exc = lambda k: (lambda: self.assign("excitation", k))  # noqa: E731
 
         # ---- Desktop -----------------------------------------------------------------------
-        pg = rb.page("Desktop")
-        g = pg.group("Project")
-        g.large("Save", "save", self.a_save)
-        g.small("New", "new", self.a_new)
-        g.small("Open", "open", self.a_open)
-        g.small("Save As", "saveas", self.a_saveas)
-        g = pg.group("Edit")
-        g.small("Undo", "undo", self.a_undo)
-        g.small("Redo", "redo", self.a_redo)
-        g.small("Delete", "delete", self.a_delete)
-        g.small("Copy", "copy", self.a_copy)
-        g.small("Paste", "paste", self.a_paste)
-        g.small("Properties", "variables", self.a_props)
-        g = pg.group("Design")
-        g.large("Insert Design", "design", self.insert_design)
-        g.small("Copy Design", "copy", self.copy_design)
-        g.small("Project Variables", "variables", lambda: self.edit_variables(True))
-        g.small("Design Properties", "variables", lambda: self.edit_variables(False))
-        g = pg.group("Import / Export")
-        g.small("Import Geometry", "import", self.import_geometry)
-        g.small("Import PCB", "import", self.import_pcb)
-        g.small("Export STEP", "export", self.export_step)
-        g.small("Export Script", "export", self.export_script)
-        g.small("Export Gerber", "export", self.export_gerber)
-        g = pg.group("Tools")
-        g.large("Options", "options", self.options)
-        g.large("Materials", "material", self.edit_materials)
-        g.large("Design Wizard", "wizard", self.design_wizard,
-                tip="Couplers, dividers, matching networks, filters and antennas from a specification: circuit, 3D "
-                    "design and a multi-fidelity optimization")
-        g.large("Filter Design", "filter", self.filter_hairpin, menu=[("Tapped Hairpin...", self.filter_hairpin),
-                                                                       ("Hairpin Diplexer...", self.filter_diplexer)],
-                tip="Tapped hairpin band-pass filter as a parametrized design with optimization")
-        g.large("Antenna Design", "antenna", self.antenna_patch, menu=[("Rectangular Patch...", self.antenna_patch)],
-                tip="Inset-fed patch antenna as a parametrized design with optimization")
-        g.large("Help", "help", self.show_help, menu=[("Property Help (F1)", self.show_help),
-                                                      ("Feature Overview", self.show_feature_matrix)])
+        self._desktop_page(rb, circuit=False)
 
         # ---- View --------------------------------------------------------------------------
         pg = rb.page("View")
@@ -794,6 +761,15 @@ class MainWindow(QMainWindow):
         g.large("Plot Mesh", "plot_mesh", lambda: self.plot_mesh())
         g = pg.group("Radiation")
         g.large("Far Field", "farfield", self.add_sphere, tip="Insert Far Field Setup > Infinite Sphere")
+        g = pg.group("Circuit")
+        g.large("Create Circuit", "design", self.circuit_from_3d,
+                tip="A new circuit design recognized from this planar microstrip design: lines, stubs, coupled "
+                    "lines, tees, corners, steps, gaps, vias, lumped parts and ports, every dimension the 3D "
+                    "variable where one fits. Copper without a circuit model becomes a 3D design block (analyze "
+                    "it before the circuit); everything else that was approximated is listed in the messages")
+        g.small("Sync Circuit", "layout_back", self.circuit_sync_3d,
+                tip="Compare the newest circuit made by Create Circuit with this 3D design and take each difference "
+                    "(variables, dimensions, elements) in the direction you choose")
         g = pg.group("Analyze")
         g.large("Validate", "validate", self.a_validate)
         g.large("Analyze All", "analyze", self.a_analyze)
@@ -821,6 +797,35 @@ class MainWindow(QMainWindow):
                 tip="Component measured by a Touchstone file (.s1p/.s2p)" + tip)
         g = pg.group("Boundary")
         g.large("Lumped RLC", "boundary", bnd("Lumped RLC"), tip="Lumped RLC boundary on the selected sheet")
+
+        # ---- Connectors ---------------------------------------------------------------------
+        from ..model import connectors as CN
+        pg = rb.page("Connectors")
+        g = pg.group("Edge Launch")
+        g.large("Real Connector", "waveport", lambda: self.connector_at_port(),
+                menu=[(f"{it} ...", (lambda it=it: self.connector_at_port(it))) for it in CN.INTERFACES],
+                tip="Simulate with Real Connector: put an edge-launch connector of the library (SMA, 2.92 mm, "
+                    "2.4 mm) with its footprint at the selected lumped port at a board edge")
+        g = pg.group("Simulate As")
+        g.large("Ideal Port", "nonmodel", lambda: self.connector_mode("Ideal"),
+                tip="Solve the lumped ports; the connectors are shown transparent, outside the model (selected "
+                    "connectors, or all)")
+        g.large("Transition", "chip", lambda: self.connector_mode("Transition"),
+                tip="Keep the lumped ports in 3D and cascade a solved 3D model of the connector-to-board "
+                    "transition in a circuit design (selected connectors, or all)")
+        g.large("Full 3D", "cylinder", lambda: self.connector_mode("3D"),
+                tip="Solve the connectors and their footprints with the board, wave port on the coax (selected "
+                    "connectors, or all)")
+        g.large("Flatten", "group", lambda: self.connector_flatten(),
+                tip="Make the selected connectors plain geometry of the design and delete their lumped ports")
+        g = pg.group("Transition")
+        g.large("Optimize Launch", "wizard", lambda: self.connector_optimize(),
+                tip="Optimization of pad, gap and taper for return loss in the small transition design")
+        g.small("Apply Optimized Footprint", None, lambda: self.connector_pull(),
+                tip="Take the footprint of the transition design (after its optimization) into the connector")
+        g.small("Open Transition Design", None, lambda: self.connector_open_transition())
+        g.small("Open Cascade", None, lambda: self.connector_open_cascade(),
+                tip="The circuit design with the transition models in front of the lumped ports")
 
         # ---- Results -----------------------------------------------------------------------
         pg = rb.page("Results")
@@ -851,6 +856,53 @@ class MainWindow(QMainWindow):
                 tip="Fields Calculator: equations of E, H and J in the Equations tab")
         rb.setCurrentIndex(2)
 
+    def _desktop_page(self, rb, circuit: bool) -> None:
+        """The Desktop page of the 3D and the circuit ribbon: project, edit, design, import/export and the tools
+        (Options, Materials, Design Wizard, Help). Only the import/export group and the selection properties differ
+        with the kind of design."""
+        pg = rb.page("Desktop")
+        g = pg.group("Project")
+        g.large("Save", "save", self.a_save)
+        g.small("New", "new", self.a_new)
+        g.small("Open", "open", self.a_open)
+        g.small("Save As", "saveas", self.a_saveas)
+        g = pg.group("Edit")
+        g.small("Undo", "undo", self.a_undo)
+        g.small("Redo", "redo", self.a_redo)
+        if circuit:
+            g.small("Delete", "delete", self.circuit.delete_selected, tip="Delete the selected parts and wires (Del)")
+        else:
+            g.small("Delete", "delete", self.a_delete)
+        g.small("Copy", "copy", self.a_copy)
+        g.small("Paste", "paste", self.a_paste)
+        if not circuit:                 # the parts of a schematic are edited in the Properties dock
+            g.small("Properties", "variables", self.a_props)
+        g = pg.group("Design")
+        g.large("Insert Design", "design", self.insert_design)
+        g.small("Copy Design", "copy", self.copy_design)
+        g.small("Project Variables", "variables", lambda: self.edit_variables(True))
+        g.small("Design Properties", "variables", lambda: self.edit_variables(False))
+        g = pg.group("Import / Export")
+        if circuit:
+            g.small("Import 3D Designs", "import", self._circuit_import_designs,
+                    tip="The 3D designs of another project file (.hzn) as blocks of the schematic")
+            g.small("Export Touchstone", "export", lambda: self.export_touchstone(),
+                    tip="S-parameters of a solved sweep as a Touchstone file (.sNp)")
+        else:
+            g.small("Import Geometry", "import", self.import_geometry)
+            g.small("Import PCB", "import", self.import_pcb)
+            g.small("Export STEP", "export", self.export_step)
+            g.small("Export Script", "export", self.export_script)
+            g.small("Export Gerber", "export", self.export_gerber)
+        g = pg.group("Tools")
+        g.large("Options", "options", self.options)
+        g.large("Materials", "material", self.edit_materials)
+        g.large("Design Wizard", "wizard", self.design_wizard,
+                tip="Couplers, dividers, matching networks, filters and antennas from a specification: circuit, 3D "
+                    "design and a multi-fidelity optimization")
+        g.large("Help", "help", self.show_help, menu=[("Property Help (F1)", self.show_help),
+                                                      ("Feature Overview", self.show_feature_matrix)])
+
     def _circuit_ribbon(self, t) -> None:
         """The ribbon of circuit designs: schematic editing, the parts by category, analysis and results. It
         replaces the 3D ribbon while a circuit design is active."""
@@ -871,23 +923,7 @@ class MainWindow(QMainWindow):
             return fn(info.label, component_icon(k), place(k), tip=f"{info.label}: {info.help}")
 
         # ---- Desktop
-        pg = rb.page("Desktop")
-        g = pg.group("Project")
-        g.large("Save", "save", self.a_save)
-        g.small("New", "new", self.a_new)
-        g.small("Open", "open", self.a_open)
-        g.small("Save As", "saveas", self.a_saveas)
-        g = pg.group("Edit")
-        g.small("Undo", "undo", self.a_undo)
-        g.small("Redo", "redo", self.a_redo)
-        g.small("Delete", "delete", ed.delete_selected)
-        g = pg.group("Design")
-        g.large("Insert Design", "design", self.insert_design)
-        g.small("Copy Design", "copy", self.copy_design)
-        g.small("Project Variables", "variables", lambda: self.edit_variables(True))
-        g.small("Design Variables", "variables", lambda: self.edit_variables(False))
-        g = pg.group("Help")
-        g.large("Help", "help", self.show_help)
+        self._desktop_page(rb, circuit=True)
 
         # ---- Schematic
         pg = rb.page("Schematic")
@@ -958,6 +994,16 @@ class MainWindow(QMainWindow):
         part(g, "TLOC")
         part(g, "TLSC")
 
+        # ---- Nonlinear: Hertzon's schematic and linear network; ngspice gives the bias point and the device
+        # small-signal admittances, circuitRF the harmonic balance (see hertzon/solver/nonlinear.py)
+        pg = rb.page("Nonlinear")
+        g = pg.group("Devices")
+        part(g, "DEVICE", True)
+        part(g, "SPICELIB", True)
+        g = pg.group("Bias")
+        part(g, "VDC", True)
+        part(g, "IDC", True)
+
         # ---- Data
         pg = rb.page("Data")
         g = pg.group("S-Parameters")
@@ -992,6 +1038,10 @@ class MainWindow(QMainWindow):
         g = pg.group("Analyze")
         g.large("Analyze", "analyze", self.analyze_all)
         g = pg.group("3D Layout")
+        g.large("Board Layout", "design", lambda: self.show_board(not self._board_page),
+                tip="The board of this schematic in 2D: the parts on their footprints, drag them and turn them "
+                    "(R), see the open connections (ratsnest), draw tracks. Create 3D Layout then builds the "
+                    "board as it is placed here")
         g.large("Create 3D Layout", "design", self.circuit_to_layout,
                 tip="A new 3D design with the physical layout of the schematic: substrate, traces, vias, lumped "
                     "parts and ports, every dimension a design variable. 3D design blocks are built in with their "
@@ -1016,6 +1066,20 @@ class MainWindow(QMainWindow):
                       "3D → schematic: copy the dimensions changed in the 3D layout (design variables, and sizes "
                       "edited on the objects) back into the schematic. A click takes the newest layout, the "
                       "arrow chooses one", "Copy Dimensions of {}")
+        layout_button("Board Circuit", "design", self.layout_board_circuit,
+                      "3D → schematic with the devices: a new circuit design with the solved 3D layout as a block "
+                      "(one port per pad of every transistor or IC) and the devices, DC sources and power ports "
+                      "connected pin by pin to their ports, with the setups of this schematic (ngspice, harmonic "
+                      "balance). A click takes the newest layout, the arrow chooses one", "Board Circuit of {}")
+        g = pg.group("3D Design")
+        g.small("Sync with 3D", "layout_back", self.circuit_sync_3d,
+                tip="For a circuit made by Create Circuit: what differs from its 3D design (variables, dimensions, "
+                    "elements), each taken in the direction you choose; a changed topology recognizes the circuit "
+                    "again, its variables and corrections stay")
+        g.small("Calibrate to 3D", "validate", self.circuit_calibrate_3d,
+                tip="For a circuit made by Create Circuit: fit correction factors (Cal_L on the line lengths, Cal_W "
+                    "on the widths, optionally Cal_Er on the permittivity) to the solved S-parameters of its 3D "
+                    "design. The dimension variables stay the physical sizes, so tuning keeps the correction")
 
         # ---- Results
         pg = rb.page("Results")
@@ -1138,10 +1202,11 @@ class MainWindow(QMainWindow):
     def _sync_design_page(self) -> None:
         """Tab 0 shows the schematic of a circuit design and the 3D modeler of a 3D design."""
         circ = self._is_circuit()
-        page = self.circuit if circ else self.main_stack.widget(0)
+        board = circ and self._board_page
+        page = (self.board_editor if board else self.circuit) if circ else self.main_stack.widget(0)
         if self.main_stack.currentWidget() is not page:
             self.main_stack.setCurrentWidget(page)
-        self.tabs.setTabText(0, "Schematic" if circ else "3D Modeler")
+        self.tabs.setTabText(0, ("Board" if board else "Schematic") if circ else "3D Modeler")
         if self._ribbon_circuit_action.isVisible() != circ:
             self._ribbon_circuit_action.setVisible(circ)
             self._ribbon_3d_action.setVisible(not circ)
@@ -1150,7 +1215,20 @@ class MainWindow(QMainWindow):
             self._auto_junctions.setChecked(self.des.settings.get(AUTO, "True") != "False")
             from ..model.circuit import LINE_MODEL
             self._full_wave.setChecked(self.des.settings.get(LINE_MODEL, "Closed form") == "Full wave")
-            self.circuit.rebuild()
+            if board:
+                self.board_editor.rebuild()
+            else:
+                self.circuit.rebuild()
+
+    def show_board(self, on: bool) -> None:
+        """Circuit > Simulation > Board Layout: switch tab 0 between the schematic and its board."""
+        if on and not self._is_circuit():
+            return
+        self._board_page = on
+        self.tabs.setCurrentIndex(0)
+        self._sync_design_page()
+        if on:
+            self.board_editor.fit_all()
 
     def _on_doc_changed(self, what: str) -> None:
         self._sync_design_page()
@@ -4433,7 +4511,7 @@ class MainWindow(QMainWindow):
         for s in setups:
             t = time.time()
             try:
-                _, warns = run_setup(self.doc.project, self.des, self.des.setup(s))
+                folder, warns = run_setup(self.doc.project, self.des, self.des.setup(s))
             except CircuitError as e:
                 self.msgs.add("error", f"{self.des.name} {s}: {e}")
                 QMessageBox.warning(self, "Analyze", str(e))
@@ -4445,6 +4523,12 @@ class MainWindow(QMainWindow):
             for w in warns:
                 self.msgs.add("warning", f"{self.des.name}: {w}")
             self.msgs.add("info", f"{self.des.name} {s}: circuit solved in {time.time() - t:.2f} s")
+            if self.des.setup(s).props.get("CircuitAnalysis") == "Harmonic Balance":
+                self.msgs.add("info", f"{self.des.name} {s}: harmonic balance by circuitRF on Hertzon's circuit "
+                                      f"network; results in {folder / 'harmonic_balance.csv'}")
+            elif self.des.setup(s).props.get("CircuitAnalysis") == "Mixer":
+                self.msgs.add("info", f"{self.des.name} {s}: two-tone harmonic balance by circuitRF on Hertzon's "
+                                      f"circuit network; results in {folder / 'mixer.csv'}")
         self.project_tree.rebuild()
         self._refresh_reports()
 
@@ -5527,7 +5611,9 @@ class MainWindow(QMainWindow):
         from .dialogs import EditSourcesDialog
         from .terminal_dialogs import field_terminal_names
         from ..model import sources as SRC
-        names = field_terminal_names(self.doc) if self.des.settings.get("SolutionType") == "Terminal" else None
+        # the terminals of a terminal solution, or the modes of wave ports with several modes (#437): the
+        # excitations whose fields the newest solution stores
+        names = field_terminal_names(self.doc)
         if not SRC.defaults(self.des, names):
             QMessageBox.information(self, "Edit Sources", "Assign a port or an incident wave first.")
             return
@@ -5731,6 +5817,13 @@ class MainWindow(QMainWindow):
                 self.doc.set_design(data[1])
                 self.view._first_fit = True
             self.props.show_design()
+        elif kind == "connector":
+            from ..model import connectors as CN
+            try:
+                pa = CN.parts_of(CN.instance(self.des, data[1]))
+            except KeyError:
+                return
+            self.doc.select([Pick(n) for n in pa.body + pa.footprint if self.des.has_obj(n)])
         elif kind == "fieldplot":
             self.doc.select([])
             self.show_overlays([data[1]])
@@ -5884,6 +5977,8 @@ class MainWindow(QMainWindow):
                 m.addAction("Draw Integration Line", lambda: self.draw_integration_line(data[1]))
                 m.addAction("Auto Integration Line", lambda: self.auto_integration_line(data[1]))
                 m.addSeparator()
+            if a.kind == "Lumped Port" and kind == "excitation":
+                self._connector_port_menu(m, data[1])
             if a.kind == "Wave Port":
                 m.addSeparator()
                 n = max(1, int(float(a.props.get("NumberOfModes", "1") or 1)))
@@ -5895,6 +5990,12 @@ class MainWindow(QMainWindow):
             if a.kind in ("Wave Port", "Lumped Port"):
                 m.addAction("Differential Pairs...", self.differential_pairs)
             m.addAction("Delete", self._delete_project_items)
+        elif kind == "connector":
+            self._connector_menu(m, data[1])
+        elif kind == "group" and data[1] == "Connectors":
+            sub = m.addMenu("Simulate All As")
+            for md in ("Ideal", "Transition", "3D"):
+                sub.addAction(_mode_label(md), lambda _=False, md=md: self.connector_mode(md, all_=True))
         elif kind == "setup" and self._is_circuit():
             m.addAction("Add Frequency Sweep...", lambda: self.add_sweep(data[1]))
             m.addAction("Analyze", lambda: self.analyze([data[1]]))
@@ -6046,6 +6147,231 @@ class MainWindow(QMainWindow):
         self.msgs.add("info", f"Inserted {v['pkg'].name} '{made[-1].name}' {where}: "
                               f"{', '.join(o.name for o in made)}")
 
+    # ---- connectors (Connectors tab) ----------------------------------------------------------
+    def _selected_lumped_port(self) -> str | None:
+        """The lumped port picked in the project tree, or whose sheet is selected in 3D, or the only lumped port
+        of the design without a connector."""
+        from ..model import connectors as CN
+        data = self.project_tree.currentItem().data(0, TREE_ROLE) if self.project_tree.currentItem() else None
+        lumped = [e for e in self.des.excitations if e.kind == "Lumped Port"]
+        if data and data[0] == "excitation" and any(e.name == data[1] for e in lumped):
+            return data[1]
+        objs = set(self.doc.selected_objects())
+        for e in lumped:
+            if objs & (set(e.objects) | {f.obj for f in e.faces}):
+                return e.name
+        free = [e.name for e in lumped if CN.connector_at(self.des, e.name) is None]
+        return free[0] if len(free) == 1 else None
+
+    def _selected_connectors(self) -> list[str]:
+        """Connectors picked in the project tree or with an object selected in 3D (empty: none picked)."""
+        names = []
+        for it in self.project_tree.selectedItems():
+            d = it.data(0, TREE_ROLE)
+            if d and d[0] == "connector":
+                names.append(d[1])
+        groups = {self.des.obj(o).group for o in self.doc.selected_objects() if self.des.has_obj(o)}
+        names += [c.name for c in self.des.connectors if c.name in groups and c.name not in names]
+        return names
+
+    def _connector_messages(self, warns) -> None:
+        for w in warns:
+            self.msgs.add("warning" if "missing" in w or "no " in w[:3] else "info", w)
+
+    def connector_at_port(self, interface: str | None = None, port: str | None = None) -> None:
+        """Simulate with Real Connector: a connector of the library at a lumped port at the board edge."""
+        from ..model import connectors as CN
+        from .connector_dialogs import ConnectorDialog
+        if self._is_circuit():
+            return
+        port = port or self._selected_lumped_port()
+        if not port:
+            QMessageBox.information(self, "Real Connector", "Select the lumped port at the board edge (in the project "
+                                    "tree or its sheet in 3D) that the connector replaces.")
+            return
+        if CN.connector_at(self.des, port) is not None:
+            QMessageBox.information(self, "Real Connector", f"'{port}' has the connector "
+                                    f"'{CN.connector_at(self.des, port).name}' already.")
+            return
+        bboxes = CN.bboxes_from_tess(self.doc.tess)
+        try:
+            place, warns, material = CN.port_placement(self.doc.project, self.des, port, bboxes)
+        except (ValueError, KeyError) as e:
+            QMessageBox.warning(self, "Real Connector", str(e))
+            return
+        dlg = ConnectorDialog(self, port, place, material, interface)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        v = dlg.result_values()
+        self.doc.checkpoint()
+        try:
+            inst = CN.attach_connector(self.doc.project, self.des, port, v["part"], bboxes, v["name"])
+            if v["mode"] != "Ideal":
+                warns += CN.set_mode(self.doc.project, self.des, v["mode"], [inst.name])
+        except Exception as e:  # noqa: BLE001
+            self.doc.discard_last()
+            QMessageBox.warning(self, "Real Connector", str(e))
+            return
+        self.doc.commit("all")
+        self._connector_messages(warns + [w for w in inst.props.get("Warnings", "").split(" | ") if w])
+        self.msgs.add("info", f"{inst.name}: {CN.label(CN.part(inst.part))} at {port}, simulated as "
+                              f"{CN.MODE_LABELS[inst.mode]}. Switch with Connectors > Simulate As; footprint "
+                              f"variables {', '.join(v for v in CN.parts_of(inst).variables if v[-2:] != '_x' and v[-2:] != '_y' and v[-2:] != '_z')}")
+        self._connector_mode_notes()
+
+    def connector_mode(self, mode: str, names: list[str] | None = None, all_: bool = False) -> None:
+        from ..model import connectors as CN
+        if self._is_circuit() or not self.des.connectors:
+            QMessageBox.information(self, "Connectors", "This design has no connectors. Put one at a lumped port "
+                                    "with Connectors > Real Connector.")
+            return
+        names = None if all_ else (names or self._selected_connectors() or None)
+        self.doc.checkpoint()
+        try:
+            warns = CN.set_mode(self.doc.project, self.des, mode, names)
+        except Exception as e:  # noqa: BLE001
+            self.doc.discard_last()
+            QMessageBox.warning(self, "Connectors", str(e))
+            return
+        self.doc.commit("all")
+        self._connector_messages(warns)
+        which = ", ".join(names) if names else "all connectors"
+        self.msgs.add("info", f"{which}: {CN.MODE_LABELS[mode]}")
+        self._connector_mode_notes()
+
+    def _connector_mode_notes(self) -> None:
+        """What the Transition mode still needs (solve the transition designs, then the cascade)."""
+        from ..model import connectors as CN
+        if not any(c.mode == "Transition" for c in self.des.connectors):
+            return
+        todo = CN.designs_to_solve(self.doc.project, self.des)
+        self.msgs.add("info", f"Transition model: analyze {', '.join(todo)}, then the circuit design "
+                              f"{CN.cascade_name(self.des)} (the S-parameters with the connectors)")
+
+    def connector_flatten(self, names: list[str] | None = None) -> None:
+        from ..model import connectors as CN
+        names = names or self._selected_connectors()
+        if not names:
+            QMessageBox.information(self, "Flatten", "Select the connector(s) to flatten (project tree > Connectors, "
+                                    "or one of their objects).")
+            return
+        if QMessageBox.question(self, "Flatten", f"Make {', '.join(names)} plain geometry and delete the lumped "
+                                "port(s)? The connector can no longer be switched to the ideal port (Undo can).") \
+                != QMessageBox.Yes:
+            return
+        self.doc.checkpoint()
+        warns = []
+        for n in names:
+            warns += CN.flatten(self.doc.project, self.des, n)
+        self.doc.commit("all")
+        self._connector_messages(warns)
+
+    def connector_remove(self, name: str) -> None:
+        from ..model import connectors as CN
+        self.doc.checkpoint()
+        CN.remove_connector(self.doc.project, self.des, name)
+        self.doc.commit("all")
+
+    def _one_connector(self, title: str) -> str | None:
+        names = self._selected_connectors() or [c.name for c in self.des.connectors]
+        if not names:
+            QMessageBox.information(self, title, "This design has no connectors.")
+            return None
+        if len(names) > 1:
+            name, ok = QInputDialog.getItem(self, title, "Connector:", names, 0, False)
+            return name if ok else None
+        return names[0]
+
+    def connector_optimize(self, name: str | None = None) -> None:
+        """Adds the launch optimization to the transition design of a connector and shows that design."""
+        from ..model import connectors as CN
+        name = name or self._one_connector("Optimize Launch")
+        if not name:
+            return
+        inst = CN.instance(self.des, name)
+        self.doc.checkpoint()
+        t = CN.ensure_transition(self.doc.project, self.des, inst)
+        op = CN.add_launch_optimization(t)
+        self.doc.commit("all", geometry=False)
+        self.msgs.add("info", f"{t.name}: optimization '{op.name}' of {', '.join(v['name'] for v in op.variables)} "
+                              f"for {op.goals[0]['calc']} <= {op.goals[0]['value']} dB up to {op.goals[0]['stop']}. "
+                              f"Run it there, then Connectors > Apply Optimized Footprint in {self.des.name}.")
+        self._close_reports()
+        self.doc.set_design(t.name)
+
+    def connector_pull(self, name: str | None = None) -> None:
+        from ..model import connectors as CN
+        name = name or self._one_connector("Apply Optimized Footprint")
+        if not name:
+            return
+        inst = CN.instance(self.des, name)
+        if not inst.props.get("Transition") or not any(d.name == inst.props["Transition"]
+                                                      for d in self.doc.project.designs):
+            QMessageBox.information(self, "Apply Optimized Footprint", f"{name} has no transition design yet.")
+            return
+        self.doc.checkpoint()
+        vals = CN.pull_footprint(self.doc.project, self.des, inst)
+        self.doc.commit("all")
+        self.msgs.add("info", f"{name}: " + ", ".join(f"{k} = {v}" for k, v in vals.items()))
+
+    def connector_open_transition(self, name: str | None = None) -> None:
+        from ..model import connectors as CN
+        name = name or self._one_connector("Open Transition Design")
+        if not name:
+            return
+        inst = CN.instance(self.des, name)
+        if CN.transition_state(self.doc.project, self.des, inst) != "current":
+            self.doc.checkpoint()
+            CN.ensure_transition(self.doc.project, self.des, inst)
+            self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(inst.props["Transition"])
+
+    def connector_open_cascade(self) -> None:
+        from ..model import connectors as CN
+        des = self.des
+        if des.kind == "circuit":
+            return
+        if not any(c.mode == "Transition" for c in des.connectors):
+            QMessageBox.information(self, "Open Cascade", "No connector is simulated as Transition.")
+            return
+        self.doc.checkpoint()
+        CN.build_cascade(self.doc.project, des)
+        self.doc.commit("all", geometry=False)
+        for p in CN.cascade_problems(self.doc.project, des):
+            self.msgs.add("warning", p)
+        self._close_reports()
+        self.doc.set_design(CN.cascade_name(des))
+
+    def _connector_port_menu(self, m: QMenu, port: str) -> None:
+        from ..model import connectors as CN
+        inst = CN.connector_at(self.des, port)
+        m.addSeparator()
+        if inst is None:
+            sub = m.addMenu("Simulate with Real Connector")
+            for it in CN.INTERFACES:
+                sub.addAction(f"{it} ...", lambda _=False, it=it: self.connector_at_port(it, port))
+        else:
+            self._connector_menu(m.addMenu(f"Connector {inst.name}"), inst.name)
+        m.addSeparator()
+
+    def _connector_menu(self, m: QMenu, name: str) -> None:
+        from ..model import connectors as CN
+        inst = CN.instance(self.des, name)
+        grp = QActionGroup(m)
+        for md in CN.MODES:
+            a = m.addAction(CN.MODE_LABELS[md], lambda _=False, md=md: self.connector_mode(md, [name]))
+            a.setCheckable(True)
+            a.setChecked(inst.mode == md)
+            grp.addAction(a)
+        m.addSeparator()
+        m.addAction("Open Transition Design", lambda: self.connector_open_transition(name))
+        m.addAction("Optimize Launch", lambda: self.connector_optimize(name))
+        m.addAction("Apply Optimized Footprint", lambda: self.connector_pull(name))
+        m.addSeparator()
+        m.addAction("Flatten", lambda: self.connector_flatten([name]))
+        m.addAction("Remove Connector", lambda: self.connector_remove(name))
+
     def draw_integration_line(self, name: str) -> None:
         """Start and end point of the integration line picked in the 3D view (two clicks, with snapping)."""
         self._line_target = name
@@ -6186,7 +6512,7 @@ class MainWindow(QMainWindow):
         self.doc.set_design(name)
 
     def filter_hairpin(self) -> None:
-        """Tools > Filter Design > Tapped Hairpin: inserts the parametrized filter as a new design."""
+        """Design Wizard > Hairpin bandpass: inserts the parametrized filter as a new design."""
         from .filter_tool import HairpinFilterDialog
         dlg = HairpinFilterDialog(self, self.doc.project)
         self._insert_generated(dlg, "hairpin filter")
@@ -6195,7 +6521,7 @@ class MainWindow(QMainWindow):
             self.analyze_optimization(dlg.run_optimization)
 
     def filter_diplexer(self) -> None:
-        """Tools > Filter Design > Hairpin Diplexer: two hairpin filters on a T-junction as a new design."""
+        """Design Wizard > Hairpin diplexer / triplexer: two or three hairpin filters on a junction as a new design."""
         from .filter_tool import DiplexerDialog
         self._insert_generated(DiplexerDialog(self, self.doc.project), "hairpin diplexer")
 
@@ -6227,7 +6553,7 @@ class MainWindow(QMainWindow):
             self.analyze_optimization(dlg.run)
 
     def antenna_patch(self) -> None:
-        """Tools > Antenna Design > Rectangular Patch: inserts the parametrized patch as a new design."""
+        """Design Wizard > Rectangular patch: inserts the parametrized patch as a new design."""
         from .antenna_tool import PatchAntennaDialog
         dlg = PatchAntennaDialog(self, self.doc.project)
         self._insert_generated(dlg, "patch antenna")
@@ -6268,6 +6594,117 @@ class MainWindow(QMainWindow):
         self.msgs.add("info", f"Created the 3D layout {d.name} of {circ.name} with Setup1 : Sweep")
         for w in warnings:
             self.msgs.add("warning", f"{d.name}: {w}")
+
+    def circuit_from_3d(self) -> None:
+        """3D > Simulation > Create Circuit: a circuit design recognized from the planar 3D design."""
+        from ..model.circuit_from_3d import circuit_from_design
+        d3 = self.des
+        names = {x.name for x in self.doc.project.designs}
+        base = f"{d3.name}_Circuit"
+        name, i = base, 1
+        while name in names:
+            i += 1
+            name = f"{base}{i}"
+        self.doc.checkpoint()
+        try:
+            d, notes = circuit_from_design(self.doc.project, d3, name)
+        except Exception as e:  # noqa: BLE001 (no substrate, geometry or expression errors)
+            self.doc.undo()
+            QMessageBox.warning(self, "Create Circuit", f"No circuit could be made: {type(e).__name__}: {e}")
+            return
+        self.doc.project.designs.append(d)
+        self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(d.name)
+        self.msgs.add("info", f"Created the circuit {d.name} from {d3.name}. Compare it with the 3D results "
+                              "before tuning in the circuit")
+        for w in notes:
+            self.msgs.add("warning", f"{d.name}: {w}")
+
+    def _recognized_circuit(self, title: str):
+        """The circuit made by Create Circuit that the command acts on: the shown one, or the newest of the shown
+        3D design (None with a message if there is none)."""
+        from ..model import circuit_sync as CS
+        d = self.des
+        if getattr(d, "kind", "3d") != "circuit":
+            cs = CS.circuits_of(self.doc.project, d)
+            if not cs:
+                QMessageBox.information(self, title, f"{d.name} has no circuit made by Create Circuit yet.")
+                return None
+            return cs[-1]
+        try:
+            CS.source(self.doc.project, d)
+        except CS.SyncError as e:
+            QMessageBox.information(self, title, f"{e}. Create Circuit (Simulation tab of a 3D design) makes a "
+                                                 "circuit that is linked to its 3D design.")
+            return None
+        return d
+
+    def circuit_sync_3d(self) -> None:
+        """Sync with 3D: the differences between a recognized circuit and its 3D design, in chosen directions."""
+        from ..model import circuit_sync as CS
+        from .circuit_sync_dialog import SyncDialog
+        circ = self._recognized_circuit("Sync with 3D")
+        if circ is None:
+            return
+        try:
+            d3 = CS.source(self.doc.project, circ)
+            diffs = CS.compare(self.doc.project, circ)
+        except Exception as e:  # noqa: BLE001 (geometry and expression errors of either design)
+            QMessageBox.warning(self, "Sync with 3D", f"Could not compare: {type(e).__name__}: {e}")
+            return
+        if not diffs:
+            QMessageBox.information(self, "Sync with 3D", f"{circ.name} and {d3.name} are in step.")
+            return
+        dlg = SyncDialog(self, circ.name, d3.name, diffs)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.choices():
+            return
+        self.doc.checkpoint()
+        try:
+            done = CS.apply(self.doc.project, circ, dlg.choices())
+        except Exception as e:  # noqa: BLE001
+            self.doc.undo()
+            QMessageBox.warning(self, "Sync with 3D", f"Not applied: {type(e).__name__}: {e}")
+            return
+        self.doc.commit("all", geometry=self.des is d3)
+        for t in done:
+            self.msgs.add("info", f"Sync with 3D: {t}")
+
+    def circuit_calibrate_3d(self) -> None:
+        """Calibrate to 3D: correction factors of a recognized circuit fitted to its solved 3D design."""
+        from PySide6.QtWidgets import QApplication
+
+        from ..model import circuit_sync as CS
+        circ = self._recognized_circuit("Calibrate to 3D")
+        if circ is None:
+            return
+        if not self.doc.project.path:
+            QMessageBox.information(self, "Calibrate to 3D", "Save the project first: the calibration reads the "
+                                                             "saved solution of the 3D design.")
+            return
+        sets = {"Lengths and widths (Cal_L, Cal_W), recommended": ("Cal_L", "Cal_W"),
+                "Lengths, widths and permittivity (Cal_L, Cal_W, Cal_Er)": ("Cal_L", "Cal_W", "Cal_Er"),
+                "Lengths only (Cal_L)": ("Cal_L",)}
+        item, ok = QInputDialog.getItem(self, "Calibrate to 3D", "Correction factors to fit:", list(sets), 0, False)
+        if not ok:
+            return
+        self.doc.checkpoint()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            r = CS.calibrate(self.doc.project, circ, sets[item])
+        except Exception as e:  # noqa: BLE001 (no solution, port mismatch, circuit errors)
+            QApplication.restoreOverrideCursor()
+            self.doc.undo()
+            QMessageBox.warning(self, "Calibrate to 3D", str(e))
+            return
+        QApplication.restoreOverrideCursor()
+        self.doc.commit("all", geometry=False)
+        vals = ", ".join(f"{k} = {v:.4g}" for k, v in r.values.items())
+        self.msgs.add("info", f"Calibrated {circ.name} to {CS.source(self.doc.project, circ).name} "
+                              f"({r.solution}, {r.points} frequencies): RMS |S_circuit - S_3D| {r.rms_before:.3g} → "
+                              f"{r.rms_after:.3g}; {vals}. Analyze the circuit to see it")
+        for w in r.warnings:
+            self.msgs.add("warning", f"{circ.name}: {w}")
 
     def _layouts(self) -> list[str]:
         """The 3D layouts made from the current schematic, the newest last."""
@@ -6328,6 +6765,33 @@ class MainWindow(QMainWindow):
                                     f"{circ.name} has the dimensions of {layout_name} already. Change the "
                                     f"dimensions in {layout_name} first: its design variables (named after the "
                                     "parts, e.g. MS1_L) or the sizes of the traces.")
+
+    def layout_board_circuit(self, layout_name: str | None) -> None:
+        """A new circuit design of the solved layout with its devices on the pad ports (None: the newest layout
+        of the current schematic)."""
+        from ..model.circuit_layout import LayoutError, board_circuit
+        if layout_name is None:
+            names = self._layouts()
+            if not names:
+                QMessageBox.information(self, "Board Circuit", "This schematic has no 3D layout yet. Make one "
+                                        "with Create 3D Layout.")
+                return
+            layout_name = names[-1]
+        self.doc.checkpoint()
+        try:
+            d, warnings = board_circuit(self.doc.project, self.doc.project.design(layout_name))
+        except LayoutError as e:
+            QMessageBox.warning(self, "Board Circuit", str(e))
+            self.doc.discard_last()
+            return
+        self.doc.project.designs.append(d)
+        self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(d.name)
+        self.msgs.add("info", f"Created {d.name}: {layout_name} as a block with the devices on its pad ports; "
+                              f"solve {layout_name} first")
+        for w in warnings:
+            self.msgs.add("warning", f"{d.name}: {w}")
 
     def _insert_generated(self, dlg, what: str) -> None:
         if dlg.exec() != QDialog.Accepted or dlg.design is None:
@@ -6683,6 +7147,11 @@ class MainWindow(QMainWindow):
         lay.addWidget(tb)
         dlg.resize(900, 700)
         dlg.exec()
+
+
+def _mode_label(mode: str) -> str:
+    from ..model.connectors import MODE_LABELS
+    return MODE_LABELS[mode]
 
 
 def _attach_unit(text: str, unit: str) -> str:

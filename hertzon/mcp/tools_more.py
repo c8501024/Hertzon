@@ -1,7 +1,7 @@
 """MCP tools for the design assistants, the optimizers, derivative tuning and circuit designs.
 
-- create_patch_antenna / create_hairpin_filter / create_hairpin_diplexer: the designs of Tools > Antenna Design
-  and Tools > Filter Design, with setup, sweep and optimization, as a new design of the project
+- create_patch_antenna / create_hairpin_filter / create_hairpin_diplexer: the rectangular patch, hairpin filter
+  and hairpin diplexer of Tools > Design Wizard, with setup, sweep and optimization, as a new design of the project
 - apply_optimization: the best (or a chosen) evaluation of an optimization into the design variables, its
   solution taken over as the setup's solution (as 'Apply to Design')
 - compute_tuning / get_tuning: the derivative tuning model of a solved setup and the S-parameters at other
@@ -25,14 +25,28 @@ from .protocol import Image, ToolError, max_wait, pause
 from .tools import (ROOT, S, Ctx, _abspath, _r, _s, _schema, commit, load, sp_table)
 
 
+def _is_empty_design(d: Design) -> bool:
+    """Nothing defined yet: the design create_project (or File > New) starts with."""
+    return not (d.variables or d.objects or d.boundaries or d.excitations or d.mesh_ops or d.setups or d.spheres
+                or d.reports or d.field_plots or d.coord_systems or d.field_exprs or d.field_funcs or d.optimetrics
+                or d.parametrics or d.components or d.wires or d.connectors or d.stackup is not None
+                or d.notes.strip())
+
+
 def _new_design_ctx(ctx: Ctx, d: Design, label: str) -> dict:
-    """Add design d to the project (renamed if the name is taken), make it the shown design and commit."""
-    taken = {x.name for x in ctx.proj.designs}
+    """Add design d to the project (renamed if the name is taken), make it the shown design and commit. An
+    empty current design (the one of create_project) is replaced by d instead of being left behind next to it."""
+    replace = next((i for i, x in enumerate(ctx.proj.designs) if x is ctx.des), None) \
+        if ctx.des is not None and _is_empty_design(ctx.des) else None
+    taken = {x.name for k, x in enumerate(ctx.proj.designs) if k != replace}
     base, i = d.name, 1
     while d.name in taken:              # as Insert Design: Name, Name_2, Name_3 ...
         i += 1
         d.name = f"{base}_{i}"
-    ctx.proj.designs.append(d)
+    if replace is not None:
+        ctx.proj.designs[replace] = d
+    else:
+        ctx.proj.designs.append(d)
     errors = commit(Ctx(ctx.proj, d, ctx.gui), label)
     if ctx.proj.path:
         S.designs[_abspath(ctx.proj.path)] = d.name       # the new design is shown, and used next by default
@@ -241,7 +255,8 @@ def t_list_structures(args):
                "description": st.description, "ports": st.ports}
         if st.designer:
             row["tool"] = {"antenna_patch": "create_patch_antenna",
-                           "filter_hairpin": "create_hairpin_filter"}.get(st.designer, "")
+                           "filter_hairpin": "create_hairpin_filter",
+                           "filter_diplexer": "create_hairpin_diplexer"}.get(st.designer, "")
         elif st.status == ST.AVAILABLE:
             row["fields"] = [{"key": f.key, "label": f.label, "default": f.default, "unit": f.unit,
                               "min": f.lo, "max": f.hi} | ({"choices": list(f.choices)} if f.choices else {})
@@ -783,6 +798,54 @@ def t_circuit_layout(args):
                 **({"geometry_errors": errors} if errors else {}),
                 "next": "get_project(design=layout) / render_image; run_simulation(design=layout); after changing "
                         "the layout variables circuit_layout(action='to_schematic') copies them back"}
+    if action == "from_3d":
+        from ..model.circuit_from_3d import circuit_from_design
+        try:
+            d3 = proj.design(args["layout"]) if args.get("layout") else ctx.des
+        except KeyError:
+            raise ToolError(f"No design '{args['layout']}'") from None
+        from ..model.circuit_from_3d import EM_OF
+        before = {x.name for x in proj.designs}
+        try:
+            d, notes = circuit_from_design(proj, d3, args.get("name") or None, bool(args.get("blocks", True)))
+        except Exception as e:  # noqa: BLE001
+            raise ToolError(f"No circuit could be made: {type(e).__name__}: {e}") from None
+        blocks = [x.name for x in proj.designs if x.name not in before and x.settings.get(EM_OF)]
+        _new_design_ctx(ctx, d, f"circuit from {d3.name}")
+        return {"circuit": d.name, "from": d3.name, "notes": notes, "em_blocks": blocks,
+                "components": sum(1 for c in d.components if c.type not in ("LABEL", "GND")),
+                "next": ("run_simulation on each em_blocks design first; " if blocks else "")
+                + "run_simulation(design=circuit) and compare it with the 3D results; circuit_layout("
+                  "action='calibrate') fits correction factors once the 3D design is solved"}
+    if action in ("sync", "calibrate"):
+        from ..model import circuit_sync as CSY
+        circ = ctx.des
+        if getattr(circ, "kind", "3d") != "circuit":
+            cs = CSY.circuits_of(proj, circ)
+            if not cs:
+                raise ToolError(f"{circ.name} has no circuit made by circuit_layout(action='from_3d')")
+            circ = cs[-1]
+        try:
+            if action == "calibrate":
+                r = CSY.calibrate(proj, circ, tuple(args.get("factors") or CSY.DEFAULT_CAL))
+                commit(Ctx(proj, circ, ctx.gui), f"calibrate {circ.name}")
+                return {"circuit": circ.name, "solution": r.solution, "factors": r.values,
+                        "rms_before": r.rms_before, "rms_after": r.rms_after, "warnings": r.warnings}
+            diffs = CSY.compare(proj, circ)
+            direction = args.get("direction")
+            rows = [{"kind": x.kind, "name": x.name, "circuit": x.circuit, "3d": x.model,
+                     "directions": list(x.directions), **({"note": x.note} if x.note else {})} for x in diffs]
+            if not direction:
+                return {"circuit": circ.name, "differences": rows,
+                        "next": "circuit_layout(action='sync', direction='to_circuit' or 'to_3d') takes them"}
+            if direction not in (CSY.TO_CIRCUIT, CSY.TO_3D):
+                raise ToolError("direction is 'to_circuit' or 'to_3d'")
+            done = CSY.apply(proj, circ, [(x, direction) for x in diffs if direction in x.directions])
+        except CSY.SyncError as e:
+            raise ToolError(str(e)) from None
+        commit(Ctx(proj, circ, ctx.gui), f"sync {circ.name} {direction}")
+        return {"circuit": circ.name, "done": done,
+                "skipped": [r for r in rows if direction not in r["directions"]]}
     if ctx.des.kind == "circuit":
         circ = ctx.des
         names = [x.name for x in proj.designs if x.settings.get(CL.LINK) == circ.name]
@@ -811,7 +874,7 @@ def t_circuit_layout(args):
         commit(Ctx(proj, circ, ctx.gui), f"update {circ.name} from {lname}")
         S.designs[_abspath(proj.path)] = circ.name if proj.path else None
         return {"circuit": circ.name, "from": lname, "changes": changes}
-    raise ToolError("action is 'create', 'update' or 'to_schematic'")
+    raise ToolError("action is 'create', 'update', 'to_schematic', 'from_3d', 'sync' or 'calibrate'")
 
 
 def t_import_3d_designs(args):
@@ -829,6 +892,107 @@ def t_import_3d_designs(args):
     commit(ctx, f"3D designs from {Path(path).name}")
     return {"imported": names, "warnings": warns,
             "next": "edit_circuit add [{type: 'EM', props: {Design: name}}] places one as a block"}
+
+
+# ------------------------------------------------------------------------------------------------
+# edge-launch connectors at lumped ports
+def _connector_summary(ctx: Ctx) -> dict:
+    from ..model import connectors as CN
+    out = []
+    for c in ctx.des.connectors:
+        row = {"name": c.name, "part": c.part, "label": CN.label(CN.part(c.part)), "port": c.port, "mode": c.mode,
+               "variables": {v: ctx.des.variables.get(v) for v in CN.parts_of(c).variables},
+               "wave_port": c.props.get("WavePort")}
+        if c.mode == "Transition":
+            row["transition_design"] = c.props.get("Transition")
+            row["transition_state"] = CN.transition_state(ctx.proj, ctx.des, c)
+        out.append(row)
+    res = {"design": ctx.des.name, "connectors": out, "modes": CN.MODE_LABELS}
+    if any(c.mode == "Transition" for c in ctx.des.connectors):
+        res["cascade_design"] = CN.cascade_name(ctx.des)
+        res["solve_first"] = CN.designs_to_solve(ctx.proj, ctx.des)
+        res["cascade_problems"] = CN.cascade_problems(ctx.proj, ctx.des)
+    return res
+
+
+def t_list_edge_connectors(args):
+    from ..model import connectors as CN
+    it = args.get("interface")
+    if it and it not in CN.INTERFACES:
+        raise ToolError(f"interface: one of {list(CN.INTERFACES)}")
+    q = str(args.get("search") or "").lower()
+    h = args.get("board_mm")
+    rows = []
+    for p in CN.parts(it):
+        text = " ".join(str(p.get(k, "")) for k in ("manufacturer", "part_number", "mounting", "notes")).lower()
+        if q and q not in text:
+            continue
+        rng = [x for x in (p.get("pcb_thickness_mm") or []) if x is not None]
+        if h is not None and len(rng) >= 2 and not rng[0] - 0.05 <= float(h) <= rng[1] + 0.05:
+            continue
+        rows.append({"id": p["id"], "label": CN.label(p), "mounting": p.get("mounting"), "f_max_GHz": CN.f_max(p),
+                     "board_mm": rng or None, "launch_pin_mm": p.get("launch_pin_od_mm"),
+                     "datasheet": p.get("datasheet_url")})
+    return {"count": len(rows), "parts": rows[:int(args.get("limit") or 60)],
+            "next": "attach_edge_connector port=<lumped port> part=<id>"}
+
+
+def t_attach_edge_connector(args):
+    from ..model import connectors as CN
+    from .tools import tessellate
+    ctx = load(args)
+    if ctx.des.kind != "3d":
+        raise ToolError("Connectors go into a 3D design")
+    tess, errors = tessellate(ctx.proj, ctx.des)
+    try:
+        inst = CN.attach_connector(ctx.proj, ctx.des, args["port"], args["part"], CN.bboxes_from_tess(tess),
+                                   args.get("name") or "J1")
+        warns = [w for w in inst.props.get("Warnings", "").split(" | ") if w]
+        mode = args.get("mode") or "Ideal"
+        if mode != "Ideal":
+            warns += CN.set_mode(ctx.proj, ctx.des, mode, [inst.name])
+    except (KeyError, ValueError) as e:
+        raise ToolError(str(e)) from None
+    errs = commit(ctx, f"connector {inst.name} at {args['port']}")
+    return {**_connector_summary(ctx), "warnings": warns, "geometry_errors": errs,
+            "next": "set_connector_mode to switch between Ideal, Transition and 3D"}
+
+
+def t_set_connector_mode(args):
+    from ..model import connectors as CN
+    ctx = load(args)
+    names = args.get("connectors") or None
+    action = args.get("action") or "mode"
+    try:
+        warns = []
+        if action == "mode":
+            warns = CN.set_mode(ctx.proj, ctx.des, args.get("mode") or "Ideal", names)
+        elif action == "flatten":
+            for n in names or [c.name for c in ctx.des.connectors]:
+                warns += CN.flatten(ctx.proj, ctx.des, n)
+        elif action == "remove":
+            for n in names or []:
+                CN.remove_connector(ctx.proj, ctx.des, n)
+        elif action == "optimize_launch":
+            for n in names or [c.name for c in ctx.des.connectors]:
+                t = CN.ensure_transition(ctx.proj, ctx.des, CN.instance(ctx.des, n))
+                op = CN.add_launch_optimization(t, rl_db=float(args.get("return_loss_db") or 20))
+                warns.append(f"{n}: optimization '{op.name}' in {t.name}; run it there, then action "
+                             "apply_footprint")
+        elif action == "apply_footprint":
+            for n in names or [c.name for c in ctx.des.connectors]:
+                vals = CN.pull_footprint(ctx.proj, ctx.des, CN.instance(ctx.des, n))
+                warns.append(f"{n}: {vals}")
+        else:
+            raise ToolError("action: mode, flatten, remove, optimize_launch or apply_footprint")
+    except (KeyError, ValueError) as e:
+        raise ToolError(str(e)) from None
+    errs = commit(ctx, f"connectors: {action}")
+    return {**_connector_summary(ctx), "warnings": warns, "geometry_errors": errs}
+
+
+def t_get_connectors(args):
+    return _connector_summary(load(args))
 
 
 def render_schematic(proj, d: Design, w: int, h: int) -> list:
@@ -892,7 +1056,7 @@ PART = {"type": "object", "properties": {
     "new_name": {"type": "string"}}}
 
 TOOLS = [
-    Tool("create_patch_antenna", "Tools > Antenna Design: an inset-fed rectangular microstrip patch from the "
+    Tool("create_patch_antenna", "Tools > Design Wizard > Rectangular patch: an inset-fed rectangular microstrip patch from the "
          "transmission line model as a new parametrized design (variables Wp, Lp, inset, wf ...), with setup, "
          "far-field sphere, a switched-off sweep and the optimization 'PatchOpt' of Lp and inset on the return loss "
          "at the frequency (Derivative Trust Region: a few solves with the derivative tuning model).",
@@ -903,7 +1067,7 @@ TOOLS = [
                   "margin_mm": {"type": "number", "description": "ground beyond the patch; 0 automatic"},
                   "optimization": {"type": "boolean"}, "name": {"type": "string"}}, ["frequency_ghz"]),
          t_create_patch_antenna),
-    Tool("create_hairpin_filter", "Tools > Filter Design: a tapped hairpin band-pass filter of N resonators as a new "
+    Tool("create_hairpin_filter", "Tools > Design Wizard > Hairpin bandpass: a tapped hairpin band-pass filter of N resonators as a new "
          "parametrized design (L, w, b, g, yP, M), with setup, sweep and the optimization 'HairpinCG' on the "
          "filter mask (insertion loss, ripple, return loss in the passband, rejection in the stopbands).",
          _schema({"passband_ghz": RANGE, "resonators": {"type": "integer", "description": "2 to 9 (default 3)"},
@@ -919,7 +1083,7 @@ TOOLS = [
                                                        "description": "[start, stop, step]; default from the passband"},
                   "design_frequency_ghz": NUM, "optimization": {"type": "boolean"}, "name": {"type": "string"}},
                  ["passband_ghz"]), t_create_hairpin_filter),
-    Tool("create_hairpin_diplexer", "Tools > Filter Design > Hairpin Diplexer: two tapped hairpin filters on a "
+    Tool("create_hairpin_diplexer", "Tools > Design Wizard > Hairpin diplexer: two tapped hairpin filters on a "
          "T-junction (or a common resonator) as a new parametrized design, or with channel_c a triplexer on a star "
          "junction (common Port 1; channel A to Port 2, B to Port 3, C to Port 4; variables L_A, g_A, yP_A, j_A ... "
          "per channel), with the same design as a circuit and the space mapping optimization 'DiplexerSM' on the "
@@ -1004,12 +1168,46 @@ TOOLS = [
     Tool("circuit_layout", "Circuit and 3D: action 'create' turns the schematic into a new 3D design (substrate, "
          "ground, traces end to end, lumped parts, ports, 3D design blocks with their geometry; every dimension a "
          "variable like MS1_L); 'update' rebuilds an existing layout from the schematic; 'to_schematic' copies the "
-         "layout's dimensions back into the schematic.",
-         _schema({"action": {"type": "string", "enum": ["create", "update", "to_schematic"]},
+         "layout's dimensions back into the schematic; 'from_3d' recognizes a new circuit design (MLIN, MTEE, MCLIN, "
+         "... with the 3D variables) from a planar microstrip 3D design, copper without a circuit model as 3D design "
+         "blocks; 'sync' lists (or with direction takes) the differences between such a circuit and its 3D design; "
+         "'calibrate' fits correction factors (Cal_L, Cal_W, Cal_Er) to the solved 3D design.",
+         _schema({"action": {"type": "string", "enum": ["create", "update", "to_schematic", "from_3d", "sync",
+                                                         "calibrate"]},
+                  "blocks": {"type": "boolean", "description": "from_3d: copper without a circuit model as 3D "
+                                                                "design blocks (default true)"},
+                  "direction": {"type": "string", "enum": ["to_circuit", "to_3d"]},
+                  "factors": {"type": "array", "items": {"type": "string", "enum": ["Cal_L", "Cal_W", "Cal_Er"]}},
                   "layout": {"type": "string", "description": "layout design (default: the newest of the "
-                                                              "circuit)"},
-                  "name": {"type": "string", "description": "name of a new layout"}}), t_circuit_layout),
+                                                              "circuit; from_3d: the shown 3D design)"},
+                  "name": {"type": "string", "description": "name of a new layout or circuit"}}), t_circuit_layout),
     Tool("import_3d_designs", "Copy the 3D designs with ports (and their results) of another .hzn file into the "
          "project, to use them as blocks in a circuit.",
          _schema({"file": {"type": "string"}}, ["file"]), t_import_3d_designs),
+    Tool("list_edge_connectors", "The library of PCB edge-launch connectors (SMA, 2.92 mm, 2.4 mm; 131 parts of "
+         "Southwest Microwave, Cinch, Amphenol, HUBER+SUHNER, Rosenberger, Samtec, Molex): id, interface, mounting, maximum "
+         "frequency, board thickness range, launch pin, data sheet. Filter by interface, text, board thickness.",
+         _schema({"interface": {"type": "string", "enum": ["SMA", "2.92mm", "2.4mm"]}, "search": {"type": "string"},
+                  "board_mm": NUM, "limit": {"type": "integer"}}), t_list_edge_connectors, True),
+    Tool("attach_edge_connector", "Simulate with Real Connector: put a connector of the library at a lumped port "
+         "at a board edge (the port sheet from ground to trace gives edge, direction, board thickness and trace "
+         "width). It brings its launch footprint (pad, taper, grounded coplanar gap, via fence; variables "
+         "<name>_wp, _lp, _gl, _lt). Nothing is deleted: mode Ideal (default) solves the lumped port and shows the "
+         "connector transparent; Transition cascades a solved 3D model of the connector-to-board transition in a "
+         "circuit design; 3D solves the connector with a wave port on the coax.",
+         _schema({"port": {"type": "string"}, "part": {"type": "string", "description": "id or part number"},
+                  "name": {"type": "string"}, "mode": {"type": "string", "enum": ["Ideal", "Transition", "3D"]}},
+                 ["port", "part"]), t_attach_edge_connector),
+    Tool("set_connector_mode", "Switch connectors (all, or the given names) between Ideal, Transition and 3D "
+         "without losing anything; or action flatten (plain geometry, lumped port deleted), remove, "
+         "optimize_launch (optimization of the footprint in the transition design) or apply_footprint (take the "
+         "optimized footprint of the transition design).",
+         _schema({"mode": {"type": "string", "enum": ["Ideal", "Transition", "3D"]},
+                  "connectors": {"type": "array", "items": {"type": "string"}},
+                  "action": {"type": "string", "enum": ["mode", "flatten", "remove", "optimize_launch",
+                                                        "apply_footprint"]},
+                  "return_loss_db": NUM}), t_set_connector_mode),
+    Tool("get_connectors", "The connectors of a 3D design: part, lumped port, mode, footprint variables, transition "
+         "design and its state, the cascade circuit design and what it still needs.",
+         _schema({}), t_get_connectors, True),
 ]

@@ -142,3 +142,51 @@ def test_trust_region_needs_at_most_six_variables(tmp_path):
     p.save(tmp_path / "p.hzn")
     with pytest.raises(ValueError, match="at most 6"):
         O.Optimizer(str(tmp_path / "p.hzn"), d.name, "TR", tmp_path / "out")
+
+
+def test_an_analyzed_start_design_is_not_solved_again(tmp_path, monkeypatch):
+    """The trust region takes the analyzed solution of the design over as evaluation 1 when it is the start
+    design (same model, setup and sweeps): no solve; a changed design or setup is solved."""
+    import json
+    from hertzon.model.design import Optimization, Project
+    from hertzon.solver import optimize as O
+    from hertzon.solver.keys import model_key, setup_key
+    from hertzon.solver.results import ResultStore, results_dir
+    p = Project.load(EX / "PatchAntenna.hzn")
+    d = p.designs[0]
+    d.optimetrics.append(Optimization(
+        "TR", "Setup1 : Sweep", variables=[{"name": "Lp", "include": True, "min": "24mm", "max": "32mm"}],
+        goals=[{"calc": "dB(S(1,1))", "start": "2.4GHz", "stop": "2.5GHz", "cond": "<=", "value": "-10"}],
+        props={"Optimizer": "Derivative Trust Region", "MaxRounds": "1"}))
+    path = tmp_path / "p.hzn"
+    p.save(path)
+    st = d.setup("Setup1")
+    nominal = results_dir(path, d.name, "Setup1")
+    store = ResultStore(nominal)
+    f = np.linspace(2.2e9, 2.7e9, 11)
+    store.save_sparams("Sweep", f, np.full((11, 1, 1), 0.5 + 0j), [50.0],
+                       [{"name": "1", "number": 1, "kind": "Lumped Port", "modes": 1}])
+    for name in ("amr_state.npz", "mesh.npz"):
+        np.savez(nominal / name, x=np.zeros(1))
+    store.write_json("status.json", {"state": "done", "model_key": model_key(p, d, st), "setup_key": setup_key(st)})
+
+    def run(out):
+        (tmp_path / out).mkdir()
+        opt = O.Optimizer(str(path), d.name, "TR", tmp_path / out)
+        solved = []
+        monkeypatch.setattr(opt, "_solve_batch", lambda pts, ph, it: solved.append(ph) or None)
+        monkeypatch.setattr(opt, "_tuning_model", lambda n, it, pts: None)
+        opt.run()
+        return opt, solved
+
+    opt, solved = run("out")
+    assert solved == [] and opt.n == 1 and opt.history[0]["phase"] == "start design (analyzed solution)"
+    assert np.isfinite(opt.history[0]["cost"]) and opt.history[0]["variables"] == {"Lp": d.variables["Lp"]}
+    ev1 = tmp_path / "out" / "evals" / "0001"
+    assert (ev1 / "results" / "amr_state.npz").exists() and (ev1 / "design.hzn").exists()
+    q = Project.load(ev1 / "design.hzn")
+    assert model_key(q, q.designs[0], q.designs[0].setup("Setup1")) == model_key(p, d, st)
+    # another sweep definition than the analyzed one: the start design is solved
+    st.sweeps[0].props["Count"] = "7" if st.sweeps[0].props.get("Count") != "7" else "9"
+    p.save(path)
+    assert run("out2")[1] == ["start design"]

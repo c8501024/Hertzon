@@ -1,0 +1,1897 @@
+{
+ "name": "Mixer_DBM",
+ "designs": [
+  {
+   "name": "Balun",
+   "units": "mm",
+   "kind": "3d",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Off",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True"
+   },
+   "variables": {
+    "b": "0.762mm",
+    "s": "0.102mm",
+    "hT": "2*b+s",
+    "Lc": "12.5mm",
+    "w": "0.3mm",
+    "g": "1mm",
+    "lp": "1.2mm",
+    "rv": "0.15mm",
+    "pad": "0.5mm",
+    "cl": "0.2mm",
+    "xend": "2*Lc+g",
+    "yb": "2.5mm"
+   },
+   "objects": [
+    {
+     "name": "Core_L3L4",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-lp-1.5mm,-yb,0",
+        "XSize": "xend+1.5mm-(-lp-1.5mm)",
+        "YSize": "2*yb",
+        "ZSize": "b"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "Rogers RO4350B (tm)",
+     "solve_inside": true,
+     "model": true,
+     "color": "#6a7f3a",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Prepreg_L2L3",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-lp-1.5mm,-yb,b",
+        "XSize": "xend+1.5mm-(-lp-1.5mm)",
+        "YSize": "2*yb",
+        "ZSize": "s"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "RO4450F prepreg",
+     "solve_inside": true,
+     "model": true,
+     "color": "#bebebe",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Core_L1L2",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-lp-1.5mm,-yb,b+s",
+        "XSize": "xend+1.5mm-(-lp-1.5mm)",
+        "YSize": "2*yb",
+        "ZSize": "b"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "Rogers RO4350B (tm)",
+     "solve_inside": true,
+     "model": true,
+     "color": "#6a7f3a",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Air",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-lp-1.5mm,-yb,hT",
+        "XSize": "xend+1.5mm-(-lp-1.5mm)",
+        "YSize": "2*yb",
+        "ZSize": "2mm"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "air",
+     "solve_inside": true,
+     "model": true,
+     "color": "#e6f2ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Ground_L4",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-lp-1.5mm,-yb,0",
+        "Axis": "Z",
+        "XSize": "xend+1.5mm-(-lp-1.5mm)",
+        "YSize": "2*yb",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Ground_L1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-lp-1.5mm,-yb,hT",
+        "Axis": "Z",
+        "XSize": "xend+1.5mm-(-lp-1.5mm)",
+        "YSize": "2*yb",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Clear_In",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Clear_Out1",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Clear_Out2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Clear_Cold1",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Clear_Cold2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Primary_L3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-lp,-w/2,b",
+        "Axis": "Z",
+        "XSize": "lp+xend",
+        "YSize": "w",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Secondary1_L2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0,-w/2,b+s",
+        "Axis": "Z",
+        "XSize": "Lc",
+        "YSize": "w",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Secondary2_L2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Lc+g,-w/2,b+s",
+        "Axis": "Z",
+        "XSize": "Lc",
+        "YSize": "w",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Via_In",
+     "history": [
+      {
+       "kind": "CreateCylinder",
+       "props": {
+        "CenterPosition": "-lp+rv+0.1mm,0,b",
+        "Axis": "Z",
+        "Radius": "rv",
+        "Height": "hT-(b)",
+        "NumberOfSegments": "0"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "pec",
+     "solve_inside": true,
+     "model": true,
+     "color": "#c08040",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Pad_In",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-lp+rv+0.1mm-pad/2,-pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "pad",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Clear_In",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-lp+rv+0.1mm-pad/2-cl,-pad/2-cl,hT",
+        "Axis": "Z",
+        "XSize": "pad+2*cl",
+        "YSize": "pad+2*cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Ground_L1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Via_Out1",
+     "history": [
+      {
+       "kind": "CreateCylinder",
+       "props": {
+        "CenterPosition": "Lc-rv,0,b+s",
+        "Axis": "Z",
+        "Radius": "rv",
+        "Height": "hT-(b+s)",
+        "NumberOfSegments": "0"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "pec",
+     "solve_inside": true,
+     "model": true,
+     "color": "#c08040",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Pad_Out1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Lc-rv-pad/2,-pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "pad",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Clear_Out1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Lc-rv-pad/2-cl,-pad/2-cl,hT",
+        "Axis": "Z",
+        "XSize": "pad+2*cl",
+        "YSize": "pad+2*cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Ground_L1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Via_Out2",
+     "history": [
+      {
+       "kind": "CreateCylinder",
+       "props": {
+        "CenterPosition": "Lc+g+rv,0,b+s",
+        "Axis": "Z",
+        "Radius": "rv",
+        "Height": "hT-(b+s)",
+        "NumberOfSegments": "0"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "pec",
+     "solve_inside": true,
+     "model": true,
+     "color": "#c08040",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Pad_Out2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Lc+g+rv-pad/2,-pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "pad",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Clear_Out2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Lc+g+rv-pad/2-cl,-pad/2-cl,hT",
+        "Axis": "Z",
+        "XSize": "pad+2*cl",
+        "YSize": "pad+2*cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Ground_L1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Via_Cold1",
+     "history": [
+      {
+       "kind": "CreateCylinder",
+       "props": {
+        "CenterPosition": "rv,0,b+s",
+        "Axis": "Z",
+        "Radius": "rv",
+        "Height": "hT-(b+s)",
+        "NumberOfSegments": "0"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "pec",
+     "solve_inside": true,
+     "model": true,
+     "color": "#c08040",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Pad_Cold1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "rv-pad/2,-pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "pad",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Clear_Cold1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "rv-pad/2-cl,-pad/2-cl,hT",
+        "Axis": "Z",
+        "XSize": "pad+2*cl",
+        "YSize": "pad+2*cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Ground_L1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Via_Cold2",
+     "history": [
+      {
+       "kind": "CreateCylinder",
+       "props": {
+        "CenterPosition": "xend-rv,0,b+s",
+        "Axis": "Z",
+        "Radius": "rv",
+        "Height": "hT-(b+s)",
+        "NumberOfSegments": "0"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "pec",
+     "solve_inside": true,
+     "model": true,
+     "color": "#c08040",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Pad_Cold2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "xend-rv-pad/2,-pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "pad",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Clear_Cold2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "xend-rv-pad/2-cl,-pad/2-cl,hT",
+        "Axis": "Z",
+        "XSize": "pad+2*cl",
+        "YSize": "pad+2*cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Ground_L1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port1Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-lp+rv+0.1mm-pad/2,pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port2Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Lc-rv-pad/2,pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port3Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Lc+g+rv-pad/2,pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port4Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "rv-pad/2,pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port5Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "xend-rv-pad/2,pad/2,hT",
+        "Axis": "Z",
+        "XSize": "pad",
+        "YSize": "cl",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [
+    {
+     "name": "PerfE_Ground",
+     "kind": "Perfect E",
+     "props": {
+      "InfGroundPlane": "False"
+     },
+     "faces": [],
+     "objects": [
+      "Ground_L1",
+      "Ground_L4"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "PerfE_Copper",
+     "kind": "Perfect E",
+     "props": {
+      "InfGroundPlane": "False"
+     },
+     "faces": [],
+     "objects": [
+      "Primary_L3",
+      "Secondary1_L2",
+      "Secondary2_L2",
+      "Pad_In",
+      "Pad_Out1",
+      "Pad_Out2",
+      "Pad_Cold1",
+      "Pad_Cold2"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "excitations": [
+    {
+     "name": "1",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "1",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-lp+rv+0.1mm,pad/2,hT;-lp+rv+0.1mm,pad/2+cl,hT"
+     },
+     "faces": [],
+     "objects": [
+      "Port1Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "2",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "2",
+      "Impedance": "50ohm",
+      "IntegrationLine": "Lc-rv,pad/2,hT;Lc-rv,pad/2+cl,hT"
+     },
+     "faces": [],
+     "objects": [
+      "Port2Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "3",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "3",
+      "Impedance": "50ohm",
+      "IntegrationLine": "Lc+g+rv,pad/2,hT;Lc+g+rv,pad/2+cl,hT"
+     },
+     "faces": [],
+     "objects": [
+      "Port3Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "4",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "4",
+      "Impedance": "50ohm",
+      "IntegrationLine": "rv,pad/2,hT;rv,pad/2+cl,hT"
+     },
+     "faces": [],
+     "objects": [
+      "Port4Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "5",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "5",
+      "Impedance": "50ohm",
+      "IntegrationLine": "xend-rv,pad/2,hT;xend-rv,pad/2+cl,hT"
+     },
+     "faces": [],
+     "objects": [
+      "Port5Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [
+    {
+     "name": "Length_Strips",
+     "kind": "Length Based On Selection",
+     "props": {
+      "MaxLength": "0.3mm",
+      "RestrictElements": "False",
+      "MaxElements": "1000"
+     },
+     "faces": [],
+     "objects": [
+      "Primary_L3",
+      "Secondary1_L2",
+      "Secondary2_L2"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "4.5GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "BroadbandFrequencies": "3",
+      "PortsOnly": "False",
+      "MaximumPasses": "10",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "UsePowerBalance": "False",
+      "MaxPowerBalance": "0.01",
+      "MaxDeltaEfficiency": "0.01",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Interpolating",
+        "Distribution": "Linear Count",
+        "Start": "0.05GHz",
+        "Stop": "26GHz",
+        "Step": "0.1GHz",
+        "Count": "520",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": "",
+   "stackup": null,
+   "components": [],
+   "wires": []
+  },
+  {
+   "name": "Mixer",
+   "units": "mm",
+   "kind": "circuit",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Off",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "AutoJunctions": "False"
+   },
+   "variables": {
+    "Lpkg": "0.5nH",
+    "Cbyp": "10pF",
+    "ESL": "0.2nH",
+    "Lif": "14.3mm",
+    "hb": "1.626mm",
+    "Lch": "47nH"
+   },
+   "objects": [],
+   "boundaries": [],
+   "excitations": [],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Band",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "5GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "BroadbandFrequencies": "3",
+      "PortsOnly": "False",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "UsePowerBalance": "False",
+      "MaxPowerBalance": "0.01",
+      "MaxDeltaEfficiency": "0.01",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2",
+      "CircuitAnalysis": "Mixer",
+      "LOPort": "LO",
+      "RFPort": "RF",
+      "IFPort": "IF",
+      "LOPower": "7",
+      "RFPower": "-20",
+      "RFStart": "1GHz",
+      "RFStop": "5GHz",
+      "RFPoints": "17",
+      "IFFreq": "100MHz",
+      "LOSide": "Low",
+      "MixOrder": "5"
+     },
+     "sweeps": [],
+     "eigen": false
+    },
+    {
+     "name": "LODrive",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "5GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "BroadbandFrequencies": "3",
+      "PortsOnly": "False",
+      "MaximumPasses": "6",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "UsePowerBalance": "False",
+      "MaxPowerBalance": "0.01",
+      "MaxDeltaEfficiency": "0.01",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "First Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "True",
+      "Threads": "0",
+      "_BasisNames": "v2",
+      "CircuitAnalysis": "Mixer",
+      "LOPort": "LO",
+      "RFPort": "RF",
+      "IFPort": "IF",
+      "LOPower": "-3:1:13",
+      "RFPower": "-20",
+      "RFStart": "3GHz",
+      "RFStop": "3GHz",
+      "RFPoints": "1",
+      "IFFreq": "100MHz",
+      "LOSide": "Low",
+      "MixOrder": "5"
+     },
+     "sweeps": [],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": "Broadband double-balanced diode mixer, RF and LO about 1.25 to 4 GHz, IF 100 MHz. Analyze the 3D design Balun first (a few minutes), then the setups Band and LODrive of this circuit (circuitRF). Results: mixer.csv in the results folder of each setup. Hertzon: circuit, linear network, balun (EMerge); circuitRF: two-tone harmonic balance; diode card: Broadcom data sheet HSMS-282x.",
+   "stackup": null,
+   "components": [
+    {
+     "name": "Sub1",
+     "type": "SUBST",
+     "x": -400,
+     "y": -300,
+     "rot": 0,
+     "props": {
+      "Er": "3.66",
+      "H": "hb",
+      "T": "35um",
+      "TanD": "0.0037",
+      "Cond": "5.8e7"
+     },
+     "mirror": false
+    },
+    {
+     "name": "LIB1",
+     "type": "SPICELIB",
+     "x": -200,
+     "y": -300,
+     "rot": 0,
+     "props": {
+      "File": "mixer/hsms282x.lib",
+      "Section": "",
+      "OSDI": ""
+     },
+     "mirror": false
+    },
+    {
+     "name": "LO",
+     "type": "PORT",
+     "x": -400,
+     "y": -60,
+     "rot": 0,
+     "props": {
+      "Num": "1",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LO_0",
+     "type": "LABEL",
+     "x": -400,
+     "y": -100,
+     "rot": 0,
+     "props": {
+      "Net": "lo"
+     },
+     "mirror": false
+    },
+    {
+     "name": "BalunLO",
+     "type": "EM",
+     "x": -200,
+     "y": 0,
+     "rot": 0,
+     "props": {
+      "Design": "Balun",
+      "Solution": "Setup1 : Sweep",
+      "Model": "Data",
+      "CircuitModel": "",
+      "Ports": "5",
+      "PortNames": "1,2,3,4,5"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_BalunLO_0",
+     "type": "LABEL",
+     "x": -260,
+     "y": -20,
+     "rot": 0,
+     "props": {
+      "Net": "lo"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_BalunLO_1",
+     "type": "LABEL",
+     "x": -140,
+     "y": -10,
+     "rot": 0,
+     "props": {
+      "Net": "A"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_BalunLO_2",
+     "type": "LABEL",
+     "x": -260,
+     "y": 0,
+     "rot": 0,
+     "props": {
+      "Net": "C"
+     },
+     "mirror": false
+    },
+    {
+     "name": "GND_BalunLO_3",
+     "type": "GND",
+     "x": -140,
+     "y": 20,
+     "rot": 0,
+     "props": {},
+     "mirror": false
+    },
+    {
+     "name": "GND_BalunLO_4",
+     "type": "GND",
+     "x": -260,
+     "y": 30,
+     "rot": 0,
+     "props": {},
+     "mirror": false
+    },
+    {
+     "name": "RF",
+     "type": "PORT",
+     "x": -400,
+     "y": 240,
+     "rot": 0,
+     "props": {
+      "Num": "2",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_RF_0",
+     "type": "LABEL",
+     "x": -400,
+     "y": 200,
+     "rot": 0,
+     "props": {
+      "Net": "rf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "BalunRF",
+     "type": "EM",
+     "x": -200,
+     "y": 300,
+     "rot": 0,
+     "props": {
+      "Design": "Balun",
+      "Solution": "Setup1 : Sweep",
+      "Model": "Data",
+      "CircuitModel": "",
+      "Ports": "5",
+      "PortNames": "1,2,3,4,5"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_BalunRF_0",
+     "type": "LABEL",
+     "x": -260,
+     "y": 280,
+     "rot": 0,
+     "props": {
+      "Net": "rf"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_BalunRF_1",
+     "type": "LABEL",
+     "x": -140,
+     "y": 290,
+     "rot": 0,
+     "props": {
+      "Net": "B"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_BalunRF_2",
+     "type": "LABEL",
+     "x": -260,
+     "y": 300,
+     "rot": 0,
+     "props": {
+      "Net": "D"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_BalunRF_3",
+     "type": "LABEL",
+     "x": -140,
+     "y": 310,
+     "rot": 0,
+     "props": {
+      "Net": "x1"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_BalunRF_4",
+     "type": "LABEL",
+     "x": -260,
+     "y": 320,
+     "rot": 0,
+     "props": {
+      "Net": "x2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "LA",
+     "type": "L",
+     "x": 0,
+     "y": -20,
+     "rot": 0,
+     "props": {
+      "L": "Lpkg"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LA_0",
+     "type": "LABEL",
+     "x": -30,
+     "y": -20,
+     "rot": 0,
+     "props": {
+      "Net": "A"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LA_1",
+     "type": "LABEL",
+     "x": 30,
+     "y": -20,
+     "rot": 0,
+     "props": {
+      "Net": "a"
+     },
+     "mirror": false
+    },
+    {
+     "name": "LC",
+     "type": "L",
+     "x": 0,
+     "y": 20,
+     "rot": 0,
+     "props": {
+      "L": "Lpkg"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LC_0",
+     "type": "LABEL",
+     "x": -30,
+     "y": 20,
+     "rot": 0,
+     "props": {
+      "Net": "C"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LC_1",
+     "type": "LABEL",
+     "x": 30,
+     "y": 20,
+     "rot": 0,
+     "props": {
+      "Net": "c"
+     },
+     "mirror": false
+    },
+    {
+     "name": "LB",
+     "type": "L",
+     "x": 0,
+     "y": 280,
+     "rot": 0,
+     "props": {
+      "L": "Lpkg"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LB_0",
+     "type": "LABEL",
+     "x": -30,
+     "y": 280,
+     "rot": 0,
+     "props": {
+      "Net": "B"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LB_1",
+     "type": "LABEL",
+     "x": 30,
+     "y": 280,
+     "rot": 0,
+     "props": {
+      "Net": "b"
+     },
+     "mirror": false
+    },
+    {
+     "name": "LD",
+     "type": "L",
+     "x": 0,
+     "y": 320,
+     "rot": 0,
+     "props": {
+      "L": "Lpkg"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LD_0",
+     "type": "LABEL",
+     "x": -30,
+     "y": 320,
+     "rot": 0,
+     "props": {
+      "Net": "D"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LD_1",
+     "type": "LABEL",
+     "x": 30,
+     "y": 320,
+     "rot": 0,
+     "props": {
+      "Net": "d"
+     },
+     "mirror": false
+    },
+    {
+     "name": "D1",
+     "type": "DEVICE",
+     "x": 200,
+     "y": 60,
+     "rot": 0,
+     "props": {
+      "Kind": "Model card",
+      "Model": "HSMS282X",
+      "Pins": "a k",
+      "Params": "",
+      "File": ""
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_D1_0",
+     "type": "LABEL",
+     "x": 140,
+     "y": 60,
+     "rot": 0,
+     "props": {
+      "Net": "a"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_D1_1",
+     "type": "LABEL",
+     "x": 260,
+     "y": 60,
+     "rot": 0,
+     "props": {
+      "Net": "b"
+     },
+     "mirror": false
+    },
+    {
+     "name": "D2",
+     "type": "DEVICE",
+     "x": 200,
+     "y": 120,
+     "rot": 0,
+     "props": {
+      "Kind": "Model card",
+      "Model": "HSMS282X",
+      "Pins": "a k",
+      "Params": "",
+      "File": ""
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_D2_0",
+     "type": "LABEL",
+     "x": 140,
+     "y": 120,
+     "rot": 0,
+     "props": {
+      "Net": "b"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_D2_1",
+     "type": "LABEL",
+     "x": 260,
+     "y": 120,
+     "rot": 0,
+     "props": {
+      "Net": "c"
+     },
+     "mirror": false
+    },
+    {
+     "name": "D3",
+     "type": "DEVICE",
+     "x": 200,
+     "y": 180,
+     "rot": 0,
+     "props": {
+      "Kind": "Model card",
+      "Model": "HSMS282X",
+      "Pins": "a k",
+      "Params": "",
+      "File": ""
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_D3_0",
+     "type": "LABEL",
+     "x": 140,
+     "y": 180,
+     "rot": 0,
+     "props": {
+      "Net": "c"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_D3_1",
+     "type": "LABEL",
+     "x": 260,
+     "y": 180,
+     "rot": 0,
+     "props": {
+      "Net": "d"
+     },
+     "mirror": false
+    },
+    {
+     "name": "D4",
+     "type": "DEVICE",
+     "x": 200,
+     "y": 240,
+     "rot": 0,
+     "props": {
+      "Kind": "Model card",
+      "Model": "HSMS282X",
+      "Pins": "a k",
+      "Params": "",
+      "File": ""
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_D4_0",
+     "type": "LABEL",
+     "x": 140,
+     "y": 240,
+     "rot": 0,
+     "props": {
+      "Net": "d"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_D4_1",
+     "type": "LABEL",
+     "x": 260,
+     "y": 240,
+     "rot": 0,
+     "props": {
+      "Net": "a"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Cb1",
+     "type": "SRLC",
+     "x": -420,
+     "y": 480,
+     "rot": 90,
+     "props": {
+      "R": "0.1ohm",
+      "L": "ESL",
+      "C": "Cbyp"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_Cb1_0",
+     "type": "LABEL",
+     "x": -420,
+     "y": 440,
+     "rot": 0,
+     "props": {
+      "Net": "x1"
+     },
+     "mirror": false
+    },
+    {
+     "name": "GND_Cb1_1",
+     "type": "GND",
+     "x": -420,
+     "y": 530,
+     "rot": 0,
+     "props": {},
+     "mirror": false
+    },
+    {
+     "name": "IF1",
+     "type": "CPWLIN",
+     "x": -280,
+     "y": 440,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "0.3mm",
+      "S": "0.2mm",
+      "L": "Lif",
+      "Backed": "True"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_IF1_0",
+     "type": "LABEL",
+     "x": -320,
+     "y": 440,
+     "rot": 0,
+     "props": {
+      "Net": "x1"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_IF1_1",
+     "type": "LABEL",
+     "x": -240,
+     "y": 440,
+     "rot": 0,
+     "props": {
+      "Net": "ifn"
+     },
+     "mirror": false
+    },
+    {
+     "name": "Cb2",
+     "type": "SRLC",
+     "x": -340,
+     "y": 480,
+     "rot": 90,
+     "props": {
+      "R": "0.1ohm",
+      "L": "ESL",
+      "C": "Cbyp"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_Cb2_0",
+     "type": "LABEL",
+     "x": -340,
+     "y": 440,
+     "rot": 0,
+     "props": {
+      "Net": "x2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "GND_Cb2_1",
+     "type": "GND",
+     "x": -340,
+     "y": 530,
+     "rot": 0,
+     "props": {},
+     "mirror": false
+    },
+    {
+     "name": "IF2",
+     "type": "CPWLIN",
+     "x": -200,
+     "y": 440,
+     "rot": 0,
+     "props": {
+      "Subst": "Sub1",
+      "W": "0.3mm",
+      "S": "0.2mm",
+      "L": "Lif",
+      "Backed": "True"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_IF2_0",
+     "type": "LABEL",
+     "x": -240,
+     "y": 440,
+     "rot": 0,
+     "props": {
+      "Net": "x2"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_IF2_1",
+     "type": "LABEL",
+     "x": -160,
+     "y": 440,
+     "rot": 0,
+     "props": {
+      "Net": "ifn"
+     },
+     "mirror": false
+    },
+    {
+     "name": "LCH",
+     "type": "L",
+     "x": -60,
+     "y": 520,
+     "rot": 0,
+     "props": {
+      "L": "Lch"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LCH_0",
+     "type": "LABEL",
+     "x": -90,
+     "y": 520,
+     "rot": 0,
+     "props": {
+      "Net": "ifn"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_LCH_1",
+     "type": "LABEL",
+     "x": -30,
+     "y": 520,
+     "rot": 0,
+     "props": {
+      "Net": "ifp"
+     },
+     "mirror": false
+    },
+    {
+     "name": "IF",
+     "type": "PORT",
+     "x": 100,
+     "y": 520,
+     "rot": 0,
+     "props": {
+      "Num": "3",
+      "Z0": "50ohm"
+     },
+     "mirror": false
+    },
+    {
+     "name": "N_IF_0",
+     "type": "LABEL",
+     "x": 100,
+     "y": 480,
+     "rot": 0,
+     "props": {
+      "Net": "ifp"
+     },
+     "mirror": false
+    }
+   ],
+   "wires": []
+  }
+ ],
+ "variables": {},
+ "materials": [
+  {
+   "name": "RO4450F prepreg",
+   "permittivity": "3.52",
+   "permeability": "1",
+   "conductivity": "0",
+   "loss_tangent": "0.004",
+   "magnetic_loss_tangent": "0",
+   "color": "#7a8f4a",
+   "pec": false,
+   "library": "Project",
+   "description": "Rogers RO4450F bondply (design Dk 3.52, Df 0.004)",
+   "dispersion": "None",
+   "measured_frequency": "1GHz",
+   "eps_static": "4.6",
+   "eps_infinity": "4.2",
+   "relaxation_frequency": "1GHz",
+   "anisotropic": false,
+   "permittivity_tensor": "",
+   "permeability_tensor": "",
+   "loss_tangent_tensor": "",
+   "emsutil_key": ""
+  }
+ ],
+ "format": "hertzon-project",
+ "version": 2
+}

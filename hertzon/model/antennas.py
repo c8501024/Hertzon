@@ -1,4 +1,4 @@
-"""Antenna design: a parametrized inset-fed rectangular microstrip patch (Tools > Antenna Design).
+"""Antenna design: a parametrized inset-fed rectangular microstrip patch (Tools > Design Wizard > Rectangular patch).
 
 The start dimensions come from the transmission line model (Balanis, Antenna Theory ch. 14): width for
 good radiation efficiency, length from the effective permittivity and the fringing extension, the edge
@@ -7,8 +7,10 @@ design comes with setup, sweep, far-field sphere and an optimization of the patc
 on the return loss at the design frequency: on the adaptive solution (LastAdaptive), so no sweep is solved
 while optimizing, with the Derivative Trust Region (the start values are close, so a few solves with the
 derivative tuning model are enough). The sweep (+-15 %) is only there to look at the resonance afterwards: it
-is switched off, so that it neither enlarges the open region of the optimization nor of the design (switch it on
-and analyze after applying the optimum).
+is switched off while optimizing. The open region has a fixed padding, lambda/3 at the design frequency (the
+automatic padding of the setup alone): switching the sweep on keeps the model, so the sweep is solved on the
+adaptive mesh of the analyzed or optimized design instead of adapting a new mesh for a larger air box. At the
+lowest sweep frequency (-15 %) the padding is still 0.28 lambda, above the lambda/4 of a radiation boundary.
 
 No Qt here: used by the dialog, the example generator and scripts.
 """
@@ -97,6 +99,8 @@ def patch_design(spec: PatchSpec) -> tuple[Design, dict]:
                         "Ws": _mm(nom["Ws"]), "Ls": _mm(nom["Ls"])})
     d.settings["AutoOpen"] = "Auto Open"
     d.settings["AutoOpenBoundary"] = "Auto"
+    # lambda/3 at f0 as the automatic padding of the setup alone, but fixed: the sweep does not resize the region
+    d.settings["AutoOpenPadding"] = f"{C0 / (spec.f0 * 1e9) / 3 * 1e3:.6g}mm"
     d.add_object("CreateBox", name="Substrate", material=spec.material, Position="-Ws/2,-Ls/2,0", XSize="Ws",
                  YSize="Ls", ZSize="h")
     gnd = d.add_object("CreateRectangle", name="Ground", Position="-Ws/2,-Ls/2,0", Axis="Z", XSize="Ws", YSize="Ls")

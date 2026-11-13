@@ -231,6 +231,30 @@ class PropertyGrid(QWidget):
                 self.table.setItem(r, 2, ev_it)
                 self._loading = False
 
+    def refresh_evaluated(self, ev: Evaluator | None = None) -> None:
+        """Recompute the Evaluated Value column of every row (with a new evaluator if given), e.g. after a
+        design variable changed that other values refer to."""
+        if ev is not None:
+            self.ev = ev
+        if self.table.columnCount() <= 2:
+            return
+        self._loading = True
+        try:
+            for r in range(self.table.rowCount()):
+                it = self.table.item(r, 1)
+                name = it.data(Qt.UserRole) if it is not None else None
+                p = next((p for p in self.props if p.name == name), None)
+                if p is None:
+                    continue
+                txt, ok = evaluate_display(p, self.values.get(p.name, ""), self.ev)
+                ev_it = QTableWidgetItem(txt)
+                ev_it.setFlags(Qt.ItemIsEnabled)
+                if not ok:
+                    ev_it.setForeground(QBrush(QColor("#c0392b")))
+                self.table.setItem(r, 2, ev_it)
+        finally:
+            self._loading = False
+
     def _offer_variables(self, name: str, item: QTableWidgetItem) -> bool:
         """Add Variable: a new name typed into a value field is created as a variable whose value is
         the field's previous value (empty if there was none). Cancel restores the old text."""

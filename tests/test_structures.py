@@ -434,6 +434,31 @@ def test_main_window_inserts_the_wizard_designs(monkeypatch):
     w.close()
 
 
+def test_the_wizard_reaches_every_designer_and_the_ribbon_has_no_separate_ones():
+    """The patch, hairpin filter and hairpin diplexer designers are only reached through the Design Wizard."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtGui import QAction
+    from PySide6.QtWidgets import QAbstractButton, QApplication
+    QApplication.instance() or QApplication([])
+    from hertzon.gui.design_wizard import DesignWizard
+    from hertzon.gui.main_window import MainWindow
+    designers = {s.designer for s in ST.CATALOG if s.designer}
+    assert designers == {"antenna_patch", "filter_hairpin", "filter_diplexer"}
+    dlg = DesignWizard(None, Project("t"), None, start="diplexer")
+    assert dlg.next_btn.isEnabled()
+    dlg._next()
+    assert dlg.designer == "filter_diplexer"
+    w = MainWindow()
+    assert all(callable(getattr(w, d)) for d in designers)
+    texts = {b.text().replace("&", "") for b in w.findChildren(QAbstractButton)}
+    texts |= {a.text().replace("&", "") for a in w.findChildren(QAction)}
+    assert not {"Filter Design", "Antenna Design", "Tapped Hairpin...", "Hairpin Diplexer...",
+                "Rectangular Patch..."} & texts
+    assert "Design Wizard" in texts
+    w.doc.dirty = False
+    w.close()
+
+
 def test_every_card_has_a_well_formed_picture():
     import xml.etree.ElementTree as ET
     from hertzon.model.structures import CATALOG, icon

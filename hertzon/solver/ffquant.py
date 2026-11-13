@@ -110,6 +110,9 @@ def farfield_quantities(ff: dict, port: int = 1, k: int = 0, s11: complex | None
     out["DirRHCP"] = D * b ** 2 / tot
     out["GainLHCP"] = out["DirLHCP"] * eff
     out["GainRHCP"] = out["DirRHCP"] * eff
+    # realized gain of each component: its gain scaled by accepted / incident power, as RealizedGainTotal (#439)
+    for c in ("Theta", "Phi", "LHCP", "RHCP"):
+        out[f"RealizedGain{c}"] = out[f"Gain{c}"] * Pacc / Pin
     out["rELHCP"] = a
     out["rERHCP"] = b
     # bistatic RCS (m^2) of an incident plane wave: 4 pi |rE_s|^2 / |E0|^2
@@ -210,7 +213,8 @@ def excitation_weights(design, ports: list) -> dict[int, complex] | None:
     """Port number -> complex amplitude sqrt(P) e^(j phase) from Edit Sources; None while the sources
     were never edited (then port 1 is excited with 1 W)."""
     from ..model import sources as SRC
-    names = [p["name"] for p in ports] if any(p.get("kind") == "Terminal" for p in ports) else None
+    # fields stored per terminal or per port mode (field_sources.json): Edit Sources lists those names
+    names = [p["name"] for p in ports] if any(p.get("kind") == "Terminal" or "mode" in p for p in ports) else None
     srcs = SRC.get(design, names) if design is not None else None
     if srcs is None or any(p.get("kind") == "Incident Plane Wave" for p in ports):
         return None

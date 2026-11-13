@@ -99,7 +99,8 @@ Circuits
 - run_simulation and get_results work on circuit designs as on 3D designs (solved at once).
 - 3D design blocks (type EM, props Design) use the S-parameters of a solved 3D design; import_3d_designs
   copies 3D designs from another file. circuit_layout(action='create') turns the schematic, blocks
-  included, into a 3D design; 'to_schematic' copies tuned layout dimensions back.
+  included, into a 3D design; 'to_schematic' copies tuned layout dimensions back; 'from_3d' recognizes a
+  circuit from a planar microstrip 3D design.
 
 Interpreting results (before you name a cause)
 - Total efficiency = mismatch efficiency (Pacc/Pinc) x radiation efficiency (Prad/Pacc). get_results kind
@@ -116,6 +117,10 @@ Interpreting results (before you name a cause)
 - Check mesh convergence first. If the adaptive solve did not reach its Delta S target, S11 and the accepted
   power are uncertain, most of all near high-Q points and deep dips; refine (more passes, adaptive frequencies at
   the critical points) before drawing conclusions. A power balance far from 0 is a warning sign too.
+- Sweeps are solved on the mesh adapted at the setup's adaptive frequencies; they never refine it. For a
+  wideband sweep (UWB, several bands) adapt at the upper end too: SolutionFrequencyMode Broadband over the sweep
+  or Multi-Frequencies with the band edges. validate, set_sweep and run_simulation warn when a sweep reaches more
+  than 1.5x the highest adaptive frequency or a fixed open region padding is below lambda/4 at its lowest frequency.
 - The mismatch factor rests on the port: S11 and the accepted power come from the port voltage and current.
   If Delta S jumps between passes instead of falling, S11 changes a lot from pass to pass, or Prad + Ploss does
   not match Pacc, check the port model first (Integration Line across the port sheet, port size against the
@@ -400,13 +405,14 @@ def summary(ctx: Ctx) -> dict:
 # geometry (built in this process with gmsh)
 # ------------------------------------------------------------------------------------------------
 def tessellate(proj: Project, des: Design, names: list[str] | None = None, timeout: float | None = None,
-               detail: str = "full") -> tuple[dict, dict]:
+               detail: str = "full", quality: str = "coarse") -> tuple[dict, dict]:
     """Display tessellation of the live objects: ({name: Tess}, {name: error}).
 
     Objects not in the cache are built in a child process (geomworker) with a time limit, progress reports
     and cancellation, so a build that hangs in the kernel never blocks the server. detail='fast' leaves out
     subtractions whose tools stay in the model (drill holes in a board that hold the via cylinders): the
-    picture is the same from outside, the build much faster. It is never the default."""
+    picture is the same from outside, the build much faster. It is never the default. quality is the display
+    quality: coarse is enough for checks and face lists, a picture uses the modeler's (render_image)."""
     from ..kernel import occ as K
     from . import geomworker as W
     from .protocol import cancelled, progress
@@ -416,7 +422,7 @@ def tessellate(proj: Project, des: Design, names: list[str] | None = None, timeo
     live_objs = des.live_objects()
     if names is not None:
         live_objs = [o for o in live_objs if o.name in names]
-    keys = {o.name: K.object_key(des, o, ev) for o in live_objs}
+    keys = {o.name: (quality, K.object_key(des, o, ev)) for o in live_objs}
     regions = [o.name for o in live_objs if o.history[0].kind == "CreateRegion"]
     out, errors = {}, {}
     todo = []
@@ -432,7 +438,7 @@ def tessellate(proj: Project, des: Design, names: list[str] | None = None, timeo
         limit = W.default_timeout() if timeout is None else float(timeout)
         try:
             tess, errs = W.build(proj.to_dict(), proj.path, des.name, build, limit,
-                                 on_progress=progress, should_stop=cancelled)
+                                 on_progress=progress, should_stop=cancelled, quality=quality)
         except W.BuildTimeout as e:
             raise ToolError(
                 f"Building the geometry took longer than {limit:g} s and was stopped"
@@ -1118,9 +1124,49 @@ def t_set_sweep(args):
         s = ctx.des.setup(args.get("setup") or "Setup1")
     except KeyError:
         raise ToolError(f"Setup '{args.get('setup')}' not found") from None
+    f_before = _open_region_f(ctx, s)
     w = _set_sweep(s, args.get("name") or "Sweep", args.get("props"))
     commit(ctx, f"sweep {w.name}")
-    return {"setup": s.name, "sweep": w.name, "props": w.props}
+    out = {"setup": s.name, "sweep": w.name, "props": w.props}
+    from ..model.validate import sweep_coverage
+    warnings = sweep_coverage(ctx.proj, ctx.des, s)
+    if warnings:
+        out["warnings"] = warnings
+    f_after = _open_region_f(ctx, s)
+    if f_after != f_before:
+        where = f"the lowest sweep frequency, {f_after / 1e9:.4g} GHz" if f_after else "the solution frequency"
+        out["note"] = (f"The automatic air box of {s.name} is now sized for {where}: the model changed, so the next "
+                       f"analysis (also run_simulation(sweep=...)) adapts a new mesh instead of reusing the stored "
+                       f"one. A fixed padding (set_design settings AutoOpenPadding) keeps the air box and the mesh "
+                       f"when sweeps are switched on or off.")
+    return out
+
+
+def _open_region_f(ctx: Ctx, s: Setup):
+    """Frequency the automatic open region of setup s is sized for when a sweep sizes it, else None."""
+    from ..solver.keys import open_region_frequency
+    try:
+        return open_region_frequency(ctx.proj, ctx.des, s)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _stale_mesh_reason(ctx: Ctx, setup: str, out: Path) -> str:
+    """Why the stored adaptive mesh of `setup` cannot be reused for a single sweep ("" when it can)."""
+    from ..solver.keys import model_key
+    try:
+        with np.load(out / "amr_state.npz", allow_pickle=False) as z:
+            stored = str(z["key"])
+    except Exception:  # noqa: BLE001
+        return "there is no adaptive mesh of the setup"
+    s = ctx.des.setup(setup)
+    if stored == model_key(ctx.proj, ctx.des, s):
+        return ""
+    f = _open_region_f(ctx, s)
+    if f:
+        return (f"the design changed since the setup was analyzed (for example a switched-on sweep enlarged the "
+                f"automatic air box to {f / 1e9:.4g} GHz)")
+    return "the design changed since the setup was analyzed"
 
 
 def t_set_far_field_sphere(args):
@@ -1658,9 +1704,18 @@ def t_run_simulation(args):
     p = S.procs.get(key)
     if p is not None and p.poll() is None:
         raise ToolError("This setup is already running (abort_simulation to stop it)")
+    note = ""
     if sweep:
         if not (out / "amr_state.npz").exists():
             raise ToolError("Analyze the setup first; a single sweep reuses its adaptive mesh")
+        why = _stale_mesh_reason(ctx, setup, out)
+        if why:
+            note = (f"The stored adaptive mesh cannot be reused: {why}. The setup is analyzed anew (adaptive passes, "
+                    f"then '{sweep}' and the switched-on sweeps).")
+    from ..model.validate import sweep_coverage
+    coverage = sweep_coverage(ctx.proj, d, d.setup(setup))
+    if sweep:
+        coverage = [w for w in coverage if f":{sweep} " in w or w.startswith("Open region")]
         for f in list(out.glob(f"sparams_{sweep}.npz")) + list(out.glob(f"fields_{sweep}.npz")) + \
                 list(out.glob(f"solution_{sweep}.npz")):
             f.unlink(missing_ok=True)
@@ -1694,6 +1749,7 @@ def t_run_simulation(args):
                                     cwd=str(Path(ctx.proj.path).parent), **kw)
     log.close()
     return {"started": True, "in_window": False, "setup": setup, "results": str(out), "cores": n,
+            **({"note": note} if note else {}), **({"warnings": coverage} if coverage else {}),
             "next": "get_status with wait_seconds to follow the passes"}
 
 
@@ -2232,7 +2288,11 @@ def t_render_image(args):
     detail = args.get("detail") or "full"
     if detail not in ("full", "fast"):
         raise ToolError("detail is 'full' or 'fast'")
-    tess, errors = tessellate(ctx.proj, d, timeout=args.get("timeout_s"), detail=detail)
+    from ..kernel.display import DEFAULT_QUALITY, QUALITIES, face_smooth_polydata
+    quality = args.get("quality") or DEFAULT_QUALITY
+    if quality not in QUALITIES:
+        raise ToolError(f"quality is one of {list(QUALITIES)}")
+    tess, errors = tessellate(ctx.proj, d, timeout=args.get("timeout_s"), detail=detail, quality=quality)
     sc = _unit(d)
     w, h = int(args.get("width", 1000)), int(args.get("height", 700))
     pl = pv.Plotter(off_screen=True, window_size=(w, h))
@@ -2245,9 +2305,10 @@ def t_render_image(args):
             continue
         is_region = o.history[0].kind == "CreateRegion"
         if len(t.tris):
-            m = pv.PolyData(np.asarray(t.points) / sc, np.c_[np.full(len(t.tris), 3), t.tris].ravel())
+            # surfaces as in the viewer: normals smooth inside a curved face, sharp at its edges
+            m = face_smooth_polydata(np.asarray(t.points) / sc, t.tris, t.tri_face)
             op = 0.08 if is_region else max(0.15, 1.0 - float(o.transparency))
-            pl.add_mesh(m, color=o.color, opacity=op, show_edges=False, smooth_shading=False)
+            pl.add_mesh(m, color=o.color, opacity=op, show_edges=False, smooth_shading=True)
         lines = [e for e in t.edges if len(e) > 1]
         for e in lines[:4000]:
             pl.add_mesh(pv.lines_from_points(np.asarray(e) / sc), color="#202020", line_width=1)
@@ -2499,7 +2560,12 @@ TOOLS = [
     Tool("run_simulation", "Analyze a setup (adaptive passes, sweeps, far fields). Runs in the Hertzon window "
          "when linked, otherwise as a background process. Returns at once; follow with get_status.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string", "description": "only this sweep, "
-                                                         "reusing the adaptive mesh"},
+                                                         "reusing the adaptive mesh of the analyzed setup (when the "
+                                                         "model is unchanged: a switched-on sweep that enlarges the "
+                                                         "automatic air box needs a new adaptive mesh). Every sweep "
+                                                         "is solved on the mesh adapted at the setup's adaptive "
+                                                         "frequencies: for a wideband sweep adapt at its upper end "
+                                                         "too (Broadband or Multi-Frequencies)"},
                   "mesh_only": {"type": "boolean"}, "cores": {"type": "integer"},
                   "skip_validation": {"type": "boolean"}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_run_simulation),
@@ -2539,6 +2605,8 @@ TOOLS = [
                   "detail": {"type": "string", "enum": ["full", "fast"], "description": "full (default): the model "
                              "as built; fast: subtractions that keep their tools (drill holes of a board, filled by "
                              "the via cylinders) are left out, much faster for large boards"},
+                  "quality": {"type": "string", "enum": ["coarse", "normal", "fine"], "description": "display "
+                              "quality of round faces, as View > Display Quality in the modeler (default normal)"},
                   "timeout_s": TIMEOUT}), t_render_image, True),
     Tool("run_python", "Edit the design with Python for repetitive work (arrays, parametric layouts). Names: "
          "project, design, add_object(kind, name=None, material='vacuum', **props), operation(obj, kind, "
