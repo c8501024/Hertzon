@@ -115,6 +115,21 @@ class CircuitEvaluation:
         pass
 
 
+class ReusedEvaluation:
+    """An existing solution taken over as an evaluation (same interface as Evaluation, nothing to run)."""
+
+    def __init__(self, n: int, x, texts: dict, folder: Path):
+        self.n, self.x, self.texts, self.folder = n, list(x), texts, folder
+        self.error = ""
+        self.progress = 100.0
+
+    def finished(self) -> bool:
+        return True
+
+    def kill(self) -> None:
+        pass
+
+
 class Optimizer:
     def __init__(self, project_path: str, design: str, name: str, out: Path):
         self.proj = Project.load(project_path)
@@ -440,7 +455,7 @@ class Optimizer:
             "computes its tuning model and minimizes the goals on the model")
         (self.out / "ABORT").unlink(missing_ok=True)
         x = self.vars.x0()
-        costs = self._solve_batch([x], "start design", 0)
+        costs = self._reuse_start(x) or self._solve_batch([x], "start design", 0)
         if costs is None:
             return self._end("Aborted")
         cost, cur = costs[0], self.n
@@ -505,6 +520,61 @@ class Optimizer:
         if cost == 0:
             reason = "All goals are met (cost 0)"
         return self._end(reason)
+
+    def _start_texts(self, x) -> dict:
+        """Variable texts of the start design: the design's own texts where x is its start value (so its model
+        key is the one of the analyzed design), formatted values where x was clipped into the range."""
+        texts = self.vars.texts(x)
+        for i, n in enumerate(self.vars.names):
+            if np.isclose(self.vars.values(x)[i], self.vars.start[i], rtol=1e-12, atol=0):
+                texts[n] = self.des.variables[n]
+        return texts
+
+    def _reuse_start(self, x) -> list[float] | None:
+        """The analyzed solution of the design as evaluation 1 when it is the start design: same model (model
+        key of the evaluation's project, so also the same open region) and the same setup and sweeps, solved,
+        with its adaptive mesh (the tuning model is computed on it). Saves solving the start design again.
+        None when there is no such solution (then the start design is solved)."""
+        if self.circuit or self.multi or not self.proj.path:
+            return None
+        import shutil
+        from .keys import model_key, setup_key
+        from .results import results_dir
+        nominal = results_dir(self.proj.path, self.des.name, self.setup)
+        try:
+            status = json.loads((nominal / "status.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if status.get("state") != "done" or not (nominal / "amr_state.npz").exists() or \
+                not (nominal / "mesh.npz").exists():
+            return None
+        texts = self._start_texts(x)
+        p = self._project_for(texts)
+        d = p.design(self.des.name)
+        try:
+            same = status.get("model_key") == model_key(p, d, d.setup(self.setup)) and \
+                status.get("setup_key") == setup_key(self.des.setup(self.setup))
+        except Exception:  # noqa: BLE001
+            return None
+        store = ResultStore(nominal)
+        if not same or store.sparams(self.sol) is None:
+            return None
+        if self.antenna_goals:
+            try:
+                antenna_data(store, self.des, self.sol, self.ev)
+            except Exception:  # noqa: BLE001
+                return None
+        self.n += 1
+        folder = self.out / "evals" / f"{self.n:04d}"
+        res = folder / "results"
+        shutil.rmtree(folder, ignore_errors=True)
+        folder.mkdir(parents=True, exist_ok=True)
+        p.save(folder / "design.hzn")
+        shutil.copytree(nominal, res, ignore=shutil.ignore_patterns("ABORT", "tuning_*.npz"))
+        log(f"Start design: the analyzed solution of {self.setup} is the start design (same model, setup and "
+            f"sweeps); reused without solving")
+        e = ReusedEvaluation(self.n, x, texts, folder)
+        return [self.finish(e, "start design (analyzed solution)")]
 
     # ---- space mapping ------------------------------------------------------------------------------
     def run_space_mapping(self) -> bool:
