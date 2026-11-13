@@ -295,7 +295,7 @@ def test_switching_on_the_patch_sweep_keeps_the_model(server, tmp_path):
     call(server, "create_project", path=path)
     call(server, "create_patch_antenna", frequency_ghz=2.45)
     p = Project.load(path)
-    d = p.designs[0]
+    d = p.design("Patch_2.45GHz")
     st = d.setup("Setup1")
     assert float(d.settings["AutoOpenPadding"].removesuffix("mm")) == pytest.approx(299792458 / 2.45e9 / 3 * 1e3,
                                                                                     rel=1e-5)
