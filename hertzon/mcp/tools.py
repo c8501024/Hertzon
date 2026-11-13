@@ -99,7 +99,8 @@ Circuits
 - run_simulation and get_results work on circuit designs as on 3D designs (solved at once).
 - 3D design blocks (type EM, props Design) use the S-parameters of a solved 3D design; import_3d_designs
   copies 3D designs from another file. circuit_layout(action='create') turns the schematic, blocks
-  included, into a 3D design; 'to_schematic' copies tuned layout dimensions back.
+  included, into a 3D design; 'to_schematic' copies tuned layout dimensions back; 'from_3d' recognizes a
+  circuit from a planar microstrip 3D design.
 
 Interpreting results (before you name a cause)
 - Total efficiency = mismatch efficiency (Pacc/Pinc) x radiation efficiency (Prad/Pacc). get_results kind

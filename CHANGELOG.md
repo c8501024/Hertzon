@@ -6,6 +6,12 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Create Circuit from a 3D design.** Simulation › Circuit › Create Circuit recognizes a circuit design from
+  planar microstrip: lines, stubs, coupled lines, tees, crosses, corners, mitered bends, steps, gaps, vias,
+  rat-race rings, Lumped RLC parts and ports, every dimension linked to the 3D variable of the same value. A
+  layout made with Create 3D Layout comes back as its schematic (Design Wizard structures tested as a round
+  trip). Copper without a circuit model is listed in the messages, not guessed. Also as
+  `circuit_layout(action='from_3d')` for assistants.
 - **Footprints of circuit parts and the board in 3D.** Parts carry a KiCad footprint and symbol (`.kicad_mod`,
   `.kicad_sym`, also the downloads of SamacSys, SnapEDA, Ultra Librarian) and the assignment of pads to the
   terminals of their model, shown to scale in the Component dialog. Create 3D Layout puts R, L and C on their

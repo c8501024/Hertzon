@@ -784,6 +784,20 @@ def t_circuit_layout(args):
                 **({"geometry_errors": errors} if errors else {}),
                 "next": "get_project(design=layout) / render_image; run_simulation(design=layout); after changing "
                         "the layout variables circuit_layout(action='to_schematic') copies them back"}
+    if action == "from_3d":
+        from ..model.circuit_from_3d import circuit_from_design
+        try:
+            d3 = proj.design(args["layout"]) if args.get("layout") else ctx.des
+        except KeyError:
+            raise ToolError(f"No design '{args['layout']}'") from None
+        try:
+            d, notes = circuit_from_design(proj, d3, args.get("name") or None)
+        except Exception as e:  # noqa: BLE001
+            raise ToolError(f"No circuit could be made: {type(e).__name__}: {e}") from None
+        _new_design_ctx(ctx, d, f"circuit from {d3.name}")
+        return {"circuit": d.name, "from": d3.name, "notes": notes,
+                "components": sum(1 for c in d.components if c.type not in ("LABEL", "GND")),
+                "next": "get_circuit / analyze the circuit and compare it with the 3D results before tuning"}
     if ctx.des.kind == "circuit":
         circ = ctx.des
         names = [x.name for x in proj.designs if x.settings.get(CL.LINK) == circ.name]
@@ -812,7 +826,7 @@ def t_circuit_layout(args):
         commit(Ctx(proj, circ, ctx.gui), f"update {circ.name} from {lname}")
         S.designs[_abspath(proj.path)] = circ.name if proj.path else None
         return {"circuit": circ.name, "from": lname, "changes": changes}
-    raise ToolError("action is 'create', 'update' or 'to_schematic'")
+    raise ToolError("action is 'create', 'update', 'to_schematic' or 'from_3d'")
 
 
 def t_import_3d_designs(args):
@@ -1005,11 +1019,12 @@ TOOLS = [
     Tool("circuit_layout", "Circuit and 3D: action 'create' turns the schematic into a new 3D design (substrate, "
          "ground, traces end to end, lumped parts, ports, 3D design blocks with their geometry; every dimension a "
          "variable like MS1_L); 'update' rebuilds an existing layout from the schematic; 'to_schematic' copies the "
-         "layout's dimensions back into the schematic.",
-         _schema({"action": {"type": "string", "enum": ["create", "update", "to_schematic"]},
+         "layout's dimensions back into the schematic; 'from_3d' recognizes a new circuit design (MLIN, MTEE, MCLIN, "
+         "... with the 3D variables) from a planar microstrip 3D design and lists what has no circuit model.",
+         _schema({"action": {"type": "string", "enum": ["create", "update", "to_schematic", "from_3d"]},
                   "layout": {"type": "string", "description": "layout design (default: the newest of the "
-                                                              "circuit)"},
-                  "name": {"type": "string", "description": "name of a new layout"}}), t_circuit_layout),
+                                                              "circuit; from_3d: the shown 3D design)"},
+                  "name": {"type": "string", "description": "name of a new layout or circuit"}}), t_circuit_layout),
     Tool("import_3d_designs", "Copy the 3D designs with ports (and their results) of another .hzn file into the "
          "project, to use them as blocks in a circuit.",
          _schema({"file": {"type": "string"}}, ["file"]), t_import_3d_designs),

@@ -761,6 +761,11 @@ class MainWindow(QMainWindow):
         g.large("Plot Mesh", "plot_mesh", lambda: self.plot_mesh())
         g = pg.group("Radiation")
         g.large("Far Field", "farfield", self.add_sphere, tip="Insert Far Field Setup > Infinite Sphere")
+        g = pg.group("Circuit")
+        g.large("Create Circuit", "design", self.circuit_from_3d,
+                tip="A new circuit design recognized from this planar microstrip design: lines, stubs, coupled "
+                    "lines, tees, corners, steps, gaps, vias, lumped parts and ports, every dimension the 3D "
+                    "variable where one fits. What has no circuit model is listed in the messages, not guessed")
         g = pg.group("Analyze")
         g.large("Validate", "validate", self.a_validate)
         g.large("Analyze All", "analyze", self.a_analyze)
@@ -6304,6 +6309,31 @@ class MainWindow(QMainWindow):
         self.view.fit_all()
         self.msgs.add("info", f"Created the 3D layout {d.name} of {circ.name} with Setup1 : Sweep")
         for w in warnings:
+            self.msgs.add("warning", f"{d.name}: {w}")
+
+    def circuit_from_3d(self) -> None:
+        """3D > Simulation > Create Circuit: a circuit design recognized from the planar 3D design."""
+        from ..model.circuit_from_3d import circuit_from_design
+        d3 = self.des
+        names = {x.name for x in self.doc.project.designs}
+        base = f"{d3.name}_Circuit"
+        name, i = base, 1
+        while name in names:
+            i += 1
+            name = f"{base}{i}"
+        try:
+            d, notes = circuit_from_design(self.doc.project, d3, name)
+        except Exception as e:  # noqa: BLE001 (no substrate, geometry or expression errors)
+            QMessageBox.warning(self, "Create Circuit", f"No circuit could be made: {type(e).__name__}: {e}")
+            return
+        self.doc.checkpoint()
+        self.doc.project.designs.append(d)
+        self.doc.commit("all", geometry=False)
+        self._close_reports()
+        self.doc.set_design(d.name)
+        self.msgs.add("info", f"Created the circuit {d.name} from {d3.name}. Compare it with the 3D results "
+                              "before tuning in the circuit")
+        for w in notes:
             self.msgs.add("warning", f"{d.name}: {w}")
 
     def _layouts(self) -> list[str]:
