@@ -3,6 +3,18 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **macOS:** the mesher library `libhzmesh.dylib` (universal, arm64 and x86_64) is included; `build.sh` builds
+  it on macOS and a CI workflow on a macOS runner keeps it up to date. EMerge comes as a prebuilt wheel on
+  Apple Silicon, so the install no longer needs Rust there. README section on macOS (#405).
+
+### Fixed
+- Interpolating sweep on macOS: no more spurious "divide by zero / overflow in matmul" warnings from Apple's
+  Accelerate in the reduced-basis step; a reduced solution that is really not finite is rejected and solved
+  directly (#405).
+
 ## 0.3.22 (2026-11-13)
 
 ### Fixed

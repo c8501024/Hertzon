@@ -67,16 +67,23 @@ class Hybrid:
         bsel = np.asarray(b2[solve_ids, :], dtype=np.complex128)
         bn = np.maximum(np.linalg.norm(bsel, axis=0), 1e-300)
         V = self.V
-        AV = _matmul(Asel, V, symmetric)
-        Ar = V.T @ AV                       # complex symmetric A: V^T keeps the reduced system symmetric
-        br = V.T @ bsel
-        try:
-            y = np.linalg.solve(Ar, br)
-        except np.linalg.LinAlgError:
-            y = np.linalg.lstsq(AV, bsel, rcond=None)[0]
-        r = bsel - AV @ y
-        rel = float(np.max(np.linalg.norm(r, axis=0) / bn))
-        return V @ y, rel
+        # Apple's Accelerate BLAS (NumPy on macOS) raises spurious divide/overflow/invalid warnings in matmul
+        # with finite results. They are silenced here only: the residual below is computed from the same
+        # products, and a result that is really not finite gets an infinite residual and is rejected.
+        with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+            AV = _matmul(Asel, V, symmetric)
+            Ar = V.T @ AV                   # complex symmetric A: V^T keeps the reduced system symmetric
+            br = V.T @ bsel
+            try:
+                y = np.linalg.solve(Ar, br)
+            except np.linalg.LinAlgError:
+                y = np.linalg.lstsq(AV, bsel, rcond=None)[0]
+            r = bsel - AV @ y
+            rel = float(np.max(np.linalg.norm(r, axis=0) / bn))
+            x = V @ y
+        if not (np.isfinite(rel) and np.all(np.isfinite(x))):
+            rel = float("inf")
+        return x, rel
 
     def summary(self) -> str:
         r = 0 if self.V is None else self.V.shape[1]
