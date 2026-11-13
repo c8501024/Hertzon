@@ -115,8 +115,8 @@ def balun_design(p: Project, name: str = "Balun") -> Design:
     s = Setup("Setup1")
     s.props.update(Frequency="4.5GHz", MaximumPasses="10", MaximumDeltaS="0.02")
     sw = Sweep("Sweep")
-    sw.props.update(SweepType="Interpolating", Distribution="Linear Count", Start="0.05GHz", Stop="20GHz",
-                    Count="400")
+    sw.props.update(SweepType="Interpolating", Distribution="Linear Count", Start="0.05GHz", Stop="26GHz",
+                    Count="520")
     s.sweeps.append(sw)
     d.setups.append(s)
     return d
@@ -173,21 +173,22 @@ def mixer_circuit(p: Project, name: str = "Mixer", balun: str = "Balun") -> Desi
     part("LCH", "L", {"L": "Lch"}, -60, 520, nets=["ifn", "ifp"])
     part("IF", "PORT", {"Num": "3"}, 100, 520, nets=["ifp"])
     # analyses: conversion loss and isolation over 1 to 5 GHz at +7 dBm LO (the balun covers about 1.25 to 4 GHz);
-    # the LO drive at 3 GHz. Mixing order 9: a diode ring is within about 0.2 dB of order 11 there (a single
-    # diode needs 11 to 13), at a fraction of the time
+    # the LO drive at 3 GHz. Mixing order 5: for this ring within about 0.2 dB of order 9 (at most 0.7 dB; a
+    # single diode needs 11 to 13), and its products (up to 5 x 5 GHz) stay inside the balun data (to 26 GHz;
+    # block data are never extrapolated)
     s = Setup("Band")
     s.props.update(CircuitAnalysis="Mixer", LOPort="LO", RFPort="RF", IFPort="IF", LOPower="7", RFPower="-20",
-                   RFStart="1GHz", RFStop="5GHz", RFPoints="17", IFFreq="100MHz", LOSide="Low", MixOrder="9")
+                   RFStart="1GHz", RFStop="5GHz", RFPoints="17", IFFreq="100MHz", LOSide="Low", MixOrder="5")
     d.setups.append(s)
     s2 = Setup("LODrive")
     s2.props.update(CircuitAnalysis="Mixer", LOPort="LO", RFPort="RF", IFPort="IF", LOPower="-3:1:13",
                     RFPower="-20", RFStart="3GHz", RFStop="3GHz", RFPoints="1", IFFreq="100MHz", LOSide="Low",
-                    MixOrder="9")
+                    MixOrder="5")
     d.setups.append(s2)
-    d.notes = ("Broadband double-balanced diode mixer, RF and LO about 1.25 to 4 GHz, IF 100 MHz. Analyze the 3D design "
-               "Balun first (a few minutes), then the setups Band and LODrive of this circuit (circuitRF). Results: "
-               "mixer.csv in the results folder of each setup. Hertzon: circuit, linear network, balun (EMerge); "
-               "circuitRF: two-tone harmonic balance; diode card: Broadcom data sheet HSMS-282x.")
+    d.notes = ("Broadband double-balanced diode mixer, RF and LO about 1.25 to 4 GHz, IF 100 MHz. Analyze the 3D "
+               "design Balun first (a few minutes), then the setups Band and LODrive of this circuit (circuitRF). "
+               "Results: mixer.csv in the results folder of each setup. Hertzon: circuit, linear network, balun "
+               "(EMerge); circuitRF: two-tone harmonic balance; diode card: Broadcom data sheet HSMS-282x.")
     return d
 
 

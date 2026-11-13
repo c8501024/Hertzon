@@ -999,9 +999,9 @@
         "SweepType": "Interpolating",
         "Distribution": "Linear Count",
         "Start": "0.05GHz",
-        "Stop": "20GHz",
+        "Stop": "26GHz",
         "Step": "0.1GHz",
-        "Count": "400",
+        "Count": "520",
         "SamplesPerDecade": "20",
         "Points": "1GHz,2GHz",
         "SaveFields": "False",
@@ -1103,7 +1103,7 @@
       "RFPoints": "17",
       "IFFreq": "100MHz",
       "LOSide": "Low",
-      "MixOrder": "9"
+      "MixOrder": "5"
      },
      "sweeps": [],
      "eigen": false
@@ -1157,7 +1157,7 @@
       "RFPoints": "1",
       "IFFreq": "100MHz",
       "LOSide": "Low",
-      "MixOrder": "9"
+      "MixOrder": "5"
      },
      "sweeps": [],
      "eigen": false
@@ -1235,6 +1235,8 @@
      "props": {
       "Design": "Balun",
       "Solution": "Setup1 : Sweep",
+      "Model": "Data",
+      "CircuitModel": "",
       "Ports": "5",
       "PortNames": "1,2,3,4,5"
      },
@@ -1323,6 +1325,8 @@
      "props": {
       "Design": "Balun",
       "Solution": "Setup1 : Sweep",
+      "Model": "Data",
+      "CircuitModel": "",
       "Ports": "5",
       "PortNames": "1,2,3,4,5"
      },

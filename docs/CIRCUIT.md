@@ -223,10 +223,11 @@ installs; Hertzon writes their input, runs them and reads their output (see [THI
   *IF frequency* and *LO side* (low: f_LO = f_RF - f_IF; high: f_RF + f_IF). The LO and RF ports are sources of
   that available power, all other ports terminate in their Z0. *Mixing order* is the largest |k1| + |k2| of the
   products k1 f_LO + k2 f_RF: a single diode needs about 13 (order 7 was 1 dB off an ngspice transient, 11 within
-  0.01 dB), a diode ring is within about 0.2 dB at 9; the time grows fast with the order (ring: 0.7 s per point
-  at 5, 3.6 s at 9, 9 s at 11). Results: `mixer.csv` (conversion loss, LO to RF, LO to IF, RF to IF and RF to LO
-  isolation, IF power and a convergence flag for every LO power and RF frequency), `.npz` (power and complex
-  voltage of every product at every port) and `.json`. A point that does not converge is flagged, not dropped.
+  0.01 dB), a diode ring at 5 is within about 0.2 dB of 9 (at most 0.7 dB); the time grows fast with the order (ring: 0.7 s per point
+  at 5, 3.6 s at 9, 9 s at 11). Every product must lie inside the data of the 3D and Touchstone blocks (up to
+  order x the highest RF or LO frequency), since block data are never extrapolated. Results: `mixer.csv`
+  (conversion loss, LO to RF, LO to IF, RF to IF and RF to LO isolation, IF power and a convergence flag for every
+  LO power and RF frequency), `.npz` (power and complex voltage of every product at every port) and `.json`. A point that does not converge is flagged, not dropped.
 
 **Setup.** Install ngspice 43 or later (older versions cannot load models compiled by current OpenVAF) and
 circuitRF, and put them on `PATH` or set `HERTZON_NGSPICE` and `HERTZON_CIRCUITRF` to the programs. Verilog-A

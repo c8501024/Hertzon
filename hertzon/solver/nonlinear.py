@@ -383,8 +383,12 @@ def mixer(project: Project, design: Design, lo: str, rf: str, if_port: str, rf_f
         raise CircuitError("The LO frequency must be positive: RF above the IF for a low-side LO")
     if order < 3:
         raise CircuitError("The mixing order must be at least 3")
-    probe = np.unique(np.concatenate([rf_freq, lo_freq, [if_freq]]))
-    nl = gather(project, design, probe)
+    # every mixing product k1 f_LO + k2 f_RF must lie in the data of the blocks (they are never extrapolated)
+    kk = np.array(circuitrf.mix_products(order), float)
+    mix = np.abs(kk[:, :1] * lo_freq[None, :] + kk[:, 1:] * rf_freq[None, :]).ravel()
+    mix = mix[mix > 1e-3]
+    probe = np.unique(np.concatenate([rf_freq, lo_freq, [if_freq, mix.min(), mix.max()]]))
+    nl = gather(project, design, probe, span=f" (mixing products up to order {order})")
     names = [c.name for c in nl.ports]
     for nm, what in ((lo, "LO"), (rf, "RF"), (if_port, "IF")):
         if nm not in names:
