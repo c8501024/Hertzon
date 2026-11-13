@@ -452,6 +452,11 @@ lines and a transistor (measured S-parameters on a SOT-23), laid out, solved in 
 ports, give the S-parameters of the schematic within 0.1 dB in S21 from 1 to 4 GHz
 (`tests/test_circuit_layout.py`).
 
+The full-wave data start above 0 Hz, but the bias point needs the DC paths of the board (supply, chokes, bias
+resistors, DC blocks). Board Circuit therefore also makes **`<name>Model`**: the schematic without its devices
+and DC sources, with a port where each port of the layout is, and sets it as the circuit model of the block. The
+bias point takes the block at 0 Hz from it; the RF analysis takes the solved data.
+
 ### Board Layout: placing the parts
 
 A schematic is drawn for the circuit, not for the board: bias parts, feedback loops and parallel branches drawn
@@ -470,7 +475,9 @@ schematic in 2D, seen from the top, and lets the parts be placed:
 Each change is one undo step and is stored with the circuit design. Once a board has been placed, Create 3D
 Layout builds the 3D design as placed, with the same ports and port map as above, so Board Circuit works the
 same; open connections, overlaps and tracks are reported. The dimensions are still design variables, but a
-line made longer in the schematic does not push the parts behind it: the ratsnest shows the gap.
+line made longer in the schematic does not push the parts behind it: the ratsnest shows the gap. A shunt part on
+its footprint gets vias of 0.3 mm in its ground pad (reported). Vendor downloads in the KiCad 5 format
+(`module`) are read too, and pin names such as `EMITTER_1`, `EMITTER_2` are matched to `e1`, `e2` (or both to `e`).
 
 ## AI assistants
 

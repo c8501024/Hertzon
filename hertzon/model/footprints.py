@@ -325,9 +325,13 @@ def auto_pads(terminals: list[str], fp: Footprint, symbol: Symbol | None = None)
             taken.add(t)
     if symbol:
         by_name: dict[str, list[str]] = {}
+        names = {_norm(t) for t in terminals}
         for num, nm in symbol.pins:
             if num in nums and num not in taken:
-                by_name.setdefault(_norm(nm), []).append(num)
+                key = _norm(nm)
+                if key not in names and not any(key in g for g in SYNONYMS):
+                    key = _base(re.sub(r"[^A-Za-z0-9]", "", nm))      # EMITTER_1, EMITTER_2 -> e
+                by_name.setdefault(key, []).append(num)
         # pads of the footprint the symbol does not name (exposed pad): with the symbol's ground-like name, if any
         unnamed = [n for n in nums if n not in taken and not symbol.name_of(n)]
         groups: dict[str, list[str]] = {}

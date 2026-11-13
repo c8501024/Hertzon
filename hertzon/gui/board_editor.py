@@ -272,7 +272,7 @@ class BoardEditor(QWidget):
             self.board, more = BD.auto_place(self.doc.project, self.des)
         else:
             self.board, more = BD.complete(self.doc.project, self.des, saved)
-        self.notes = notes + more
+        self.notes = list(dict.fromkeys(notes + more))
         for name, bp in self.parts.items():
             it = PartItem(self, bp)
             pl = self.board.placements.get(name, BD.Placement())
