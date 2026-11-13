@@ -1,4 +1,4 @@
-"""Filter design: a parametrized tapped hairpin band-pass filter (Tools > Filter Design).
+"""Filter design: a parametrized tapped hairpin band-pass filter (Tools > Design Wizard > Hairpin bandpass).
 
 The geometry is the one of the filterbench hairpin optimizer (tapped_hairpin.py): N hairpins in a row,
 every second one flipped, sharp inner and miter-cut outer corners, both feed lines tapped directly onto

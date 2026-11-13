@@ -1,7 +1,7 @@
 """MCP tools for the design assistants, the optimizers, derivative tuning and circuit designs.
 
-- create_patch_antenna / create_hairpin_filter / create_hairpin_diplexer: the designs of Tools > Antenna Design
-  and Tools > Filter Design, with setup, sweep and optimization, as a new design of the project
+- create_patch_antenna / create_hairpin_filter / create_hairpin_diplexer: the rectangular patch, hairpin filter
+  and hairpin diplexer of Tools > Design Wizard, with setup, sweep and optimization, as a new design of the project
 - apply_optimization: the best (or a chosen) evaluation of an optimization into the design variables, its
   solution taken over as the setup's solution (as 'Apply to Design')
 - compute_tuning / get_tuning: the derivative tuning model of a solved setup and the S-parameters at other
@@ -241,7 +241,8 @@ def t_list_structures(args):
                "description": st.description, "ports": st.ports}
         if st.designer:
             row["tool"] = {"antenna_patch": "create_patch_antenna",
-                           "filter_hairpin": "create_hairpin_filter"}.get(st.designer, "")
+                           "filter_hairpin": "create_hairpin_filter",
+                           "filter_diplexer": "create_hairpin_diplexer"}.get(st.designer, "")
         elif st.status == ST.AVAILABLE:
             row["fields"] = [{"key": f.key, "label": f.label, "default": f.default, "unit": f.unit,
                               "min": f.lo, "max": f.hi} | ({"choices": list(f.choices)} if f.choices else {})
@@ -892,7 +893,7 @@ PART = {"type": "object", "properties": {
     "new_name": {"type": "string"}}}
 
 TOOLS = [
-    Tool("create_patch_antenna", "Tools > Antenna Design: an inset-fed rectangular microstrip patch from the "
+    Tool("create_patch_antenna", "Tools > Design Wizard > Rectangular patch: an inset-fed rectangular microstrip patch from the "
          "transmission line model as a new parametrized design (variables Wp, Lp, inset, wf ...), with setup, "
          "far-field sphere, a switched-off sweep and the optimization 'PatchOpt' of Lp and inset on the return loss "
          "at the frequency (Derivative Trust Region: a few solves with the derivative tuning model).",
@@ -903,7 +904,7 @@ TOOLS = [
                   "margin_mm": {"type": "number", "description": "ground beyond the patch; 0 automatic"},
                   "optimization": {"type": "boolean"}, "name": {"type": "string"}}, ["frequency_ghz"]),
          t_create_patch_antenna),
-    Tool("create_hairpin_filter", "Tools > Filter Design: a tapped hairpin band-pass filter of N resonators as a new "
+    Tool("create_hairpin_filter", "Tools > Design Wizard > Hairpin bandpass: a tapped hairpin band-pass filter of N resonators as a new "
          "parametrized design (L, w, b, g, yP, M), with setup, sweep and the optimization 'HairpinCG' on the "
          "filter mask (insertion loss, ripple, return loss in the passband, rejection in the stopbands).",
          _schema({"passband_ghz": RANGE, "resonators": {"type": "integer", "description": "2 to 9 (default 3)"},
@@ -919,7 +920,7 @@ TOOLS = [
                                                        "description": "[start, stop, step]; default from the passband"},
                   "design_frequency_ghz": NUM, "optimization": {"type": "boolean"}, "name": {"type": "string"}},
                  ["passband_ghz"]), t_create_hairpin_filter),
-    Tool("create_hairpin_diplexer", "Tools > Filter Design > Hairpin Diplexer: two tapped hairpin filters on a "
+    Tool("create_hairpin_diplexer", "Tools > Design Wizard > Hairpin diplexer: two tapped hairpin filters on a "
          "T-junction (or a common resonator) as a new parametrized design, or with channel_c a triplexer on a star "
          "junction (common Port 1; channel A to Port 2, B to Port 3, C to Port 4; variables L_A, g_A, yP_A, j_A ... "
          "per channel), with the same design as a circuit and the space mapping optimization 'DiplexerSM' on the "

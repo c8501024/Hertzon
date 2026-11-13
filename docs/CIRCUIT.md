@@ -179,7 +179,7 @@ minute), then every round solves the 3D design once, fits the circuit to all sol
 circuit values give the same response) and moves the 3D variables so that the fitted values reach the circuit
 optimum (aggressive space mapping with a Broyden update, Bandler et al.). The error of the circuit (coupling,
 junctions, open ends) is corrected by the 3D solves; a few rounds are enough when the circuit has the right
-shape of response. **Tools › Filter Design › Tapped Hairpin** adds the filter as a circuit
+shape of response. **Tools › Design Wizard › Hairpin bandpass** adds the filter as a circuit
 (`Hairpin_N3_Circuit`: coupled lines for the arms of neighbouring hairpins, tee and open stub at the taps,
 mitered bends) and the optimization *HairpinSM* on L, dL, g and yP. On the third-order example the circuit
 lies within about 1 % of the 3D response, and *HairpinSM* reached the cost of the circuit optimum (0.31) in
@@ -189,7 +189,7 @@ the feeds at the taps. The dialog shows, while the values change, the ideal Cheb
 with the loss of the board, the circuit of the start design and the mask; its table of N and **Suggest N** help
 choosing the number of resonators, and **Create and Optimize** creates the design and starts *HairpinSM*.
 
-**Tools › Filter Design › Hairpin Diplexer** builds two hairpin filters on a T-junction, stacked as in most
+**Tools › Design Wizard › Hairpin diplexer / triplexer** builds two hairpin filters on a T-junction, stacked as in most
 published hairpin diplexers: the common Port 1 at the left edge, the T right behind it, channel A above and channel
 B below, Port 2 and Port 3 at the right edge on the tap lines of their rows. Each channel has its own length, outer
 length offset, gaps, tap and junction line (`L_A`, `dL_A`, `g_A`, `g2_A`, `yP_A`, `j_A`, ...); trace width, inner
