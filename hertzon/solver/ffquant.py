@@ -110,6 +110,9 @@ def farfield_quantities(ff: dict, port: int = 1, k: int = 0, s11: complex | None
     out["DirRHCP"] = D * b ** 2 / tot
     out["GainLHCP"] = out["DirLHCP"] * eff
     out["GainRHCP"] = out["DirRHCP"] * eff
+    # realized gain of each component: its gain scaled by accepted / incident power, as RealizedGainTotal (#439)
+    for c in ("Theta", "Phi", "LHCP", "RHCP"):
+        out[f"RealizedGain{c}"] = out[f"Gain{c}"] * Pacc / Pin
     out["rELHCP"] = a
     out["rERHCP"] = b
     # bistatic RCS (m^2) of an incident plane wave: 4 pi |rE_s|^2 / |E0|^2

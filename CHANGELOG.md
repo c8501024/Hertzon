@@ -12,6 +12,8 @@ the GitHub release notes.
   layout made with Create 3D Layout comes back as its schematic (Design Wizard structures tested as a round
   trip). Copper without a circuit model is listed in the messages, not guessed. Also as
   `circuit_layout(action='from_3d')` for assistants.
+- **Realized gain per polarization:** RealizedGainTheta, RealizedGainPhi, RealizedGainLHCP and RealizedGainRHCP
+  in far-field reports, 3D polar plots and equations (the component gains times accepted / incident power) (#439).
 - **Edge-launch connectors at lumped ports.** A library of 131 PCB edge-launch connectors (SMA, 2.92 mm,
   2.4 mm) and **Connectors › Real Connector** (or right-click a lumped port › *Simulate with Real Connector*):
   the connector stands at a lumped port at the board edge, found from the port sheet (edge, direction, board

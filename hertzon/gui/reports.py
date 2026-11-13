@@ -36,12 +36,14 @@ FUNCS = ["dB", "mag", "ang_deg", "ang_rad", "re", "im", "dB10"]
 CATEGORIES = ["S Parameter", "Y Parameter", "Z Parameter", "VSWR", "Gamma", "Group Delay", "Port Zo",
               "Propagation Constant"]
 FF_QUANTITIES = ["GainTotal", "RealizedGainTotal", "DirTotal", "GainTheta", "GainPhi", "GainLHCP", "GainRHCP",
+                 "RealizedGainTheta", "RealizedGainPhi", "RealizedGainLHCP", "RealizedGainRHCP",
                  "DirLHCP", "DirRHCP", "rETotal", "rETheta", "rEPhi", "rELHCP", "rERHCP", "AxialRatioValue",
                  "BistaticRCSTotal", "BistaticRCSTheta", "BistaticRCSPhi"]
 # far field categories; with only an incident wave there is no gain, only RCS and rE
 FF_CATEGORIES = {
     "Gain": (["GainTotal", "GainTheta", "GainPhi", "GainLHCP", "GainRHCP"], ["dB", "mag"]),
-    "Realized Gain": (["RealizedGainTotal"], ["dB", "mag"]),
+    "Realized Gain": (["RealizedGainTotal", "RealizedGainTheta", "RealizedGainPhi", "RealizedGainLHCP",
+                       "RealizedGainRHCP"], ["dB", "mag"]),
     "Directivity": (["DirTotal", "DirLHCP", "DirRHCP"], ["dB", "mag"]),
     "rE": (["rETotal", "rETheta", "rEPhi", "rELHCP", "rERHCP"], ["dB", "mag"]),
     "Axial Ratio": (["AxialRatioValue"], ["dB", "mag"]),
