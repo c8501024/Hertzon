@@ -340,3 +340,64 @@ def test_3d_designs_of_a_project_file_are_copied_in_and_placed_as_blocks(tmp_pat
     assert "Inner3D" not in {x.name for x in doc.project.designs}
     ed.deleteLater()                  # the editor goes now, not at a garbage collection inside a later test
     QApplication.processEvents()
+
+
+def test_lumped_parts_on_their_footprints_sit_on_real_pads():
+    """A part with a footprint gets its two pads as copper, the Lumped RLC in the gap between them (pad width),
+    a shunt part a ground pad with vias; the layout meshes."""
+    from hertzon.mcp.tools import tessellate
+    from hertzon.model.validate import validate
+    p, d = _circuit(P("Port1", 0, 0), _line("MS1", 40, 0, L="10mm", W="0.5mm"),
+                    C("C1", "C", 110, 0, 0, {"C": "1pF", "Footprint": "Capacitor_SMD:C_0402_1005Metric"}),
+                    _line("MS2", 180, 0, L="5mm", W="0.5mm"),
+                    C("C2", "C", 220, 30, 90, {"C": "2pF", "Footprint": "C_0603"}), C("G1", "GND", 220, 70),
+                    _line("MS3", 260, 0, L="5mm", W="0.5mm"), P("Port2", 300, 0))
+    d.settings[CK.AUTO] = "False"
+    L, warn = CL.layout_design(p, d)
+    p.designs.append(L)
+    assert _box(L, p, "C1_Pad1") == (10, -0.25, 0.4, 0.5)            # built-in 0402: pads 0.4 x 0.5, gap 0.4
+    assert _box(L, p, "C1") == (10.4, -0.25, 0.4, 0.5)               # the Lumped RLC fills the gap
+    assert _box(L, p, "C1_Pad2") == (10.8, -0.25, 0.4, 0.5)
+    assert _box(L, p, "MS2")[0] == 11.2                               # the line goes on after the second pad
+    assert _box(L, p, "C2_Pad2") == (15.8, -2.1, 0.8, 0.7)            # 0603 ground pad below the line
+    assert L.has_obj("C2_Via") and any("C2: its ground pad has 1 via" in w for w in warn)
+    tr = next(a for a in L.boundaries if a.name == "Copper_Traces").objects
+    assert "C2_Pad2" in tr and "C1_Pad2" in tr and "MS1" in tr
+    tess, err = tessellate(p, L)
+    assert not err
+    assert all(c.level == "ok" for c in validate(p, L, tess, err))
+
+
+def test_unreadable_footprint_falls_back_to_the_gap_with_a_warning():
+    p, d = _circuit(P("Port1", 0, 0), _line("MS1", 40, 0), C("R1", "R", 110, 0, 0, {"R": "1ohm", "Footprint": "x:y"}),
+                    _line("MS2", 180, 0), P("Port2", 220, 0))
+    L, warn = CL.layout_design(p, d)
+    assert L.variables["R1_Gap"] == "1mm" and any("R1:" in w and "gap" in w for w in warn)
+
+
+def test_device_on_its_footprint_gets_a_port_at_every_pad():
+    """A transistor with a footprint is put where the line reaches the pad of its terminal; the lines of the other
+    terminals go on from their pads; every pad has a port to ground, the port map names part, terminal and pad;
+    a DC source is a port at the end of its line."""
+    import json
+    p, d = _circuit(P("Port1", 60, -10), _line("MS1", 100, -10, L="5mm", W="0.6mm"),
+                    C("Q1", "DEVICE", 200, 0, 0, {"Kind": "Verilog-A", "Pins": "b c e", "Footprint": "SOT-23",
+                                                  "Pads": "b=1; c=3; e=2"}),
+                    _line("MS2", 300, 0, L="5mm", W="0.6mm"), P("Port2", 340, 0),
+                    _line("MS3", 140, 50, rot=90, L="1mm", W="0.6mm"),
+                    C("V1", "MVIA", 140, 110, 0, {"Subst": "Sub1", "D": "0.3mm", "N": "1", "P": "1mm"}))
+    L, warn = CL.layout_design(p, d)
+    p.designs.append(L)
+    assert not warn
+    assert _box(L, p, "Q1_Pad1") == (5, -0.3, 1.2, 0.6)               # pad 1 (b) at the end of MS1
+    assert _box(L, p, "Q1_Pad3") == (7, -1.25, 1.2, 0.6)              # pad 3 (c) on the other side, 0.95 lower
+    assert _box(L, p, "MS2")[:2] == (8.2, -1.25)                      # MS2 leaves pad 3 to the right
+    assert _box(L, p, "MS3") == (5.3, -3.2, 0.6, 1)                   # MS3 leaves pad 2 (e) downwards
+    pm = json.loads(L.settings[CL.PORT_MAP])
+    assert pm["3"] == {"part": "Q1", "terminal": "b", "pad": "1"} and pm["5"]["terminal"] == "c"
+    assert len(L.excitations) == 5
+    # without a footprint the device is reported, not silently dropped
+    q = next(c for c in d.components if c.name == "Q1")
+    del q.props["Footprint"]
+    _, warn = CL.layout_design(p, d)
+    assert any("Q1: the device has no footprint" in w for w in warn)
