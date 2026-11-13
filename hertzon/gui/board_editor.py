@@ -10,7 +10,8 @@ right-click to end; Del deletes the selected parts' placement back to automatic 
 parts too, with their copper seen from the top. Connect lays lines of one impedance (Z0) for the connections
 still missing (only those of the selected parts, if any are selected), round the other copper with circular
 (Arc) or mitered bends and a taper where a pin is wider or narrower; they are part of the circuit simulation.
-Match Phase gives the selected routes the same insertion phase at f0 with meanders. A route whose parts were
+Match Phase gives the selected routes the same insertion phase at f0 with meanders. Double-click a bend of a
+route to set its radius, or a miter for a 90 degree bend. A route whose parts were
 moved is outlined in red: Connect lays it again after deleting it.
 Create 3D Layout (here or in the schematic) builds the 3D design from this board."""
 from __future__ import annotations
@@ -20,8 +21,12 @@ import math
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
+    QFormLayout,
     QGraphicsItem,
     QGraphicsPathItem,
     QGraphicsScene,
@@ -233,6 +238,8 @@ class BoardView(QGraphicsView):
 
     def mouseDoubleClickEvent(self, e) -> None:
         if self.editor.track_finish():
+            return
+        if self.editor.edit_bend(self.mapToScene(e.position().toPoint())):
             return
         super().mouseDoubleClickEvent(e)
 
@@ -487,6 +494,60 @@ class BoardEditor(QWidget):
             return
         warnings = [", ".join(f"Route {i + 1}: {v:.2f} deg" for i, v in sorted(ph.items()))] + warnings
         self._apply(b, warnings, "Match Phase")
+
+    def edit_bend(self, p: QPointF) -> bool:
+        """Double-click on a bend of a route: its radius, or a miter for a 90 degree bend."""
+        x, y = to_board(p)
+        hit = None
+        for it in self.scene.items(p):
+            if isinstance(it, RouteItem):
+                r = self.board.routes[it.index]
+                i = RT.corner_at(r, (x, y))
+                if i is not None:
+                    hit = (it.index, i)
+                    break
+        if hit is None:
+            for k, r in enumerate(self.board.routes):     # near a bend, not on its copper (inside an arc)
+                i = RT.corner_at(r, (x, y))
+                if i is not None:
+                    hit = (k, i)
+                    break
+        if hit is None:
+            return False
+        k, i = hit
+        r = self.board.routes[k]
+        ang = RT.corner_angle(r, i)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Bend {i + 1} of Route {k + 1}")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(f"{ang:.0f} degree bend, line width {r.w:.4g} mm"))
+        rad = QDoubleSpinBox()
+        rad.setRange(0.0, 100.0)
+        rad.setDecimals(3)
+        rad.setSuffix(" mm")
+        rad.setValue(r.radii[i] if i < len(r.radii) and r.radii[i] > 0 else RT.RADIUS_W * r.w)
+        rad.setToolTip("Radius of the centre line; made smaller where the straight pieces leave less room")
+        form.addRow("Radius", rad)
+        miter = QCheckBox("Mitered (50 %) instead of a circular bend")
+        miter.setEnabled(abs(ang - 90) < 1e-3)
+        miter.setChecked(i < len(r.radii) and r.radii[i] <= 0)
+        miter.toggled.connect(lambda on: rad.setEnabled(not on))
+        rad.setEnabled(not miter.isChecked())
+        form.addRow(miter)
+        every = QCheckBox("All bends of this route")
+        form.addRow(every)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec() != QDialog.Accepted:
+            return True
+        b = self._collect()
+        r = b.routes[k]
+        corners = list(range(len(r.pts) - 2)) if every.isChecked() else [i]
+        warnings = RT.set_bend(r, corners, 0.0 if miter.isChecked() else rad.value())
+        self._apply(b, warnings, "Bend")
+        return True
 
     def _apply(self, b: BD.Board, warnings: list[str], what: str) -> None:
         self.doc.checkpoint()

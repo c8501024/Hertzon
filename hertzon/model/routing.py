@@ -432,6 +432,44 @@ def fit_radii(r: BD.Route, want) -> list[str]:
     return warn
 
 
+def corner_at(r: BD.Route, p, reach: float | None = None) -> int | None:
+    """The inner corner of the route nearest to the point p (index into r.radii), if within reach (default: the
+    larger of 3 line widths and the corner's radius)."""
+    best = None
+    for i, q in enumerate(r.pts[1:-1]):
+        d = math.hypot(q[0] - p[0], q[1] - p[1])
+        lim = reach if reach is not None else max(3 * r.w, (r.radii[i] if i < len(r.radii) else 0) * 1.5)
+        if d <= lim and (best is None or d < best[0]):
+            best = (d, i)
+    return best[1] if best else None
+
+
+def corner_angle(r: BD.Route, i: int) -> float:
+    """Turn of the inner corner i (degrees)."""
+    p = r.pts
+    return math.degrees(_turn(_unit(p[i], p[i + 1]), _unit(p[i + 1], p[i + 2])))
+
+
+def set_bend(r: BD.Route, corners, radius: float) -> list[str]:
+    """Set the bend of the inner corners (indices into r.radii) to a circular bend of radius (mm, centre line) or,
+    with radius 0, a 50 % miter (90 degree corners only); the other corners keep theirs. Where the pieces leave
+    less room, the radius is made smaller (reported)."""
+    warn = []
+    wants = list(r.radii) + [0.0] * (len(r.pts) - 2 - len(r.radii))
+    for i in corners:
+        if radius <= 0 and abs(corner_angle(r, i) - 90) > 1e-3:
+            warn.append(f"corner {i + 1} turns {corner_angle(r, i):.0f} deg: only a 90 degree corner can be mitered")
+            continue
+        wants[i] = radius
+    warn += fit_radii(r, wants)
+    for i in corners:
+        if radius > 0 and r.radii[i] < radius - 1e-6:
+            warn.append(f"corner {i + 1}: room for a radius of {r.radii[i]:.3g} mm only")
+    if r.group:
+        warn.append(f"the route is in phase group {r.group}: match the phase again")
+    return warn
+
+
 def _obstacles(parts, board, nodes, skip_parts, routes, w, gap):
     """Copper the centre line of a new line of width w has to keep out of: other parts at gap, the two parts it
     connects just off their copper, the routes so far at gap."""

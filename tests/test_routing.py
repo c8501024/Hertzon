@@ -207,3 +207,16 @@ def test_overlapping_blocks_from_auto_place_are_spread():
     parts, nodes, _ = BD.board_parts(p, d)
     b, _ = BD.auto_place(p, d)
     assert BD.overlaps(parts, b, nodes) == []
+
+
+def test_bend_radius_and_miter_set_by_hand():
+    p, d, b = _two_ports()
+    b.placements["Port2"] = BD.Placement(30.0, 12.0, 180)
+    b, _ = RT.connect(p, d, b, 50.0, "Arc", f=2e9)
+    r = b.routes[0]
+    assert len(r.radii) == 2 and RT.corner_at(r, r.pts[1]) == 0
+    assert RT.set_bend(r, [0], 2.0) == [] and r.radii[0] == pytest.approx(2.0)
+    assert RT.set_bend(r, [1], 0.0) == [] and r.radii[1] == 0.0                     # mitered
+    assert sum(1 for t, _ in RT.elements(r) if t == "MMBEND") == 1
+    w = RT.set_bend(r, [0], 50.0)                                                    # no room: made smaller
+    assert w and r.radii[0] < 50.0 and all(p_ >= -1e-6 for p_ in RT.pieces(r))

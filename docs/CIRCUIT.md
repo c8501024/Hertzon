@@ -490,6 +490,9 @@ a pin at every port; ports at an angle (the feeds of a rat-race) keep their angl
   longest gets a meander (a row of U-shaped detours) in its longest straight piece, its height first from the
   electrical length and then corrected on the route's circuit model to within 0.2 degrees. Matching again
   starts from the routes without their meanders.
+* Double-click a bend of a route to set its radius, or a 50 % miter for a 90 degree bend (for that bend or all
+  bends of the route); where the straight pieces leave less room, the radius is made smaller and the status line
+  says so.
 * A route whose part was moved is outlined in red and no longer counts as a connection; select it, Del, and
   Connect again.
 
