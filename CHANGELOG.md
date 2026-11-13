@@ -19,6 +19,11 @@ the GitHub release notes.
   switches to its circuit model with a warning; without one the analysis stops with an error instead of using the
   nearest data point. The block's colour shows the model: blue full-wave FEM, red circuit, red dashed switched,
   grey no usable model. A block of a generated 3D layout takes its circuit as the circuit model.
+- **Mixer analysis in circuit designs.** A two-tone harmonic balance (LO and RF) by circuitRF on Hertzon's
+  network: conversion loss, LO-RF, LO-IF and RF-IF isolation over an RF band and a list of LO powers, results in
+  `mixer.csv`. Diode model cards of SPICE libraries now run in harmonic balance. New example
+  `examples/make_mixer.py`: a broadband double-balanced diode mixer (about 1.25 to 4 GHz) with two stripline
+  Marchand baluns as a 3D design and the HSMS-2829 ring quad; checked against an ngspice transient analysis.
 - Units V, mV, A, mA, uA, kohm in expressions.
 - **Example LNA_2G4**: a 2.4 GHz amplifier that can be built (onsemi NSVF4009SG4 on RO4350B, 0402 parts, 5 V):
   13 dB gain, S11 and S22 below −14 dB, unconditionally stable, output P1dB 6 dBm. Bias and S-parameters by
@@ -40,6 +45,10 @@ the GitHub release notes.
   Touchstone). Both tabs are built by one function, so they stay alike.
 
 ### Fixed
+- Circuit designs: a part with two pins on the same net (for example both cold ends of a balun block on one IF
+  node, or a 3D block with two ports tied together) lost one of the two in the network; now both count.
+- Harmonic balance with 3D blocks or Touchstone data that start above 0 Hz: DC takes the real part of the lowest
+  point (an imaginary part at DC is not physical and kept the balance from converging).
 - Properties panel: changing a design variable now updates the Evaluated Value of the variables that use it
   right away, not only after selecting the design again (#430).
 - Interpolating sweep on macOS: no more spurious "divide by zero / overflow in matmul" warnings from Apple's

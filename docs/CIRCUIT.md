@@ -191,7 +191,7 @@ Transistors and diodes go into the same schematic as the lines and the 3D blocks
 | The linear network: all linear parts reduced (Kron elimination) to one admittance matrix at the ports, the device pins and the DC sources, at DC and at every frequency | Hertzon |
 | Small-signal S-parameters of the whole circuit about the bias point | Hertzon, with the device admittances from ngspice |
 | DC bias point; small-signal admittance of each device (SPICE libraries of process design kits, model cards, compiled Verilog-A models) | [ngspice](https://ngspice.sourceforge.io) |
-| Harmonic balance (single tone, swept drive power, harmonics, compression) | [circuitRF](https://github.com/potatobeanradio/circuitRF), on Hertzon's linear network |
+| Harmonic balance (single tone, swept drive power, harmonics, compression) and the two-tone mixer analysis (conversion loss, isolation) | [circuitRF](https://github.com/potatobeanradio/circuitRF), on Hertzon's linear network |
 
 The engines see only Hertzon's reduced network (as conductances at DC for ngspice, as one Touchstone N-port at DC
 and the harmonics for circuitRF), the devices, the DC sources and the ports. Both are separate programs the user
@@ -214,8 +214,20 @@ installs; Hertzon writes their input, runs them and reads their output (see [THI
 * **Harmonic Balance**: *Fundamental*, *Harmonics*, *Drive port* and *Available power* in dBm (one value, a list
   or `start:step:stop`). The drive port is a source of that available power, the other ports terminate in their
   Z0. Results: `harmonic_balance.csv` (power of every harmonic at every port, gain, DC supply currents), `.npz`
-  (complex port voltages) and `.json`. Harmonic balance runs compiled Verilog-A models (Kind Verilog-A); SPICE
-  subcircuits and model cards run in the S-parameter analysis.
+  (complex port voltages) and `.json`. Harmonic balance runs compiled Verilog-A models (Kind Verilog-A) and
+  diode model cards (`.model ... D(...)`, mapped to circuitRF's diode; parameters it has no counterpart for, such
+  as `IKF`, are listed in the messages); SPICE subcircuits and the other model cards run in the S-parameter
+  analysis.
+* **Mixer**: a two-tone harmonic balance with the LO and the RF at once. *LO port*, *LO power* (one value, a list
+  or `start:step:stop`), *RF port*, *RF power*, *IF port*, the RF band (*RF start*, *RF stop*, *RF points*),
+  *IF frequency* and *LO side* (low: f_LO = f_RF - f_IF; high: f_RF + f_IF). The LO and RF ports are sources of
+  that available power, all other ports terminate in their Z0. *Mixing order* is the largest |k1| + |k2| of the
+  products k1 f_LO + k2 f_RF: a single diode needs about 13 (order 7 was 1 dB off an ngspice transient, 11 within
+  0.01 dB), a diode ring at 5 is within about 0.2 dB of 9 (at most 0.7 dB); the time grows fast with the order (ring: 0.7 s per point
+  at 5, 3.6 s at 9, 9 s at 11). Every product must lie inside the data of the 3D and Touchstone blocks (up to
+  order x the highest RF or LO frequency), since block data are never extrapolated. Results: `mixer.csv`
+  (conversion loss, LO to RF, LO to IF, RF to IF and RF to LO isolation, IF power and a convergence flag for every
+  LO power and RF frequency), `.npz` (power and complex voltage of every product at every port) and `.json`. A point that does not converge is flagged, not dropped.
 
 **Setup.** Install ngspice 43 or later (older versions cannot load models compiled by current OpenVAF) and
 circuitRF, and put them on `PATH` or set `HERTZON_NGSPICE` and `HERTZON_CIRCUITRF` to the programs. Verilog-A
@@ -227,11 +239,20 @@ the compiled models of its `.spiceinit` (OSDI).
 in circuitRF's harmonic balance (0.6 s) and in an ngspice transient analysis (8.5 min): fundamental within
 0.03 %, 2nd to 4th harmonic within 0.25 %. The small-signal S-parameters of an IHP SG13G2 NMOS (PSP, OSDI) and
 HBT (VBIC) stage from 1 to 30 GHz match one ngspice AC analysis of the whole circuit within 1e-5. At low drive
-the harmonic-balance gain equals S21 within 0.003 dB.
+the harmonic-balance gain equals S21 within 0.003 dB. A single-diode mixer with the HSMS-282x card
+([examples/mixer/check_ngspice.py](../examples/mixer/check_ngspice.py), LO 3 GHz, RF 3.2 GHz) gives the same IF
+power as an ngspice transient analysis within 0.13 dB at LO 0 to 10 dBm, and the same LO leakage within 0.001 dB.
+
+**Example:** [examples/make_mixer.py](../examples/make_mixer.py) builds `Mixer_DBM.hzn`, a double-balanced diode
+mixer for about 1.25 to 4 GHz on a standard 1.6 mm 4-layer board (RO4350B, RO4450F prepreg): two broadside
+Marchand baluns in stripline as one 3D design (EMerge), an HSMS-2829 ring quad with the manufacturer's card,
+0402 bypass capacitors, coplanar IF lines and an IF choke. Solve the design *Balun* first, then the setups *Band*
+(conversion loss and isolation from 1 to 5 GHz) and *LODrive* (LO -3 to 13 dBm at 3 GHz).
 
 **Not yet:** transient analysis (needs a time-domain model of the frequency-dependent network, e.g. vector
-fitting), two-tone harmonic balance, load pull, noise, harmonic-balance results in the report dialog (they are
-in the result files), file pickers for the device and library files.
+fitting), load pull, noise, harmonic-balance and mixer results in the report dialog (they are in the result
+files), two-tone harmonic balance with transistor model cards and subcircuits, file pickers for the device and
+library files.
 
 ### Example: a 2.4 GHz LNA that can be built
 
