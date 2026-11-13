@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+import shiboken6
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar,
@@ -250,7 +251,9 @@ class PropertiesPanel(QWidget):
             self.doc.checkpoint()
             self.doc.design.variables[k] = v
             self.doc.commit("variables")
-        self._grid("Variables", props, vals, ch)
+            if shiboken6.isValid(g):
+                g.refresh_evaluated(self.doc.evaluator())   # variables that use this one show the new value
+        g = self._grid("Variables", props, vals, ch)
         svals = dict(des.settings)
 
         def sch(k, v):
