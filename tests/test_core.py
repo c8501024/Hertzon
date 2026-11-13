@@ -380,7 +380,9 @@ def test_object_colours_in_other_notations_are_read():
     from hertzon.model.design import project_from_dict
     assert parse_color("0,128,96") == parse_color("(0 128 96)") == parse_color("#008060") == "#008060"
     assert parse_color("#abc") == "#aabbcc" and parse_color("nonsense") is None
-    p = Project.load(EX / next(f.name for f in EX.glob("*.hzn")))
+    # the first example whose first design has objects (a circuit example like LNA_2G4 has none; glob order
+    # depends on the file system)
+    p = next(q for q in (Project.load(f) for f in sorted(EX.glob("*.hzn"))) if q.designs[0].objects)
     d = p.to_dict()
     d["designs"][0]["objects"][0]["color"] = "0,128,96"
     d["materials"] = [{"name": "M", "color": "(10 20 30)"}]
