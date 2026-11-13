@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.23 (2026-11-13)
 
 ### Added
 - **Create Circuit: 3D design blocks, Calibrate to 3D, Sync with 3D.** Copper without a circuit model (a
@@ -88,6 +88,16 @@ the GitHub release notes.
 - **The Desktop tab of a circuit design has the tools of the 3D Desktop tab:** Options, Materials, Design Wizard,
   Help with Feature Overview, Copy/Paste, and an Import / Export group (3D designs from a project file,
   Touchstone). Both tabs are built by one function, so they stay alike.
+- **Sweep warnings.** Analysis Setup checks, `set_sweep` and `run_simulation` warn when a switched-on sweep
+  reaches more than 1.5x the highest adaptive frequency (the sweep never refines the mesh; adapt at the upper end
+  with Broadband or Multi-Frequencies) and when a fixed AutoOpenPadding is below a quarter wavelength at the
+  lowest frequency of the setup.
+- **The patch assistant keeps its mesh for the sweep.** `create_patch_antenna` sets a fixed air box padding
+  (lambda/3 at f0, the same as the automatic one), so switching the sweep on reuses the adaptive mesh instead of
+  adapting a new one; `set_sweep` and `run_simulation` say when a mesh cannot be reused.
+- **Trust region optimization starts from the analyzed design.** When the start design was just solved with the
+  same model and setup, its solution is taken over as the first evaluation instead of being solved again.
+- Design assistants replace the empty design that `create_project` makes instead of adding theirs next to it.
 
 ### Fixed
 - **render_image shows round faces as the modeler does.** The picture of the model used the coarse display mesh
