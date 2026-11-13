@@ -147,6 +147,11 @@ def test_circuit_build_solve_layout_and_back(server, tmp_path):
     assert ms1["props"]["L"] == "22mm"
     up = call(server, "circuit_layout", design="Line", action="update")
     assert up["rebuilt"]
+    # and a circuit recognized from the 3D layout
+    rc = call(server, "circuit_layout", design="Line_Layout", action="from_3d")
+    assert rc["from"] == "Line_Layout" and rc["circuit"] == "Line_Layout_Circuit"
+    ms = [p for p in call(server, "get_circuit", design=rc["circuit"])["parts"] if p["type"] == "MLIN"]
+    assert len(ms) == 1 and ms[0]["props"]["L"] == "MS1_L"
     assert "not a circuit design" in error(server, "get_circuit", design="Line_Layout")
 
 

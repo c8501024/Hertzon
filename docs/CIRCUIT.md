@@ -43,7 +43,7 @@ A circuit design has its own ribbon instead of the 3D one:
 | Lumped Elements | R, L, C, series and parallel RLC, attenuator, DC block, DC feed, Touchstone |
 | Transmission Lines | substrate, microstrip lines and stubs, coupled microstrip; *Line Model › Full Wave*; *Discontinuities › Automatic* and the junction parts; coplanar line, Via to Ground, stripline, coaxial line; ideal (TEM) lines and stubs |
 | Data | Touchstone, 3D Design (a design of this project, or *From Project File...*) |
-| Simulation | Sweep, Add Sweep, Design Variables, Analyze; *Create 3D Layout*, *Update 3D Layout*, *Update Schematic* |
+| Simulation | Sweep, Add Sweep, Design Variables, Analyze; *Create 3D Layout*, *Update 3D Layout*, *Update Schematic* (in a 3D design: *Create Circuit*) |
 | Results | Rectangular Plot, Smith Chart, Data Table, Solution Data, Touchstone export |
 
 ## The schematic
@@ -401,6 +401,28 @@ or left out.
 removed or exchanged; its setups and reports stay, the variables of removed parts go. **Update Schematic**
 (3D → schematic) copies the dimensions changed in the layout back, also trace sizes edited directly on the
 objects. A click on either button takes the newest layout of the schematic, the drop-down arrow chooses one.
+
+### Circuit from a 3D design
+
+The other direction: **Simulation › Circuit › Create Circuit** in a 3D design recognizes a new circuit design
+from planar microstrip (conductors on top of one dielectric layer over ground). The copper is cut into pieces
+of constant cross-section and every piece gets a circuit model:
+
+* lines, open and shorted stubs (MLIN, MLOC, MLSC), coupled lines where two parallel lines are closer than two
+  substrate heights (MCLIN, also in sections), tees, crosses, corners, mitered bends, width steps and gaps
+  (MTEE, MCROSS, MCORN, MMBEND, MSTEP, MGAP), vias to ground (MVIA);
+* a ring with radial feeds (rat-race) as one tee per feed and lines of the arc lengths;
+* Lumped RLC sheets as R, L, C, series or parallel RLC, in series or to ground; lumped ports as ports, wave ports
+  as 50 ohm ports at the line end.
+
+Every dimension is the 3D design's variable where one has the same value and belongs to the object of that
+piece, a number otherwise. An element whose dimensions are all variables of one prefix gets that name (`MS3`
+with `MS3_W`, `MS3_L`), so a layout made with *Create 3D Layout* comes back as the schematic it was made from.
+
+Nothing is guessed: copper with no circuit model (patches, wide areas, slanted or round shapes, a junction with
+two lines on one side) is listed in the Message Manager with the share of the copper area it has, its line ends
+are left open; weaker coupling (gaps up to four substrate heights) is listed as neglected. The circuit is as
+accurate as its closed-form models, so compare it with the 3D results before tuning in the circuit.
 
 ### Footprints: parts on their pads
 

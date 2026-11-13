@@ -6,6 +6,12 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Create Circuit from a 3D design.** Simulation › Circuit › Create Circuit recognizes a circuit design from
+  planar microstrip: lines, stubs, coupled lines, tees, crosses, corners, mitered bends, steps, gaps, vias,
+  rat-race rings, Lumped RLC parts and ports, every dimension linked to the 3D variable of the same value. A
+  layout made with Create 3D Layout comes back as its schematic (Design Wizard structures tested as a round
+  trip). Copper without a circuit model is listed in the messages, not guessed. Also as
+  `circuit_layout(action='from_3d')` for assistants.
 - **Edit Sources for every mode of a wave port.** With wave or Floquet ports of several modes the fields and far
   fields are stored per port mode, and Edit Sources lists each mode (e.g. WP1_M1, WP1_M2) with its own power and
   phase; field plots, animations and far-field results superpose them like ports. Before, only the first mode
