@@ -3,6 +3,20 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Tutorials for the circuit features** (docs/TUTORIAL.md, sections 13 to 16, with screenshots): a 2.4 GHz LNA
+  from the schematic to the placed board, its 3D layout and Board Circuit; a broadband diode mixer with the
+  two-tone mixer analysis and the choice of full-wave block or circuit model; Design Wizard blocks connected on
+  one board with Connect and Match Phase (with a phase offset); a circuit recognized from a 3D design, calibrated
+  to it and kept in step with Sync with 3D.
+
+### Fixed
+- **Create Circuit analyzes the band of the 3D design.** The recognized circuit took the default sweep of 1 to
+  10 GHz, so with a 3D design block (solved on the band of the 3D design) its first analysis stopped because the
+  block data do not cover it. It now takes the first sweep of the 3D design.
+
 ## 0.3.23 (2026-11-13)
 
 ### Added

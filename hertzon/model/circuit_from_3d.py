@@ -1439,6 +1439,27 @@ def compare_netlists(a: Design, b: Design) -> list[str]:
     return diff
 
 
+def _sweep_of(project: Project, design: Design, circuit: Design) -> None:
+    """The circuit analyzes the band of the 3D design: the first frequency sweep of its first driven setup, as
+    numbers (the 3D blocks are solved on that sweep, and their data are never extrapolated). Keeps the default
+    sweep when the 3D design has none."""
+    st = next((s for s in design.setups if not s.eigen and s.sweeps), None)
+    if st is None or not circuit.setups or not circuit.setups[0].sweeps:
+        return
+    src, dst = st.sweeps[0].props, circuit.setups[0].sweeps[0].props
+    ev = design.evaluator(project)
+    try:
+        f = {k: ev.freq(src[k]) for k in ("Start", "Stop", "Step") if src.get(k)}
+    except Exception:  # noqa: BLE001 (an expression the circuit cannot read: keep the default)
+        return
+    if not (f.get("Start", 0) > 0 and f.get("Stop", 0) > f["Start"]):
+        return
+    dst.update({k: f"{v / 1e9:.6g}GHz" for k, v in f.items()})
+    for k in ("Distribution", "Count", "SamplesPerDecade", "Points"):
+        if src.get(k):
+            dst[k] = src[k]
+
+
 def circuit_from_design(project: Project, design: Design, name: str | None = None, blocks: bool = True) \
         -> tuple[Design, list[str]]:
     """A new circuit design recognized from the planar 3D design; the list says what was not recognized,
@@ -1460,6 +1481,7 @@ def circuit_from_design(project: Project, design: Design, name: str | None = Non
             i += 1
             name = f"{design.name}_Circuit{i}"
     d, table = to_circuit(project, design, rec, name, blocks)
+    _sweep_of(project, design, d)
     project.designs += rec.blocks
     d.settings[SOURCE] = design.name
     d.settings[TABLE] = json.dumps(table)

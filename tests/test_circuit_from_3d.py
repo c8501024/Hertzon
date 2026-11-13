@@ -62,6 +62,20 @@ def test_unrecognized_copper_is_reported_not_guessed():
     assert any("no circuit model" in n for n in notes)
 
 
+def test_circuit_analyzes_the_band_of_the_3d_design():
+    """The 3D design blocks are solved on the sweep of the 3D design and their data are never extrapolated, so
+    the recognized circuit takes that band instead of the default 1 to 10 GHz (else its first analysis stops)."""
+    p, circ, d3 = _structure("wilkinson")
+    rc, _ = CF.circuit_from_design(p, d3)
+    ev = d3.evaluator(p)
+    src, dst = d3.setups[0].sweeps[0].props, rc.setups[0].sweeps[0].props
+    assert abs(ev.freq(dst["Start"]) - ev.freq(src["Start"])) < 1e3
+    assert abs(ev.freq(dst["Stop"]) - ev.freq(src["Stop"])) < 1e3
+    block = p.design(f"{d3.name}_EM1")
+    bsw = block.setups[0].sweeps[0].props
+    assert ev.freq(bsw["Start"]) <= ev.freq(dst["Start"]) and ev.freq(bsw["Stop"]) >= ev.freq(dst["Stop"])
+
+
 def test_circuit_design_is_refused():
     p, circ, d3 = _structure("qwt")
     with pytest.raises(ValueError):
