@@ -66,6 +66,10 @@ class NamedPropsDialog(QDialog):
             if hasattr(w, "refresh"):
                 w.refresh()
 
+    @property
+    def name(self) -> str:
+        return self.name_edit.text().strip()
+
 
 class ModesTab(QWidget):
     """Modes tab of a wave or lumped port: one row per port mode with its integration line. None lets the
@@ -149,10 +153,6 @@ class ModesTab(QWidget):
         if not self._building and text.strip() != self.dlg.values.get(mode_line_key(mode), "").strip():
             self._set(mode, text.strip())
             self.refresh()
-
-    @property
-    def name(self) -> str:
-        return self.name_edit.text().strip()
 
 
 def edit_assignment(parent, doc, family: str, a: Assignment) -> bool:

@@ -110,7 +110,7 @@ def test_modes_tab(monkeypatch):
     dlg.draw_mode = 0
     tab = ModesTab(dlg, a)
     dlg.add_tab(tab, "Modes")
-    assert tab.table.rowCount() == 2
+    assert tab.table.rowCount() == 2 and dlg.name == "P1"
     assert tab.table.cellWidget(0, 1).currentText() == ModesTab.DEFINED
     assert tab.table.cellWidget(1, 1).currentText() == ModesTab.NONE
     tab._typed(2, "1,0,1;1,0,0")
