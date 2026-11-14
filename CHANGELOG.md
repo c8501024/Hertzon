@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.24 (2026-11-14)
 
 ### Added
 - **Tutorials for the circuit features** (docs/TUTORIAL.md, sections 13 to 16, with screenshots): a 2.4 GHz LNA
