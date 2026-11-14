@@ -33,6 +33,11 @@ the GitHub release notes.
 - **Derivative tuning took the wrong face motion when gmsh ordered a face boundary differently** in the
   perturbed builds: the side face of the GCPW substrate gave its bottom corners the motion of the top ones.
   The perturbed face boundaries are now matched point by point to the nominal ones.
+- **Return in the coordinate fields.** Points typed into the X, Y, Z fields of the status bar are entered with
+  Return also while a line or polyline is drawn; before, Return finished the line there and the typed point was
+  lost.
+- **A click in the model view deselects a boundary or excitation** (or mesh operation) selected in the Project
+  Manager, so its highlighted faces go away.
 
 ## 0.3.24 (2026-11-14)
 
