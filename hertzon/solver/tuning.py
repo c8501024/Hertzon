@@ -359,6 +359,14 @@ def _orth(cols: list[np.ndarray], tol: float = 1e-10) -> np.ndarray:
     return np.column_stack(V)
 
 
+def _mul(M, X: np.ndarray) -> np.ndarray:
+    """M @ X; a single precision matrix (a difference of states) multiplies in single precision, which is as
+    accurate as its entries and avoids converting the matrix to double precision for every product."""
+    if M.dtype == np.complex64:
+        return (M @ X.astype(np.complex64)).astype(np.complex128)
+    return M @ X
+
+
 def derivative_solutions(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list, bii: list,
                          bij: dict) -> np.ndarray:
     """The solution of A0 x = b and its first and second derivatives with respect to the variables (one
@@ -367,9 +375,9 @@ def derivative_solutions(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list
     fac = factor(A0)
     try:
         x0 = fac.solve(b)
-        xi = [fac.solve(bi[i] - Ai[i] @ x0) for i in range(n)]
-        xii = [fac.solve(bii[i] - (Aii[i] @ x0 + 2 * (Ai[i] @ xi[i]))) for i in range(n)]
-        xij = {(i, j): fac.solve(bij[(i, j)] - (Aij[(i, j)] @ x0 + Ai[i] @ xi[j] + Ai[j] @ xi[i]))
+        xi = [fac.solve(bi[i] - _mul(Ai[i], x0)) for i in range(n)]
+        xii = [fac.solve(bii[i] - (_mul(Aii[i], x0) + 2 * _mul(Ai[i], xi[i]))) for i in range(n)]
+        xij = {(i, j): fac.solve(bij[(i, j)] - (_mul(Aij[(i, j)], x0) + _mul(Ai[i], xi[j]) + _mul(Ai[j], xi[i])))
                for (i, j) in Aij}
     finally:
         if hasattr(fac, "close"):
@@ -406,7 +414,7 @@ def reduce_system(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list | None
     bij = bij if bij is not None else {key: zero for key in Aij}
     cols = derivative_solutions(A0, b, Ai, Aii, Aij, factor, bi, bii, bij)
     W = _orth([cols[:, e] for e in range(cols.shape[1])])
-    proj = lambda M: W.T @ (M @ W)      # noqa: E731  (complex symmetric: W^T keeps the reduced matrix symmetric)
+    proj = lambda M: W.T @ _mul(M, W)   # noqa: E731  (complex symmetric: W^T keeps the reduced matrix symmetric)
     k = W.shape[1]
     out = {
         "A0": proj(A0), "b": W.T @ b,
@@ -446,6 +454,7 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
     NF = A.shape[0]
     A0 = submatrix(A, ids).tocsr()
     bs = np.asarray(b[ids], dtype=np.complex128)
+    del A
 
     def X_of(c: dict):
         return asm.X0 + sum(ci * steps[i] * V[i] for i, ci in c.items())
@@ -456,21 +465,31 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
             raise MO.MorphError("the morphed mesh changes the unknowns of the solve")
         return submatrix(Ac, ids).tocsr(), np.asarray(bc[ids], dtype=np.complex128)
 
+    # as in the band model: the state matrices are combined into their differences as soon as these can be
+    # formed and then dropped (a +step state only while a mixed difference still needs it), and the
+    # differences are kept in single precision (their relative error from the differencing is far larger)
+    low = lambda M: M.astype(np.complex64 if np.iscomplexobj(M.data) else np.float32)      # noqa: E731
     t = time.time()
     Ai, Aii, bi, bii, Ap, bp = [], [], [], [], [], []
     for i in range(n):
         (ap, bpi), (am, bmi) = at({i: +1}), at({i: -1})
-        Ai.append((ap - am) / (2 * steps[i]))
-        Aii.append((ap - 2 * A0 + am) / steps[i] ** 2)
+        Ai.append(low((ap - am) / (2 * steps[i])))
+        Aii.append(low((ap - 2 * A0 + am) / steps[i] ** 2))
         bi.append((bpi - bmi) / (2 * steps[i]))
         bii.append((bpi - 2 * bs + bmi) / steps[i] ** 2)
-        Ap.append(ap)
+        del am
+        Ap.append(ap if n > 1 else None)
         bp.append(bpi)
+        del ap
     Aij, bij = {}, {}
     for i, j in pairs(n):
         apij, bpij = at({i: +1, j: +1})
-        Aij[(i, j)] = (apij - Ap[i] - Ap[j] + A0) / (steps[i] * steps[j])
+        Aij[(i, j)] = low((apij - Ap[i] - Ap[j] + A0) / (steps[i] * steps[j]))
         bij[(i, j)] = (bpij - bp[i] - bp[j] + bs) / (steps[i] * steps[j])
+        del apij
+        if j == n - 1:                  # the last pair of i: its state is no longer needed
+            Ap[i] = None
+    Ap = None
     asm.restore()
     t_asm = time.time() - t
     t = time.time()
@@ -1200,7 +1219,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     steps = [1e-3 * hmed / max(float(np.abs(Vi).max()), 1e-300) for Vi in V]
     settings = m.mw._settings
     caps = (bool(settings.mw_cap_sp_col), bool(settings.mw_cap_sp_single))
-    asm = Assembly(m)
+    asm = Assembly(m, keep_states=False if len(freqs) == 1 else None)    # one frequency: no state is reused
     ports_move = any(np.abs(Vi[:, it["nid"]]).max() > 1e-9 * max(float(np.abs(Vi).max()), 1e-300)
                      for it in asm.lumped.items for Vi in V)
     if ports_move:

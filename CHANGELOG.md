@@ -14,6 +14,14 @@ the GitHub release notes.
   operating system; a Derivative Trust Region optimization then continues with Conjugate Gradient from the
   best design so far. Measurements and rule of thumb in docs/TUNING.md (Memory).
 
+### Changed
+- **Derivative tuning needs far less memory.** The tuning model of one frequency (the solution frequency of the
+  setup, as Derivative Trust Region uses it) no longer keeps the matrices of every mesh state: they are combined
+  into their differences and dropped, the differences are kept in single precision as in the band model, and
+  states are no longer cached when there is only one frequency. Peak memory against 0.3.25: patch (72k
+  tetrahedra) 8.4 to 6.3 GB, UWB monopole with 4 variables 10.5 to 2.6 GB, hairpin filter with 3 variables
+  11.4 GB where 0.3.25 ran out of memory (15 GB machine). The tuned S-parameters are the same.
+
 ## 0.3.25 (2026-11-14)
 
 ### Added
