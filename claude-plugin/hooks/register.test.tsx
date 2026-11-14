@@ -22,7 +22,15 @@ const BAND = {
   plugin: 'hertzon',
   component: 'AbovePrompt',
   requestId: 'above-prompt',
-  props: { bodyColumns: 80, hasSurvey: false, rows: [] },
+  props: {
+    bodyColumns: 80,
+    hasSurvey: false,
+    isCollapsed: false,
+    isWorking: true,
+    maxRows: 3,
+    scroll: { offset: 0, bodyRows: 3 },
+    view: {},
+  },
 } as const
 
 test('a picture Hertzon drew appears in the pane, on every surface', async ($, on) => {
