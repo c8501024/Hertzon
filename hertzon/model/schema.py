@@ -240,10 +240,11 @@ EXCITATIONS: dict[str, list[Prop]] = {
                   P("ModeType", "choice", "Auto", choices=("Auto", "TEM", "TE", "TM")),
                   P("ImpedanceDefinition", "choice", "Zpv", choices=("Zpv", "Zpi", "Zvi")),
                   P("IntegrationLine", "points", "",
-                    help="Start;End of the voltage line of the mode, from the signal conductor to its ground: sets "
+                    help="Start;End of the voltage line of mode 1, from the signal conductor to its ground: sets "
                          "the line impedance (Zpv, Zvi) and the sign of the mode. Empty: between the two conductors "
-                         "on the port face; with more than two, from the narrowest to the largest one. Right click "
-                         "the port to draw it in the 3D view. Not used in a terminal solution"),
+                         "on the port face; with more than two, from the narrowest to the largest one. The Modes "
+                         "tab of the port dialog sets a line per mode (New Line... draws it in the 3D view). Not "
+                         "used in a terminal solution"),
                   P("Renormalize", "bool", "False", tab="Post Processing"),
                   P("RenormImpedance", "expr", "50ohm", tab="Post Processing", visible_if=("Renormalize", "True")),
                   P("Deembed", "bool", "False", tab="Post Processing"),

@@ -5981,11 +5981,15 @@ class MainWindow(QMainWindow):
                 self._connector_port_menu(m, data[1])
             if a.kind == "Wave Port":
                 m.addSeparator()
-                m.addAction("Draw Integration Line", lambda: self.draw_integration_line(data[1]))
-                if a.props.get("IntegrationLine", "").strip():
-                    m.addAction("Clear Integration Line (automatic)", lambda: self.clear_integration_line(data[1]))
-                m.addSeparator()
                 n = max(1, int(float(a.props.get("NumberOfModes", "1") or 1)))
+                from ..model.objframe import mode_line_key
+                for k in range(1, n + 1):
+                    sfx = f": Mode {k}" if n > 1 else ""
+                    m.addAction(f"Draw Integration Line{sfx}", lambda k=k: self.draw_integration_line(data[1], k))
+                    if a.props.get(mode_line_key(k), "").strip():
+                        m.addAction(f"Clear Integration Line{sfx}",
+                                    lambda k=k: self.clear_integration_line(data[1], k))
+                m.addSeparator()
                 term = self.des.settings.get("SolutionType") == "Terminal"
                 for k in range(1, (n if not term else max(n, 4)) + 1):
                     m.addAction(f"Port Field Display: Mode {k}", lambda k=k: self.port_field_display(data[1], k))
@@ -6376,19 +6380,25 @@ class MainWindow(QMainWindow):
         m.addAction("Flatten", lambda: self.connector_flatten([name]))
         m.addAction("Remove Connector", lambda: self.connector_remove(name))
 
-    def draw_integration_line(self, name: str) -> None:
-        """Start and end point of the integration line picked in the 3D view (two clicks, with snapping)."""
-        self._line_target = name
+    def draw_integration_line(self, name: str, mode: int = 1, reopen: bool = False) -> None:
+        """Start and end point of the integration line (of port mode ``mode``) picked in the 3D view (two clicks,
+        with snapping). ``reopen``: the port's dialog opens again when the line is drawn (Modes tab, New Line)."""
+        self._line_target = (name, mode, reopen)
         self.start_draw("IntegrationLine")
 
     def _line_drawn(self, P: list) -> None:
-        name, self._line_target = getattr(self, "_line_target", None), None
+        target, self._line_target = getattr(self, "_line_target", None), None
+        name, mode, reopen = target if isinstance(target, tuple) else (target, 1, False)
         if not name or len(P) < 2 or name not in {a.name for a in self.des.excitations + self.des.boundaries}:
             return
         if np.linalg.norm(P[1] - P[0]) < 1e-15:
             self.msgs.add("warning", "Integration line: start and end point are the same")
             return
-        self._set_integration_line(name, f"{self._pt(P[0])};{self._pt(P[1])}")
+        self._set_integration_line(name, f"{self._pt(P[0])};{self._pt(P[1])}", mode)
+        if reopen:
+            from PySide6.QtCore import QTimer
+            kind = "boundary" if any(b.name == name for b in self.des.boundaries) else "excitation"
+            QTimer.singleShot(0, lambda: self._project_activated((kind, name)))
 
     def auto_integration_line(self, name: str) -> None:
         """Integration line placed again between the conductors that touch the sheet."""
@@ -6399,14 +6409,15 @@ class MainWindow(QMainWindow):
             return
         self._set_integration_line(name, line)
 
-    def clear_integration_line(self, name: str) -> None:
-        """Wave port: back to the automatic voltage line of the solver."""
+    def clear_integration_line(self, name: str, mode: int = 1) -> None:
+        """Wave port: back to the automatic voltage line of the solver for this mode."""
+        from ..model.objframe import mode_line_key
         self.doc.checkpoint()
         a = self.des.assignment(name)
-        a.props["IntegrationLine"] = ""
+        a.props[mode_line_key(mode)] = ""
         self.doc.commit("excitations", geometry=False)
         self.view.show_assignments([a])
-        self.msgs.add("info", f"{name}: integration line set by the solver")
+        self.msgs.add("info", f"{name}: integration line{f' of mode {mode}' if mode > 1 else ''} set by the solver")
 
     def _line_on_object(self, a, line: str) -> str:
         """Integration line picked in the model (global) in the coordinates of its object, so that it moves
@@ -6418,14 +6429,15 @@ class MainWindow(QMainWindow):
             self.msgs.add("warning", f"{a.name}: integration line kept in global coordinates ({e})")
             return line
 
-    def _set_integration_line(self, name: str, line: str) -> None:
+    def _set_integration_line(self, name: str, line: str, mode: int = 1) -> None:
+        from ..model.objframe import mode_line_key
         self.doc.checkpoint()
         a = self.des.assignment(name)
         line = self._line_on_object(a, line)
-        a.props["IntegrationLine"] = line
+        a.props[mode_line_key(mode)] = line
         self.doc.commit("boundaries" if any(b is a for b in self.des.boundaries) else "excitations", geometry=False)
         self.view.show_assignments([a])
-        self.msgs.add("info", f"{name}: integration line {line}")
+        self.msgs.add("info", f"{name}: integration line{f' of mode {mode}' if mode > 1 else ''} {line}")
 
     def _reassign(self, name: str) -> None:
         faces, objs = self._selection_refs()

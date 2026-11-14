@@ -49,16 +49,110 @@ class NamedPropsDialog(QDialog):
         bb.button(QDialogButtonBox.RestoreDefaults).setText("Use Defaults")
         bb.button(QDialogButtonBox.RestoreDefaults).clicked.connect(lambda: self._defaults(props, ev, materials))
         lay.addWidget(bb)
+        self.extra_tabs: list[tuple[QWidget, str]] = []
         self.resize(560, 460)
+
+    def add_tab(self, widget: QWidget, title: str) -> None:
+        """A tab of its own right after General (kept when the defaults are restored)."""
+        self.extra_tabs.append((widget, title))
+        self.grid.insertTab(1, widget, title)
 
     def _defaults(self, props, ev, materials) -> None:
         self.values.clear()
         self.values.update(schema.defaults(props))
         self.grid.set(props, self.values, ev, materials=materials or [])
+        for w, title in self.extra_tabs:
+            self.grid.insertTab(1, w, title)
+            if hasattr(w, "refresh"):
+                w.refresh()
 
     @property
     def name(self) -> str:
         return self.name_edit.text().strip()
+
+
+class ModesTab(QWidget):
+    """Modes tab of a wave or lumped port: one row per port mode with its integration line. None lets the
+    solver choose the line; New Line... closes the dialog to pick start and end point in the 3D view, and the
+    dialog opens again afterwards; the coordinates can also be typed (start;end)."""
+
+    NONE, DEFINED, NEW = "None (automatic)", "Defined", "New Line..."
+
+    def __init__(self, dlg: "NamedPropsDialog", a: Assignment, terminal: bool = False):
+        super().__init__(dlg)
+        self.dlg, self.kind = dlg, a.kind
+        self._building = False
+        lay = QVBoxLayout(self)
+        note = ("The integration line goes from the signal conductor to its ground. It sets the line "
+                "impedance Zo of its mode (Zpv, Zvi), the line of mode 1 also the sign of the port mode; the "
+                "S-parameters of the modes do not depend on it." if a.kind == "Wave Port" else
+                "The integration line goes across the port sheet from one conductor to the other: the "
+                "direction of the port voltage.")
+        if terminal and a.kind == "Wave Port":
+            note += " In a terminal solution the lines are not used: each terminal has its own voltage line."
+        lab = QLabel(note)
+        lab.setWordWrap(True)
+        lay.addWidget(lab)
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Mode", "Integration Line", "Start;End"])
+        self.table.verticalHeader().setVisible(False)
+        h = self.table.horizontalHeader()
+        h.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        h.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        h.setSectionResizeMode(2, QHeaderView.Stretch)
+        lay.addWidget(self.table)
+        self.refresh()
+
+    def n_modes(self) -> int:
+        if self.kind != "Wave Port":
+            return 1
+        try:
+            return max(1, int(float(self.dlg.values.get("NumberOfModes", "1") or 1)))
+        except ValueError:
+            return 1
+
+    def refresh(self, *_) -> None:
+        from ..model.objframe import mode_line_key
+        self._building = True
+        n = self.n_modes()
+        self.table.setRowCount(n)
+        for r in range(n):
+            mode = r + 1
+            item = QTableWidgetItem(str(mode))
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            self.table.setItem(r, 0, item)
+            text = self.dlg.values.get(mode_line_key(mode), "")
+            combo = QComboBox()
+            combo.addItems([self.NONE, self.DEFINED, self.NEW] if text.strip() else [self.NONE, self.NEW])
+            combo.setCurrentText(self.DEFINED if text.strip() else self.NONE)
+            combo.activated.connect(lambda _i, m=mode, c=combo: self._choice(m, c.currentText()))
+            self.table.setCellWidget(r, 1, combo)
+            edit = QLineEdit(text)
+            edit.setPlaceholderText("x1,y1,z1;x2,y2,z2")
+            edit.editingFinished.connect(lambda m=mode, e=edit: self._typed(m, e.text()))
+            self.table.setCellWidget(r, 2, edit)
+        self._building = False
+
+    def _set(self, mode: int, text: str) -> None:
+        from ..model.objframe import mode_line_key
+        self.dlg.values[mode_line_key(mode)] = text
+        self.dlg.grid.changed.emit(mode_line_key(mode), text)       # preview of the line in the 3D view
+
+    def _choice(self, mode: int, choice: str) -> None:
+        if self._building:
+            return
+        if choice == self.NONE:
+            self._set(mode, "")
+            self.refresh()
+        elif choice == self.NEW:
+            self.dlg.draw_mode = mode
+            self.dlg.accept()
+
+    def _typed(self, mode: int, text: str) -> None:
+        from ..model.objframe import mode_line_key
+        if not self._building and text.strip() != self.dlg.values.get(mode_line_key(mode), "").strip():
+            self._set(mode, text.strip())
+            self.refresh()
 
 
 def edit_assignment(parent, doc, family: str, a: Assignment) -> bool:
@@ -67,8 +161,16 @@ def edit_assignment(parent, doc, family: str, a: Assignment) -> bool:
     info = f"<b>{a.kind}</b> on: {sel or '(nothing)'}"
     if family == "boundary" and a.kind in schema.UNSUPPORTED_BOUNDARIES:
         info += f"<br><span style='color:#b35c00'>{schema.UNSUPPORTED_BOUNDARIES[a.kind]}</span>"
+    ports = family == "excitation" and a.kind in ("Wave Port", "Lumped Port")
+    if ports:
+        props = [p for p in props if p.name != "IntegrationLine"]          # in the Modes tab
     dlg = NamedPropsDialog(f"{a.kind} {'Boundary' if family == 'boundary' else ''}".strip(), a.name, props, a.props,
                            doc.evaluator(), [m.name for m in doc.project.all_materials()], parent, info)
+    dlg.draw_mode = 0
+    if ports:
+        modes = ModesTab(dlg, a, terminal=doc.design.settings.get("SolutionType") == "Terminal")
+        dlg.add_tab(modes, "Modes")
+        dlg.grid.changed.connect(lambda name, _v: name == "NumberOfModes" and modes.refresh())
     view = getattr(parent, "view", None)
     if view is not None and family == "excitation":
         import copy
@@ -103,6 +205,12 @@ def edit_assignment(parent, doc, family: str, a: Assignment) -> bool:
             view.show_assignments([a])
         except Exception:  # noqa: BLE001
             pass
+    if dlg.draw_mode and hasattr(parent, "draw_integration_line"):
+        # Modes tab > New Line...: pick the line in the 3D view once the assignment is stored, then this
+        # dialog opens again
+        from PySide6.QtCore import QTimer
+        name, mode = a.name, dlg.draw_mode
+        QTimer.singleShot(0, lambda: parent.draw_integration_line(name, mode, reopen=True))
     return True
 
 

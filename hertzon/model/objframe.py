@@ -12,8 +12,20 @@ import numpy as np
 
 from . import coordsys
 
-# assignment properties holding points that follow their object
+# assignment properties holding points that follow their object (and the lines of port modes 2, 3, ...:
+# mode_line_key)
 POINT_PROPS = ("IntegrationLine", "UVector")
+
+
+def mode_line_key(mode: int) -> str:
+    """Property holding the integration line of port mode ``mode`` (1-based): IntegrationLine for the first
+    mode (as in older files and for lumped ports), IntegrationLine2, IntegrationLine3, ... for the others."""
+    return "IntegrationLine" if mode <= 1 else f"IntegrationLine{mode}"
+
+
+def point_keys(props: dict) -> list[str]:
+    """The keys of props that hold points following the object."""
+    return [k for k in props if k in POINT_PROPS or (k.startswith("IntegrationLine") and k[15:].isdigit())]
 TRANSFORMS = ("Move", "Rotate", "Mirror", "Scale")
 _AXIS = {"X": (1.0, 0.0, 0.0), "Y": (0.0, 1.0, 0.0), "Z": (0.0, 0.0, 1.0)}
 
@@ -140,7 +152,7 @@ def migrate_global_points(design, ev) -> list[str]:
     Returns messages for points that could not be converted."""
     msgs = []
     for a in design.boundaries + design.excitations:
-        for key in POINT_PROPS:
+        for key in point_keys(a.props):
             text = a.props.get(key, "")
             if not text.strip():
                 continue

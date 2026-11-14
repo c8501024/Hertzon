@@ -334,6 +334,8 @@ class TabbedPropertyGrid(QTabWidget):
         """Show only the tabs with at least one visible prop; the current tab stays when it is still shown."""
         for i in range(self.count()):
             g = self.widget(i)
+            if not hasattr(g, "props"):
+                continue                    # a tab of its own (the Modes tab of a port): always shown
             self.setTabVisible(i, any(is_visible(p, g.values) for p in g.props))
         if self.count() and not self.isTabVisible(self.currentIndex()):
             shown = [i for i in range(self.count()) if self.isTabVisible(i)]

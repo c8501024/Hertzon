@@ -3,6 +3,16 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Integration lines in a Modes tab.** The dialog of a wave or lumped port has a **Modes** tab with one row per
+  mode: Integration Line *None* (the solver's line) or *New Line...*, which closes the dialog to pick start and
+  end point in the 3D view and opens it again; the coordinates can also be typed. A wave port with several
+  modes takes a line per mode: Zo of modes 2, 3, ... is taken along their own line (Zpv), before every mode was
+  integrated along the line of mode 1. Projects keep their line as the line of mode 1; right click › Draw
+  Integration Line stays as the short way.
+
 ## 0.3.24 (2026-11-14)
 
 ### Added
