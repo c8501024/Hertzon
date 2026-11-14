@@ -446,6 +446,7 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
     NF = A.shape[0]
     A0 = submatrix(A, ids).tocsr()
     bs = np.asarray(b[ids], dtype=np.complex128)
+    del A
 
     def X_of(c: dict):
         return asm.X0 + sum(ci * steps[i] * V[i] for i, ci in c.items())
@@ -456,21 +457,31 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
             raise MO.MorphError("the morphed mesh changes the unknowns of the solve")
         return submatrix(Ac, ids).tocsr(), np.asarray(bc[ids], dtype=np.complex128)
 
+    # as in the band model: the state matrices are combined into their differences as soon as these can be
+    # formed and then dropped (a +step state only while a mixed difference still needs it), and the
+    # differences are kept in single precision (their relative error from the differencing is far larger)
+    low = lambda M: M.astype(np.complex64 if np.iscomplexobj(M.data) else np.float32)      # noqa: E731
     t = time.time()
     Ai, Aii, bi, bii, Ap, bp = [], [], [], [], [], []
     for i in range(n):
         (ap, bpi), (am, bmi) = at({i: +1}), at({i: -1})
-        Ai.append((ap - am) / (2 * steps[i]))
-        Aii.append((ap - 2 * A0 + am) / steps[i] ** 2)
+        Ai.append(low((ap - am) / (2 * steps[i])))
+        Aii.append(low((ap - 2 * A0 + am) / steps[i] ** 2))
         bi.append((bpi - bmi) / (2 * steps[i]))
         bii.append((bpi - 2 * bs + bmi) / steps[i] ** 2)
-        Ap.append(ap)
+        del am
+        Ap.append(ap if n > 1 else None)
         bp.append(bpi)
+        del ap
     Aij, bij = {}, {}
     for i, j in pairs(n):
         apij, bpij = at({i: +1, j: +1})
-        Aij[(i, j)] = (apij - Ap[i] - Ap[j] + A0) / (steps[i] * steps[j])
+        Aij[(i, j)] = low((apij - Ap[i] - Ap[j] + A0) / (steps[i] * steps[j]))
         bij[(i, j)] = (bpij - bp[i] - bp[j] + bs) / (steps[i] * steps[j])
+        del apij
+        if j == n - 1:                  # the last pair of i: its state is no longer needed
+            Ap[i] = None
+    Ap = None
     asm.restore()
     t_asm = time.time() - t
     t = time.time()
@@ -1129,7 +1140,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     steps = [1e-3 * hmed / max(float(np.abs(Vi).max()), 1e-300) for Vi in V]
     settings = m.mw._settings
     caps = (bool(settings.mw_cap_sp_col), bool(settings.mw_cap_sp_single))
-    asm = Assembly(m)
+    asm = Assembly(m, keep_states=False if len(freqs) == 1 else None)    # one frequency: no state is reused
     ports_move = any(np.abs(Vi[:, it["nid"]]).max() > 1e-9 * max(float(np.abs(Vi).max()), 1e-300)
                      for it in asm.lumped.items for Vi in V)
     if ports_move:
