@@ -1015,10 +1015,48 @@ class Bridge:
             return None
         return Line.from_points(np.asarray(pts[0], float), np.asarray(pts[1], float), 21)
 
+    def wave_voltage_line(self, e: Assignment, tags: list[int], nmodes: int = 1):
+        """The voltage line of a wave port in a modal solution: its Integration Line, else, with more than two
+        conductors on the port face, the shortest line from the narrowest conductor (the signal) to the largest
+        one (the reference, as in a terminal solution). With two conductors None: EMerge takes the shortest line
+        between them."""
+        from emerge._emerge.coord import Line
+        from ..model.objframe import global_points
+        from .terminals import port_conductors, voltage_line
+        manual = bool(e.props.get("IntegrationLine", "").strip())
+        if self._cond_faces is None:
+            self._cond_faces = self.terminal_conductor_faces()
+        groups = port_conductors(list(tags), self._cond_faces - {int(t) for t in tags})
+        if len(groups) > 2 and nmodes == 1:
+            # e.g. the top grounds of a grounded coplanar line, connected to the ground plane by vias only away
+            # from the port: in the 2D mode of the port face they are separate conductors at their own potential
+            warn(f"Wave port '{e.name}': {len(groups)} separate conductors on the port face. Grounds that are "
+                 "connected only away from the port (vias) float in the port mode, so the mode is not that of the "
+                 "line and its impedance depends on the voltage line. Connect them at the port: let the port face "
+                 "end on the side walls (perfect conductor) that join the top grounds to the ground plane")
+        if manual:
+            pts = global_points(self.design, e, "IntegrationLine", self.ev)    # follows its moved object
+            a, b = np.asarray(pts[0], float), np.asarray(pts[1], float)
+            info(f"Wave port '{e.name}': voltage line {self._fmt_line(a, b)} (Integration Line)")
+            return Line.from_points(a, b, 101)
+        if len(groups) < 3:
+            return None
+        sig = int(np.argmin([g["length"] for g in groups]))
+        ref = int(np.argmax([g["length"] for g in groups]))
+        a, b = voltage_line(groups[sig]["points"], groups[ref]["points"])
+        info(f"Wave port '{e.name}': {len(groups)} conductors on the port face, voltage line from the narrowest to "
+             f"the largest one {self._fmt_line(a, b)}; set the Integration Line of the port to choose another")
+        return Line.from_points(a, b, 101)
+
+    @staticmethod
+    def _fmt_line(a, b) -> str:
+        return "(" + ", ".join(f"{v * 1e3:.4g}" for v in a) + ") -> (" + ", ".join(f"{v * 1e3:.4g}" for v in b) + ") mm"
+
     def assign_excitations(self) -> None:
         em, mw = self.em, self.m.mw
         ev = self.ev
         self.port_map = []
+        self._cond_faces = None
         global TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS
         TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS = None, {}, False
         BETA.clear()            # records of an earlier solve in the same process (tests, tuning)
@@ -1060,6 +1098,10 @@ class Bridge:
                     port = mw.bc.ModalPort(sel, num, modetype=None if mt == "Auto" else mt,
                                            number_of_modes=nmodes,
                                            impedance_definition=zdef)
+                if term is None:
+                    line = self.wave_voltage_line(e, tags, nmodes)
+                    if line is not None:
+                        port.voltage_integration_line.append(line)
             elif e.kind == "Lumped Port":
                 w, h, d = self.port_geometry(e, tags)
                 port = mw.bc.LumpedPort(sel, num, width=w, height=h, direction=d, Z0=ev.value(p["Impedance"]))

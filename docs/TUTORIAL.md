@@ -280,6 +280,14 @@ Z0 = 60 Ω / √εr · ln(b/a). With εr = 2.1 (Teflon) and *a* = 0.5 mm, 50 Ω 
 4. Optional: in the port's **Post Processing** tab, **Renormalize** to `50ohm` and **Deembed** a
    distance if you want the reference plane elsewhere.
 
+The line impedance Zo of a TEM port comes from the voltage along a line between the two conductors, which the
+solver finds by itself. To choose it, right click the port › **Draw Integration Line** (two clicks, from the
+signal conductor to the ground) or type it in the port's **Integration Line** property; it changes Zo, not the
+S-parameters of the port modes. With more than two conductors on the port face, such as a grounded coplanar
+line whose top grounds end in the air, Hertzon takes a line from the narrowest conductor to the largest one and
+warns: grounds that are joined only away from the port float in the port mode. Join them at the port instead,
+as `examples/GroundedCPW.hzn` does by letting the top grounds reach the conducting side walls.
+
 ### 2.4 Setup, sweep and results
 
 1. **Add Solution Setup...**: Frequency `5GHz`, Maximum passes `6`, Maximum Delta S `0.02`.

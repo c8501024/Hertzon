@@ -12,7 +12,18 @@ the GitHub release notes.
   one board with Connect and Match Phase (with a phase offset); a circuit recognized from a 3D design, calibrated
   to it and kept in step with Sync with 3D.
 
+- **Integration Line for wave ports.** A wave port of a modal solution takes a voltage line (right click the
+  port › Draw Integration Line, or the Integration Line property): it sets the line impedance Zo (Zpv, Zvi) and
+  the sign of the mode, the S-parameters of the port modes stay the same. New example `GroundedCPW.hzn`: a 50 Ω
+  grounded coplanar waveguide with wave ports.
+
 ### Fixed
+- **Wave ports with more than two conductors on the port face get a line impedance.** A grounded coplanar line
+  whose top grounds are not joined to the ground plane in the port plane has four conductors on the port face;
+  the solver found no conductor pair, reported "PEC islands without a terminal definition" in every pass and
+  skipped Zo. Without an Integration Line the voltage line now runs from the narrowest conductor to the largest
+  one, and a warning explains that grounds joined only away from the port (by vias) float in the port mode and
+  how to join them at the port.
 - **Create Circuit analyzes the band of the 3D design.** The recognized circuit took the default sweep of 1 to
   10 GHz, so with a 3D design block (solved on the band of the 3D design) its first analysis stopped because the
   block data do not cover it. It now takes the first sweep of the 3D design.
