@@ -5,6 +5,15 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Port Zo and Gamma in Solution Data.** Matrix Data lists *Gamma* (alpha + j beta, 1/m) and *Zo* (ohm) of every
+  wave port mode (terminal) next to S, Y and Z: for the last adaptive pass, for each sweep and, under *Adaptive
+  Passes*, for every pass, so you can see whether the port impedance has settled and whether the port is sized
+  right. Reports over the passes can plot `Zo(1)` and `Gamma(1)` too. Passes solved before this version have
+  no per-pass values.
+- **Sampled frequencies of an interpolating sweep** in the Message Manager: when the sweep finishes, one line
+  lists all frequencies it solved for its interpolation (GHz, ascending).
+
 ### Changed
 - **Integration lines in a Modes tab.** The dialog of a wave or lumped port has a **Modes** tab with one row per
   mode: Integration Line *None* (the solver's line) or *New Line...*, which closes the dialog to pick start and

@@ -210,6 +210,12 @@ def adaptive_pass_data(st: ResultStore, sol: str) -> dict | None:
     x = np.array([p["pass"] for p in passes], float)
     out = {"freq": x, "S": np.array(S), "z0": z0, "solved": x, "ports": last["ports"] if last is not None else [],
            "xaxis": "Pass", "adaptive_freq": fa[k]}
+    for key in ("gamma", "zo"):
+        # port modes of every pass (solutions since this version), else none: Gamma and Zo stay unknown per pass
+        if all(p.get(key) for p in passes):
+            rows = [np.asarray(p[key][min(k, len(p[key]) - 1)], float) for p in passes]
+            if len({len(r) for r in rows}) == 1:
+                out[key] = np.array([r[:, 0] + 1j * r[:, 1] for r in rows])
     if last is not None and last.get("terminals"):
         out["terminals"] = last["terminals"]
     return out
