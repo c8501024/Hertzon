@@ -1128,7 +1128,7 @@ class MainWindow(QMainWindow):
         self._note_open_region(False)            # the air box of the opened design: a later change is reported
         d.changed.connect(lambda *_: self._autosave_tick() if self.doc.dirty else None)
         d.selectionChanged.connect(self._on_selection)
-        self.view.picked.connect(lambda picks, add: self.doc.select(picks, add))
+        self.view.picked.connect(self._view_picked)
         self.view.contextMenuRequested.connect(self._view_context)
         self.view.drawFinished.connect(self._draw_finished)
         self.view.drawPhaseChanged.connect(lambda t: self.hint.setText(t or "Ready"))
@@ -1669,7 +1669,26 @@ class MainWindow(QMainWindow):
         else:
             self.doc.select([])
 
+    def _view_picked(self, picks: list, add: bool) -> None:
+        """A click (or a drag rectangle) in the model view. A boundary, excitation or mesh operation selected in
+        the Project Manager is deselected first, so its highlighted faces go away (a click into an empty part
+        of the view only does that)."""
+        tree = self.project_tree
+        items = [it for it in tree.selectedItems()
+                 if isinstance(it.data(0, TREE_ROLE), tuple)
+                 and it.data(0, TREE_ROLE)[0] in ("boundary", "excitation", "meshop")]
+        if items:
+            tree.clearSelection()           # emits None: the highlight of the assignment goes
+            if not picks:
+                self.props.clear()          # it no longer shows the deselected assignment
+        self.doc.select(picks, add)
+
     def _enter(self) -> None:
+        if QApplication.focusWidget() in (self.cx, self.cy, self.cz):
+            # Return in a coordinate field of the status bar enters the typed point, also while a polyline is
+            # drawn (the window-wide Return shortcut "Finish" took the key there and ended the line instead)
+            self._coord_entered()
+            return
         if self.view.draw is not None and self.view.draw.kind == "CreatePolyline":
             self.view.finish_polyline()
 
