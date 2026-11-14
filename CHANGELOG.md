@@ -18,7 +18,12 @@ the GitHub release notes.
   the specification to a verified design and a report, antenna know-how, a checklist for reading results) and
   the commands `/hertzon:design` and `/hertzon:verify`. It works on top of the MCP server and is installed with
   `/plugin install hertzon --marketplace c8501024/hertzon` (README, tutorial 5.4). A test keeps the tool names in
-  the skills in step with the MCP server.
+  the skills in step with the MCP server. Its **Hertzon pane** beside the chat shows every picture Hertzon draws
+  for the assistant, and the line above the prompt the adaptive pass of a running analysis.
+- **MCP tool `show_result`.** A picture of a report, a field plot, the 3D view or a tab of the Solutions window
+  (convergence, profile, matrix data, mesh statistics), drawn by Hertzon's own widgets: an open report tab and the
+  3D view are taken as shown in the window. Without a window, reports and Solutions tabs are drawn off screen by
+  the same code. Pictures of `show_result` and `render_image` are kept in `~/.hertzon/shown`.
 - **Derivative tuning with wave ports.** A variable may now change the cross-section of a wave port (the trace
   width or substrate height of a grounded CPW at its port) or move a wave port with the end of its line (the
   line length): the port modes of every morphed mesh state are solved on its own port face, and the tuned Zo

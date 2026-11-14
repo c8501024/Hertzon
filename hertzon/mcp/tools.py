@@ -54,6 +54,8 @@ Workflow
    asking again and again; the user asks for the results later.
 8. Optional: set_report and set_field_plot (shown in the window), set_equation (Fields Calculator),
    set_parametric / set_optimization, run with run_simulation(parametric=... or optimization=...).
+   show_result gives a picture of a report, field plot, the 3D view or the convergence table as Hertzon draws it:
+   use it to show the user a result and to look at it yourself.
 
 Conventions
 - All values are expression strings with units: "10mm", "2.45GHz", "a/2+1mm", "-w/2,0,h". Lengths
@@ -2358,7 +2360,110 @@ def t_render_image(args):
         note += "; detail fast: subtractions that keep their tools (drill holes) are left out"
     if errors:
         note += f"; geometry errors: {errors}"
-    return [Image(buf.getvalue(), note)]
+    saved = keep_picture(buf.getvalue(), f"{d.name} model {view}")
+    return [Image(buf.getvalue(), note + (f". Saved: {saved}" if saved else ""))]
+
+
+
+SHOWN_KEEP = 200          # pictures kept in ~/.hertzon/shown
+PREVIEW_BYTES = 95_000    # an inline vector drawing in Claude Code holds at most 131072 characters
+
+
+def shown_dir() -> Path:
+    return Path(os.environ.get("HERTZON_HOME") or (Path.home() / ".hertzon")) / "shown"
+
+
+def keep_picture(png: bytes, label: str) -> str:
+    """Save a picture shown to the assistant in ~/.hertzon/shown (the Claude plugin's results pane shows it from
+    there): the PNG as drawn and a JPEG preview small enough for the pane. Returns the PNG path ('' on failure)."""
+    import re
+    from io import BytesIO
+    try:
+        d = shown_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        stem = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}-" + \
+            (re.sub(r"[^A-Za-z0-9_.-]+", "_", label)[:60] or "picture")
+        path = d / f"{stem}.png"
+        path.write_bytes(png)
+        kept = sorted(f for f in d.glob("*.png") if not f.name.endswith(".preview.png"))
+        for f in kept[:-SHOWN_KEEP]:
+            for g in (f, d / f"{f.stem}.preview.png", d / f"{f.stem}.preview.jpg"):
+                g.unlink(missing_ok=True)
+        if len(png) <= PREVIEW_BYTES:                     # small enough: the pane shows the PNG itself
+            (d / f"{stem}.preview.png").write_bytes(png)
+            return str(path)
+        from PIL import Image as PILImage
+        im = PILImage.open(BytesIO(png)).convert("RGB")
+        for width, quality in ((1200, 85), (1000, 80), (800, 75), (640, 70), (480, 60)):
+            pv = im if im.width <= width else im.resize((width, round(im.height * width / im.width)),
+                                                          PILImage.LANCZOS)
+            buf = BytesIO()
+            pv.save(buf, format="JPEG", quality=quality)
+            if buf.tell() <= PREVIEW_BYTES:
+                break
+        (d / f"{stem}.preview.jpg").write_bytes(buf.getvalue())
+        return str(path)
+    except Exception:  # noqa: BLE001 - keeping the picture is a convenience, never a failure of the tool
+        return ""
+
+
+SHOW_WHAT = ("report", "field_plot", "view", "solutions")
+
+
+def t_show_result(args):
+    """A picture of what Hertzon shows: drawn by the window's own widgets (or, without a window, a report or a
+    Solutions tab drawn off screen by the same code)."""
+    import base64
+    ctx = load(args)
+    d = ctx.des
+    what = args.get("what") or ("report" if args.get("name") else "view")
+    if what not in SHOW_WHAT:
+        raise ToolError(f"what is one of {list(SHOW_WHAT)}")
+    name = args.get("name")
+    if what == "report" and not any(r.name == name for r in d.reports):
+        raise ToolError(f"No report {name!r}; reports: {[r.name for r in d.reports]} (set_report creates one)")
+    if what == "field_plot" and not any(p.name == name for p in d.field_plots):
+        raise ToolError(f"No field plot {name!r}; field plots: {[p.name for p in d.field_plots]} "
+                        "(set_field_plot creates one)")
+    size = None
+    if args.get("width") or args.get("height"):
+        size = [int(args.get("width") or 900), int(args.get("height") or 600)]
+    job = {"what": what, "name": name, "design": d.name, "setup": args.get("setup"), "tab": args.get("tab"),
+           "size": size}
+    if ctx.gui is not None:
+        try:
+            r = ctx.gui.call("capture", timeout=180, **job)
+        except live.LinkError as e:
+            raise ToolError(str(e)) from None
+        png = base64.b64decode(r["png"])
+        shown = bool(r.get("shown"))
+    else:
+        shown = False
+        if what in ("field_plot", "view"):
+            raise ToolError("Field plots and the 3D view need a Hertzon window: open the project with the live link "
+                            "on (Tools > AI Assistants), or use render_image for the model")
+        if not ctx.proj.path:
+            raise ToolError("The project is not saved yet")
+        import tempfile
+        fd, out = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+        env.setdefault("QT_QPA_PLATFORM", "offscreen")
+        try:
+            p = subprocess.run([sys.executable, "-m", "hertzon.gui.capture",
+                                json.dumps({**job, "project": ctx.proj.path}), out],
+                               capture_output=True, text=True, timeout=300, env=env, cwd=str(ROOT))
+            if p.returncode != 0:
+                raise ToolError((p.stderr or "drawing failed").strip().splitlines()[-1])
+            png = Path(out).read_bytes()
+        finally:
+            Path(out).unlink(missing_ok=True)
+    label = {"report": f"report '{name}'", "field_plot": f"field plot '{name}'", "view": "3D view",
+             "solutions": f"Solutions window, {args.get('tab') or 'Convergence'} tab"}[what]
+    text = f"{d.name}: {label}" + (" (as shown in the Hertzon window)" if shown else "")
+    saved = keep_picture(png, f"{d.name} {label}")
+    return [Image(png, text + (f". Saved: {saved}" if saved else ""))]
 
 
 # ------------------------------------------------------------------------------------------------
@@ -2608,6 +2713,20 @@ TOOLS = [
                   "quality": {"type": "string", "enum": ["coarse", "normal", "fine"], "description": "display "
                               "quality of round faces, as View > Display Quality in the modeler (default normal)"},
                   "timeout_s": TIMEOUT}), t_render_image, True),
+    Tool("show_result", "A picture of a result as Hertzon shows it, drawn by Hertzon itself: what=report (a report "
+         "by name: S-parameters, Smith chart, impedance, radiation pattern, 3D polar plot, RCS, antenna parameters, "
+         "data table), field_plot (a field plot by name, shown in the 3D view), view (the 3D view as it is), "
+         "solutions (a tab of the Solutions window of a setup: Convergence, Profile, Matrix Data, Mesh Statistics). "
+         "An open report tab and the 3D view are taken as shown in the window. Use it to show the user a result "
+         "and to look at it yourself; set_report and set_field_plot create what is shown.",
+         _schema({"what": {"type": "string", "enum": list(SHOW_WHAT)},
+                  "name": {"type": "string", "description": "report or field plot name"},
+                  "setup": {"type": "string", "description": "what=solutions: the setup (default the first)"},
+                  "tab": {"type": "string", "enum": ["Convergence", "Profile", "Matrix Data", "Mesh Statistics",
+                                                     "Eigenmode Data"]},
+                  "width": {"type": "integer", "description": "pixels; default: as shown (900 x 600 for a report "
+                                                              "that is not open)"},
+                  "height": {"type": "integer"}}), t_show_result, True),
     Tool("run_python", "Edit the design with Python for repetitive work (arrays, parametric layouts). Names: "
          "project, design, add_object(kind, name=None, material='vacuum', **props), operation(obj, kind, "
          "**props), Command, Assignment, FaceRef, Setup, Sweep, schema, np, math. Changes are committed "

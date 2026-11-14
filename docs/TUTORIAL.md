@@ -573,7 +573,7 @@ The assistant works step by step with the same building blocks you used above, a
 | Geometry | `add_object`, `import_geometry`, `modify_object`, `add_operation` (subtract, unite, ...), `delete`, `get_geometry` (faces with index, centre, normal; edges and vertices for Fillet/Chamfer), `set_coordinate_system` |
 | Boundaries and ports | `assign`, `modify_assignment` (boundaries, wave/lumped ports, plane waves, mesh operations) |
 | Analysis | `set_setup`, `set_sweep`, `set_far_field_sphere`, `validate`, `run_simulation`, `get_status`, `abort_simulation` |
-| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `render_image` (a picture of the model), `set_report` (`open=true` shows it in the window), `set_field_plot`, `set_equation` (Fields Calculator) |
+| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `show_result` (a report, a field plot, the 3D view or the convergence table as a picture drawn by Hertzon, as shown in the window), `render_image` (a picture of the model), `set_report` (`open=true` shows it in the window), `set_field_plot`, `set_equation` (Fields Calculator) |
 | Parametric and optimization | `set_parametric`, `set_optimization` (Conjugate Gradient, Latin Hypercube + Nelder-Mead, Derivative Trust Region or Space Mapping), run and read with `run_simulation`, `get_status`, `get_results`; `apply_optimization` takes the best result over into the design |
 | Derivative tuning | `compute_tuning` (tuning model of up to 6 variables on the solved mesh), `get_tuning` (S-parameters at other variable values without solving) |
 | Design assistants | `list_structures` and `create_structure` (Tools > Design Wizard), `create_patch_antenna`, `create_hairpin_filter`, `create_hairpin_diplexer` (the designers of the rectangular patch, hairpin filter and hairpin diplexer in the Design Wizard): complete designs with setup, sweep and optimization |
@@ -595,6 +595,12 @@ what to check. It brings three skills, which Claude loads when they fit the requ
 
 and two commands: `/hertzon:design 2.45 GHz patch on 1.6 mm FR4, S11 below -15 dB` runs the whole workflow,
 `/hertzon:verify` checks the open design before you trust its numbers.
+
+The plugin also adds a **Hertzon pane** beside the chat (Claude Code in the terminal, the desktop app and the
+IDE extensions). Every picture Hertzon draws for the assistant appears there: a report, a field plot, the 3D
+view or the convergence table, drawn by Hertzon exactly as in its window (`show_result`). The arrows page
+through earlier pictures, `/hertzon-results` opens the pane, and while an analysis runs the line above the prompt
+shows its adaptive pass, tetrahedra and Delta S. The pictures are kept in `~/.hertzon/shown`.
 
 Install it once in Claude Code, after registering the MCP server (5.1):
 

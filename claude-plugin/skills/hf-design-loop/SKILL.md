@@ -78,6 +78,7 @@ Finish the design log as a short report:
 
 - specification and final result as numbers, side by side;
 - final variable values and where the project file is;
-- plots in the window (`set_report()`) and exported data (`export()`, e.g. Touchstone);
+- plots as reports (`set_report()`) and field plots (`set_field_plot()`), shown to the user with
+  `show_result()` (Hertzon draws them as in its window), and exported data (`export()`, e.g. Touchstone);
 - the table of variants with time per step and the total wall-clock and solver time;
 - failed ideas, open risks, and which statements are confirmed by a test and which are hypotheses.

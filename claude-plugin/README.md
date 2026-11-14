@@ -11,6 +11,8 @@ the know-how on top: in which order to work and what to check before trusting a 
 | Skill | `results-check` | Mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis |
 | Command | `/hertzon:design <spec>` | Runs the workflow for a specification |
 | Command | `/hertzon:verify` | Checks the open design without changing it |
+| Pane | Hertzon | Every picture Hertzon draws for the assistant (`show_result`, `render_image`): reports, field plots, 3D view, convergence, as shown in Hertzon; `/hertzon-results` opens it |
+| Status | above the prompt | Adaptive pass, tetrahedra and Delta S of a running analysis |
 
 ## Install
 

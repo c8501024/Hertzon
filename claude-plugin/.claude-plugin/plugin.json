@@ -14,5 +14,6 @@
     "antenna",
     "microwave",
     "simulation"
-  ]
+  ],
+  "types": "./types/index.d.ts"
 }

@@ -11,8 +11,8 @@ conclusions. Before you act on a result, go through these checks in order and sa
 ## 1. Did the mesh converge?
 
 - `get_status()` lists the adaptive passes with tetrahedra and Delta S; `get_results()` kind `convergence`
-  gives the history. `get_results()` adds a `convergence_warning` when the target was not reached; never
-  ignore it.
+  gives the history; `show_result()` with what `solutions` shows the convergence table to the user.
+  `get_results()` adds a `convergence_warning` when the target was not reached; never ignore it.
 - Delta S should fall from pass to pass. If it jumps, suspect the port or a geometry detail far below the
   mesh size.
 - Deep dips and high-Q points are the least reliable. Add them as adaptive frequencies or raise the passes
