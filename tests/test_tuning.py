@@ -372,3 +372,41 @@ def test_line_length_moves_the_wave_port(tmp_path):
         assert abs(-dphi - model.beta[0, 0].real * 1e-3) < 0.01      # 1 mm more line
     finally:
         m.__exit__(None, None, None)
+
+
+def test_a_wider_substrate_leaves_the_patch_and_the_port_in_place(tmp_path):
+    """The substrate width changes the shape of the top and bottom faces of the substrate. The patch and
+    the lumped port lie on these faces and do not depend on the width: they must stay where they are, only
+    the mesh between them and the substrate edge stretches (the faces were stretched as a whole before,
+    so the patch got wider with the substrate)."""
+    em = pytest.importorskip("emerge")
+    from hertzon.model.design import Project
+    from hertzon.solver import bridge as B
+    p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "PatchAntenna.hzn")
+    d = p.designs[0]
+    st = d.setups[0]
+    st.props.update(LambdaRefinement="False", CurvedElements="False")
+    b = B.Bridge(p, d, st, tmp_path)
+    with em.Simulation("tuning_patch_ws", save_file=False) as m:
+        b.prepare(m)
+        faces = {v: MO.face_velocities(p, d, v, TU.variable_step(d.variables[v])) for v in ("Ws", "Ls")}
+        fixed, slide = TU.morph_constraints(m)
+        diag = float(np.linalg.norm(np.ptp(m.mesh.nodes, axis=1)))
+        V = MO.velocity_fields(m.mesh, faces, fixed, 1e-6 * diag, slide_ftags=slide)
+        X = m.mesh.nodes * 1e3                                    # mm
+        top = np.abs(X[2] - 1.6) < 1e-6
+        patch = top & (np.abs(X[0]) <= 37.3 / 2 + 1e-6) & (np.abs(X[1]) <= 28.5 / 2 + 1e-6)
+        port = (np.abs(X[1] + 30) < 1e-6) & (np.abs(X[0]) <= 1.5 + 1e-6) & (X[2] > -1e-6) & (X[2] < 1.6 + 1e-6)
+        edge = (np.abs(np.abs(X[0]) - 30) < 1e-6) & (X[2] <= 1.6 + 1e-6)
+        assert patch.sum() > 20 and port.sum() > 4 and edge.sum() > 4
+        Ws, Ls = V["Ws"] * 1e3, V["Ls"] * 1e3                     # mm per mm
+        # the patch outline stays (nodes inside the patch may slide within it)
+        side = patch & (np.abs(np.abs(X[0]) - 37.3 / 2) < 1e-6)
+        assert side.sum() > 2 and np.abs(Ws[0, side]).max() < 1e-6   # was 0.31 (it may slide along it)
+        assert np.abs(Ws[2, patch]).max() < 1e-6
+        ends = port & (np.abs(np.abs(X[0]) - 1.5) < 1e-6)                 # the sides of the port
+        assert np.abs(Ws[0, ends]).max() < 1e-6 and np.abs(Ws[[1, 2]][:, port]).max() < 1e-6   # was 0.025
+        assert np.allclose(Ws[0, edge] * np.sign(X[0, edge]), 0.5)  # the substrate edges move by half
+        far = patch & (np.abs(X[1] - 28.5 / 2) < 1e-6)                # the far edge of the patch
+        assert far.sum() > 2 and np.abs(Ls[1, far]).max() < 1e-6
+        assert np.allclose(Ls[1, port], -0.5) and np.abs(Ls[[0, 2]][:, port]).max() < 1e-6
