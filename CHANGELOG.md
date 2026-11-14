@@ -3,6 +3,22 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Tuning ranges at most ±15 % of the value.** The range of a slider was limited only by the distortion of the
+  mesh, which allowed up to +780 % of the substrate height of the patch antenna, far beyond where the model is
+  accurate. It now ends at 15 % of the solved value at the latest (patch antenna: within 0.2 of full solves
+  for every variable, the patch length 0.56 off at +20 %). Measurements in docs/TUNING.md.
+
+### Fixed
+- **Derivative tuning of a substrate width or length moved the patch with it.** A face that changes its shape
+  (the top of a substrate that gets wider) was stretched as a whole, so the patch and the lumped port lying on
+  it moved and grew with the substrate: tuning Ws also widened the patch by 0.31 mm per mm, and the tuned S11
+  was off a full solve by 0.66 already at −14 %. Now only the outline of such a face is carried; inside, the
+  nodes slide in the plane, so sheets on the face stay where they are. Patch antenna against full solves:
+  Ws −14 % 0.66 to 0.014, Ws +29 % 1.16 to 0.039, Ls +3 % 0.35 to 0.012 (|ΔS11|, linear).
+
 ## 0.3.26 (2026-11-14)
 
 ### Added
@@ -15,10 +31,6 @@ the GitHub release notes.
   Gradient from the best design so far. Measurements and rule of thumb in docs/TUNING.md (Memory).
 
 ### Changed
-- **Tuning ranges at most ±15 % of the value.** The range of a slider was limited only by the distortion of the
-  mesh, which allowed up to +780 % of the substrate height of the patch antenna, far beyond where the model is
-  accurate. It now ends at 15 % of the solved value at the latest (patch antenna: within 0.2 of full solves
-  for every variable, the patch length 0.56 off at +20 %). Measurements in docs/TUNING.md.
 - **Derivative tuning needs far less memory.** The tuning model of one frequency (the solution frequency of the
   setup, as Derivative Trust Region uses it) no longer keeps the matrices of every mesh state: they are combined
   into their differences and dropped, the differences are kept in single precision as in the band model, and
@@ -32,14 +44,6 @@ the GitHub release notes.
   version: 15 % less for one variable, 27 to 29 % for two, 40 % for four and 45 % for six (patch, 231k and
   522k unknowns; 4 variables 11.4 to 6.8 GB and 25.1 to 14.8 GB), and 6 to 26 % faster. The products stay in
   double precision, so the model is closer to a double precision reference than before.
-
-### Fixed
-- **Derivative tuning of a substrate width or length moved the patch with it.** A face that changes its shape
-  (the top of a substrate that gets wider) was stretched as a whole, so the patch and the lumped port lying on
-  it moved and grew with the substrate: tuning Ws also widened the patch by 0.31 mm per mm, and the tuned S11
-  was off a full solve by 0.66 already at −14 %. Now only the outline of such a face is carried; inside, the
-  nodes slide in the plane, so sheets on the face stay where they are. Patch antenna against full solves:
-  Ws −14 % 0.66 to 0.014, Ws +29 % 1.16 to 0.039, Ls +3 % 0.35 to 0.012 (|ΔS11|, linear).
 
 ## 0.3.25 (2026-11-14)
 
