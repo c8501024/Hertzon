@@ -33,8 +33,9 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
 - Adapt where the answer matters: the operating frequency for one band; for several bands
   SolutionFrequencyMode "Multi-Frequencies" with the band centres or edges; for very wide bands "Broadband".
   A sweep never refines the mesh: it is solved on the mesh adapted at these frequencies.
-- Start with moderate MaximumPasses and MaximumDeltaS (0.02) to explore. For the final design use a tighter
-  Delta S (0.01 or less) and MinimumConvergedPasses 2.
+- Design, tune and optimize with MaximumDeltaS 0.02 and MinimumConvergedPasses 1. Tighten Delta S (0.01,
+  two converged passes) only for the final check: the mesh, the memory and the time of every later solve,
+  tuning model and optimizer step grow with it (a patch went from 42k to 72k tetrahedra and 4.6 to 7.2 GB).
 - Use an interpolating sweep over a range wider than the bands for S11, and a discrete sweep with fields saved
   at a few in-band frequencies for far fields.
 
@@ -49,7 +50,8 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
 ## Typical knobs
 
 - Patch: length sets the frequency, inset or feed position sets the match, substrate height and permittivity
-  set the bandwidth. `create_patch_antenna()` builds one with its optimizer.
+  set the bandwidth. `create_patch_antenna()` builds one with its optimizer PatchOpt; run that optimization
+  directly (`run_simulation()` with optimization "PatchOpt"): it usually meets the match in one or two solves.
 - IFA/PIFA: total length from the short sets the frequency, the feed-to-short distance sets the resistance,
   the height above ground and the ground clearance set the bandwidth.
 - Monopole/dipole: length sets the frequency; a wider or tapered element gives more bandwidth.
