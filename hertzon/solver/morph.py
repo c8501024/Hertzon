@@ -77,51 +77,49 @@ def _is_line(tag: int) -> bool:
 
 
 def _face_loops(tag: int, plan: list | None = None) -> tuple[list[np.ndarray], list]:
-    """Boundary loops of a face as ordered point lists. plan (from the nominal build) fixes the curve order,
-    orientation and sample count, so that the same points are taken in a perturbed build."""
+    """Boundary loops of a face as ordered point lists. plan (from the nominal build) gives the number of
+    curves of every loop (a perturbed build must have the same); the loops of a perturbed build are chained
+    on their own (the curve order of gmsh may differ between builds) and aligned to the nominal points by
+    face_velocities (_align_loop)."""
     import gmsh
     occ = gmsh.model.occ
     _, curve_loops = occ.getCurveLoops(tag)
     loops, new_plan = [], []
     for li, curves in enumerate(curve_loops):
         curves = [abs(int(c)) for c in curves]
-        if plan is not None:
-            order = plan[li]
-            if len(order) != len(curves):
-                raise MorphError("the face topology changes with the variable")
-        else:
-            # chain the curves by their end points
-            segs = {}
+        if plan is not None and (li >= len(plan) or len(plan[li]) != len(curves)):
+            raise MorphError("the face topology changes with the variable")
+        # chain the curves by their end points
+        segs = {}
+        for c in curves:
+            n = 2 if _is_line(c) else _CURVE_SAMPLES
+            P = _curve_points(c, n)
+            segs[c] = (n, P)
+        order, used = [], set()
+        cur = curves[0]
+        n, P = segs[cur]
+        order.append((cur, n, False))
+        used.add(cur)
+        end = P[-1]
+        for _ in range(len(curves) - 1):
+            best = None
             for c in curves:
-                n = 2 if _is_line(c) else _CURVE_SAMPLES
-                P = _curve_points(c, n)
-                segs[c] = (n, P)
-            order, used = [], set()
-            cur = curves[0]
-            n, P = segs[cur]
-            order.append((cur, n, False))
-            used.add(cur)
-            end = P[-1]
-            for _ in range(len(curves) - 1):
-                best = None
-                for c in curves:
-                    if c in used:
-                        continue
-                    _, Q = segs[c]
-                    for rev, q in ((False, Q[0]), (True, Q[-1])):
-                        d = np.linalg.norm(q - end)
-                        if best is None or d < best[0]:
-                            best = (d, c, rev)
-                if best is None:
-                    break
-                _, c, rev = best
-                n, Q = segs[c]
-                order.append((c, n, rev))
-                used.add(c)
-                end = Q[0] if rev else Q[-1]
+                if c in used:
+                    continue
+                _, Q = segs[c]
+                for rev, q in ((False, Q[0]), (True, Q[-1])):
+                    d = np.linalg.norm(q - end)
+                    if best is None or d < best[0]:
+                        best = (d, c, rev)
+            if best is None:
+                break
+            _, c, rev = best
+            n, Q = segs[c]
+            order.append((c, n, rev))
+            used.add(c)
+            end = Q[0] if rev else Q[-1]
         pts = []
-        for k, (c_nominal, n, rev) in enumerate(order):
-            c = curves[k] if plan is not None else c_nominal
+        for c, n, rev in order:
             P = _curve_points(c, n)
             if rev:
                 P = P[::-1]
@@ -180,6 +178,23 @@ def build_faces(design, ev, plans: dict | None = None) -> tuple[dict, dict]:
         gmsh.model.setCurrent(cur)
 
 
+def _align_loop(P: np.ndarray, Q: np.ndarray) -> np.ndarray | None:
+    """The points of the perturbed loop Q in the order of the nominal loop P (same points, possibly another
+    start and direction): the cyclic shift and direction closest to P. None if the point counts differ."""
+    if Q.shape != P.shape:
+        return None
+    if not len(P):
+        return Q
+    best = None
+    for R in (Q, Q[::-1]):
+        for k in range(len(R)):
+            C = np.roll(R, -k, axis=0)
+            d = float(np.abs(C - P).max())
+            if best is None or d < best[0]:
+                best = (d, C)
+    return best[1]
+
+
 def perturbed(design, name: str, delta: float):
     """Copy of the design with variable name changed by delta (in the unit of its value)."""
     import copy
@@ -205,8 +220,9 @@ def face_velocities(project, design, name: str, step: float) -> list[Face]:
             raise MorphError(f"object '{key[0]}' changes its faces with variable '{name}'")
         vel = []
         for k, P in enumerate(loops):
-            a, b = lo[key][0][k], hi[key][0][k]
-            if a.shape != P.shape or b.shape != P.shape:
+            a = _align_loop(P, lo[key][0][k]) if k < len(lo[key][0]) else None
+            b = _align_loop(P, hi[key][0][k]) if k < len(hi[key][0]) else None
+            if a is None or b is None:
                 raise MorphError(f"object '{key[0]}' changes its face boundaries with variable '{name}'")
             vel.append((b - a) / (2 * step))
         va, vb = lo[key][1], hi[key][1]
@@ -406,6 +422,13 @@ def velocity_fields(mesh, faces_per_var: dict[str, list[Face]], fixed_ftags: set
     d0 = {v: np.zeros((N, 3)) for v in faces_per_var}
     count = {v: np.zeros(N) for v in faces_per_var}
     for var, faces in faces_per_var.items():
+        # normals of the moving plane faces at every node: a wall in such a plane moves with the face
+        carried: dict[int, list] = {}
+        for f in faces:
+            nid = on_face.get((f.obj, f.index))
+            if nid is not None and f.moving and f.planar:
+                for i in nid:
+                    carried.setdefault(int(i), []).append(f.normal)
         for f in faces:
             nid = on_face.get((f.obj, f.index))
             if nid is None or not len(nid) or not f.moving:
@@ -421,10 +444,15 @@ def velocity_fields(mesh, faces_per_var: dict[str, list[Face]], fixed_ftags: set
                 vel = np.repeat(vv[:1], len(nid), axis=0)
             vmax = max(float(np.abs(vel).max()), 1e-30)
             if fixed0[nid].any() and np.abs(vel[fixed0[nid]]).max() > 1e-6 * vmax:
-                raise MorphError(f"variable '{var}' moves '{f.obj}' at a wave port or a curved outer boundary (only lumped ports can stretch)")
+                raise MorphError(f"variable '{var}' moves '{f.obj}' at a Floquet port or a curved outer boundary")
             for i, v in zip(nid, vel):
-                if any(abs(float(q @ v)) > 1e-6 * vmax for q in wall.get(int(i), ())):
-                    raise MorphError(f"variable '{var}' moves '{f.obj}' through the outer boundary")
+                # a face in the plane of the wall moves the wall with it (an air box whose height follows a
+                # substrate, a wave port at the end of a line whose length is tuned); any other face may
+                # only slide along the wall
+                if any(abs(float(q @ v)) > 1e-6 * vmax
+                       and not any(abs(abs(float(q @ c)) - 1) < 1e-6 for c in carried.get(int(i), ()))
+                       for q in wall.get(int(i), ())):
+                    raise MorphError(f"variable '{var}' moves '{f.obj}' through the outer boundary or a wave port")
             d0[var][nid] += vel
             count[var][nid] += 1
             moving_nodes[nid] = True

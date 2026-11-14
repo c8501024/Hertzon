@@ -843,8 +843,26 @@ class SolutionDataDialog(QDialog):
                 return adaptive_pass_data(self.st, "AdaptivePasses")
             return self.st.sparams(sol.currentText())
 
+        def port_kind() -> str | None:
+            """'gamma' or 'zo' when the Matrix list shows the port modes, else None (S, Y, Z)."""
+            return {"Gamma": "gamma", "Zo": "zo"}.get(kind.currentText())
+
+        def load_kinds(d):
+            # Gamma and Zo of the port modes: listed when the solution has them (wave ports; a ports only
+            # solution has nothing else)
+            old = kind.currentText()
+            want = ["S", "Y", "Z"] if d is None or not d.get("ports_only") else []
+            want += [k for k, key in (("Gamma", "gamma"), ("Zo", "zo")) if d is not None and key in d]
+            if [kind.itemText(i) for i in range(kind.count())] != want:
+                kind.blockSignals(True)
+                kind.clear()
+                kind.addItems(want or ["S"])
+                kind.setCurrentText(old if old in want else (want or ["S"])[0])
+                kind.blockSignals(False)
+
         def load_freqs():
             d = data()
+            load_kinds(d)
             fsel.blockSignals(True)
             fsel.clear()
             if d is not None:
@@ -871,6 +889,9 @@ class SolutionDataDialog(QDialog):
             d = data()
             if d is None or fsel.currentIndex() < 0:
                 table.setRowCount(0)
+                return
+            if port_kind():
+                fill_ports(d)
                 return
             cat = {"S": "S Parameter", "Y": "Y Parameter", "Z": "Z Parameter"}[kind.currentText()]
             MM = network(d, cat)
@@ -905,6 +926,40 @@ class SolutionDataDialog(QDialog):
                     table.setItem(i, j, QTableWidgetItem(fmt_val(M[i, j])))
             table.resizeColumnsToContents()
 
+        def port_columns(d, key):
+            """Gamma or Zo of the solution d (frequencies x port modes / terminals) and the column names."""
+            A = np.atleast_2d(np.asarray(d[key], complex))
+            names = [n for n, _ in s_labels(self.st)]
+            if len(names) != A.shape[1]:
+                names = [str(i + 1) for i in range(A.shape[1])]
+            return A, names
+
+        def port_val(v, key):
+            if fmt.currentText() == "Real/Imag":
+                return f"{v.real:.5g} {'+' if v.imag >= 0 else '-'} j{abs(v.imag):.5g}"
+            return f"{abs(v):.5g}, {np.degrees(np.angle(v)):.2f}°"     # dB of an impedance means nothing
+
+        def fill_ports(d):
+            # one row per frequency (or pass), one column per port mode (terminal): Zo in ohm, Gamma =
+            # alpha + j beta in 1/m
+            key = port_kind()
+            A, names = port_columns(d, key)
+            passes = d.get("xaxis") == "Pass"
+            rows = range(len(d["freq"])) if fsel.currentIndex() == 0 else [fsel.currentIndex() - 1]
+            unit = "ohm" if key == "zo" else "1/m"
+            table.setRowCount(len(rows))
+            table.setColumnCount(1 + len(names))
+            table.setHorizontalHeaderLabels(["Pass" if passes else "Freq [GHz]"]
+                                            + [f"{kind.currentText()} {n} [{unit}]" for n in names])
+            table.setVerticalHeaderLabels([str(r + 1) for r in range(len(rows))])
+            for r, k in enumerate(rows):
+                f = d["freq"][k]
+                table.setItem(r, 0, QTableWidgetItem(str(int(f)) if passes else f"{f / 1e9:.6g}"))
+                for c in range(len(names)):
+                    v = A[min(k, len(A) - 1), c]
+                    table.setItem(r, c + 1, QTableWidgetItem("N/A" if np.isnan(v) else port_val(v, key)))
+            table.resizeColumnsToContents()
+
         def export_ts():
             from PySide6.QtWidgets import QFileDialog
             d = data()
@@ -929,18 +984,25 @@ class SolutionDataDialog(QDialog):
                                                   "CSV (*.csv)")
             if not path:
                 return
+            from ..export.table import write_csv
+            xh = "Pass" if d.get("xaxis") == "Pass" else "Freq [Hz]"
+            if port_kind():
+                A, names = port_columns(d, port_kind())
+                A = np.resize(A, (len(d["freq"]), A.shape[1]))
+                write_csv(path, [xh] + [f"{part}({kind.currentText()}({n}))" for n in names for part in ("re", "im")],
+                          np.column_stack([d["freq"]] + [c for i in range(A.shape[1])
+                                                         for c in (A[:, i].real, A[:, i].imag)]))
+                return
             cat = {"S": "S Parameter", "Y": "Y Parameter", "Z": "Z Parameter"}[kind.currentText()]
             M = network(d, cat)
             n = M.shape[1]
             k = kind.currentText()
-            xh = "Pass" if d.get("xaxis") == "Pass" else "Freq [Hz]"
             hdr = [xh] + [f"{part}({k}({i + 1},{j + 1}))" for j in range(n) for i in range(n)
                           for part in ("re", "im")]
             cols = [d["freq"]]
             for j in range(n):
                 for i in range(n):
                     cols += [M[:, i, j].real, M[:, i, j].imag]
-            from ..export.table import write_csv
             write_csv(path, hdr, np.column_stack(cols))
 
         sol.currentTextChanged.connect(load_freqs)
@@ -949,8 +1011,8 @@ class SolutionDataDialog(QDialog):
         fmt.currentTextChanged.connect(fill)
         exp_ts.clicked.connect(export_ts)
         exp_csv.clicked.connect(export_csv)
-        load_freqs()
         from ..solver.results import s_labels
+        load_freqs()
         # one entry per row of S: a port with several modes (Floquet TE00 / TM00) has a row per mode, a terminal
         # solution a row per terminal
         rows = s_labels(self.st)

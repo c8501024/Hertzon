@@ -3,6 +3,42 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+## 0.3.25 (2026-11-14)
+
+### Added
+- **Derivative tuning with wave ports.** A variable may now change the cross-section of a wave port (the trace
+  width or substrate height of a grounded CPW at its port) or move a wave port with the end of its line (the
+  line length): the port modes of every morphed mesh state are solved on its own port face, and the tuned Zo
+  and propagation constant follow the sliders. Before, such a variable stopped with "moves 'Trace' at a wave
+  port ... (only lumped ports can stretch)". The air box may also grow with a substrate whose height is tuned.
+- **Port Zo and Gamma in Solution Data.** Matrix Data lists *Gamma* (alpha + j beta, 1/m) and *Zo* (ohm) of every
+  wave port mode (terminal) next to S, Y and Z: for the last adaptive pass, for each sweep and, under *Adaptive
+  Passes*, for every pass, so you can see whether the port impedance has settled and whether the port is sized
+  right. Reports over the passes can plot `Zo(1)` and `Gamma(1)` too. Passes solved before this version have
+  no per-pass values.
+- **Sampled frequencies of an interpolating sweep** in the Message Manager: when the sweep finishes, one line
+  lists all frequencies it solved for its interpolation (GHz, ascending).
+
+### Changed
+- **Integration lines in a Modes tab.** The dialog of a wave or lumped port has a **Modes** tab with one row per
+  mode: Integration Line *None* (the solver's line) or *New Line...*, which closes the dialog to pick start and
+  end point in the 3D view and opens it again; the coordinates can also be typed. A wave port with several
+  modes takes a line per mode: Zo of modes 2, 3, ... is taken along their own line (Zpv), before every mode was
+  integrated along the line of mode 1. Projects keep their line as the line of mode 1; right click › Draw
+  Integration Line stays as the short way.
+
+### Fixed
+- **Derivative tuning took the wrong face motion when gmsh ordered a face boundary differently** in the
+  perturbed builds: the side face of the GCPW substrate gave its bottom corners the motion of the top ones.
+  The perturbed face boundaries are now matched point by point to the nominal ones.
+- **Return in the coordinate fields.** Points typed into the X, Y, Z fields of the status bar are entered with
+  Return also while a line or polyline is drawn; before, Return finished the line there and the typed point was
+  lost.
+- **A click in the model view deselects a boundary or excitation** (or mesh operation) selected in the Project
+  Manager, so its highlighted faces go away.
+
 ## 0.3.24 (2026-11-14)
 
 ### Added

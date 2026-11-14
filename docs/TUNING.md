@@ -131,7 +131,15 @@ mesh and **moves its nodes** (`hertzon/solver/morph.py`):
 - A node on a face that stays put may slide within that face. The mesh next to a moving edge then
   stretches over the whole face, not just one element layer. Nodes on plane parts of the outer
   boundary slide within it, so a substrate that fills the region can change its height.
-- Nodes on wave and Floquet ports, and on curved parts of the outer boundary, stay where they are.
+- A plane face that lies on the outer boundary or on a wave port takes that wall with it: an air box whose
+  height follows the substrate, or a wave port at the end of a line whose length is tuned.
+- **Wave ports change their cross-section** with the mesh: their nodes slide within the port plane, so a
+  trace width or a substrate height at the port can be tuned. Every mesh state solves the port modes on its
+  own port face (one modal analysis per state, scaled over the band as in the solve), with the polarity of
+  the nominal mode and the integration line moved with the face. The port impedance Zo and the propagation
+  constant of a tuned design come from these modes as well, so renormalization and de-embedding follow the
+  sliders.
+- Nodes on Floquet ports and on curved parts of the outer boundary stay where they are.
   **Lumped ports and lumped RLC elements stretch** with the mesh: their width, height, integration line
   and excitation follow.
 - All interior nodes follow a smooth extension of the boundary motion. This is a vector Laplace problem
@@ -230,8 +238,8 @@ are computed from those two powers.
   would fit. On the hairpin filter's initial mesh (6000 tetrahedra) 6 variables need about 5 GB and 25 minutes,
   2 variables 0.2 GB and 2 minutes, so the hairpin optimization *HairpinDTR* includes L, g and yP only.
 - A variable must move faces of the model, not change its topology. Plane faces may change shape.
-  Curved faces may only move. Wave and Floquet ports stay in place, so a variable that moves a wave port
-  face cannot be tuned.
+  Curved faces may only move. Floquet ports stay in place; a wave port may change its cross-section or move
+  along its normal with the face it lies on, but not tilt.
 - Not yet for terminal designs.
 - Fields Calculator quantities and field plots are not tuned: the model has no volume fields.
 - Patterns and antenna parameters exist only at frequencies with a solved far field, as for a solve.
