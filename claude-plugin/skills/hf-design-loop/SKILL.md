@@ -49,6 +49,7 @@ Every solve costs minutes to hours. Plan for the fewest solves:
 
 - When a design assistant creates an optimization (PatchOpt, HairpinCG ...), run it right away with
   `run_simulation()` and `optimization=...`: it solves the starting design itself. Do not solve the baseline first.
+  Keep the setup the assistant made, and when the optimization meets the goal, take its result: no extra solve.
 - Switch sweeps on only when you need the band (after the goal is met at the design frequency), and solve them
   together with the final check, not as extra runs.
 - Use `compute_tuning()` / `get_tuning()` for what-if questions instead of new solves.
@@ -70,15 +71,15 @@ If `get_status()` says the analysis will take long, tell the user the expected t
   milliseconds. Use them for what-if questions before solving again.
 - Near the goal, hand the iterations to an optimizer: `set_optimization()` (Derivative Trust Region for at most
   6 variables and a fixed topology, Latin Hypercube + Nelder-Mead far from the start), then
-  `apply_optimization()`. Tune and optimize on the exploration mesh (Delta S about 0.02): a tighter Delta S
-  makes every step slower and needs much more memory. Tighten it only for the final check (step 5).
+  `apply_optimization()`.
 - When a topology does not reach the goal after a fair try, change the topology, not only the dimensions.
 - Record failed ideas and why they failed. They are results too.
 
 ## 5. Verify before you report
 
 A fast result is not yet a correct one. Run the checks of `/hertzon:verify` (skill `results-check`) on the final
-design in one solve where you can (tighter Delta S with the sweep and far fields switched on): converged mesh with a tighter Delta S, the real figure of merit (for antennas far-field efficiency, not
+design, from the solves you already have where you can: converged mesh (the adaptive history of the last
+solve), the real figure of merit (for antennas far-field efficiency, not
 only S11), power balance, and a counter test for every claimed cause. For designs that matter, recommend an
 independent check (another solver or a measurement) and say so in the report.
 

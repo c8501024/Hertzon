@@ -15,9 +15,9 @@ conclusions. Before you act on a result, go through these checks in order and sa
   `get_results()` adds a `convergence_warning` when the target was not reached; never ignore it.
 - Delta S should fall from pass to pass. If it jumps, suspect the port or a geometry detail far below the
   mesh size.
-- Deep dips and high-Q points are the least reliable. Add them as adaptive frequencies or raise the passes
-  before you trust them.
-- For a final answer, solve once more with a tighter Delta S and check that the figure of merit barely moves.
+- Deep dips and high-Q points are the least reliable. Say so in the report.
+- Do not change MaximumDeltaS, the passes or mesh sizes yourself: the adaptive meshing takes care of the mesh.
+  If convergence looks doubtful, tell the user and suggest the change instead of making it.
 
 ## 2. Is the excitation right?
 
