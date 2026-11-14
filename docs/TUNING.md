@@ -232,11 +232,7 @@ are computed from those two powers.
 ## Limits
 
 - At most 6 variables at a time.
-- Memory and time grow with the square of the number of variables: the model assembles the mesh in
-  1 + 2n + n(n-1)/2 states (28 for 6 variables) and keeps the matrix differences of each. Before the states
-  are assembled the memory is estimated; a model that does not fit stops with the number of variables that
-  would fit. On the hairpin filter's initial mesh (6000 tetrahedra) 6 variables need about 5 GB and 25 minutes,
-  2 variables 0.2 GB and 2 minutes, so the hairpin optimization *HairpinDTR* includes L, g and yP only.
+- Memory and time grow with the square of the number of variables, see [Memory](#memory).
 - A variable must move faces of the model, not change its topology. Plane faces may change shape.
   Curved faces may only move. Floquet ports stay in place; a wave port may change its cross-section or move
   along its normal with the face it lies on, but not tilt.
@@ -244,6 +240,45 @@ are computed from those two powers.
 - Fields Calculator quantities and field plots are not tuned: the model has no volume fields.
 - Patterns and antenna parameters exist only at frequencies with a solved far field, as for a solve.
   With **Edit Sources**, the tuned far field excites the first port with 1 W.
+
+## Memory
+
+A tuning model needs more memory than the solve on the same mesh: it assembles the mesh in
+1 + 2n + n(n-1)/2 states for n variables and holds the matrix derivatives next to the factorization. Its peak
+grows in proportion to the unknowns of the mesh and with the square of the number of variables:
+
+    peak memory ≈ unknowns / 100 000 × (1.4 + 0.9 n + 0.2 n²) GB
+
+The unknowns of every adaptive pass are in the convergence table (Results > Solution Data > Convergence).
+Measured on the patch antenna at 2.45 GHz, at the solution frequency (as **Derivative Trust Region** with goals on
+the adaptive solution and **Derivative Tuning** of *LastAdaptive*):
+
+| Mesh | Unknowns | Solve | 1 variable | 2 | 3 | 4 | 6 |
+|---|---|---|---|---|---|---|---|
+| 36k tetrahedra | 231k | 3.8 GB | 5.8 GB | 9.5 GB | 14 GB | 19 GB | 34 GB |
+| 82k tetrahedra | 522k | 8.3 GB | 13 GB | 21 GB | 31 GB | 44 GB | 76 GB |
+| 322k tetrahedra | 2.05M | 34 GB | 52 GB | 84 GB | | | |
+
+As a rule of thumb, against the solve on the same mesh: 1 variable needs about 1.5 times its memory, 2 variables
+2.5 times, 4 variables 5 times and 6 variables 9 times. A model over the frequencies of a sweep (one basis for the
+band) needs less, about 0.6 of these numbers (6.0 GB for 2 and 11 GB for 4 variables on the 231k-unknown mesh),
+and takes longer.
+
+Before the start, Hertzon compares this estimate with the free memory of the computer, from the unknowns of the
+setup's last solve. When the model does not fit, it asks how to go on:
+
+- **Remote / Cloud...** opens Tools > Options > Remote: solve on a computer with more memory, a server in your
+  network or a cloud computer (Tools > Options > Cloud, see [REMOTE.md](REMOTE.md)). A remote solve is not
+  checked against the memory of this computer.
+- **Conjugate Gradient** (for an optimization with Derivative Trust Region): this run optimizes with Conjugate
+  Gradient instead. Every step is a solve of its own, which needs only the memory of a solve, but the
+  optimization takes more solves. The optimizer setting of the optimization stays as it is.
+- **Run Anyway**: start it without the check. The operating system may stop the solver when the memory runs out.
+
+Without a solved setup there is nothing to estimate from before the start (for example an optimization from a
+design wizard). The tuning run then checks the memory itself after the solve on its mesh and stops with a message
+instead of being stopped by the operating system. During a Derivative Trust Region optimization this switches to
+Conjugate Gradient from the best design so far, with a warning in the message window.
 
 ## Files
 

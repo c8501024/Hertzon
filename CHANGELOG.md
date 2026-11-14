@@ -5,6 +5,15 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Memory warning before a tuning model.** Derivative Tuning and the optimizer Derivative Trust Region estimate
+  the memory of the tuning model from the unknowns of the setup's last solve (about 1.5 times the solve for one
+  variable, 2.5 times for two, 9 times for six) and ask before the start when it exceeds the free memory: solve
+  on a remote or cloud computer, optimize this run with Conjugate Gradient, or run anyway. Without a solved
+  setup the tuning run checks the memory itself and stops with a message instead of being killed by the
+  operating system; a Derivative Trust Region optimization then continues with Conjugate Gradient from the
+  best design so far. Measurements and rule of thumb in docs/TUNING.md (Memory).
+
 ## 0.3.25 (2026-11-14)
 
 ### Added
