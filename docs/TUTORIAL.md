@@ -582,6 +582,28 @@ The assistant works step by step with the same building blocks you used above, a
 | Files and boards | `export` (Touchstone, STEP, Gerber, EMerge script), `import_pcb` (Gerber, Excellon, job files), `set_stackup`, `manage_design` (copy, delete), `list_examples`, `open_example` |
 | Scripting | `run_python` for anything else, with the Hertzon model API |
 
+### 5.4 The Claude plugin (optional)
+
+The tools above let an assistant do every step; the Hertzon plugin for Claude Code tells it in which order and
+what to check. It brings three skills, which Claude loads when they fit the request:
+
+| Skill | What it adds |
+|---|---|
+| `hf-design-loop` | the design workflow: goal in a design log, start from a Design Wizard or example, baseline, one idea at a time with sweeps, derivative tuning and optimizers, verification, report with the time per step |
+| `antenna-design` | open region, feeds, adaptive frequencies for several bands, far-field efficiency instead of S11 alone, typical tuning knobs |
+| `results-check` | mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis |
+
+and two commands: `/hertzon:design 2.45 GHz patch on 1.6 mm FR4, S11 below -15 dB` runs the whole workflow,
+`/hertzon:verify` checks the open design before you trust its numbers.
+
+Install it once in Claude Code, after registering the MCP server (5.1):
+
+```
+/plugin install hertzon --marketplace c8501024/hertzon
+```
+
+(On Claude Code older than 2.1.275: `/plugin marketplace add c8501024/hertzon`, then `/plugin install hertzon@hertzon`.)
+
 Simulation results can be wrong, whether you or an assistant set the model up. Check them as described in
 the README's *No warranty* section.
 

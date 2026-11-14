@@ -1,0 +1,18 @@
+{
+  "name": "hertzon",
+  "description": "Design RF circuits, antennas and filters with Hertzon: a design workflow, antenna know-how and result checks for Hertzon's MCP tools.",
+  "author": {
+    "name": "Dominik Mair"
+  },
+  "homepage": "https://c8501024.github.io/Hertzon/",
+  "repository": "https://github.com/c8501024/hertzon",
+  "license": "GPL-2.0-or-later",
+  "keywords": [
+    "rf",
+    "electromagnetics",
+    "fem",
+    "antenna",
+    "microwave",
+    "simulation"
+  ]
+}

@@ -14,6 +14,11 @@ the GitHub release notes.
   Integration Line stays as the short way.
 
 ### Added
+- **Claude plugin.** `claude-plugin/` holds a plugin for Claude Code with three skills (a design workflow from
+  the specification to a verified design and a report, antenna know-how, a checklist for reading results) and
+  the commands `/hertzon:design` and `/hertzon:verify`. It works on top of the MCP server and is installed with
+  `/plugin install hertzon --marketplace c8501024/hertzon` (README, tutorial 5.4). A test keeps the tool names in
+  the skills in step with the MCP server.
 - **Derivative tuning with wave ports.** A variable may now change the cross-section of a wave port (the trace
   width or substrate height of a grounded CPW at its port) or move a wave port with the end of its line (the
   line length): the port modes of every morphed mesh state are solved on its own port face, and the tuned Zo

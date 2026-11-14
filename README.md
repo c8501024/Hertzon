@@ -311,6 +311,19 @@ simulations: "build a 2.45 GHz patch on FR4 with a lumped port, solve it and giv
    on the `.hzn` files and runs the solver in the background.
 3. Start a new session of the assistant and ask for a simulation.
 
+### Claude plugin
+
+For Claude Code there is also a Hertzon plugin. The MCP server gives the assistant the tools; the plugin adds
+how to use them: a design workflow from the specification to a verified design and a report, know-how for
+antennas, a checklist for reading results, and the commands `/hertzon:design` and `/hertzon:verify`.
+Register the MCP server first (step 1 above), then in Claude Code:
+
+```
+/plugin install hertzon --marketplace c8501024/hertzon
+```
+
+Details: [claude-plugin/README.md](claude-plugin/README.md).
+
 The server offers tools to create projects, set variables and design settings, draw and import
 geometry, list faces (index, centre, normal), assign boundaries, ports and mesh operations, define
 setups, sweeps and far-field spheres, validate, run, follow the adaptive passes, read S-parameters,
