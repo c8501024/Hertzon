@@ -314,8 +314,8 @@ simulations: "build a 2.45 GHz patch on FR4 with a lumped port, solve it and giv
 ### Claude plugin
 
 For Claude Code there is also a Hertzon plugin. The MCP server gives the assistant the tools; the plugin adds
-how to use them: a design workflow from the specification to a verified design and a report, know-how for
-antennas, a checklist for reading results, the commands `/hertzon:design` and `/hertzon:verify`, and a pane
+how to use them: a design workflow from the specification to a verified design and a report, multi-fidelity for
+circuits (circuit first, full wave to check and correct), know-how for antennas, a checklist for reading results, the commands `/hertzon:design` and `/hertzon:verify`, and a pane
 beside the chat that shows every result Hertzon draws for the assistant (reports, field plots, the 3D view,
 convergence) as it looks in Hertzon.
 It is installed together with the MCP server: **Register** next to Claude Code (step 1 above) also installs the

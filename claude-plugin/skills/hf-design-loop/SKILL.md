@@ -42,6 +42,12 @@ Use the most specific method Hertzon offers before building geometry by hand:
 - boards: `import_pcb()` and `set_stackup()`;
 - circuits: `create_circuit()`, `edit_circuit()`; `circuit_layout()` turns a schematic into a 3D design and back.
 
+**Multi-fidelity is the principle.** Anything a circuit can describe (filters, couplers, dividers, matching
+networks, feed networks, active circuits) is designed in the circuit first, where an evaluation costs
+milliseconds, and checked and corrected in full wave afterwards with as few 3D solves as possible. Use the
+skill `circuit-first` for that, also and especially for structures the Design Wizard does not know yet.
+Antennas and other radiating structures have no circuit model: they start in 3D (skill `antenna-design`).
+
 Otherwise build the model with `set_design()` variables for every dimension you may tune, so that sweeps,
 optimizers and derivative tuning can use them. Look at it with `render_image()` before solving.
 

@@ -585,11 +585,12 @@ The assistant works step by step with the same building blocks you used above, a
 ### 5.4 The Claude plugin (optional)
 
 The tools above let an assistant do every step; the Hertzon plugin for Claude Code tells it in which order and
-what to check. It brings three skills, which Claude loads when they fit the request:
+what to check. It brings four skills, which Claude loads when they fit the request:
 
 | Skill | What it adds |
 |---|---|
 | `hf-design-loop` | the design workflow: goal in a design log, start from a Design Wizard or example, baseline, one idea at a time with sweeps, derivative tuning and optimizers, verification, report with the time per step |
+| `circuit-first` | multi-fidelity for planar circuits: design and optimize in the circuit first (Design Wizard or an own schematic, also for structures Hertzon does not know yet), then check and correct in full wave with a few 3D solves; systems of several parts; active circuits |
 | `antenna-design` | open region, feeds, adaptive frequencies for several bands, far-field efficiency instead of S11 alone, typical tuning knobs |
 | `results-check` | mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis |
 

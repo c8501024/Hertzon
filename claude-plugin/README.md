@@ -7,6 +7,7 @@ the know-how on top: in which order to work and what to check before trusting a 
 | Part | Name | What it does |
 |---|---|---|
 | Skill | `hf-design-loop` | Design workflow: goal in a design log, start from a Design Wizard or example, baseline, one idea at a time with sweeps, derivative tuning and optimizers, verification, report with time per step |
+| Skill | `circuit-first` | Multi-fidelity for planar circuits: design and optimize in the circuit (Design Wizard or a schematic of your own), then check and correct in full wave with a few 3D solves; systems of several parts; active circuits |
 | Skill | `antenna-design` | Open region, feeds, adaptive frequencies for several bands, far-field efficiency, typical tuning knobs |
 | Skill | `results-check` | Mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis |
 | Command | `/hertzon:design <spec>` | Runs the workflow for a specification |

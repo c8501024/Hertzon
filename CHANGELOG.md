@@ -14,8 +14,9 @@ the GitHub release notes.
   Integration Line stays as the short way.
 
 ### Added
-- **Claude plugin.** `claude-plugin/` holds a plugin for Claude Code with three skills (a design workflow from
-  the specification to a verified design and a report, antenna know-how, a checklist for reading results) and
+- **Claude plugin.** `claude-plugin/` holds a plugin for Claude Code with four skills (a design workflow from
+  the specification to a verified design and a report, multi-fidelity for circuits: circuit first, then full
+  wave, antenna know-how, a checklist for reading results) and
   the commands `/hertzon:design` and `/hertzon:verify`. It works on top of the MCP server and is installed with it:
   *Register* next to Claude Code in **Tools > AI Assistants (MCP)** also installs the plugin from the Hertzon folder
   (it ships with the installers and is updated with Hertzon); without the `claude` command Hertzon shows the line
