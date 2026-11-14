@@ -359,6 +359,14 @@ def _orth(cols: list[np.ndarray], tol: float = 1e-10) -> np.ndarray:
     return np.column_stack(V)
 
 
+def _mul(M, X: np.ndarray) -> np.ndarray:
+    """M @ X; a single precision matrix (a difference of states) multiplies in single precision, which is as
+    accurate as its entries and avoids converting the matrix to double precision for every product."""
+    if M.dtype == np.complex64:
+        return (M @ X.astype(np.complex64)).astype(np.complex128)
+    return M @ X
+
+
 def derivative_solutions(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list, bii: list,
                          bij: dict) -> np.ndarray:
     """The solution of A0 x = b and its first and second derivatives with respect to the variables (one
@@ -367,9 +375,9 @@ def derivative_solutions(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list
     fac = factor(A0)
     try:
         x0 = fac.solve(b)
-        xi = [fac.solve(bi[i] - Ai[i] @ x0) for i in range(n)]
-        xii = [fac.solve(bii[i] - (Aii[i] @ x0 + 2 * (Ai[i] @ xi[i]))) for i in range(n)]
-        xij = {(i, j): fac.solve(bij[(i, j)] - (Aij[(i, j)] @ x0 + Ai[i] @ xi[j] + Ai[j] @ xi[i]))
+        xi = [fac.solve(bi[i] - _mul(Ai[i], x0)) for i in range(n)]
+        xii = [fac.solve(bii[i] - (_mul(Aii[i], x0) + 2 * _mul(Ai[i], xi[i]))) for i in range(n)]
+        xij = {(i, j): fac.solve(bij[(i, j)] - (_mul(Aij[(i, j)], x0) + _mul(Ai[i], xi[j]) + _mul(Ai[j], xi[i])))
                for (i, j) in Aij}
     finally:
         if hasattr(fac, "close"):
@@ -406,7 +414,7 @@ def reduce_system(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list | None
     bij = bij if bij is not None else {key: zero for key in Aij}
     cols = derivative_solutions(A0, b, Ai, Aii, Aij, factor, bi, bii, bij)
     W = _orth([cols[:, e] for e in range(cols.shape[1])])
-    proj = lambda M: W.T @ (M @ W)      # noqa: E731  (complex symmetric: W^T keeps the reduced matrix symmetric)
+    proj = lambda M: W.T @ _mul(M, W)   # noqa: E731  (complex symmetric: W^T keeps the reduced matrix symmetric)
     k = W.shape[1]
     out = {
         "A0": proj(A0), "b": W.T @ b,
