@@ -133,9 +133,10 @@ def test_tuning_run_stops_before_the_states_when_memory_is_short(monkeypatch):
     T._check_free_memory(3, 231112, False, lambda s: None)
 
 
-def test_gui_asks_before_a_model_that_does_not_fit(qtbot, tmp_path, monkeypatch):
+def test_gui_asks_before_a_model_that_does_not_fit(tmp_path, monkeypatch):
     from types import SimpleNamespace as NS
-    from PySide6.QtWidgets import QMessageBox, QWidget
+    from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
+    app = QApplication.instance() or QApplication([])  # noqa: F841
     from hertzon.gui import tuning as GT
     from hertzon.solver import optimize as O
     from hertzon.solver.results import results_dir
@@ -144,7 +145,6 @@ def test_gui_asks_before_a_model_that_does_not_fit(qtbot, tmp_path, monkeypatch)
     res.mkdir(parents=True)
     (res / "convergence.json").write_text(json.dumps({"passes": [{"unknowns": 231112}]}))
     win = QWidget()
-    qtbot.addWidget(win)
     opened = []
     win.solver, win.doc, win.des = NS(remote=None), NS(project=NS(path=str(proj))), NS(name="D")
     win.options = opened.append
