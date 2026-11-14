@@ -252,15 +252,17 @@ Results > Solution Data > Convergence, lists them for every pass). Measured on t
 | 36k tetrahedra | 231k | 3.8 GB | 3.2 GB | 3.1 GB | 3.6 GB | 4.2 GB | 5.7 GB |
 | 82k tetrahedra | 522k | 8.2 GB | 6.9 GB | 7.0 GB | | 9.1 GB | 12.8 GB |
 | 322k tetrahedra | 2.05M | 33 GB | 28 GB | 28 GB | | 35 GB | |
-| 36k tetrahedra, over a sweep | 231k | 3.8 GB | | 5.9 GB | | 11.1 GB | |
+| 36k tetrahedra, over a sweep | 231k | 3.8 GB | 3.5 GB | 4.3 GB | | 6.7 GB | 10.4 GB |
+| 82k tetrahedra, over a sweep | 522k | 8.2 GB | 7.6 GB | 9.3 GB | | 14.5 GB | |
 
 - **At one frequency** (the solution frequency of the setup: Derivative Trust Region with goals on the adaptive
   solution, as the patch designer sets it up, and Derivative Tuning of *LastAdaptive*) the model needs about as
   much as the solve on the same mesh: up to 2 variables a little less, 4 variables 1.1 times, 6 variables
   1.5 times. Rule of thumb: unknowns / 100 000 × max(1.4, 1.2 + 0.035 n²) GB.
 - **Over the frequencies of a sweep** (one basis for the band) the model keeps the volume matrices of every
-  state and needs more: about 1.6 times the solve for 2 variables and 3 times for 4. Rule of thumb:
-  unknowns / 100 000 × 0.65 (1.4 + 0.9 n + 0.2 n²) GB. It also takes several times longer.
+  state (in single precision, on one shared sparsity pattern) and needs a little more: about the solve for
+  1 variable, 1.15 times for 2, 1.8 times for 4 and 2.7 times for 6. Rule of thumb:
+  unknowns / 100 000 × (1.4 + 0.15 n + 0.065 n²) GB. It also takes several times longer than one frequency.
 
 Before the start, Hertzon compares this estimate with the free memory of the computer, from the unknowns of the
 setup's last solve. When the model does not fit, it asks how to go on:

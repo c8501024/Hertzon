@@ -8,7 +8,7 @@ the GitHub release notes.
 ### Added
 - **Memory warning before a tuning model.** Derivative Tuning and the optimizer Derivative Trust Region estimate
   the memory of the tuning model from the unknowns of the setup's last solve (at one frequency about the memory
-  of the solve, over a sweep 1.6 times for two variables and 3 times for four) and ask before the start when it
+  of the solve, over a sweep 1.15 times for two variables and 1.8 times for four) and ask before the start when it
   exceeds the free memory: solve on a remote or cloud computer, optimize this run with Conjugate Gradient, or
   run anyway. Without a solved setup the tuning run checks the memory itself and stops with a message instead
   of being killed by the operating system; a Derivative Trust Region optimization then continues with Conjugate
@@ -21,6 +21,13 @@ the GitHub release notes.
   states are no longer cached when there is only one frequency. Peak memory against 0.3.25: patch (72k
   tetrahedra) 8.4 to 6.3 GB, UWB monopole with 4 variables 10.5 to 2.6 GB, hairpin filter with 3 variables
   11.4 GB where 0.3.25 ran out of memory (15 GB machine). The tuned S-parameters are the same.
+- **Derivative tuning over a sweep needs less memory and time.** The tuning model over the frequencies of a
+  sweep no longer assembles the matrix derivatives of every expansion frequency as full double precision
+  matrices next to the factorization (they act as operators on the vectors), the matrices of all mesh states
+  share one sparsity pattern, and the curl-curl matrix is stored real. Peak memory against the previous
+  version: 15 % less for one variable, 27 to 29 % for two, 40 % for four and 45 % for six (patch, 231k and
+  522k unknowns; 4 variables 11.4 to 6.8 GB and 25.1 to 14.8 GB), and 6 to 26 % faster. The products stay in
+  double precision, so the model is closer to a double precision reference than before.
 
 ## 0.3.25 (2026-11-14)
 
