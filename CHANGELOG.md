@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.26 (2026-11-14)
 
 ### Added
 - **Memory warning before a tuning model.** Derivative Tuning and the optimizer Derivative Trust Region estimate
