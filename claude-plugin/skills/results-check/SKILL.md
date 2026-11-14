@@ -38,7 +38,7 @@ conclusions. Before you act on a result, go through these checks in order and sa
   efficiency at that frequency, and a matching network that actually recovers the efficiency.
 - Strong reflection with a high Q_Z and no resonance nearby usually means there is no radiating mode at that
   frequency. The fix is geometric, not a matching network. Look at surface currents (`set_field_plot()`).
-- Separate loss from radiation with a counter test: solve once lossless (PEC metal, tan delta = 0). If the
+- Separate loss from radiation with a counter test (only when the user wants the cause): solve once lossless (PEC metal, tan delta = 0). If the
   total efficiency barely changes, losses are not the cause.
 
 ## 5. Confirmed or hypothesis?
@@ -48,5 +48,5 @@ name the test that would decide it. In reports, mark each conclusion as one or t
 
 ## 6. Independent check
 
-For a design that will be built or published, recommend an independent check: another solver, a different
-mesh or basis order (BasisOrder in `set_setup()`), or a measurement. Say in the report what was checked and how.
+For a design that will be built or published, recommend an independent check to the user (another solver or
+a measurement); do not run one yourself. Say in the report what was checked and how.

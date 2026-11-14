@@ -50,6 +50,10 @@ Every solve costs minutes to hours. Plan for the fewest solves:
 - When a design assistant creates an optimization (PatchOpt, HairpinCG ...), run it right away with
   `run_simulation()` and `optimization=...`: it solves the starting design itself. Do not solve the baseline first.
   Keep the setup the assistant made, and when the optimization meets the goal, take its result: no extra solve.
+  Let the optimization finish; do not abort it to take an earlier evaluation.
+- Never change the solver settings yourself: no new setups, no other basis order, Delta S, passes, mesh sizes
+  or adaptive frequencies. Hertzon's adaptive meshing and the assistants choose them. If you doubt a result,
+  say so in the report and suggest the check to the user instead of running it.
 - Switch sweeps on only when you need the band (after the goal is met at the design frequency), and solve them
   together with the final check, not as extra runs.
 - Use `compute_tuning()` / `get_tuning()` for what-if questions instead of new solves.
@@ -78,7 +82,7 @@ If `get_status()` says the analysis will take long, tell the user the expected t
 ## 5. Verify before you report
 
 A fast result is not yet a correct one. Run the checks of `/hertzon:verify` (skill `results-check`) on the final
-design, from the solves you already have where you can: converged mesh (the adaptive history of the last
+design, from the solves you already have (no new solve unless the user asks): converged mesh (the adaptive history of the last
 solve), the real figure of merit (for antennas far-field efficiency, not
 only S11), power balance, and a counter test for every claimed cause. For designs that matter, recommend an
 independent check (another solver or a measurement) and say so in the report.
