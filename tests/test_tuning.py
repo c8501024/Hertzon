@@ -284,3 +284,91 @@ def test_band_model_matches_the_model_of_every_frequency(tmp_path):
         assert np.abs(band.raw(dp) - each.raw(dp)).max() < 1e-4
         assert np.abs(grid.sparams(dp)[0] - each.sparams(dp)[0]).max() < 1e-3
     assert np.abs(each.raw([0.7]) - each.raw([0.0])).max() > 0.05
+
+
+def test_perturbed_face_loops_are_aligned_to_the_nominal_points():
+    """gmsh may start or orient the boundary loop of a face differently in a perturbed build: the points
+    are matched to the nominal ones (the side face of the GCPW substrate gave the bottom corners the
+    velocity of the top ones)."""
+    P = np.array([[0, 0, 0], [0, 0, 1], [0, 2, 1], [0, 2, 0]], float)
+    Q = (P + [0, 0, 0.001] * (P[:, 2:] > 0))[[2, 1, 0, 3]]          # another start, reversed
+    got = MO._align_loop(P, Q)
+    assert np.abs(got - P).max() <= 0.001 + 1e-12 and np.allclose(got[[0, 3]], P[[0, 3]])
+    assert MO._align_loop(P, Q[:3]) is None
+
+
+def _gcpw_model(tmp_path, var, freqs):
+    em = pytest.importorskip("emerge")
+    from hertzon.model.design import Project
+    from hertzon.solver import bridge as B
+    p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "GroundedCPW.hzn")
+    d = p.designs[0]
+    b = B.Bridge(p, d, d.setups[0], tmp_path)
+    m = em.Simulation(f"tuning_gcpw_{var}", save_file=False).__enter__()
+    b.prepare(m)
+    b.port_map = b.store.read_json("ports.json", None) or getattr(b, "port_map", [])
+    _, S_ref, _, _ = B.solve_at(m, list(freqs))
+    path = tmp_path / f"tuning_{var}.npz"
+    TU.build(b, [var], freqs, path)
+    faces = {var: MO.face_velocities(p, d, var, TU.variable_step(d.variables[var]))}
+    fixed, slide = TU.morph_constraints(m)
+    diag = float(np.linalg.norm(np.ptp(m.mesh.nodes, axis=1)))
+    V = MO.velocity_fields(m.mesh, faces, fixed, 1e-6 * diag, slide_ftags=slide)[var]
+    return m, TU.TuningModel(path), S_ref, V
+
+
+def _exact_on_morphed_mesh(m, asm, freqs, X, key):
+    from hertzon.solver.fast_sweep import _Factor
+    from emerge._emerge.mth.csc_submatrix import csc_submatrix
+    out, z0 = [], None
+    for fk in freqs:
+        A, bb, ids, mats = asm.system(fk, X, key=key)
+        x = _Factor(csc_submatrix(A, ids).tocsr()).solve(bb[ids])
+        y = np.linalg.norm(x, axis=0)
+        Lp, La, c0 = TU.s_functionals(m.mw, fk, x / y, A.shape[0], ids, mats, TU._port_powers(m.mw, fk))
+        S = np.empty((2, 2), complex)
+        for j in range(2):
+            S[:, j] = Lp[:, j] * y[j]
+            S[j, j] = La[j, j] * y[j] + c0[j]
+        out.append(S)
+        if z0 is None:
+            k0 = 2 * np.pi * fk / 299792458
+            z0 = np.array([complex(p.portZ0(k0)) for p, _, _ in m.mw.bc.iter_port_modes()])
+    return np.array(out), z0
+
+
+def test_trace_width_at_wave_ports_solves_the_port_modes_of_every_state(tmp_path):
+    """The trace width of the grounded CPW changes the cross-section of both wave ports: the port faces
+    deform with the mesh and the port modes are solved on the morphed faces. The tuned response and the
+    tuned port impedance match an exact solve on the morphed mesh with its own port modes."""
+    freqs = np.array([5e9, 10e9])
+    m, model, S_ref, V = _gcpw_model(tmp_path, "w", freqs)
+    try:
+        assert np.abs(model.raw([0.0]) - S_ref).max() < 1e-9
+        asm = TU.Assembly(m)
+        dp = 0.1                                                    # w 0.8 -> 0.9 mm
+        S, z0 = _exact_on_morphed_mesh(m, asm, freqs, asm.X0 + dp * V, ("exact",))
+        asm.restore()
+        assert np.abs(model.raw([dp]) - S).max() < 2e-3
+        _, z_tuned = model.port_constants([dp])
+        assert np.abs(z_tuned - z0).max() < 0.01 * abs(z0[0])
+        assert abs(z0[0] - model.z0[0]) > 2.0                      # the wider trace lowers Zo by ~3 ohm
+        assert np.abs(model.sparams([dp])[1] - z_tuned).max() < 1e-9  # without renormalization: Zo of the state
+    finally:
+        m.__exit__(None, None, None)
+
+
+def test_line_length_moves_the_wave_port(tmp_path):
+    """L moves the second wave port along the line (the end walls of the box move with it): the
+    transmission phase follows beta * dL."""
+    freqs = np.array([10e9])
+    m, model, S_ref, V = _gcpw_model(tmp_path, "L", freqs)
+    try:
+        asm = TU.Assembly(m)
+        S, _ = _exact_on_morphed_mesh(m, asm, freqs, asm.X0 + 0.5 * V, ("exact",))
+        asm.restore()
+        assert np.abs(model.raw([0.5]) - S).max() < 1e-3
+        dphi = np.angle(model.raw([0.5])[0, 1, 0] / model.raw([-0.5])[0, 1, 0])
+        assert abs(-dphi - model.beta[0, 0].real * 1e-3) < 0.01      # 1 mm more line
+    finally:
+        m.__exit__(None, None, None)

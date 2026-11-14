@@ -13,6 +13,18 @@ the GitHub release notes.
   integrated along the line of mode 1. Projects keep their line as the line of mode 1; right click › Draw
   Integration Line stays as the short way.
 
+### Added
+- **Derivative tuning with wave ports.** A variable may now change the cross-section of a wave port (the trace
+  width or substrate height of a grounded CPW at its port) or move a wave port with the end of its line (the
+  line length): the port modes of every morphed mesh state are solved on its own port face, and the tuned Zo
+  and propagation constant follow the sliders. Before, such a variable stopped with "moves 'Trace' at a wave
+  port ... (only lumped ports can stretch)". The air box may also grow with a substrate whose height is tuned.
+
+### Fixed
+- **Derivative tuning took the wrong face motion when gmsh ordered a face boundary differently** in the
+  perturbed builds: the side face of the GCPW substrate gave its bottom corners the motion of the top ones.
+  The perturbed face boundaries are now matched point by point to the nominal ones.
+
 ## 0.3.24 (2026-11-14)
 
 ### Added
