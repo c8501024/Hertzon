@@ -5,7 +5,14 @@ the GitHub release notes.
 
 ## Unreleased
 
+## 0.3.25 (2026-11-14)
+
 ### Added
+- **Derivative tuning with wave ports.** A variable may now change the cross-section of a wave port (the trace
+  width or substrate height of a grounded CPW at its port) or move a wave port with the end of its line (the
+  line length): the port modes of every morphed mesh state are solved on its own port face, and the tuned Zo
+  and propagation constant follow the sliders. Before, such a variable stopped with "moves 'Trace' at a wave
+  port ... (only lumped ports can stretch)". The air box may also grow with a substrate whose height is tuned.
 - **Port Zo and Gamma in Solution Data.** Matrix Data lists *Gamma* (alpha + j beta, 1/m) and *Zo* (ohm) of every
   wave port mode (terminal) next to S, Y and Z: for the last adaptive pass, for each sweep and, under *Adaptive
   Passes*, for every pass, so you can see whether the port impedance has settled and whether the port is sized
@@ -21,13 +28,6 @@ the GitHub release notes.
   modes takes a line per mode: Zo of modes 2, 3, ... is taken along their own line (Zpv), before every mode was
   integrated along the line of mode 1. Projects keep their line as the line of mode 1; right click › Draw
   Integration Line stays as the short way.
-
-### Added
-- **Derivative tuning with wave ports.** A variable may now change the cross-section of a wave port (the trace
-  width or substrate height of a grounded CPW at its port) or move a wave port with the end of its line (the
-  line length): the port modes of every morphed mesh state are solved on its own port face, and the tuned Zo
-  and propagation constant follow the sliders. Before, such a variable stopped with "moves 'Trace' at a wave
-  port ... (only lumped ports can stretch)". The air box may also grow with a substrate whose height is tuned.
 
 ### Fixed
 - **Derivative tuning took the wrong face motion when gmsh ordered a face boundary differently** in the
