@@ -362,9 +362,60 @@ def _orth(cols: list[np.ndarray], tol: float = 1e-10) -> np.ndarray:
 def _mul(M, X: np.ndarray) -> np.ndarray:
     """M @ X; a single precision matrix (a difference of states) multiplies in single precision, which is as
     accurate as its entries and avoids converting the matrix to double precision for every product."""
+    if isinstance(M, _Combined):
+        return M @ X
     if M.dtype == np.complex64:
         return (M @ X.astype(np.complex64)).astype(np.complex128)
     return M @ X
+
+
+class _Combined:
+    """E - k0^2 B + R as an operator: its product with a block of vectors is formed from the three matrices,
+    so that the derivative matrices of an expansion frequency are never assembled (each a full double
+    precision matrix of the mesh, all of them held next to the factorization). The products are in double
+    precision, as with the assembled matrices."""
+
+    def __init__(self, E, B, R, k2: float):
+        self.E, self.B, self.R, self.k2 = E, B, R, k2
+
+    def __matmul__(self, X: np.ndarray) -> np.ndarray:
+        return self.E @ X - self.k2 * (self.B @ X) + self.R @ X
+
+
+def _compact(M, pattern: tuple | None, single: bool):
+    """M (CSR) with real values when its imaginary parts are zero (the curl-curl matrix of materials without
+    magnetic loss), in single precision if asked, and on the index arrays of `pattern` (indptr, indices) when
+    its sparsity pattern is that one: the matrices of all mesh states share one pattern (the morphing moves
+    nodes, not connections), so it is held once instead of once per matrix."""
+    import scipy.sparse as sp
+    data = M.data
+    if np.iscomplexobj(data) and not np.any(data.imag):
+        data = data.real
+    if single:
+        data = data.astype(np.float32 if data.dtype.kind == "f" else np.complex64)
+    else:
+        data = np.ascontiguousarray(data)
+    indptr, indices = M.indptr, M.indices
+    if pattern is not None and _same_pattern(M, pattern):
+        indptr, indices = pattern
+    return sp.csr_matrix((data, indices, indptr), shape=M.shape, copy=False)
+
+
+def _same_pattern(M, pattern: tuple) -> bool:
+    return M.nnz == len(pattern[1]) and np.array_equal(M.indptr, pattern[0]) and np.array_equal(M.indices, pattern[1])
+
+
+def _combination(terms: list, pattern: tuple, scale: float):
+    """sum(c * M for c, M in terms) / scale in single precision; on the shared pattern the values are
+    combined directly (no sparse addition, which would drop zeros and give the result its own pattern)."""
+    import scipy.sparse as sp
+    if all(_same_pattern(M, pattern) for _, M in terms):
+        data = sum(c * M.data for c, M in terms) / scale
+        M = sp.csr_matrix((data, pattern[1], pattern[0]), shape=terms[0][1].shape, copy=False)
+    else:
+        M = sum(c * M for c, M in terms) / scale
+        M = M.tocsr()
+    return _compact(M, pattern, True)
 
 
 def derivative_solutions(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list, bii: list,
@@ -554,26 +605,29 @@ class BandModel:
         self.mats = nom["mats"]
         self._check_memory(E0, B0)
         h = steps
-        low = lambda M: M.astype(np.complex64 if np.iscomplexobj(M.data) else np.float32)      # noqa: E731
+        # one sparsity pattern for the matrices of all states; E is real without magnetic loss
+        pat = (E0.indptr, E0.indices)
+        E0, B0 = _compact(E0, pat, False), _compact(B0, pat, False)
         Ed1, Ed2, Bd1, Bd2, plus = [], [], [], [], []
         for i in range(n):
             sp_, sm = self._state(((i, 1),), f_ref), self._state(((i, -1),), f_ref)
             Ep, Bp, Em, Bm = sp_.pop("E"), sp_.pop("B"), sm.pop("E"), sm.pop("B")
             self.parts[((i, 1),)], self.parts[((i, -1),)] = sp_, sm
-            Ed1.append(low((Ep - Em) / (2 * h[i])))
-            Bd1.append(low((Bp - Bm) / (2 * h[i])))
-            Ed2.append(low((Ep - 2 * E0 + Em) / h[i] ** 2))
-            Bd2.append(low((Bp - 2 * B0 + Bm) / h[i] ** 2))
+            Ed1.append(_combination([(1, Ep), (-1, Em)], pat, 2 * h[i]))
+            Bd1.append(_combination([(1, Bp), (-1, Bm)], pat, 2 * h[i]))
+            Ed2.append(_combination([(1, Ep), (-2, E0), (1, Em)], pat, h[i] ** 2))
+            Bd2.append(_combination([(1, Bp), (-2, B0), (1, Bm)], pat, h[i] ** 2))
             del Em, Bm
-            plus.append((Ep, Bp))
+            plus.append((_compact(Ep, pat, False), _compact(Bp, pat, False)))
+            del Ep, Bp
         Edx, Bdx = [], []
         for i, j in pairs(n):
             key = ((i, 1), (j, 1))
             st = self._state(key, f_ref)
             Epp, Bpp = st.pop("E"), st.pop("B")
             self.parts[key] = st
-            Edx.append(low((Epp - plus[i][0] - plus[j][0] + E0) / (h[i] * h[j])))
-            Bdx.append(low((Bpp - plus[i][1] - plus[j][1] + B0) / (h[i] * h[j])))
+            Edx.append(_combination([(1, Epp), (-1, plus[i][0]), (-1, plus[j][0]), (1, E0)], pat, h[i] * h[j]))
+            Bdx.append(_combination([(1, Bpp), (-1, plus[i][1]), (-1, plus[j][1]), (1, B0)], pat, h[i] * h[j]))
             del Epp, Bpp
         del plus
         self.E = (E0, Ed1, Ed2, Edx)
@@ -703,9 +757,14 @@ class BandModel:
         from .fast_sweep import _Factor
         self.asm.mw._compute_modes(f)
         Rt, bt = self.boundary_terms(f)
-        A0, Ai, Aii, Aij = self._combine(self.E, self.B, Rt, 2 * np.pi * f / 299792458)
+        k2 = (2 * np.pi * f / 299792458) ** 2
+        Et, Bt = self.E, self.B
+        A0 = (Et[0] - k2 * Bt[0] + Rt[0]).tocsr()
+        Ai = [_Combined(Et[1][i], Bt[1][i], Rt[1][i], k2) for i in range(self.n)]
+        Aii = [_Combined(Et[2][i], Bt[2][i], Rt[2][i], k2) for i in range(self.n)]
+        Aij = {key: _Combined(Et[3][q], Bt[3][q], Rt[3][q], k2) for q, key in enumerate(pairs(self.n))}
         bij = {key: bt[3][q] for q, key in enumerate(pairs(self.n))}
-        return derivative_solutions(A0.tocsr(), bt[0], Ai, Aii, Aij, _Factor, bt[1], bt[2], bij)
+        return derivative_solutions(A0, bt[0], Ai, Aii, Aij, _Factor, bt[1], bt[2], bij)
 
     def basis(self, freqs: np.ndarray, tol: float = 1e-4, max_points: int | None = None) -> np.ndarray:
         """Greedy choice of the expansion frequencies: start in the middle of the band, add the frequency
@@ -1075,14 +1134,14 @@ ADAPTIVE = "LastAdaptive"       # sweep name of the tuning model at the solution
 
 # ---- memory ------------------------------------------------------------------------------------
 # Peak memory of a tuning model, linear in the unknowns of the mesh. Measured on the patch antenna at
-# 2.45 GHz with 231k, 522k and 2.05M unknowns and 1 to 6 variables (simstation02, peak RSS):
-# - one frequency (the solution frequency, as Derivative Trust Region uses it): about the solve itself for 1 to
-#   2 variables (the nominal solve is the peak), then the derivatives: per 100k unknowns
-#   max(1.40, 1.22 + 0.035 n^2) GB, within -2 to +6 %; the solve on the same mesh is 1.6 GB per 100k;
-# - over a band (one basis for the frequencies of a sweep): 0.65 (1.39 + 0.89 n + 0.21 n^2) GB per 100k
-#   unknowns, 5.9 GB for 2 and 11.1 GB for 4 variables on 231k unknowns (estimate 6.0 and 12.5 GB).
+# 2.45 GHz (peak RSS; the solve on the same mesh is 1.6 GB per 100k unknowns):
+# - one frequency (the solution frequency, as Derivative Trust Region uses it), 231k, 522k and 2.05M unknowns,
+#   1 to 6 variables: about the solve for 1 to 2 variables (the nominal solve is the peak), then the
+#   derivatives: per 100k unknowns max(1.40, 1.22 + 0.035 n^2) GB, within -2 to +6 %;
+# - over a band (one basis for the frequencies of a sweep), 231k unknowns: 3.75, 4.51 and 6.72 GB for 1, 2 and
+#   4 variables, per 100k unknowns 1.45 + 0.19 n + 0.05 n^2 GB (3 to 4 % above).
 MEMORY_FREQUENCY = (1.40, 1.22, 0.035)  # GB per 100k unknowns: floor, constant, per variable^2
-MEMORY_BAND = (1.39, 0.89, 0.21, 0.65)  # GB per 100k unknowns: constant, per variable, per variable^2, scale
+MEMORY_BAND = (1.45, 0.19, 0.05)        # GB per 100k unknowns: constant, per variable, per variable^2
 MEMORY_USABLE = 0.9         # share of the free memory a model may take
 NO_MEMORY_CHECK = "HERTZON_TUNING_IGNORE_MEMORY"    # "1": compute the model even when it does not seem to fit
 
@@ -1096,8 +1155,8 @@ def memory_estimate(n: int, unknowns: float, band: bool = False) -> float:
     """Peak memory (bytes) of the tuning model of n variables on a mesh with that many unknowns; band: one
     model over several frequencies of a sweep."""
     if band:
-        c0, c1, c2, scale = MEMORY_BAND
-        gb = scale * (c0 + c1 * n + c2 * n * n)
+        c0, c1, c2 = MEMORY_BAND
+        gb = c0 + c1 * n + c2 * n * n
     else:
         floor, c0, c2 = MEMORY_FREQUENCY
         gb = max(floor, c0 + c2 * n * n)
