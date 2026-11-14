@@ -51,6 +51,13 @@ def test_valid_range_of_a_vertex_moving_into_its_tetrahedron():
     assert abs(lo + 0.7) < 1e-6 and hi > 1e3
 
 
+def test_tuning_range_is_at_most_15_percent_of_the_value():
+    assert np.allclose(TU.limit_range((-30.0, 50.0), "60mm"), (-9.0, 9.0))    # the mesh would allow far more
+    assert np.allclose(TU.limit_range((-0.5, 9.0), "1.6mm"), (-0.24, 0.24))
+    assert TU.limit_range((-1.0, 2.0), "60mm") == (-1.0, 2.0)          # the mesh limit is tighter
+    assert TU.limit_range((-1.0, 2.0), "0mm") == (-1.0, 2.0)           # an offset of 0: the mesh decides
+
+
 class _LU:
     def __init__(self, A):
         from scipy.sparse.linalg import splu
