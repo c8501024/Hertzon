@@ -13,7 +13,8 @@ KINDS = {
     "optimize": "hertzon.solver.optimize",
 }
 # environment of the solver process the GUI may set per job (cores and workers are the service's own)
-JOB_ENV = ("HERTZON_MESH_ONLY", "HERTZON_ONLY_SWEEP", "HERTZON_TUNING")
+JOB_ENV = ("HERTZON_MESH_ONLY", "HERTZON_ONLY_SWEEP", "HERTZON_TUNING", "HERTZON_OPT_ALGORITHM",
+           "HERTZON_TUNING_IGNORE_MEMORY")
 
 
 def safe_rel(path: str) -> PurePosixPath:

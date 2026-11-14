@@ -4441,7 +4441,11 @@ class MainWindow(QMainWindow):
         if not self.doc.project.path or self.doc.dirty:
             if not self.file_save():
                 return ""
-        job = Job(self.doc.project.path, self.des.name, setup,
+        from .tuning import memory_check
+        env = memory_check(self, setup, len(variables), sweep != "LastAdaptive" and int(points) > 1)
+        if env is None:
+            return ""
+        job = Job(self.doc.project.path, self.des.name, setup, env=env,
                   tuning=json.dumps({"sweep": sweep, "variables": variables, "points": int(points)}))
         self.solver.submit(job)
         return job.key
@@ -4628,7 +4632,15 @@ class MainWindow(QMainWindow):
                 return
         if self._is_circuit() and not self._solve_cross_sections():      # full-wave line model: the start widths
             return
-        self.solver.submit(Job(self.doc.project.path, self.des.name, "", optimization=name))
+        env: dict | None = {}
+        if not self._is_circuit() and op.props.get("Optimizer") == "Derivative Trust Region":
+            from .tuning import memory_check
+            n = sum(1 for v in op.variables if v.get("include", True))
+            setup, _, sol = op.solution.partition(":")
+            env = memory_check(self, setup.strip(), n, sol.strip() != "LastAdaptive", optimization=True)
+            if env is None:
+                return
+        self.solver.submit(Job(self.doc.project.path, self.des.name, "", optimization=name, env=env))
         self.project_tree.rebuild()
         self.optimization_results(name)
 

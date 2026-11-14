@@ -232,11 +232,7 @@ are computed from those two powers.
 ## Limits
 
 - At most 6 variables at a time.
-- Memory and time grow with the square of the number of variables: the model assembles the mesh in
-  1 + 2n + n(n-1)/2 states (28 for 6 variables) and keeps the matrix differences of each. Before the states
-  are assembled the memory is estimated; a model that does not fit stops with the number of variables that
-  would fit. On the hairpin filter's initial mesh (6000 tetrahedra) 6 variables need about 5 GB and 25 minutes,
-  2 variables 0.2 GB and 2 minutes, so the hairpin optimization *HairpinDTR* includes L, g and yP only.
+- Memory and time grow with the square of the number of variables, see [Memory](#memory).
 - A variable must move faces of the model, not change its topology. Plane faces may change shape.
   Curved faces may only move. Floquet ports stay in place; a wave port may change its cross-section or move
   along its normal with the face it lies on, but not tilt.
@@ -244,6 +240,45 @@ are computed from those two powers.
 - Fields Calculator quantities and field plots are not tuned: the model has no volume fields.
 - Patterns and antenna parameters exist only at frequencies with a solved far field, as for a solve.
   With **Edit Sources**, the tuned far field excites the first port with 1 W.
+
+## Memory
+
+A tuning model assembles the mesh in 1 + 2n + n(n-1)/2 states for n variables and holds the matrix derivatives
+next to a factorization. Its memory grows in proportion to the unknowns of the mesh (the convergence table,
+Results > Solution Data > Convergence, lists them for every pass). Measured on the patch antenna at 2.45 GHz:
+
+| Mesh | Unknowns | Solve | 1 variable | 2 | 3 | 4 | 6 |
+|---|---|---|---|---|---|---|---|
+| 36k tetrahedra | 231k | 3.8 GB | 3.2 GB | 3.1 GB | 3.6 GB | 4.2 GB | 5.7 GB |
+| 82k tetrahedra | 522k | 8.2 GB | 6.9 GB | 7.0 GB | | 9.1 GB | 12.8 GB |
+| 322k tetrahedra | 2.05M | 33 GB | 28 GB | 28 GB | | 35 GB | |
+| 36k tetrahedra, over a sweep | 231k | 3.8 GB | 3.5 GB | 4.3 GB | | 6.7 GB | 10.4 GB |
+| 82k tetrahedra, over a sweep | 522k | 8.2 GB | 7.6 GB | 9.3 GB | | 14.5 GB | |
+
+- **At one frequency** (the solution frequency of the setup: Derivative Trust Region with goals on the adaptive
+  solution, as the patch designer sets it up, and Derivative Tuning of *LastAdaptive*) the model needs about as
+  much as the solve on the same mesh: up to 2 variables a little less, 4 variables 1.1 times, 6 variables
+  1.5 times. Rule of thumb: unknowns / 100 000 × max(1.4, 1.2 + 0.035 n²) GB.
+- **Over the frequencies of a sweep** (one basis for the band) the model keeps the volume matrices of every
+  state (in single precision, on one shared sparsity pattern) and needs a little more: about the solve for
+  1 variable, 1.15 times for 2, 1.8 times for 4 and 2.7 times for 6. Rule of thumb:
+  unknowns / 100 000 × (1.4 + 0.15 n + 0.065 n²) GB. It also takes several times longer than one frequency.
+
+Before the start, Hertzon compares this estimate with the free memory of the computer, from the unknowns of the
+setup's last solve. When the model does not fit, it asks how to go on:
+
+- **Remote / Cloud...** opens Tools > Options > Remote: solve on a computer with more memory, a server in your
+  network or a cloud computer (Tools > Options > Cloud, see [REMOTE.md](REMOTE.md)). A remote solve is not
+  checked against the memory of this computer.
+- **Conjugate Gradient** (for an optimization with Derivative Trust Region): this run optimizes with Conjugate
+  Gradient instead. Every step is a solve of its own, which needs only the memory of a solve, but the
+  optimization takes more solves. The optimizer setting of the optimization stays as it is.
+- **Run Anyway**: start it without the check. The operating system may stop the solver when the memory runs out.
+
+Without a solved setup there is nothing to estimate from before the start (for example an optimization from a
+design wizard). The tuning run then checks the memory itself after the solve on its mesh and stops with a message
+instead of being stopped by the operating system. During a Derivative Trust Region optimization this switches to
+Conjugate Gradient from the best design so far, with a warning in the message window.
 
 ## Files
 
