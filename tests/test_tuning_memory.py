@@ -13,31 +13,34 @@ GB = 2 ** 30
 
 
 # (unknowns, variables, measured peak GB) on simstation02, patch antenna 2.45 GHz at the solution frequency
-MEASURED = [(231112, 1, 5.65), (231112, 2, 9.24), (231112, 3, 13.62), (231112, 4, 19.01), (231112, 6, 32.80),
-            (522360, 1, 12.58), (522360, 2, 20.75), (522360, 4, 42.88), (522360, 6, 74.36),
-            (2051544, 1, 50.77), (2051544, 2, 82.09)]
+MEASURED = [(231112, 1, 3.2), (231112, 2, 3.1), (231112, 3, 3.6), (231112, 4, 4.2), (231112, 6, 5.7),
+            (522360, 1, 6.9), (522360, 2, 7.0), (522360, 4, 9.1), (522360, 6, 12.8),
+            (2051544, 1, 28.2), (2051544, 2, 28.2), (2051544, 4, 35.2)]
 
 
 @pytest.mark.parametrize("unknowns,n,gb", MEASURED)
 def test_estimate_follows_the_measurements(unknowns, n, gb):
-    assert T.memory_estimate(n, unknowns) == pytest.approx(gb * GB, rel=0.04)
+    est = T.memory_estimate(n, unknowns) / GB
+    assert 0.97 * gb <= est <= 1.08 * gb
 
 
-def test_band_model_needs_less_and_states_count():
+def test_band_model_needs_more_and_states_count():
     assert [T.mesh_states(n) for n in (1, 2, 3, 6)] == [3, 6, 10, 28]
-    # measured over a sweep: 2 variables 5.88 GB, 4 variables 11.07 GB (the estimate errs on the safe side)
-    for n, gb in ((2, 5.88), (4, 11.07)):
+    # measured over a sweep: 2 variables 5.9 GB, 4 variables 11.1 GB (the estimate errs on the safe side)
+    for n, gb in ((2, 5.9), (4, 11.1)):
         assert gb * GB <= T.memory_estimate(n, 231112, band=True) <= 1.15 * gb * GB
+    assert T.memory_estimate(4, 231112, band=True) > 2 * T.memory_estimate(4, 231112)
 
 
 def test_shortage_names_the_variables_that_fit():
-    u = 231112
+    u = 2051544                                                     # one frequency: 28.7 GB up to 2 variables
     assert T.memory_shortage(2, u, 64 * GB) is None
-    assert T.memory_shortage(2, 0, 1 * GB) is None              # nothing known: no warning
-    short = T.memory_shortage(3, u, 12 * GB)
-    assert short is not None and short["fit"] == 2 and short["need"] > 13 * GB
-    assert T.memory_shortage(2, u, 4 * GB)["fit"] == 0
-    assert T.memory_shortage(3, u, 12 * GB, band=True) is None
+    assert T.memory_shortage(2, 0, 1 * GB) is None                # nothing known: no warning
+    short = T.memory_shortage(6, u, 42 * GB)                       # 6 variables: 50.8 GB, 4: 36.5 GB
+    assert short is not None and short["fit"] == 4 and short["need"] > 50 * GB
+    assert T.memory_shortage(2, u, 20 * GB)["fit"] == 0
+    short = T.memory_shortage(3, 231112, 8 * GB, band=True)        # over a band: 8.9 GB
+    assert short is not None and short["fit"] == 2
     msg = T.memory_message(3, short)
     assert msg.startswith("not enough memory") and "at most 2 variables" in msg
     assert "Remote" in msg and "Conjugate Gradient" in msg
@@ -123,14 +126,13 @@ def test_tuning_run_stops_before_the_states_when_memory_is_short(monkeypatch):
     from hertzon.solver import bridge as B
     from hertzon.solver import morph as MO
     monkeypatch.setattr(B, "_current_rss", lambda: 3.0 * GB)
-    monkeypatch.setattr(T, "free_memory", lambda: 6.0 * GB)
+    monkeypatch.setattr(T, "free_memory", lambda: 2.0 * GB)
     monkeypatch.delenv(T.NO_MEMORY_CHECK, raising=False)
     with pytest.raises(MO.MorphError, match="not enough memory"):
-        T._check_free_memory(2, 231112, False, lambda s: None)
-    T._check_free_memory(1, 231112, False, lambda s: None)          # 5.8 GB of 9 GB: fits
-    T._check_free_memory(2, 231112, True, lambda s: None)           # over a band: 6 GB
+        T._check_free_memory(2, 231112, True, lambda s: None)        # over a band: 6 GB of 5 GB
+    T._check_free_memory(2, 231112, False, lambda s: None)           # one frequency: 3.2 GB, fits
     monkeypatch.setenv(T.NO_MEMORY_CHECK, "1")                       # Run Anyway
-    T._check_free_memory(3, 231112, False, lambda s: None)
+    T._check_free_memory(4, 231112, True, lambda s: None)
 
 
 def test_gui_asks_before_a_model_that_does_not_fit(tmp_path, monkeypatch):
@@ -159,18 +161,21 @@ def test_gui_asks_before_a_model_that_does_not_fit(tmp_path, monkeypatch):
         return 0
     monkeypatch.setattr(QMessageBox, "exec", exec_)
     monkeypatch.setattr(T, "free_memory", lambda: 64 * GB)
-    assert GT.memory_check(win, "Setup1", 2, False) == {}             # 9.3 GB of 64 GB: no question
+    assert GT.memory_check(win, "Setup1", 2, True) == {}              # 6 GB of 64 GB: no question
     assert not shown
-    monkeypatch.setattr(T, "free_memory", lambda: 6 * GB)
+    monkeypatch.setattr(T, "free_memory", lambda: 3 * GB)
     answer["text"] = "Conjugate Gradient"
     assert GT.memory_check(win, "Setup1", 2, False, optimization=True) == {O.ALGORITHM_ENV: O.CONJUGATE_GRADIENT}
-    assert "needs about 9.3 GB" in shown[-1]
+    assert "needs about 3.2 GB" in shown[-1]
     answer["text"] = "Run Anyway"
     assert GT.memory_check(win, "Setup1", 2, False) == {T.NO_MEMORY_CHECK: "1"}
     answer["text"] = "Remote / Cloud..."
     assert GT.memory_check(win, "Setup1", 2, False) is None and opened == ["Remote"]
     answer["text"] = "Cancel"
     assert GT.memory_check(win, "Setup1", 2, False) is None
-    assert GT.memory_check(win, "Setup1", 1, True) == {}               # over a band 3.7 GB: fits
+    monkeypatch.setattr(T, "free_memory", lambda: 8 * GB)
+    assert GT.memory_check(win, "Setup1", 2, False) == {}              # one frequency 3.2 GB: fits
+    answer["text"] = "Run Anyway"
+    assert GT.memory_check(win, "Setup1", 4, True) == {T.NO_MEMORY_CHECK: "1"}   # over a band 12.5 GB
     win.solver.remote = object()                                       # a remote computer solves: no question
     assert GT.memory_check(win, "Setup1", 6, False) == {}

@@ -243,26 +243,24 @@ are computed from those two powers.
 
 ## Memory
 
-A tuning model needs more memory than the solve on the same mesh: it assembles the mesh in
-1 + 2n + n(n-1)/2 states for n variables and holds the matrix derivatives next to the factorization. Its peak
-grows in proportion to the unknowns of the mesh and with the square of the number of variables:
-
-    peak memory ≈ unknowns / 100 000 × (1.4 + 0.9 n + 0.2 n²) GB
-
-The unknowns of every adaptive pass are in the convergence table (Results > Solution Data > Convergence).
-Measured on the patch antenna at 2.45 GHz, at the solution frequency (as **Derivative Trust Region** with goals on
-the adaptive solution and **Derivative Tuning** of *LastAdaptive*):
+A tuning model assembles the mesh in 1 + 2n + n(n-1)/2 states for n variables and holds the matrix derivatives
+next to a factorization. Its memory grows in proportion to the unknowns of the mesh (the convergence table,
+Results > Solution Data > Convergence, lists them for every pass). Measured on the patch antenna at 2.45 GHz:
 
 | Mesh | Unknowns | Solve | 1 variable | 2 | 3 | 4 | 6 |
 |---|---|---|---|---|---|---|---|
-| 36k tetrahedra | 231k | 3.8 GB | 5.8 GB | 9.5 GB | 14 GB | 19 GB | 34 GB |
-| 82k tetrahedra | 522k | 8.3 GB | 13 GB | 21 GB | 31 GB | 44 GB | 76 GB |
-| 322k tetrahedra | 2.05M | 34 GB | 52 GB | 84 GB | | | |
+| 36k tetrahedra | 231k | 3.8 GB | 3.2 GB | 3.1 GB | 3.6 GB | 4.2 GB | 5.7 GB |
+| 82k tetrahedra | 522k | 8.2 GB | 6.9 GB | 7.0 GB | | 9.1 GB | 12.8 GB |
+| 322k tetrahedra | 2.05M | 33 GB | 28 GB | 28 GB | | 35 GB | |
+| 36k tetrahedra, over a sweep | 231k | 3.8 GB | | 5.9 GB | | 11.1 GB | |
 
-As a rule of thumb, against the solve on the same mesh: 1 variable needs about 1.5 times its memory, 2 variables
-2.5 times, 4 variables 5 times and 6 variables 9 times. A model over the frequencies of a sweep (one basis for the
-band) needs less, about 0.6 of these numbers (6.0 GB for 2 and 11 GB for 4 variables on the 231k-unknown mesh),
-and takes longer.
+- **At one frequency** (the solution frequency of the setup: Derivative Trust Region with goals on the adaptive
+  solution, as the patch designer sets it up, and Derivative Tuning of *LastAdaptive*) the model needs about as
+  much as the solve on the same mesh: up to 2 variables a little less, 4 variables 1.1 times, 6 variables
+  1.5 times. Rule of thumb: unknowns / 100 000 × max(1.4, 1.2 + 0.035 n²) GB.
+- **Over the frequencies of a sweep** (one basis for the band) the model keeps the volume matrices of every
+  state and needs more: about 1.6 times the solve for 2 variables and 3 times for 4. Rule of thumb:
+  unknowns / 100 000 × 0.65 (1.4 + 0.9 n + 0.2 n²) GB. It also takes several times longer.
 
 Before the start, Hertzon compares this estimate with the free memory of the computer, from the unknowns of the
 setup's last solve. When the model does not fit, it asks how to go on:

@@ -1074,14 +1074,15 @@ ADAPTIVE = "LastAdaptive"       # sweep name of the tuning model at the solution
 
 
 # ---- memory ------------------------------------------------------------------------------------
-# Peak memory of a tuning model, linear in the unknowns of the mesh and quadratic in the number of variables
-# (the mesh states and the matrix derivatives held at once). Fit to 12 runs at the solution frequency on the
-# patch antenna at 2.45 GHz with 231k, 522k and 2.05M unknowns and 1 to 6 variables (within 2 %): per 100k
-# unknowns 1.39 + 0.89 n + 0.21 n^2 GB, so 1 variable about 1.5 times the solve on the same mesh, 2 variables
-# 2.5 times, 4 variables 5 times, 6 variables 9 times. A model over a band (one basis for all frequencies,
-# volume matrices of the states in single precision) peaked lower: 0.64 (2 variables) and 0.58 (4) of it.
-MEMORY_COEFFS = (1.39, 0.89, 0.21)      # GB per 100k unknowns: constant, per variable, per variable^2
-MEMORY_BAND = 0.65
+# Peak memory of a tuning model, linear in the unknowns of the mesh. Measured on the patch antenna at
+# 2.45 GHz with 231k, 522k and 2.05M unknowns and 1 to 6 variables (simstation02, peak RSS):
+# - one frequency (the solution frequency, as Derivative Trust Region uses it): about the solve itself for 1 to
+#   2 variables (the nominal solve is the peak), then the derivatives: per 100k unknowns
+#   max(1.40, 1.22 + 0.035 n^2) GB, within -2 to +6 %; the solve on the same mesh is 1.6 GB per 100k;
+# - over a band (one basis for the frequencies of a sweep): 0.65 (1.39 + 0.89 n + 0.21 n^2) GB per 100k
+#   unknowns, 5.9 GB for 2 and 11.1 GB for 4 variables on 231k unknowns (estimate 6.0 and 12.5 GB).
+MEMORY_FREQUENCY = (1.40, 1.22, 0.035)  # GB per 100k unknowns: floor, constant, per variable^2
+MEMORY_BAND = (1.39, 0.89, 0.21, 0.65)  # GB per 100k unknowns: constant, per variable, per variable^2, scale
 MEMORY_USABLE = 0.9         # share of the free memory a model may take
 NO_MEMORY_CHECK = "HERTZON_TUNING_IGNORE_MEMORY"    # "1": compute the model even when it does not seem to fit
 
@@ -1094,9 +1095,13 @@ def mesh_states(n: int) -> int:
 def memory_estimate(n: int, unknowns: float, band: bool = False) -> float:
     """Peak memory (bytes) of the tuning model of n variables on a mesh with that many unknowns; band: one
     model over several frequencies of a sweep."""
-    c0, c1, c2 = MEMORY_COEFFS
-    gb = unknowns / 1e5 * (c0 + c1 * n + c2 * n * n)
-    return gb * 2 ** 30 * (MEMORY_BAND if band else 1.0)
+    if band:
+        c0, c1, c2, scale = MEMORY_BAND
+        gb = scale * (c0 + c1 * n + c2 * n * n)
+    else:
+        floor, c0, c2 = MEMORY_FREQUENCY
+        gb = max(floor, c0 + c2 * n * n)
+    return unknowns / 1e5 * gb * 2 ** 30
 
 
 def free_memory() -> float:
