@@ -200,6 +200,28 @@ class AiLink(QObject):
                 raise RuntimeError(f"no report named {a['name']!r}")
             w.open_report(a["name"])
             return {"opened": a["name"]}
+        if cmd == "capture":
+            # MCP show_result: a picture of a report, a field plot, the 3D view or a Solutions tab, drawn by the
+            # widgets of this window (an open report tab and the 3D view as they are shown)
+            import base64
+            from . import capture
+            des = a.get("design") or doc.design_name
+            if des != doc.design_name:
+                doc.set_design(des)
+            size = tuple(a["size"]) if a.get("size") else None
+            what = a.get("what")
+            shown = True
+            if what == "report":
+                shown = a["name"] in w.report_tabs
+                png = capture.report_png(doc, a["name"], w.report_tabs.get(a["name"]), size)
+            elif what == "solutions":
+                shown = False
+                png = capture.solutions_png(doc, a.get("setup"), a.get("tab") or "Convergence", size)
+            elif what in ("field_plot", "view"):
+                png = capture.view_png(w, a.get("name") if what == "field_plot" else None, size)
+            else:
+                raise RuntimeError("what is report, field_plot, view or solutions")
+            return {"png": base64.b64encode(png).decode("ascii"), "shown": shown and size is None}
         if cmd == "queue":
             sv = w.solver
             return {"running": sv.job.key if sv.busy and sv.job else None, "queued": [j.key for j in sv.queue]}

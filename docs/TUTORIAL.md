@@ -573,7 +573,7 @@ The assistant works step by step with the same building blocks you used above, a
 | Geometry | `add_object`, `import_geometry`, `modify_object`, `add_operation` (subtract, unite, ...), `delete`, `get_geometry` (faces with index, centre, normal; edges and vertices for Fillet/Chamfer), `set_coordinate_system` |
 | Boundaries and ports | `assign`, `modify_assignment` (boundaries, wave/lumped ports, plane waves, mesh operations) |
 | Analysis | `set_setup`, `set_sweep`, `set_far_field_sphere`, `validate`, `run_simulation`, `get_status`, `abort_simulation` |
-| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `render_image` (a picture of the model), `set_report` (`open=true` shows it in the window), `set_field_plot`, `set_equation` (Fields Calculator) |
+| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `show_result` (a report, a field plot, the 3D view or the convergence table as a picture drawn by Hertzon, as shown in the window), `render_image` (a picture of the model), `set_report` (`open=true` shows it in the window), `set_field_plot`, `set_equation` (Fields Calculator) |
 | Parametric and optimization | `set_parametric`, `set_optimization` (Conjugate Gradient, Latin Hypercube + Nelder-Mead, Derivative Trust Region or Space Mapping), run and read with `run_simulation`, `get_status`, `get_results`; `apply_optimization` takes the best result over into the design |
 | Derivative tuning | `compute_tuning` (tuning model of up to 6 variables on the solved mesh), `get_tuning` (S-parameters at other variable values without solving) |
 | Design assistants | `list_structures` and `create_structure` (Tools > Design Wizard), `create_patch_antenna`, `create_hairpin_filter`, `create_hairpin_diplexer` (the designers of the rectangular patch, hairpin filter and hairpin diplexer in the Design Wizard): complete designs with setup, sweep and optimization |
@@ -581,6 +581,34 @@ The assistant works step by step with the same building blocks you used above, a
 | Connectors | `list_edge_connectors` (SMA, 2.92 mm, 2.4 mm library), `attach_edge_connector` (a connector with its launch footprint at a lumped port at the board edge), `set_connector_mode` (Ideal, Transition, 3D; flatten, remove, optimize_launch, apply_footprint), `get_connectors` |
 | Files and boards | `export` (Touchstone, STEP, Gerber, EMerge script), `import_pcb` (Gerber, Excellon, job files), `set_stackup`, `manage_design` (copy, delete), `list_examples`, `open_example` |
 | Scripting | `run_python` for anything else, with the Hertzon model API |
+
+### 5.4 The Claude plugin (optional)
+
+The tools above let an assistant do every step; the Hertzon plugin for Claude Code tells it in which order and
+what to check. It brings three skills, which Claude loads when they fit the request:
+
+| Skill | What it adds |
+|---|---|
+| `hf-design-loop` | the design workflow: goal in a design log, start from a Design Wizard or example, baseline, one idea at a time with sweeps, derivative tuning and optimizers, verification, report with the time per step |
+| `antenna-design` | open region, feeds, adaptive frequencies for several bands, far-field efficiency instead of S11 alone, typical tuning knobs |
+| `results-check` | mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis |
+
+and two commands: `/hertzon:design 2.45 GHz patch on 1.6 mm FR4, S11 below -15 dB` runs the whole workflow,
+`/hertzon:verify` checks the open design before you trust its numbers.
+
+The plugin also adds a **Hertzon pane** beside the chat (Claude Code in the terminal, the desktop app and the
+IDE extensions). Every picture Hertzon draws for the assistant appears there: a report, a field plot, the 3D
+view or the convergence table, drawn by Hertzon exactly as in its window (`show_result`). The arrows page
+through earlier pictures, `/hertzon-results` opens the pane, and while an analysis runs the line above the prompt
+shows its adaptive pass, tetrahedra and Delta S. The pictures are kept in `~/.hertzon/shown`.
+
+Install it once in Claude Code, after registering the MCP server (5.1):
+
+```
+/plugin install hertzon --marketplace c8501024/hertzon
+```
+
+(On Claude Code older than 2.1.275: `/plugin marketplace add c8501024/hertzon`, then `/plugin install hertzon@hertzon`.)
 
 Simulation results can be wrong, whether you or an assistant set the model up. Check them as described in
 the README's *No warranty* section.

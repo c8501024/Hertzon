@@ -1,0 +1,12 @@
+{
+  "name": "hertzon",
+  "owner": { "name": "Dominik Mair" },
+  "metadata": { "description": "Claude plugin for Hertzon, the open electromagnetic design suite." },
+  "plugins": [
+    {
+      "name": "hertzon",
+      "source": "./claude-plugin",
+      "description": "Design workflow, antenna know-how and result checks for Hertzon's MCP tools."
+    }
+  ]
+}
