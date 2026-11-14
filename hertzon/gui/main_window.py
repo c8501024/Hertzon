@@ -5981,6 +5981,10 @@ class MainWindow(QMainWindow):
                 self._connector_port_menu(m, data[1])
             if a.kind == "Wave Port":
                 m.addSeparator()
+                m.addAction("Draw Integration Line", lambda: self.draw_integration_line(data[1]))
+                if a.props.get("IntegrationLine", "").strip():
+                    m.addAction("Clear Integration Line (automatic)", lambda: self.clear_integration_line(data[1]))
+                m.addSeparator()
                 n = max(1, int(float(a.props.get("NumberOfModes", "1") or 1)))
                 term = self.des.settings.get("SolutionType") == "Terminal"
                 for k in range(1, (n if not term else max(n, 4)) + 1):
@@ -6394,6 +6398,15 @@ class MainWindow(QMainWindow):
             self.msgs.add("warning", f"{name}: no integration line found, draw it or enter it in the properties")
             return
         self._set_integration_line(name, line)
+
+    def clear_integration_line(self, name: str) -> None:
+        """Wave port: back to the automatic voltage line of the solver."""
+        self.doc.checkpoint()
+        a = self.des.assignment(name)
+        a.props["IntegrationLine"] = ""
+        self.doc.commit("excitations", geometry=False)
+        self.view.show_assignments([a])
+        self.msgs.add("info", f"{name}: integration line set by the solver")
 
     def _line_on_object(self, a, line: str) -> str:
         """Integration line picked in the model (global) in the coordinates of its object, so that it moves
