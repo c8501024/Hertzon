@@ -1138,10 +1138,11 @@ ADAPTIVE = "LastAdaptive"       # sweep name of the tuning model at the solution
 # - one frequency (the solution frequency, as Derivative Trust Region uses it), 231k, 522k and 2.05M unknowns,
 #   1 to 6 variables: about the solve for 1 to 2 variables (the nominal solve is the peak), then the
 #   derivatives: per 100k unknowns max(1.40, 1.22 + 0.035 n^2) GB, within -2 to +6 %;
-# - over a band (one basis for the frequencies of a sweep), 231k unknowns: 3.75, 4.51 and 6.72 GB for 1, 2 and
-#   4 variables, per 100k unknowns 1.45 + 0.19 n + 0.05 n^2 GB (3 to 4 % above).
+# - over a band (one basis for the frequencies of a sweep), 231k and 522k unknowns, 1 to 6 variables: 3.5 to
+#   10.4 GB on 231k unknowns, 7.6 to 14.5 GB on 522k; per 100k unknowns 1.40 + 0.15 n + 0.065 n^2 GB
+#   (-1 to +10 %).
 MEMORY_FREQUENCY = (1.40, 1.22, 0.035)  # GB per 100k unknowns: floor, constant, per variable^2
-MEMORY_BAND = (1.45, 0.19, 0.05)        # GB per 100k unknowns: constant, per variable, per variable^2
+MEMORY_BAND = (1.40, 0.15, 0.065)       # GB per 100k unknowns: constant, per variable, per variable^2
 MEMORY_USABLE = 0.9         # share of the free memory a model may take
 NO_MEMORY_CHECK = "HERTZON_TUNING_IGNORE_MEMORY"    # "1": compute the model even when it does not seem to fit
 

@@ -24,12 +24,21 @@ def test_estimate_follows_the_measurements(unknowns, n, gb):
     assert 0.97 * gb <= est <= 1.08 * gb
 
 
-def test_band_model_needs_more_and_states_count():
+# over a sweep (unknowns, variables, measured peak GB): simstation02 and a 15 GB cloud computer
+MEASURED_BAND = [(231112, 1, 3.52), (231112, 2, 4.30), (231112, 4, 6.67), (231112, 6, 10.44),
+                 (231112, 1, 3.75), (231112, 2, 4.51), (231112, 4, 6.72), (231112, 6, 10.30),
+                 (522360, 1, 7.62), (522360, 2, 9.31), (522360, 4, 14.48)]
+
+
+@pytest.mark.parametrize("unknowns,n,gb", MEASURED_BAND)
+def test_band_estimate_follows_the_measurements(unknowns, n, gb):
+    est = T.memory_estimate(n, unknowns, band=True) / GB
+    assert 0.98 * gb <= est <= 1.12 * gb
+
+
+def test_states_count_and_band_needs_more():
     assert [T.mesh_states(n) for n in (1, 2, 3, 6)] == [3, 6, 10, 28]
-    # measured over a sweep: 2 variables 5.9 GB, 4 variables 11.1 GB (the estimate errs on the safe side)
-    for n, gb in ((2, 5.9), (4, 11.1)):
-        assert gb * GB <= T.memory_estimate(n, 231112, band=True) <= 1.15 * gb * GB
-    assert T.memory_estimate(4, 231112, band=True) > 2 * T.memory_estimate(4, 231112)
+    assert T.memory_estimate(4, 231112, band=True) > T.memory_estimate(4, 231112)
 
 
 def test_shortage_names_the_variables_that_fit():
@@ -39,7 +48,7 @@ def test_shortage_names_the_variables_that_fit():
     short = T.memory_shortage(6, u, 42 * GB)                       # 6 variables: 50.8 GB, 4: 36.5 GB
     assert short is not None and short["fit"] == 4 and short["need"] > 50 * GB
     assert T.memory_shortage(2, u, 20 * GB)["fit"] == 0
-    short = T.memory_shortage(3, 231112, 8 * GB, band=True)        # over a band: 8.9 GB
+    short = T.memory_shortage(3, 231112, 6 * GB, band=True)        # over a band: 5.7 GB, 2 variables 4.7 GB
     assert short is not None and short["fit"] == 2
     msg = T.memory_message(3, short)
     assert msg.startswith("not enough memory") and "at most 2 variables" in msg
@@ -126,13 +135,36 @@ def test_tuning_run_stops_before_the_states_when_memory_is_short(monkeypatch):
     from hertzon.solver import bridge as B
     from hertzon.solver import morph as MO
     monkeypatch.setattr(B, "_current_rss", lambda: 3.0 * GB)
-    monkeypatch.setattr(T, "free_memory", lambda: 2.0 * GB)
+    monkeypatch.setattr(T, "free_memory", lambda: 1.0 * GB)
     monkeypatch.delenv(T.NO_MEMORY_CHECK, raising=False)
     with pytest.raises(MO.MorphError, match="not enough memory"):
-        T._check_free_memory(2, 231112, True, lambda s: None)        # over a band: 6 GB of 5 GB
-    T._check_free_memory(2, 231112, False, lambda s: None)           # one frequency: 3.2 GB, fits
+        T._check_free_memory(2, 231112, True, lambda s: None)        # over a band: 4.7 GB of 4 GB
+    T._check_free_memory(1, 231112, False, lambda s: None)           # one frequency: 3.2 GB, fits
     monkeypatch.setenv(T.NO_MEMORY_CHECK, "1")                       # Run Anyway
     T._check_free_memory(4, 231112, True, lambda s: None)
+
+
+def test_band_matrices_share_one_pattern_and_act_as_operators():
+    import scipy.sparse as sp
+    rng = np.random.default_rng(0)
+    A = sp.random(60, 60, density=0.2, format="csr", random_state=1) + sp.eye(60, format="csr")
+    pat = (A.indptr, A.indices)
+    E0 = sp.csr_matrix((A.data.astype(complex), A.indices.copy(), A.indptr.copy()), shape=A.shape)
+    Ep = sp.csr_matrix((A.data * 1.01 + 0j, A.indices.copy(), A.indptr.copy()), shape=A.shape)
+    Em = sp.csr_matrix((A.data * 0.98 + 0j, A.indices.copy(), A.indptr.copy()), shape=A.shape)
+    c = T._compact(E0, pat, False)
+    assert c.dtype == np.float64 and np.shares_memory(c.indices, pat[1])   # real, on the shared pattern
+    d = T._combination([(1, Ep), (-2, E0), (1, Em)], pat, 0.5)
+    assert d.dtype == np.float32 and np.shares_memory(d.indices, pat[1])
+    assert np.allclose(d.toarray(), ((Ep - 2 * E0 + Em) / 0.5).toarray().real, rtol=1e-6, atol=1e-6)
+    B = sp.csr_matrix((A.data * (1 - 0.01j), A.indices, A.indptr), shape=A.shape)
+    Bc = T._compact(B, pat, True)
+    assert Bc.dtype == np.complex64
+    R = sp.random(60, 60, density=0.02, format="csr", random_state=2) * 1j
+    X = rng.standard_normal((60, 3)) + 1j * rng.standard_normal((60, 3))
+    op = T._Combined(d, Bc, R, 2.5)
+    ref = (d.astype(np.complex128) - 2.5 * Bc.astype(np.complex128) + R) @ X
+    assert np.allclose(T._mul(op, X), ref, rtol=1e-12, atol=1e-12)    # double precision products
 
 
 def test_gui_asks_before_a_model_that_does_not_fit(tmp_path, monkeypatch):
@@ -161,7 +193,7 @@ def test_gui_asks_before_a_model_that_does_not_fit(tmp_path, monkeypatch):
         return 0
     monkeypatch.setattr(QMessageBox, "exec", exec_)
     monkeypatch.setattr(T, "free_memory", lambda: 64 * GB)
-    assert GT.memory_check(win, "Setup1", 2, True) == {}              # 6 GB of 64 GB: no question
+    assert GT.memory_check(win, "Setup1", 2, True) == {}              # 4.7 GB of 64 GB: no question
     assert not shown
     monkeypatch.setattr(T, "free_memory", lambda: 3 * GB)
     answer["text"] = "Conjugate Gradient"
@@ -175,7 +207,8 @@ def test_gui_asks_before_a_model_that_does_not_fit(tmp_path, monkeypatch):
     assert GT.memory_check(win, "Setup1", 2, False) is None
     monkeypatch.setattr(T, "free_memory", lambda: 8 * GB)
     assert GT.memory_check(win, "Setup1", 2, False) == {}              # one frequency 3.2 GB: fits
+    monkeypatch.setattr(T, "free_memory", lambda: 6 * GB)
     answer["text"] = "Run Anyway"
-    assert GT.memory_check(win, "Setup1", 4, True) == {T.NO_MEMORY_CHECK: "1"}   # over a band 12.5 GB
+    assert GT.memory_check(win, "Setup1", 4, True) == {T.NO_MEMORY_CHECK: "1"}   # over a band 7 GB
     win.solver.remote = object()                                       # a remote computer solves: no question
     assert GT.memory_check(win, "Setup1", 6, False) == {}
