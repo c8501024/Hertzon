@@ -1,5 +1,6 @@
 """MCP server: protocol and the model tools on a project file (no FEM solve)."""
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -186,3 +187,28 @@ def test_equations_reports_plots_and_studies(server, tmp_path):
     s = call(server, "get_project", design="Design1")
     assert [x["name"] for x in s["equations"]] == ["P_in"] and s["functions"] == []
     assert "parametrics" not in s and "optimizations" not in s and "field_plots" not in s
+
+
+def test_claude_install_adds_the_plugin(tmp_path, monkeypatch):
+    """With the claude command the plugin is installed from the folder of this installation and removed again."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(clients, "_claude_cli", lambda: "claude")
+    calls = []
+
+    def run(cmd, timeout=60):
+        calls.append(cmd[1:])
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(clients, "_run", run)
+    assert clients.plugin_source() == str(clients.ROOT)
+    msg = clients.claude_install()
+    assert "plugin 'hertzon' installed" in msg
+    assert ["plugin", "install", "hertzon", "--marketplace", str(clients.ROOT), "--json"] in calls
+    clients.claude_remove()
+    assert ["plugin", "uninstall", "hertzon@hertzon"] in calls and ["plugin", "marketplace", "remove", "hertzon"] in calls
+
+
+def test_plugin_hint_without_cli(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(clients, "_claude_cli", lambda: None)
+    monkeypatch.setattr(clients, "ROOT", tmp_path)          # an installation without the plugin folder
+    assert "claude plugin install hertzon --marketplace c8501024/hertzon" in clients.claude_install()

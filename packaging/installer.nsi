@@ -274,6 +274,8 @@ Section "Uninstall"
     ; program files and the Python environment; projects saved elsewhere are not touched
     RMDir /r "$INSTDIR\hertzon"
     RMDir /r "$INSTDIR\examples"
+    RMDir /r "$INSTDIR\claude-plugin"
+    RMDir /r "$INSTDIR\.claude-plugin"
     RMDir /r "$INSTDIR\docs"
     RMDir /r "$INSTDIR\.venv"
     RMDir /r "$INSTDIR\.pip-cache"

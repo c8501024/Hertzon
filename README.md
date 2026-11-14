@@ -318,7 +318,9 @@ how to use them: a design workflow from the specification to a verified design a
 antennas, a checklist for reading results, the commands `/hertzon:design` and `/hertzon:verify`, and a pane
 beside the chat that shows every result Hertzon draws for the assistant (reports, field plots, the 3D view,
 convergence) as it looks in Hertzon.
-Register the MCP server first (step 1 above), then in Claude Code:
+It is installed together with the MCP server: **Register** next to Claude Code (step 1 above) also installs the
+plugin from your Hertzon folder, so it always matches your version of Hertzon and is updated with it (this needs
+the `claude` command; *Remove* takes both away again). Without the `claude` command, install it in Claude Code:
 
 ```
 /plugin install hertzon --marketplace c8501024/hertzon

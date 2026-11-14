@@ -16,8 +16,10 @@ the GitHub release notes.
 ### Added
 - **Claude plugin.** `claude-plugin/` holds a plugin for Claude Code with three skills (a design workflow from
   the specification to a verified design and a report, antenna know-how, a checklist for reading results) and
-  the commands `/hertzon:design` and `/hertzon:verify`. It works on top of the MCP server and is installed with
-  `/plugin install hertzon --marketplace c8501024/hertzon` (README, tutorial 5.4). A test keeps the tool names in
+  the commands `/hertzon:design` and `/hertzon:verify`. It works on top of the MCP server and is installed with it:
+  *Register* next to Claude Code in **Tools > AI Assistants (MCP)** also installs the plugin from the Hertzon folder
+  (it ships with the installers and is updated with Hertzon); without the `claude` command Hertzon shows the line
+  `/plugin install hertzon --marketplace c8501024/hertzon` instead (README, tutorial 5.4). A test keeps the tool names in
   the skills in step with the MCP server. Its **Hertzon pane** beside the chat shows every picture Hertzon draws
   for the assistant, and the line above the prompt the adaptive pass of a running analysis.
 - **MCP tool `show_result`.** A picture of a report, a field plot, the 3D view or a tab of the Solutions window

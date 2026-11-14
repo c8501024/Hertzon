@@ -17,9 +17,10 @@ the know-how on top: in which order to work and what to check before trusting a 
 ## Install
 
 1. Install Hertzon and register its MCP server: **Tools > AI Assistants (MCP)... > Register** next to Claude Code
-   (or `python -m hertzon.mcp --install claude`). The plugin does not start the server itself, because it runs
-   in the Python of your Hertzon installation.
-2. In Claude Code:
+   (or `python -m hertzon.mcp --install claude`). This also installs the plugin from your Hertzon folder (it loads
+   in place, so it matches your version and is updated with Hertzon), when the `claude` command is on the computer.
+   The plugin does not start the server itself, because it runs in the Python of your Hertzon installation.
+2. Only without the `claude` command, in Claude Code:
 
    ```
    /plugin install hertzon --marketplace c8501024/hertzon
@@ -27,5 +28,6 @@ the know-how on top: in which order to work and what to check before trusting a 
 
 3. Start a new session and ask, for example, `/hertzon:design 2.45 GHz patch antenna on 1.6 mm FR4, S11 below -15 dB`.
 
-The plugin follows the repository: `claude plugin update hertzon@hertzon` takes the latest version from GitHub. Simulation results can be wrong, whoever sets the model up; the engineer stays responsible
+Installed from GitHub (step 2), the plugin follows the repository: `claude plugin update hertzon@hertzon` takes
+the latest version. Simulation results can be wrong, whoever sets the model up; the engineer stays responsible
 for checking them.

@@ -106,20 +106,61 @@ def claude_status() -> str:
     return "not registered"
 
 
+PLUGIN_REPO = "c8501024/hertzon"       # the marketplace on GitHub, for an installation without the plugin folder
+
+
+def plugin_source() -> str:
+    """Marketplace of the Claude plugin: the folder of this installation (it ships claude-plugin/ and
+    .claude-plugin/marketplace.json, so the plugin always matches this version of Hertzon and loads in place,
+    an update of Hertzon updates it), else the repository on GitHub."""
+    if (ROOT / ".claude-plugin" / "marketplace.json").is_file() and (ROOT / "claude-plugin").is_dir():
+        return str(ROOT)
+    return PLUGIN_REPO
+
+
+def plugin_command() -> list[str]:
+    return ["claude", "plugin", "install", NAME, "--marketplace", plugin_source()]
+
+
+def plugin_install(cli: str | None) -> str:
+    """Install the Hertzon plugin for Claude Code (skills, commands, results pane); a message line."""
+    hint = "Claude plugin: install it in a terminal with\n  " + " ".join(plugin_command())
+    if not cli:
+        return hint
+    try:
+        r = _run([cli, *plugin_command()[1:], "--json"], timeout=120)
+        if r.returncode == 0:
+            return "Claude plugin 'hertzon' installed (skills, commands and the results pane)."
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "Claude plugin not installed automatically. " + hint
+
+
+def plugin_remove(cli: str | None) -> None:
+    if not cli:
+        return
+    for cmd in (["plugin", "uninstall", f"{NAME}@{NAME}"], ["plugin", "marketplace", "remove", NAME]):
+        try:
+            _run([cli, *cmd], timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
 def claude_install() -> str:
     """With the claude command: claude mcp add; without it (or if that fails) the entry is written to
-    ~/.claude.json directly, which is where claude mcp add --scope user puts it."""
+    ~/.claude.json directly, which is where claude mcp add --scope user puts it. The Hertzon plugin is
+    installed with it when the claude command is there."""
     msg = "Registered for Claude Code (all folders). Start a new Claude Code session to use it."
     cli = _claude_cli()
     if cli:
         try:
             _run([cli, "mcp", "remove", "--scope", "user", NAME], timeout=30)
             if _run([cli, *claude_command()[1:]]).returncode == 0:
-                return msg
+                return msg + "\n" + plugin_install(cli)
         except (OSError, subprocess.SubprocessError):
             pass
     _json_edit(claude_config(), "mcpServers", {"type": "stdio", **server_spec()})
-    return msg + f"\n(Written to {claude_config()}.)"
+    return msg + f"\n(Written to {claude_config()}.)\n" + plugin_install(cli)
 
 
 def claude_remove() -> str:
@@ -129,8 +170,9 @@ def claude_remove() -> str:
             _run([cli, "mcp", "remove", "--scope", "user", NAME], timeout=30)
         except (OSError, subprocess.SubprocessError):
             pass
+        plugin_remove(cli)
     _json_edit(claude_config(), "mcpServers", None)
-    return "Removed from Claude Code."
+    return "Removed from Claude Code (with the Hertzon plugin)."
 
 
 # ---- Claude Desktop (claude_desktop_config.json) -------------------------------------------------

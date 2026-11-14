@@ -602,7 +602,9 @@ view or the convergence table, drawn by Hertzon exactly as in its window (`show_
 through earlier pictures, `/hertzon-results` opens the pane, and while an analysis runs the line above the prompt
 shows its adaptive pass, tetrahedra and Delta S. The pictures are kept in `~/.hertzon/shown`.
 
-Install it once in Claude Code, after registering the MCP server (5.1):
+It is installed together with the MCP server: **Register** next to Claude Code (5.1) also installs the plugin from
+your Hertzon folder, so it matches your version of Hertzon and is updated with it. Hertzon needs the `claude`
+command for that; otherwise it shows the line to type in Claude Code:
 
 ```
 /plugin install hertzon --marketplace c8501024/hertzon
