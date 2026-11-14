@@ -172,6 +172,46 @@ def differential_pair() -> Project:
     return p
 
 
+def grounded_cpw() -> Project:
+    """Grounded coplanar waveguide (trace between two top grounds over a ground plane) on RO4350B with a wave port
+    at each end. The top grounds reach the side walls of the model, which are the default outer boundary, a
+    perfect conductor: in the plane of each port they join the top grounds to the ground plane, so the port face
+    sees two conductors (the trace and one ground) and its mode is the line's mode, as with the via fences of a
+    real board. Only the top of the air box is open (radiation)."""
+    p = Project("GroundedCPW")
+    d = p.designs[0]
+    d.name = "GCPW50"
+    d.variables.update({"h": "0.508mm", "w": "0.8mm", "g": "0.3mm", "L": "20mm", "Wsub": "2.6mm", "Hair": "2mm"})
+    d.add_object("CreateBox", name="Substrate", material="Rogers RO4350B (tm)", Position="-Wsub/2,0,0", XSize="Wsub",
+                 YSize="L", ZSize="h")
+    air = d.add_object("CreateBox", name="Air", material="air", Position="-Wsub/2,0,h", XSize="Wsub", YSize="L",
+                       ZSize="Hair")
+    trace = d.add_object("CreateRectangle", name="Trace", Position="-w/2,0,h", Axis="Z", XSize="w", YSize="L")
+    gl = d.add_object("CreateRectangle", name="TopGroundL", Position="-Wsub/2,0,h", Axis="Z", XSize="Wsub/2-w/2-g",
+                      YSize="L")
+    gr = d.add_object("CreateRectangle", name="TopGroundR", Position="w/2+g,0,h", Axis="Z", XSize="Wsub/2-w/2-g",
+                      YSize="L")
+    # the port sheets cover the whole cross-section: substrate and air, wall to wall
+    p1 = d.add_object("CreateRectangle", name="Port1", Position="-Wsub/2,0,0", Axis="Y", XSize="Wsub", ZSize="h+Hair")
+    p2 = d.add_object("CreateRectangle", name="Port2", Position="-Wsub/2,L,0", Axis="Y", XSize="Wsub", ZSize="h+Hair")
+    boundary(d, "Perfect E", "PerfE_Trace", objects=[trace.name])
+    boundary(d, "Perfect E", "PerfE_TopGround", objects=[gl.name, gr.name])
+    boundary(d, "Radiation", "Rad_Top", faces=[(air.name, 5)])           # +z face of the air box
+    # voltage line from the trace down to the ground plane (optional here: with two conductors on the port face
+    # the solver finds one by itself; set it where the port face has more conductors)
+    excitation(d, "Wave Port", "1", objects=[p1.name], PortNumber=1, ModeType="TEM", IntegrationLine="0,0,h;0,0,0")
+    excitation(d, "Wave Port", "2", objects=[p2.name], PortNumber=2, ModeType="TEM", IntegrationLine="0,L,h;0,L,0")
+    s = setup(d, Frequency="15GHz", MaximumPasses=8, MaximumDeltaS=0.02)
+    sweep(s, "Sweep", SweepType="Interpolating", Distribution="Linear Count", Start="1GHz", Stop="20GHz", Count=191)
+    sol = "Setup1 : Sweep"
+    d.reports += [
+        Report("S-Parameters", "Rectangular", sol, ["dB(S(1,1))", "dB(S(2,1))"]),
+        Report("Line Impedance", "Rectangular", sol, ["re(Zo(1))", "re(Zo(2))"]),
+        Report("Propagation Constant", "Rectangular", sol, ["im(Gamma(1))"]),
+    ]
+    return p
+
+
 def fss_unit_cell() -> Project:
     """Frequency selective surface: a cross dipole on RO3003 in a periodic unit cell, Floquet ports below and
     above, TE00 and TM00. The cell is the infinite array; the scan angle is the variable scan_theta (in the
@@ -221,7 +261,8 @@ def fss_unit_cell() -> Project:
 
 if __name__ == "__main__":
     out = Path(__file__).resolve().parent
-    for fn in (waveguide_post, microstrip_line, patch_antenna, hairpin_filter, differential_pair, fss_unit_cell):
+    for fn in (waveguide_post, microstrip_line, patch_antenna, hairpin_filter, differential_pair, fss_unit_cell,
+               grounded_cpw):
         proj = fn()
         path = out / f"{proj.name}.hzn"
         proj.save(path)

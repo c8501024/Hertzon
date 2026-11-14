@@ -239,6 +239,11 @@ EXCITATIONS: dict[str, list[Prop]] = {
     "Wave Port": [P("PortNumber", "int", "1"), P("NumberOfModes", "int", "1"),
                   P("ModeType", "choice", "Auto", choices=("Auto", "TEM", "TE", "TM")),
                   P("ImpedanceDefinition", "choice", "Zpv", choices=("Zpv", "Zpi", "Zvi")),
+                  P("IntegrationLine", "points", "",
+                    help="Start;End of the voltage line of the mode, from the signal conductor to its ground: sets "
+                         "the line impedance (Zpv, Zvi) and the sign of the mode. Empty: between the two conductors "
+                         "on the port face; with more than two, from the narrowest to the largest one. Right click "
+                         "the port to draw it in the 3D view. Not used in a terminal solution"),
                   P("Renormalize", "bool", "False", tab="Post Processing"),
                   P("RenormImpedance", "expr", "50ohm", tab="Post Processing", visible_if=("Renormalize", "True")),
                   P("Deembed", "bool", "False", tab="Post Processing"),
