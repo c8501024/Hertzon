@@ -104,6 +104,139 @@ class LumpedGeometry:
                     bc.voltage_integration_line = [Line.from_points(a, a + it["d"] * bc.height, 21) for a in low]
 
 
+def _modal_port_class():
+    from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+    return ModalPort
+
+
+class WavePortModes:
+    """Modes of the wave ports per mesh state. A variable that changes the cross-section of a wave port
+    (the trace width at the port) moves nodes in the port face (they slide in its plane): the port mode of
+    that state is solved on the morphed face, so that the port terms, excitations and S functionals of the
+    state belong to its own cross-section. A state that leaves the port faces in place uses the nominal
+    modes. Every state keeps its modes (one modal analysis per state, scaled over the frequencies as in the
+    solve); the polarity of every mode is aligned with the nominal mode."""
+
+    _ATTRS = ("available_modes", "initialized", "_scalable", "_k0_ref", "_last_k0", "_first_k0",
+              "_mode_basis", "_tracks", "_track_quality", "port_modes", "voltage_integration_line",
+              "current_integration_line")
+
+    def __init__(self, mw, X0: np.ndarray):
+        ModalPort = _modal_port_class()
+        self.mw = mw
+        self.X0 = X0
+        self.ports = []
+        seen = set()
+        for port, _, _ in mw.bc.iter_port_modes():
+            if isinstance(port, ModalPort) and id(port) not in seen:
+                seen.add(id(port))
+                self.ports.append((port, np.unique(np.asarray(mw.mesh.get_nodes(port.tags), int))))
+        self.tris = [mw.mesh.tris[:, np.asarray(mw.mesh.get_triangles(p.tags), int)] for p, _ in self.ports]
+        self.tol = 1e-9 * float(np.linalg.norm(np.ptp(X0, axis=1)))
+        self.saved: dict = {}           # state key -> attributes of the ports (None: nominal)
+        self.at = None                  # state whose modes are in the ports
+        self._aligned: set = set()
+
+    def moves(self, V: list[np.ndarray]) -> bool:
+        """Does any of the velocity fields move nodes of a wave port face?"""
+        return any(len(nid) and np.abs(Vi[:, nid]).max() > 1e-9 * max(float(np.abs(Vi).max()), 1e-300)
+                   for _, nid in self.ports for Vi in V)
+
+    def _moved(self, X) -> bool:
+        return X is not None and any(len(nid) and np.abs(X[:, nid] - self.X0[:, nid]).max() > self.tol
+                                     for _, nid in self.ports)
+
+    def _get(self, port) -> dict:
+        return {a: getattr(port, a) for a in self._ATTRS if hasattr(port, a)}
+
+    @staticmethod
+    def _set(port, attrs: dict) -> None:
+        for a, v in attrs.items():
+            setattr(port, a, v)
+
+    def _moved_line(self, line, tris: np.ndarray, X: np.ndarray):
+        """An integration line whose points follow the morphed port face (interpolated over its triangles):
+        a line from the ground to a trace whose height is tuned still ends on the trace."""
+        from emerge._emerge.coord import Line
+        P = np.vstack([line.xs, line.ys, line.zs]).T
+        D = (X - self.X0).T
+        A, B, C = (self.X0[:, tris[k]].T for k in range(3))
+        out = P.copy()
+        for q, x in enumerate(P):
+            e1, e2, r = B - A, C - A, x - A
+            d11, d12, d22 = (e1 * e1).sum(1), (e1 * e2).sum(1), (e2 * e2).sum(1)
+            r1, r2 = (r * e1).sum(1), (r * e2).sum(1)
+            det = d11 * d22 - d12 ** 2
+            det[det == 0] = np.inf
+            u = (d22 * r1 - d12 * r2) / det
+            v = (d11 * r2 - d12 * r1) / det
+            dist = np.linalg.norm(r - u[:, None] * e1 - v[:, None] * e2, axis=1)
+            outside = np.maximum.reduce([-u, -v, u + v - 1, np.zeros_like(u)])
+            t = int(np.argmin(outside * np.linalg.norm(e1, axis=1) + dist))
+            w = np.array([1 - u[t] - v[t], u[t], v[t]])
+            out[q] = x + w @ D[tris[:, t]]
+        return Line(out[:, 0], out[:, 1], out[:, 2])
+
+    def switch(self, key, X) -> None:
+        """Put the modes of state key (nodes at X, None: nominal) into the ports."""
+        target = key if self._moved(X) else None
+        if target == self.at and target != Assembly._ANON:
+            return
+        if self.at != Assembly._ANON:
+            self.saved[self.at] = [self._get(p) for p, _ in self.ports]
+        if target in self.saved and target != Assembly._ANON:
+            for (p, _), attrs in zip(self.ports, self.saved[target]):
+                self._set(p, attrs)
+        else:
+            # a new state: the settings of the nominal ports, no modes yet
+            for (p, _), attrs, tris in zip(self.ports, self.saved[None], self.tris):
+                self._set(p, attrs)
+                for a in ("voltage_integration_line", "current_integration_line"):
+                    lines = attrs.get(a)
+                    if lines:
+                        setattr(p, a, [self._moved_line(ln, tris, X) for ln in lines])
+                p.clear_modes()
+                p._last_k0 = p._first_k0 = None
+                if hasattr(p, "port_modes"):
+                    p.port_modes = dict(attrs.get("port_modes") or {})
+        self.at = target
+
+    def ensure(self, freq: float) -> None:
+        """Modes of the current state at freq (solved on its morphed port faces), polarity aligned."""
+        if self.at is None:
+            return
+        self.mw._compute_modes(freq)
+        nominal = self.saved.get(None)
+        if not nominal:
+            return
+        for (p, _), attrs in zip(self.ports, nominal):
+            ref_modes = attrs.get("available_modes") or {}
+            if not ref_modes:
+                continue
+            for k0, modes in p.available_modes.items():
+                ref = ref_modes[min(ref_modes, key=lambda k: abs(k - k0))]
+                for j, md in enumerate(modes):
+                    if id(md) in self._aligned or j >= len(ref):
+                        continue
+                    self._aligned.add(id(md))
+                    if _mode_overlap(ref[j], md) < 0:
+                        md.flip_polarity()
+
+    def restore(self) -> None:
+        self.switch(None, None)
+
+
+def _mode_overlap(ref, md) -> float:
+    """Re of the overlap of the transverse E fields of two port modes, at the triangle centres of the
+    first (the sign of a mode is arbitrary)."""
+    ef = ref.E_function
+    P = np.array(ef.cs.in_global_cs(ef.nodes[0], ef.nodes[1], ef.nodes[2]))
+    C = P[:, ef.tris].mean(axis=1)
+    a = np.asarray(ef(C[0], C[1], C[2]))
+    b = np.asarray(md.E_function(C[0], C[1], C[2]))
+    return float(np.real(np.sum(np.conj(a) * b)))
+
+
 class Assembly:
     """FEM systems of the EMerge model m at given node positions (the nominal mesh is restored after).
 
@@ -120,6 +253,7 @@ class Assembly:
         self._systems: dict = {}        # state key -> EMerge SystemPattern of that state
         self.keep_states = keep_states
         self.lumped = LumpedGeometry(m.mw, self.X0)
+        self.waves = WavePortModes(m.mw, self.X0)
 
     _ANON = ("anonymous",)
 
@@ -131,6 +265,7 @@ class Assembly:
             self._systems[self._at] = asy._system
         set_nodes(self.mesh, self.X0 if X is None else X)
         self.lumped.apply(self.mesh.nodes)
+        self.waves.switch(key, X)
         asy.reset_cache()
         if self.keep_states and key != self._ANON:
             asy._system = self._systems.pop(key, None)
@@ -143,6 +278,7 @@ class Assembly:
         if X is not None and key is None:
             key = self._ANON
         self._move(X, key)
+        self.waves.ensure(freq)
         mw = self.mw
         job, mats = mw.assembler.assemble_freq_matrix(mw.basis, mw.mat_assy, mw.bc.boundary_conditions, freq,
                                                       cache_matrices=True)
@@ -498,6 +634,7 @@ class BandModel:
         with W their projections (W^T R W, W^T b), from the rows and columns R touches only."""
         import scipy.sparse as sp
         self._move(key)
+        self.asm.waves.ensure(f)
         st = self.parts[key]
         mw, asy = self.asm.mw, self.asm.mw.assembler
         system = st["system"]
@@ -658,7 +795,8 @@ def _interpolated_functionals(bm: "BandModel", freqs: np.ndarray, W: np.ndarray,
 
 
 def _functionals(asm, mw, freq, W, NF, ids, mats, powers, V, steps, ports_move) -> dict:
-    """S functionals of the ports on W, with their derivatives when lumped ports stretch."""
+    """S functionals of the ports on W, with their derivatives when lumped ports stretch or the
+    cross-section of a wave port changes."""
     n = len(V)
     F0 = s_functionals(mw, freq, W, NF, ids, mats, powers)
     out = {"Lp": F0[0], "La": F0[1], "c0": F0[2]}
@@ -669,7 +807,11 @@ def _functionals(asm, mw, freq, W, NF, ids, mats, powers, V, steps, ports_move) 
     Fs = {}
     for c in states:
         asm._move(asm.X0 + sum(ci * hs[i] * V[i] for i, ci in c.items()), asm._ANON)
-        Fs[tuple(sorted(c.items()))] = s_functionals(mw, freq, W, NF, ids, mats, powers)
+        pw = powers
+        if asm.waves.at is not None:            # the wave port modes of the morphed cross-section
+            asm.waves.ensure(freq)
+            pw = _port_powers(mw, freq)
+        Fs[tuple(sorted(c.items()))] = s_functionals(mw, freq, W, NF, ids, mats, pw)
     asm.restore()
     for q, name in enumerate(("Lp", "La", "c0")):
         f0 = F0[q]
@@ -679,6 +821,46 @@ def _functionals(asm, mw, freq, W, NF, ids, mats, powers, V, steps, ports_move) 
         out[f"{name}_ii"] = np.array([(fp[i] - 2 * f0 + fm_[i]) / hs[i] ** 2 for i in range(n)])
         dx = [(Fs[((i, +1), (j, +1))][q] - fp[i] - fp[j] + f0) / (hs[i] * hs[j]) for i, j in pairs(n)]
         out[f"{name}_ij"] = np.array(dx).reshape((len(dx),) + f0.shape)
+    return out
+
+
+def port_constant_derivatives(asm: Assembly, freqs: np.ndarray, V: list[np.ndarray], steps: list[float]) -> dict:
+    """Derivatives of the propagation constants (every frequency) and characteristic impedances (first
+    frequency, as the stored z0) of the port modes with respect to the variables, when the cross-section of
+    a wave port changes: de-embedding and renormalization of a tuned design use the constants of its own
+    port modes. Central differences over the modes of morphed states (WavePortModes)."""
+    n = len(V)
+    hs = [FUNCTIONAL_STEP * s_ for s_ in steps]
+    mw = asm.mw
+    states = [()] + [((i, 1),) for i in range(n)] + [((i, -1),) for i in range(n)] + \
+        [((i, 1), (j, 1)) for i, j in pairs(n)]
+    zv, bv = {}, {}
+    try:
+        for key in states:
+            if key:
+                asm._move(asm.X0 + sum(c * hs[i] * V[i] for i, c in key), ("constants",) + key)
+            else:
+                asm.restore()
+            betas = []
+            for k, f in enumerate(freqs):
+                if key:
+                    asm.waves.ensure(float(f))
+                else:
+                    mw._compute_modes(float(f))
+                k0 = 2 * np.pi * float(f) / 299792458
+                pm = list(mw.bc.iter_port_modes())
+                betas.append([complex(p.get_beta(k0) or 0) for p, _, _ in pm])
+                if k == 0:
+                    zv[key] = np.array([complex(p.portZ0(k0) or 50.0) for p, _, _ in pm])
+            bv[key] = np.array(betas)
+    finally:
+        asm.restore()
+    out = {}
+    for name, vals in (("z0", zv), ("beta", bv)):
+        _, d1, d2, dx = _fd(vals, n, hs)
+        out[f"pc_{name}_i"] = np.array(d1)
+        out[f"pc_{name}_ii"] = np.array(d2)
+        out[f"pc_{name}_ij"] = np.array(dx).reshape((len(dx),) + vals[()].shape)
     return out
 
 
@@ -887,15 +1069,19 @@ def tuning_frequencies(props: dict, ev, points: int) -> np.ndarray:
 
 
 def morph_constraints(m) -> tuple[set, set]:
-    """(fixed, sliding) face tags of the morphing: wave and Floquet ports stay where they are (their modes
-    belong to the port face as solved), nodes on the outer boundary may slide within it (a substrate
-    filling the region may change its height). Lumped ports stretch with the mesh (LumpedGeometry)."""
+    """(fixed, sliding) face tags of the morphing: Floquet ports stay where they are, nodes on the outer
+    boundary and on wave port faces may slide within them (a substrate filling the region may change its
+    height, a trace its width at a wave port: the port modes of every state are solved on its own
+    cross-section, WavePortModes). Lumped ports stretch with the mesh (LumpedGeometry)."""
     LumpedPort, _ = _lumped_classes()
-    fixed = set()
+    ModalPort = _modal_port_class()
+    fixed, wave = set(), set()
     for port, _, _ in m.mw.bc.iter_port_modes():
-        if not isinstance(port, LumpedPort):
+        if isinstance(port, ModalPort):
+            wave.update(port.tags)
+        elif not isinstance(port, LumpedPort):
             fixed.update(port.tags)
-    return fixed, set(m.mesh.exterior_face_tags) - fixed
+    return fixed, (set(m.mesh.exterior_face_tags) | wave) - fixed
 
 
 def variable_step(text: str) -> float:
@@ -948,6 +1134,11 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
                      for it in asm.lumped.items for Vi in V)
     if ports_move:
         log("Lumped ports or elements stretch with the variables")
+    waves_move = asm.waves.moves(V)
+    if waves_move:
+        ports_move = True
+        log("The cross-section of a wave port changes with the variables: its modes are solved for every "
+            "mesh state")
     data: dict = {}
     beta, z0 = [], None
     nfreq = len(freqs)
@@ -1010,6 +1201,10 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
         for k, fm in enumerate(fms):
             for key, val in fm.items():
                 data[f"f{k}_{key}"] = val
+        if waves_move:
+            t = time.time()
+            data.update(port_constant_derivatives(asm, np.asarray(freqs, float), V, steps))
+            log(f"Port constants of the morphed cross-sections: {time.time() - t:.1f} s")
     finally:
         asm.close()
     nominal = np.array([evaluate_freq({kk[len(f"f{k}_"):]: vv for kk, vv in data.items() if kk.startswith(f"f{k}_")},
@@ -1079,8 +1274,20 @@ class TuningModel:
         self.stack_out = None
         if self.grid is not None and band and len(self.freq) >= 4 and self.stack is not None:
             self.stack_out = _band_on_grid(self.stack, band, self.freq, self.grid)
+        with np.load(path, allow_pickle=False) as z:
+            self.pc = {name[3:]: z[name] for name in z.files if name.startswith("pc_")}
         self._nominal = None
         self._ffcache: dict = {}
+
+    def port_constants(self, dp) -> tuple[np.ndarray, np.ndarray]:
+        """(beta per model frequency, z0) of the port modes at the offsets dp: the nominal ones, or quadratic
+        in dp when the cross-section of a wave port changes with the variables."""
+        if not self.pc:
+            return self.beta, self.z0
+        dp = np.asarray(dp, float)
+        fz = {"v": self.z0, **{f"v{k[2:]}": v for k, v in self.pc.items() if k.startswith("z0")}}
+        fb = {"v": self.beta, **{f"v{k[4:]}": v for k, v in self.pc.items() if k.startswith("beta")}}
+        return _taylor(fb, "v", dp), _taylor(fz, "v", dp)
 
     def raw(self, dp, out: bool = False) -> np.ndarray:
         """Raw S at the model frequencies (out: at freq_out when the model evaluates there directly)."""
@@ -1095,7 +1302,7 @@ class TuningModel:
         post-processing (de-embedding, renormalization) as a solved sweep. A model of the solved points of
         an interpolating sweep is interpolated over the sweep frequencies as the sweep does."""
         from .results import deembed_renormalize, fit_sparams
-        beta = self.beta
+        beta, z0 = self.port_constants(dp)
         if self.stack_out is not None:
             S = self.raw(dp, out=True)
         else:
@@ -1104,23 +1311,35 @@ class TuningModel:
             if self.stack_out is None:
                 S = fit_sparams(self.freq, S)(self.grid)
             beta = np.array([np.interp(self.grid, self.freq, b.real) + 1j * np.interp(self.grid, self.freq, b.imag)
-                             for b in np.asarray(self.beta).T]).T
+                             for b in np.asarray(beta).T]).T
         ports = self.meta.get("ports") or []
         beta = beta if any(q.get("deembed") for q in ports) else None
-        return deembed_renormalize(S, self.z0, ports, beta)
+        return deembed_renormalize(S, z0, ports, beta)
 
     def sweep_variable(self, k: int, i: int, values, dp) -> tuple[np.ndarray, np.ndarray]:
         """(S per value, reference impedance per row) at frequency index k with variable i set to the
         offsets `values` and the other variables at their offsets in dp."""
         from .results import deembed_renormalize
         rows = []
+        ports = self.meta.get("ports") or []
+        deembed = any(q.get("deembed") for q in ports)
+        if self.pc:                     # the port constants change with the value: one row at a time
+            Ss, zs = [], []
+            for v in values:
+                d = np.array(dp, float)
+                d[i] = v
+                beta, z0 = self.port_constants(d)
+                S1, z1 = deembed_renormalize(evaluate_freq(self.fms[k], d, self.caps)[None], z0, ports,
+                                             beta[[k]] if deembed else None)
+                Ss.append(S1[0])
+                zs.append(z1)
+            return np.array(Ss), zs[0]
         for v in values:
             d = np.array(dp, float)
             d[i] = v
             rows.append(evaluate_freq(self.fms[k], d, self.caps))
         S = np.array(rows)
-        ports = self.meta.get("ports") or []
-        beta = self.beta[[k] * len(S)] if any(q.get("deembed") for q in ports) else None
+        beta = self.beta[[k] * len(S)] if deembed else None
         return deembed_renormalize(S, self.z0, ports, beta)
 
     def nominal(self) -> tuple[np.ndarray, np.ndarray]:
@@ -1133,8 +1352,9 @@ class TuningModel:
         from .results import deembed_renormalize
         S = evaluate_freq(self.fms[k], np.asarray(dp, float), self.caps)[None]
         ports = self.meta.get("ports") or []
-        beta = self.beta[[k]] if any(q.get("deembed") for q in ports) else None
-        return deembed_renormalize(S, self.z0, ports, beta)[0][0]
+        beta, z0 = self.port_constants(dp)
+        beta = beta[[k]] if any(q.get("deembed") for q in ports) else None
+        return deembed_renormalize(S, z0, ports, beta)[0][0]
 
     def surface_fields(self, k: int, port: int, dp, Y=None) -> tuple[np.ndarray, np.ndarray]:
         """(E, H) (3 x points) on the far field surface at model frequency k for port index `port` excited
