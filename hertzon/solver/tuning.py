@@ -595,13 +595,16 @@ class BandModel:
             return
         self.log(f"Tuning model of {n} variables: about {need / 2 ** 30:.1f} GB for the volume matrices of "
                  f"{len(self.states)} mesh states ({free / 2 ** 30:.1f} GB free)")
-        if need > 0.6 * free:
+        import os
+        if need > 0.6 * free and os.environ.get(NO_MEMORY_CHECK) != "1":
             fit = [k for k in range(1, n + 1)
                    if ((k + 1) * (k + 2) // 2 * nnz * 12 + k * nnz * 20 + 2 * nnz * 20) <= 0.6 * free]
             hint = (f"at most {fit[-1]} variable{'s' if fit[-1] > 1 else ''} fit on this mesh"
                     if fit else "not even one variable fits on this mesh")
             raise MO.MorphError(f"not enough memory for the tuning model of {n} variables: it needs about "
-                                f"{need / 2 ** 30:.1f} GB, {free / 2 ** 30:.1f} GB are free ({hint})")
+                                f"{need / 2 ** 30:.1f} GB for its volume matrices, {free / 2 ** 30:.1f} GB are "
+                                f"free ({hint}). Solve on a computer with more memory (Tools > Options > Remote "
+                                f"or Cloud), include fewer variables, or optimize with Conjugate Gradient")
 
     def _move(self, key: tuple) -> None:
         if key:
@@ -1070,6 +1073,78 @@ MAX_POINTS = 201
 ADAPTIVE = "LastAdaptive"       # sweep name of the tuning model at the solution frequency of the setup
 
 
+# ---- memory ------------------------------------------------------------------------------------
+# Peak memory of a tuning model, linear in the unknowns of the mesh. Measured on the patch antenna at
+# 2.45 GHz with 231k, 522k and 2.05M unknowns and 1 to 6 variables (simstation02, peak RSS):
+# - one frequency (the solution frequency, as Derivative Trust Region uses it): about the solve itself for 1 to
+#   2 variables (the nominal solve is the peak), then the derivatives: per 100k unknowns
+#   max(1.40, 1.22 + 0.035 n^2) GB, within -2 to +6 %; the solve on the same mesh is 1.6 GB per 100k;
+# - over a band (one basis for the frequencies of a sweep): 0.65 (1.39 + 0.89 n + 0.21 n^2) GB per 100k
+#   unknowns, 5.9 GB for 2 and 11.1 GB for 4 variables on 231k unknowns (estimate 6.0 and 12.5 GB).
+MEMORY_FREQUENCY = (1.40, 1.22, 0.035)  # GB per 100k unknowns: floor, constant, per variable^2
+MEMORY_BAND = (1.39, 0.89, 0.21, 0.65)  # GB per 100k unknowns: constant, per variable, per variable^2, scale
+MEMORY_USABLE = 0.9         # share of the free memory a model may take
+NO_MEMORY_CHECK = "HERTZON_TUNING_IGNORE_MEMORY"    # "1": compute the model even when it does not seem to fit
+
+
+def mesh_states(n: int) -> int:
+    """Mesh states of a tuning model of n variables: nominal, +-step of each, +step of every pair."""
+    return 1 + 2 * n + n * (n - 1) // 2
+
+
+def memory_estimate(n: int, unknowns: float, band: bool = False) -> float:
+    """Peak memory (bytes) of the tuning model of n variables on a mesh with that many unknowns; band: one
+    model over several frequencies of a sweep."""
+    if band:
+        c0, c1, c2, scale = MEMORY_BAND
+        gb = scale * (c0 + c1 * n + c2 * n * n)
+    else:
+        floor, c0, c2 = MEMORY_FREQUENCY
+        gb = max(floor, c0 + c2 * n * n)
+    return unknowns / 1e5 * gb * 2 ** 30
+
+
+def free_memory() -> float:
+    """Memory that a new process can take now (bytes), 0 if unknown."""
+    try:
+        import psutil
+        return float(psutil.virtual_memory().available)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def solved_unknowns(results: Path) -> int:
+    """Unknowns of the last adaptive pass of a solved setup (its result folder), 0 if unknown."""
+    try:
+        passes = json.loads((Path(results) / "convergence.json").read_text(encoding="utf-8")).get("passes") or []
+        return int(passes[-1].get("unknowns", 0) or 0) if passes else 0
+    except (OSError, ValueError, AttributeError, TypeError):
+        return 0
+
+
+def memory_shortage(n: int, unknowns: float, free: float, band: bool = False) -> dict | None:
+    """None when the tuning model of n variables fits into the free memory (or nothing is known), else
+    {"need", "free", "fit"} in bytes; fit: the most variables that fit (0: not even one)."""
+    if unknowns <= 0 or free <= 0:
+        return None
+    need = memory_estimate(n, unknowns, band)
+    if need <= MEMORY_USABLE * free:
+        return None
+    fit = max([k for k in range(1, n) if memory_estimate(k, unknowns, band) <= MEMORY_USABLE * free], default=0)
+    return {"need": need, "free": free, "fit": fit}
+
+
+def memory_message(n: int, short: dict) -> str:
+    """Why a tuning model of n variables does not fit, and what to do instead."""
+    fit = short["fit"]
+    hint = (f"at most {fit} variable{'s' if fit > 1 else ''} fit on this mesh" if fit
+            else "not even one variable fits on this mesh")
+    return (f"not enough memory for the tuning model of {n} variable{'s' if n > 1 else ''}: it needs about "
+            f"{short['need'] / 2 ** 30:.1f} GB, {short['free'] / 2 ** 30:.1f} GB are free ({hint}). Solve on a "
+            f"computer with more memory (Tools > Options > Remote or Cloud), include fewer variables, or optimize "
+            f"with Conjugate Gradient")
+
+
 def tuning_path(out: Path, sweep: str) -> Path:
     from .results import _safe
     return Path(out) / f"tuning_{_safe(sweep)}.npz"
@@ -1128,6 +1203,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     # EMerge state of a regular solve (field, boundary data, materials, port modes)
     fc = 0.5 * (float(freqs.min()) + float(freqs.max()))
     B.solve_at(m, [fc])
+    _check_free_memory(len(variables), int(m.mw.basis.n_field), band and len(freqs) > 1, log)
     t = time.time()
     fixed, slide = morph_constraints(m)
     diag = float(np.linalg.norm(mesh.nodes.max(axis=1) - mesh.nodes.min(axis=1)))
@@ -1244,6 +1320,23 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     np.savez_compressed(path, freq=np.asarray(freqs, float), beta=np.array(beta), z0=z0, nominal=nominal,
                         meta=np.array(json.dumps(meta)), **data, **band_data)
     return meta
+
+
+def _check_free_memory(n: int, unknowns: int, band: bool, log) -> None:
+    """Stop before the mesh states are assembled when the model will not fit (instead of being killed by the
+    operating system half way)."""
+    import os
+    from . import bridge as B
+    free = free_memory()
+    if unknowns <= 0 or free <= 0:
+        return
+    need = memory_estimate(n, unknowns, band)
+    log(f"Tuning model of {n} variable{'s' if n > 1 else ''}: about {need / 2 ** 30:.1f} GB estimated "
+        f"({free / 2 ** 30:.1f} GB free)")
+    # the process holds the solve of this mesh already, which is part of the estimate
+    short = memory_shortage(n, unknowns, free + B._current_rss(), band)
+    if short is not None and os.environ.get(NO_MEMORY_CHECK) != "1":
+        raise MO.MorphError(memory_message(n, short))
 
 
 def tuned_data(model: "TuningModel", dp, base: dict | None) -> dict:
