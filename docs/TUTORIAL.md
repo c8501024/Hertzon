@@ -281,9 +281,11 @@ Z0 = 60 Ω / √εr · ln(b/a). With εr = 2.1 (Teflon) and *a* = 0.5 mm, 50 Ω 
    distance if you want the reference plane elsewhere.
 
 The line impedance Zo of a TEM port comes from the voltage along a line between the two conductors, which the
-solver finds by itself. To choose it, right click the port › **Draw Integration Line** (two clicks, from the
-signal conductor to the ground) or type it in the port's **Integration Line** property; it changes Zo, not the
-S-parameters of the port modes. With more than two conductors on the port face, such as a grounded coplanar
+solver finds by itself. To choose it, open the port's **Modes** tab: one row per mode, **Integration Line**
+**None** (the solver's line) or **New Line...**, which closes the dialog for two clicks in the 3D view (from the
+signal conductor to the ground) and opens it again; the coordinates can also be typed. Right click the port ›
+**Draw Integration Line** is the short way. The line changes Zo of its mode, not the S-parameters of the port
+modes. With more than two conductors on the port face, such as a grounded coplanar
 line whose top grounds end in the air, Hertzon takes a line from the narrowest conductor to the largest one and
 warns: grounds that are joined only away from the port float in the port mode. Join them at the port instead,
 as `examples/GroundedCPW.hzn` does by letting the top grounds reach the conducting side walls.
@@ -346,11 +348,12 @@ Results are the input impedance (about 73 Ω at resonance), S11, the radiation p
 1. Select `Gap` (**O**), **Simulation > Excitations > Assign > Lumped Port** (or the **Lumped Port**
    ribbon button).
 2. **Full port impedance**: `73ohm` (or `50ohm`, if you want S11 against a 50 Ω generator).
-3. **Integration line**: Hertzon places the line between the two conductors that touch the sheet, from the
-   centre of one contact to the centre of the other, here from one arm to the other along Z:
-   `0,0,-g/2;0,0,g/2`. The line is drawn as an arrow on the model. To set it yourself, enter start and end
-   point, or right click the port in the project tree > **Draw Integration Line** and click both points
-   in the 3D view (**Auto Integration Line** places it automatically again).
+3. **Integration line** (**Modes** tab): Hertzon places the line between the two conductors that touch the
+   sheet, from the centre of one contact to the centre of the other, here from one arm to the other along Z:
+   `0,0,-g/2;0,0,g/2`. The line is drawn as an arrow on the model. To set it yourself, choose **New Line...**
+   and click both points in the 3D view (the dialog opens again afterwards), or type start and end point; right
+   click the port in the project tree > **Draw Integration Line** does the same, **Auto Integration Line**
+   places it automatically again.
 
 ### 3.4 Far field, setup and sweep
 

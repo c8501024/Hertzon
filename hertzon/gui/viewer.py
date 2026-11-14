@@ -1791,12 +1791,17 @@ class ModelerView(QWidget):
                 self.assignment_actors.append(ac)
             if a.kind == "Incident Plane Wave":
                 self._plane_wave_arrows(a)
-            # lumped port / RLC integration line
-            line = a.props.get("IntegrationLine", "").strip() if hasattr(a, "props") else ""
-            if line:
+            # integration lines: lumped port / RLC, and one per mode of a wave port
+            from ..model.objframe import global_points, point_keys
+            keys = [k for k in point_keys(getattr(a, "props", {}) or {}) if k.startswith("IntegrationLine")]
+            if a.kind == "Wave Port":
+                n = max(1, int(float(a.props.get("NumberOfModes", "1") or 1)))
+                keys = [k for k in keys if (int(k[15:]) if k[15:] else 1) <= n]
+            for key in sorted(keys):
+                if not a.props.get(key, "").strip():
+                    continue
                 try:
-                    from ..model.objframe import global_points
-                    pts = global_points(self.doc.design, a, "IntegrationLine", self.doc.evaluator())
+                    pts = global_points(self.doc.design, a, key, self.doc.evaluator())
                     if len(pts) == 2:
                         p0, p1 = np.asarray(pts[0]), np.asarray(pts[1])
                         arrow = pv.Arrow(start=p0, direction=p1 - p0, scale=float(np.linalg.norm(p1 - p0)),

@@ -1048,6 +1048,22 @@ class Bridge:
              f"the largest one {self._fmt_line(a, b)}; set the Integration Line of the port to choose another")
         return Line.from_points(a, b, 101)
 
+    def mode_lines(self, e: Assignment, num: int, nmodes: int, zdef: str) -> None:
+        """The Integration Lines of modes 2, 3, ... of a wave port (MODE_LINES): EMerge integrates every mode
+        along the line of mode 1, so the line impedance of these modes is taken here along their own line
+        (_mode_z0)."""
+        from ..model.objframe import global_points, mode_line_key
+        for k in range(2, nmodes + 1):
+            if not e.props.get(mode_line_key(k), "").strip():
+                continue
+            pts = global_points(self.design, e, mode_line_key(k), self.ev)
+            a, b = np.asarray(pts[0], float), np.asarray(pts[1], float)
+            MODE_LINES[(int(num), k)] = (a, b)
+            info(f"Wave port '{e.name}': voltage line of mode {k} {self._fmt_line(a, b)} (Integration Line)")
+            if zdef != "PV":
+                warn(f"Wave port '{e.name}': the Integration Line of mode {k} sets Zo with the impedance "
+                     "definition Zpv only; with Zpi or Zvi the mode keeps the impedance of the solver")
+
     @staticmethod
     def _fmt_line(a, b) -> str:
         return "(" + ", ".join(f"{v * 1e3:.4g}" for v in a) + ") -> (" + ", ".join(f"{v * 1e3:.4g}" for v in b) + ") mm"
@@ -1061,6 +1077,7 @@ class Bridge:
         TERMINALS, DEEMBED, MULTI_TERMINAL_PORTS = None, {}, False
         BETA.clear()            # records of an earlier solve in the same process (tests, tuning)
         PORT_RECORDS.clear()
+        MODE_LINES.clear()
         term = None
         if self.design.settings.get("SolutionType") == "Terminal" and self.plane_wave() is None:
             from .terminals import Terminals
@@ -1102,6 +1119,7 @@ class Bridge:
                     line = self.wave_voltage_line(e, tags, nmodes)
                     if line is not None:
                         port.voltage_integration_line.append(line)
+                    self.mode_lines(e, num, nmodes, zdef)
             elif e.kind == "Lumped Port":
                 w, h, d = self.port_geometry(e, tags)
                 port = mw.bc.LumpedPort(sel, num, width=w, height=h, direction=d, Z0=ev.value(p["Impedance"]))
@@ -1814,11 +1832,20 @@ class Bridge:
         hard_exit()
 
     def save_s(self, name: str, f, S, z0, solved=None, ports_only: bool = False) -> None:
+        gamma, zo = port_data(f)
+        if MODE_LINES and TERMINALS is None and zo is not None and len(zo):
+            # the renormalization refers a mode with its own Integration Line to its Zo along that line
+            z0 = np.array(z0, complex).ravel()
+            try:
+                for i, (port, _, mode_nr) in enumerate(self.m.mw.bc.iter_port_modes()):
+                    if (int(port.port_number), int(mode_nr)) in MODE_LINES and i < len(z0) and i < zo.shape[1]:
+                        z0[i] = zo[0, i]
+            except Exception:  # noqa: BLE001
+                pass
         try:
             S, z0 = postprocess_ports(f, S, z0, self.port_map)
         except Exception as e:  # noqa: BLE001
             warn(f"Port de-embedding/renormalization skipped: {e}")
-        gamma, zo = port_data(f)
         self.store.save_sparams(name, f, S, z0, self.port_map, solved=solved, gamma=gamma, zo=zo,
                                 terminals=TERMINALS.info() if TERMINALS is not None else None,
                                 ports_only=ports_only)
@@ -1889,9 +1916,9 @@ class Bridge:
                 else:
                     g, z = [], []
                     for q, bc in self.wave_ports():
-                        for md in bc.get_modes(k0)[:len(bc.port_modes)]:
+                        for k, md in enumerate(bc.get_modes(k0)[:len(bc.port_modes)]):
                             g.append(1j * md.beta)
-                            z.append(md.Z0)
+                            z.append(_mode_z0(bc, k + 1, md))
                     PORT_RECORDS[float(f)] = (np.array(g, complex), np.array(z, complex))
                 labels = portnumbers
             n = len(TERMINALS.names) if TERMINALS is not None else len(labels)
@@ -3862,6 +3889,7 @@ def _solve_at(m, freqs, **kw):
 
 BETA: dict[float, np.ndarray] = {}     # solved frequency -> propagation constant per port
 PORT_RECORDS: dict[float, tuple[np.ndarray, np.ndarray]] = {}    # solved frequency -> (gamma, Zo) per port mode
+MODE_LINES: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}   # (port, mode >= 2) -> its voltage line
 TERMINALS = None                       # terminals.Terminals of a Terminal design (set by the Bridge)
 MULTI_TERMINAL_PORTS = False           # a port with several signal conductors is in the model (set by the Bridge)
 DEEMBED: dict[int, float] = {}         # port number -> de-embedding distance (terminal designs)
@@ -3893,12 +3921,27 @@ def _mode_constants(m, freq: float, beta: np.ndarray, z: np.ndarray) -> tuple[np
         try:
             beta[i] = port.mode_beta(k0, mode_nr)
             md = port.get_modes(k0)[mode_nr - 1]
-            if md.Z0 is not None and np.isfinite(md.Z0):
-                z[i] = md.Z0
+            zm = _mode_z0(port, mode_nr, md)
+            if zm is not None and np.isfinite(zm):
+                z[i] = zm
         except Exception:  # noqa: BLE001
             pass
     return beta, z
 
+
+
+def _mode_z0(port, mode_nr: int, md):
+    """Line impedance of port mode mode_nr: along its own Integration Line (MODE_LINES, Zpv = |V|^2 / 2P of the
+    mode normalized to 1 W) when it has one, else the one of EMerge."""
+    line = MODE_LINES.get((int(port.port_number), int(mode_nr)))
+    if line is None or getattr(port, "impedance_definition", "PV") != "PV":
+        return md.Z0
+    from emerge._emerge.coord import Line
+    try:
+        # the same quadrature as EMerge's line of mode 1
+        return abs(Line.from_points(line[0], line[1], 101).line_integral(md.E_function)) ** 2 / 2.0
+    except Exception:  # noqa: BLE001
+        return md.Z0
 
 
 def port_data(freq) -> tuple[np.ndarray | None, np.ndarray | None]:

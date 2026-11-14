@@ -57,3 +57,69 @@ def test_more_than_two_conductors_get_a_line_and_a_warning(tmp_path):
     assert not any("PEC islands without a terminal definition" in m for m in msgs)
     z = r["zo"].real
     assert np.all(np.isfinite(z)) and np.all((z > 20) & (z < 500)) and not np.allclose(z, 50.0)
+
+
+def test_line_of_mode_two(tmp_path):
+    """Two wires above a dielectric in a box, two modes (even and odd, different propagation constants). EMerge integrates every mode along the line of mode 1; with the same
+    line as Integration Line of mode 2 Hertzon's Zo of mode 2 (|V|^2 / 2 of the 1 W mode) is the same, and a
+    line of its own (the other wire) gives mode 2 another Zo. The S-parameters do not change."""
+    pytest.importorskip("emerge")
+    from hertzon.solver import bridge as B
+    l1 = "-1mm,{y},0.2mm;-1mm,{y},-5mm"
+    l2 = "1mm,{y},0.2mm;1mm,{y},-5mm"
+
+    def solve(name, lines):
+        import emerge as em
+        from hertzon.solver.results import ResultStore
+        p, d, st = _wire_design("Modal", wires=("-1mm", "1mm"), substrate=True)
+        for e, y in zip(d.excitations, ("0", "20mm")):
+            e.props["Renormalize"] = "False"
+            for key, text in lines.items():
+                e.props[key] = text.format(y=y)
+        with em.Simulation(f"waveline_{name}", save_file=False) as m:
+            b = B.Bridge(p, d, st, tmp_path / name)
+            b.prepare(m)
+            b.run_adaptive()
+        return ResultStore(tmp_path / name).sparams("LastAdaptive")
+
+    ref = solve("one", {"IntegrationLine": l1})
+    same = solve("same", {"IntegrationLine": l1, "IntegrationLine2": l1})
+    own = solve("own", {"IntegrationLine": l1, "IntegrationLine2": l2})
+    assert ref["zo"].shape[1] == 4                      # two ports, two modes each
+    assert np.allclose(same["zo"], ref["zo"], rtol=1e-6)
+    assert np.allclose(own["zo"][:, [0, 2]], ref["zo"][:, [0, 2]], rtol=1e-9)
+    assert not np.allclose(own["zo"][:, [1, 3]], ref["zo"][:, [1, 3]], rtol=1e-2)
+    assert np.abs(own["S"] - ref["S"]).max() < 1e-9
+
+
+def test_modes_tab(monkeypatch):
+    """Port dialog, Modes tab: a row per mode, None clears a line, typed coordinates are kept, New Line...
+    closes the dialog with the mode to draw."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from hertzon.gui.dialogs import ModesTab, NamedPropsDialog
+    from hertzon.model import schema
+    from hertzon.model.design import Assignment
+    QApplication.instance() or QApplication([])
+    props = schema.defaults(schema.EXCITATIONS["Wave Port"])
+    props.update(NumberOfModes="2", IntegrationLine="0,0,1;0,0,0")
+    a = Assignment("P1", "Wave Port", props)
+    dlg = NamedPropsDialog("Wave Port", a.name, [p for p in schema.EXCITATIONS["Wave Port"] if p.name != "IntegrationLine"],
+                           a.props)
+    dlg.draw_mode = 0
+    tab = ModesTab(dlg, a)
+    dlg.add_tab(tab, "Modes")
+    assert tab.table.rowCount() == 2
+    assert tab.table.cellWidget(0, 1).currentText() == ModesTab.DEFINED
+    assert tab.table.cellWidget(1, 1).currentText() == ModesTab.NONE
+    tab._typed(2, "1,0,1;1,0,0")
+    assert dlg.values["IntegrationLine2"] == "1,0,1;1,0,0"
+    tab._choice(1, ModesTab.NONE)
+    assert dlg.values["IntegrationLine"] == ""
+    dlg.values["NumberOfModes"] = "3"
+    tab.refresh()
+    assert tab.table.rowCount() == 3
+    tab._choice(3, ModesTab.NEW)
+    assert dlg.draw_mode == 3 and dlg.result() == 1
+    assert any(dlg.grid.tabText(i) == "Modes" and dlg.grid.isTabVisible(i) for i in range(dlg.grid.count()))
