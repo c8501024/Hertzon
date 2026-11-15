@@ -71,8 +71,9 @@ studies. What is yours:
   "Multi-Frequencies" with the band centres, and add a frequency at a band edge when that edge limits the
   design.
 - **Coarse search:** while you compare concepts or topologies, solve them coarsely: MaximumDeltaS 0.03 and
-  MaximumPasses 6, and a sweep with only a few frequencies per band (its edges and centre), fields only there. Rank concepts with these numbers, but do not
-  report them as results. Once you settle on a concept, go back to the normal setup (the project's or
+  MaximumPasses 6; fields (for efficiency) only at a few frequencies per band (its edges and one to three
+  in between), plus an interpolating S11 sweep over all bands without fields, which shows where the
+  resonances sit and how wide they are. Rank concepts with these numbers, but do not report them as results. Once you settle on a concept, go back to the normal setup (the project's or
   Hertzon's) for tuning it.
 
 - **Not converged:** `get_status()` and `get_results()` say clearly when the adaptive passes stopped before
