@@ -3,6 +3,23 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Claude plugin.** `claude-plugin/` holds a plugin for Claude Code with four skills (a design workflow from
+  the specification to a verified design and a report, multi-fidelity for circuits: circuit first, then full
+  wave, antenna know-how, a checklist for reading results) and
+  the commands `/hertzon:design` and `/hertzon:verify`. It works on top of the MCP server and is installed with it:
+  *Register* next to Claude Code in **Tools > AI Assistants (MCP)** also installs the plugin from the Hertzon folder
+  (it ships with the installers and is updated with Hertzon); without the `claude` command Hertzon shows the line
+  `/plugin install hertzon --marketplace c8501024/hertzon` instead (README, tutorial 5.4). A test keeps the tool names in
+  the skills in step with the MCP server. Its **Hertzon pane** beside the chat shows every picture Hertzon draws
+  for the assistant, and the line above the prompt the adaptive pass of a running analysis.
+- **MCP tool `show_result`.** A picture of a report, a field plot, the 3D view or a tab of the Solutions window
+  (convergence, profile, matrix data, mesh statistics), drawn by Hertzon's own widgets: an open report tab and the
+  3D view are taken as shown in the window. Without a window, reports and Solutions tabs are drawn off screen by
+  the same code. Pictures of `show_result` and `render_image` are kept in `~/.hertzon/shown`.
+
 ## 0.3.26 (2026-11-14)
 
 ### Added
