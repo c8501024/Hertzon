@@ -1627,7 +1627,7 @@ class Bridge:
         from .emerge_compat import select_refinement_indices, tet_to_node
         from emerge._emerge.physics.microwave.bcs.boundary_conditions import PEC
         m, p = self.m, self.setup.props
-        maxp = max(1, int(p.get("MaximumPasses", "6")))
+        maxp = max(1, int(p.get("MaximumPasses", "15")))
         max_de = float(p.get("MaximumDeltaEnergy", "0.001") or 0.001)
         min_passes = max(2, int(p.get("MinimumPasses", "2")))
         min_conv = max(1, int(p.get("MinimumConvergedPasses", "1")))
@@ -2647,7 +2647,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     change <= MaxDeltaEfficiency; power(fields, Ss) computes them (Bridge.pass_power).
     """
     from .emerge_compat import select_refinement_indices, tet_to_node
-    maxp = max(1, int(p.get("MaximumPasses", "6")))
+    maxp = max(1, int(p.get("MaximumPasses", "15")))
     max_ds = float(p.get("MaximumDeltaS", "0.02"))
     # Max Delta S per adaptive frequency (Multi-Frequencies entries may carry their own)
     lims = list(ds_limits) if ds_limits is not None and len(ds_limits) == len(fa) else [max_ds] * len(fa)

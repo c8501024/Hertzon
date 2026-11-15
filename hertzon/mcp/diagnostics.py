@@ -121,8 +121,10 @@ def efficiency_breakdown(Pinc: float, Pacc: float, Prad: float, Ploss: float | N
     return out
 
 
-def convergence_note(conv: dict, target: float | None = None) -> dict:
-    """Converged flag, last Delta S, target and a warning when not converged."""
+def convergence_note(conv: dict, target: float | None = None, max_passes: int | None = None,
+                     max_tets: int | None = None) -> dict:
+    """Converged flag, last Delta S, target, why the passes stopped, and a warning with the next step when the
+    adaptive mesh did not converge."""
     passes = conv.get("passes") or []
     last = next((p.get("delta_s") for p in reversed(passes) if p.get("delta_s") is not None), None)
     out = {"converged": bool(conv.get("converged")), "passes": len(passes)}
@@ -136,14 +138,33 @@ def convergence_note(conv: dict, target: float | None = None) -> dict:
     drift = len(ds) >= 3 and last is not None and last > DRIFT_FACTOR * min(ds[:-1])
     if drift:
         out["delta_s_history"] = [_r(x, 3) for x in ds]
-    if not out["converged"]:
+    if not out["converged"] and not conv.get("running"):
+        tets = conv.get("final_tets") or (passes[-1].get("tets") if passes else None)
+        if max_tets and tets and tets >= 0.95 * max_tets:
+            out["stopped_by"] = "MaximumRefinement"
+            step = (f"The mesh reached the tetrahedra limit (MaximumRefinement {max_tets:g}); more passes cannot "
+                    "refine further. Check the port and small features before raising the limit.")
+        else:
+            if max_passes and len(passes) >= max_passes:
+                out["stopped_by"] = "MaximumPasses"
+            step = (f"Raise MaximumPasses (now {max_passes}) with set_setup, for example by 5, and run the analysis "
+                    "again: it continues from the last adaptive mesh, so only the extra passes cost time. Do not add "
+                    "mesh operations, change the basis order or start a mesh study for this."
+                    if max_passes else
+                    "Raise MaximumPasses with set_setup, for example by 5, and run the analysis again: it continues "
+                    "from the last adaptive mesh, so only the extra passes cost time.")
         out["warning"] = (
             "The adaptive mesh did NOT converge" + (f" (last Delta S {last:.3g}" if last is not None else " (")
             + (f", target {target:g})" if target is not None else ")")
             + ". S-parameters, accepted power and everything derived from them (mismatch efficiency, total "
-            "efficiency, Q) are uncertain, most of all near high-Q points and deep dips. Refine (more passes, "
-            "mesh operations, adaptive frequencies at the critical points) or confirm with a finer solve before "
-            "drawing conclusions.")
+            "efficiency, Q) are uncertain, most of all near high-Q points and deep dips. " + step)
+        row = next((p for p in reversed(passes) if p.get("delta_s") is not None), None) or {}
+        dm = row.get("delta_mag")
+        if target is not None and last is not None and dm is not None and last > target >= dm:
+            out["phase_note"] = (
+                f"|S| has settled (Delta Mag {dm:.3g} below the target); Delta S comes from the phase of a very "
+                "small S-parameter (a deep dip), which moves a lot while the magnitude barely changes. The "
+                "magnitudes (S11 in dB, efficiencies) are already close to final.")
     if drift:
         out["drift_warning"] = (
             f"Delta S rose again from {min(ds[:-1]):.3g} to {last:.3g}: the passes are not settling. Physics rarely "

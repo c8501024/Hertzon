@@ -20,6 +20,16 @@ the GitHub release notes.
   3D view are taken as shown in the window. Without a window, reports and Solutions tabs are drawn off screen by
   the same code. Pictures of `show_result` and `render_image` are kept in `~/.hertzon/shown`.
 
+### Changed
+- **AI assistants are told clearly when the adaptive mesh did not converge.** `get_status` now reports a
+  `convergence_warning` with the reason the passes stopped (`stopped_by`: MaximumPasses or the tetrahedra limit),
+  as `get_results` already did, and parametric studies list the variations that did not converge. The warning
+  names the next step: raise MaximumPasses and run again, which continues from the last adaptive mesh, instead of
+  adding mesh operations or a mesh study. When |S| has settled and only the phase of a deep dip keeps Delta S above
+  the target, a `phase_note` says so.
+- **New analysis setups allow 15 adaptive passes** instead of 6, so that ordinary models converge without a
+  manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
+
 ## 0.3.26 (2026-11-14)
 
 ### Added
