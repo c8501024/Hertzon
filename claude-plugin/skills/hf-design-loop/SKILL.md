@@ -64,12 +64,20 @@ Every solve costs minutes to hours. Plan for the fewest solves:
 ## Mesh and convergence
 
 Hertzon's adaptive meshing decides where the mesh is refined. Do not add mesh operations, change the basis
-order, the mesh sizes or the adaptive frequencies an assistant chose, and do not run mesh studies.
-Two things are yours:
+order or the mesh sizes, do not change the adaptive frequencies a design assistant chose, and do not run mesh
+studies. What is yours:
+
+- **Adaptive frequencies of your own model:** choose them where the answer matters. For several bands use
+  "Multi-Frequencies" with the band centres, and add a frequency at a band edge when that edge limits the
+  design.
+- **Coarse search:** while you compare concepts or topologies, solve them coarsely: MaximumDeltaS 0.03 and
+  MaximumPasses 6, fields only at the few frequencies you evaluate. Rank concepts with these numbers, but do not
+  report them as results. Once you settle on a concept, go back to the normal setup (the project's or
+  Hertzon's) for tuning it.
 
 - **Not converged:** `get_status()` and `get_results()` say clearly when the adaptive passes stopped before
   reaching the target. Read that after every solve, also when you evaluate result files with your own scripts.
-  Never read numbers from such a solve as if they were final. Raise `MaximumPasses` with
+  Never read numbers from such a solve as if they were final (in the coarse search they are only a ranking). Raise `MaximumPasses` with
   `set_setup()` (for example by 5) and run the analysis again: it continues from the last adaptive mesh, so only
   the extra passes cost time. Do this, not a new setup and not a finer Delta S.
 - **One final check:** when the design meets the goal, solve it once with MaximumDeltaS 0.01 and

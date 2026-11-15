@@ -18,8 +18,8 @@ conclusions. Before you act on a result, go through these checks in order and sa
   mesh size.
 - Deep dips and high-Q points are the least reliable. Say so in the report.
 - Do not add mesh operations, change the basis order or run mesh studies: the adaptive meshing takes care of
-  the mesh. Besides more passes, the only change is the one final check of `hf-design-loop` (Delta S 0.01,
-  two converged passes).
+  the mesh. Besides more passes, the only changes are the coarse search while comparing
+  concepts and the one final check of `hf-design-loop` (Delta S 0.01, two converged passes).
 
 ## 2. Is the excitation right?
 
