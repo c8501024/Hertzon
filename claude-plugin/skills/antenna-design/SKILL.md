@@ -33,9 +33,10 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
 - Adapt where the answer matters: the operating frequency for one band; for several bands
   SolutionFrequencyMode "Multi-Frequencies" with the band centres or edges; for very wide bands "Broadband".
   A sweep never refines the mesh: it is solved on the mesh adapted at these frequencies.
-- Leave the mesh and the convergence settings (MaximumDeltaS, passes, mesh sizes) as Hertzon and its design
-  assistants set them: the adaptive meshing refines where it is needed. Change them only when the user asks.
-  A tighter Delta S makes every later solve, tuning model and optimizer step slower and much larger.
+- Leave the mesh as Hertzon and its design assistants set it: the adaptive meshing refines where it is
+  needed. The only convergence changes are those of `hf-design-loop` (more passes when a solve did not
+  converge, one final check with Delta S 0.01). A tighter Delta S makes every solve, tuning model and
+  optimizer step slower and much larger.
 - Use an interpolating sweep over a range wider than the bands for S11, and a discrete sweep with fields saved
   at a few in-band frequencies for far fields.
 

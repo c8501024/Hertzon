@@ -12,12 +12,14 @@ conclusions. Before you act on a result, go through these checks in order and sa
 
 - `get_status()` lists the adaptive passes with tetrahedra and Delta S; `get_results()` kind `convergence`
   gives the history; `show_result()` with what `solutions` shows the convergence table to the user.
-  `get_results()` adds a `convergence_warning` when the target was not reached; never ignore it.
+  `get_status()` and `get_results()` add a `convergence_warning` when the target was not reached; never ignore
+  it. Raise `MaximumPasses` and solve again (it continues from the last mesh) before using the numbers.
 - Delta S should fall from pass to pass. If it jumps, suspect the port or a geometry detail far below the
   mesh size.
 - Deep dips and high-Q points are the least reliable. Say so in the report.
-- Do not change MaximumDeltaS, the passes or mesh sizes yourself: the adaptive meshing takes care of the mesh.
-  If convergence looks doubtful, tell the user and suggest the change instead of making it.
+- Do not add mesh operations, change the basis order or run mesh studies: the adaptive meshing takes care of
+  the mesh. Besides more passes, the only change is the one final check of `hf-design-loop` (Delta S 0.01,
+  two converged passes).
 
 ## 2. Is the excitation right?
 

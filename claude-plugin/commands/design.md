@@ -12,5 +12,6 @@ that leads to a decision with `results-check`.
 - Begin with `get_context()` and write the goal into the design log before you build anything.
 - Ask the user only about what changes the goal (environment, figure of merit, what may change). Choose and
   record sensible defaults for everything else.
-- Before an analysis that will take long, say how long, and stop rather than polling.
+- Before an analysis that will take long, say how long, then wait for it with `get_status()` and `wait_seconds`.
+- When the goal is met, do the one final check of the design loop and stop.
 - End with the verification and the report of the design loop.
