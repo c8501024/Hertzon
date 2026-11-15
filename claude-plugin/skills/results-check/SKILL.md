@@ -27,7 +27,9 @@ conclusions. These are the checks that tell a trustworthy result from a wrong on
 ## 3. Does the energy add up?
 
 - For antennas: Prad + Ploss should match the accepted power (`get_results()` kind `efficiency` or
-  `summary`). A power balance far from zero is a warning sign for the mesh or the port.
+  `summary`). A power balance far from zero is a warning sign for the mesh or the port. On a coarse
+  screening mesh with a coarse far-field sphere (10 degrees) a few percent are normal; the balance says
+  something about the port only on a converged mesh.
 - For passive two-ports: |S11|^2 + |S21|^2 should not exceed 1 and should match the expected losses.
 
 ## 4. Which factor limits?
