@@ -51,4 +51,4 @@ name the test that would decide it. In reports, mark each conclusion as one or t
 ## 6. Independent check
 
 For a design that will be built or published, recommend an independent check to the user (another solver or
-a measurement); do not run one yourself. Say in the report what was checked and how.
+a measurement). Run one yourself only when the task asks for it. Say in the report what was checked and how.

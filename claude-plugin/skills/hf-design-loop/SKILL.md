@@ -38,7 +38,8 @@ Use the most specific method Hertzon offers before building geometry by hand:
 - hairpin band-pass filters and diplexers: `create_hairpin_filter()`, `create_hairpin_diplexer()`;
 - couplers, dividers, matching networks, other filters: `list_structures()`, then `create_structure()`
   (a circuit and its 3D design with shared variables);
-- similar shipped examples: `list_examples()`, `open_example()`;
+- similar shipped examples: `list_examples()`, `open_example()` (not when the task asks for a design from
+  scratch);
 - boards: `import_pcb()` and `set_stackup()`;
 - circuits: `create_circuit()`, `edit_circuit()`; `circuit_layout()` turns a schematic into a 3D design and back.
 
