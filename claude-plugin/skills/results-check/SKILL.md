@@ -1,6 +1,6 @@
 ---
 name: results-check
-description: Checklist for reading and verifying Hertzon simulation results before drawing conclusions: mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis. Use after every solve whose numbers lead to a decision, and to verify a final design.
+description: "Checklist for reading and verifying Hertzon simulation results before drawing conclusions: mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis. Use after every solve whose numbers lead to a decision, and to verify a final design."
 ---
 
 # Checking results in Hertzon

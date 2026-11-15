@@ -1,6 +1,6 @@
 ---
 name: hf-design-loop
-description: Step-by-step workflow for designing an RF/microwave structure (antenna, filter, coupler, matching network, circuit or PCB) with Hertzon's MCP tools, from the specification to a verified design and a report. Use whenever the user asks to design, tune or improve an RF design in Hertzon.
+description: "Step-by-step workflow for designing an RF/microwave structure (antenna, filter, coupler, matching network, circuit or PCB) with Hertzon's MCP tools, from the specification to a verified design and a report. Use whenever the user asks to design, tune or improve an RF design in Hertzon."
 ---
 
 # Designing with Hertzon: the design loop

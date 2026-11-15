@@ -1,6 +1,6 @@
 ---
 name: circuit-first
-description: Multi-fidelity workflow for planar circuits in Hertzon (filters, couplers, dividers, matching and feed networks, also structures the Design Wizard does not know yet, and active circuits such as LNAs): design and optimize in the circuit first, then check and correct in full wave with a few 3D solves. Use together with hf-design-loop for anything a circuit can describe.
+description: "Multi-fidelity workflow for planar circuits in Hertzon (filters, couplers, dividers, matching and feed networks, also structures the Design Wizard does not know yet, and active circuits such as LNAs): design and optimize in the circuit first, then check and correct in full wave with a few 3D solves. Use together with hf-design-loop for anything a circuit can describe."
 ---
 
 # Circuit first, full wave second

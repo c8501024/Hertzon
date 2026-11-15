@@ -1,6 +1,6 @@
 ---
 name: antenna-design
-description: Know-how for modelling, solving and tuning antennas in Hertzon (patch, monopole, dipole, IFA/PIFA, multi-band, small antennas on boards): open region, ports, adaptive frequencies, far fields and efficiency. Use together with hf-design-loop whenever an antenna is designed or analysed.
+description: "Know-how for modelling, solving and tuning antennas in Hertzon (patch, monopole, dipole, IFA/PIFA, multi-band, small antennas on boards): open region, ports, adaptive frequencies, far fields and efficiency. Use together with hf-design-loop whenever an antenna is designed or analysed."
 ---
 
 # Antennas in Hertzon

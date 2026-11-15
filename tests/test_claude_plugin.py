@@ -16,12 +16,24 @@ def _docs():
 
 
 def _frontmatter(text: str) -> dict:
+    """The front matter as YAML reads it. Claude Code drops a skill whose front matter is not valid YAML (for
+    example an unquoted description with ': ' in it) without an error, so the model never sees the skill."""
     m = re.match(r"---\n(.*?)\n---\n", text, re.S)
     assert m, "missing front matter"
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+    if yaml is not None:
+        out = yaml.safe_load(m.group(1))
+        assert isinstance(out, dict), "front matter is not a mapping"
+        return out
     out = {}
     for line in m.group(1).splitlines():
         k, _, v = line.partition(":")
-        out[k.strip()] = v.strip()
+        v = v.strip()
+        assert ": " not in v or (v[:1] in "\"'" and v[-1:] == v[:1]), f"unquoted ': ' in {k}"
+        out[k.strip()] = v.strip("\"'")
     return out
 
 
