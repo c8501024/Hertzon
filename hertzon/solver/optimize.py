@@ -40,9 +40,20 @@ TAG = "@@HZN "
 TRUST_REGION = "Derivative Trust Region"
 SPACE_MAPPING = "Space Mapping"
 NELDER_MEAD = "Latin Hypercube + Nelder-Mead"
+CONJUGATE_GRADIENT = "Conjugate Gradient"
+ALGORITHM_ENV = "HERTZON_OPT_ALGORITHM"     # optimizer of this run instead of the one of the optimization
 TUNING_MAX_VARIABLES = 6
 ROOT = Path(__file__).resolve().parents[2]
 _LOCK = threading.Lock()
+
+
+def out_of_memory(error: str) -> bool:
+    """Did a solver process fail for lack of memory? (the memory check of the tuning model, an allocation
+    that failed, or the process killed by the operating system)"""
+    e = error.lower()
+    return any(s in e for s in ("not enough memory", "memoryerror", "unable to allocate",
+                                "ended with code -9,", "ended with code 137,", "ended with code 3221225495,",
+                                "ended with code -1073741801,"))
 
 
 def emit(kind: str, **data) -> None:
@@ -165,6 +176,12 @@ class Optimizer:
         self.folders: dict[int, Path] = {}
         self.keep_mesh = False          # the trust region computes the tuning model on an evaluation's mesh
         self.algorithm = self.props.get("Optimizer", "Conjugate Gradient")
+        # chosen for this run only, e.g. Conjugate Gradient instead of a tuning model that does not fit
+        self.chosen = os.environ.get(ALGORITHM_ENV, "").strip()
+        if self.chosen in (CONJUGATE_GRADIENT, NELDER_MEAD) and self.chosen != self.algorithm:
+            self.algorithm = self.chosen
+        else:
+            self.chosen = ""
         self.trust = self.algorithm == TRUST_REGION
         self.mapping = self.algorithm == SPACE_MAPPING
         self.coarse_name = str(self.props.get("CoarseModel", "")).strip()
@@ -398,7 +415,13 @@ class Optimizer:
             log(f"Optimization '{self.opt.name}': conjugate gradient over {len(self.vars)} variable(s) "
                 f"({', '.join(self.vars.names)}), goals on {self.opt.solution}, up to {self.parallel} design(s) "
                 "at once")
+        if self.chosen:
+            log(f"Optimizer of this run: {self.chosen} (chosen at the start instead of "
+                f"{self.props.get('Optimizer', CONJUGATE_GRADIENT)})")
         (self.out / "ABORT").unlink(missing_ok=True)
+        return self._run_algorithm(alg)
+
+    def _run_algorithm(self, alg) -> bool:
         while not alg.done and self.n < self.max_evals:
             phase = alg.phase
             pts = alg.propose()[: self.max_evals - self.n]
@@ -475,6 +498,8 @@ class Optimizer:
                     model = self._tuning_model(cur, it, points)
                 except Exception as ex:  # noqa: BLE001
                     log(f"Round {it + 1}: {ex}", "warning")
+                    if out_of_memory(str(ex)):
+                        return self._gradient_instead(x, cost)
                     reason = f"The tuning model of evaluation {cur} failed (see the log); the best design so far"
                     break
                 if model is None:
@@ -520,6 +545,18 @@ class Optimizer:
         if cost == 0:
             reason = "All goals are met (cost 0)"
         return self._end(reason)
+
+    def _gradient_instead(self, x, cost: float) -> bool:
+        """The tuning model does not fit into the memory: continue with Conjugate Gradient from the design
+        reached so far (its solves need the memory of a solve only)."""
+        log("The tuning model does not fit into the memory of this computer: the optimization continues with "
+            "Conjugate Gradient from the best design so far (every step solves the design; on a computer with "
+            "more memory, Tools > Options > Remote or Cloud, the trust region needs fewer solves)", "warning")
+        self.keep_mesh = False
+        self.trust = False
+        self.algorithm = CONJUGATE_GRADIENT
+        self.cache[tuple(np.round(x, 9))] = cost
+        return self._run_algorithm(ConjugateGradient(np.asarray(x, float), self.props))
 
     def _start_texts(self, x) -> dict:
         """Variable texts of the start design: the design's own texts where x is its start value (so its model

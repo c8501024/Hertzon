@@ -55,8 +55,11 @@ def test_more_than_two_conductors_get_a_line_and_a_warning(tmp_path):
     r, msgs = _solve(tmp_path, ("-2mm", "2mm"), name="three")
     assert any("3 separate conductors on the port face" in m for m in msgs)
     assert not any("PEC islands without a terminal definition" in m for m in msgs)
+    # The two TEM modes of the wires in air are degenerate, so the one solved mode is any mix of them and the
+    # voltage of one wire against the box varies from run to run (seen 9 to 117 ohm): only check that there is a
+    # line impedance and that it is not the 50 ohm of a port without one.
     z = r["zo"].real
-    assert np.all(np.isfinite(z)) and np.all((z > 20) & (z < 500)) and not np.allclose(z, 50.0)
+    assert np.all(np.isfinite(z)) and np.all((z > 0) & (z < 1000)) and not np.allclose(z, 50.0)
 
 
 def test_line_of_mode_two(tmp_path):

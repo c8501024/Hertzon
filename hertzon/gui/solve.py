@@ -5,7 +5,7 @@ import json
 import os
 import shutil
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, QProcess, QProcessEnvironment
@@ -34,6 +34,7 @@ class Job:
     optimization: str = ""        # Optimization: run this optimization (setup is unused)
     parametric: str = ""          # Optimization: solve the variations of this parametric setup
     tuning: str = ""              # derivative tuning model of a sweep (JSON: sweep, variables, points)
+    env: dict = field(default_factory=dict)     # environment of this run (remote.protocol.JOB_ENV keys)
 
     @property
     def key(self) -> str:
@@ -164,6 +165,8 @@ class SolveManager(QObject):
         env.insert("HERTZON_MESH_ONLY", "1" if job.mesh_only else "0")
         env.insert("HERTZON_ONLY_SWEEP", job.sweep)
         env.insert("HERTZON_TUNING", job.tuning)
+        for k, v in job.env.items():
+            env.insert(k, str(v))
         for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS"):
             env.insert(var, str(n))
         p.setProcessEnvironment(env)
@@ -194,7 +197,7 @@ class SolveManager(QObject):
         else:
             kind, name = "run", job.setup
         env = {"HERTZON_MESH_ONLY": "1" if job.mesh_only else "0", "HERTZON_ONLY_SWEEP": job.sweep,
-               "HERTZON_TUNING": job.tuning}
+               "HERTZON_TUNING": job.tuning, **job.env}
         r = RemoteRun(self.remote, kind, job.project_path, job.design, name, out, env, self)
         r.label = job.key
         r.line.connect(self._handle_line)

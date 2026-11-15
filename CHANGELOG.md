@@ -5,14 +5,6 @@ the GitHub release notes.
 
 ## Unreleased
 
-### Changed
-- **Integration lines in a Modes tab.** The dialog of a wave or lumped port has a **Modes** tab with one row per
-  mode: Integration Line *None* (the solver's line) or *New Line...*, which closes the dialog to pick start and
-  end point in the 3D view and opens it again; the coordinates can also be typed. A wave port with several
-  modes takes a line per mode: Zo of modes 2, 3, ... is taken along their own line (Zpv), before every mode was
-  integrated along the line of mode 1. Projects keep their line as the line of mode 1; right click › Draw
-  Integration Line stays as the short way.
-
 ### Added
 - **Claude plugin.** `claude-plugin/` holds a plugin for Claude Code with four skills (a design workflow from
   the specification to a verified design and a report, multi-fidelity for circuits: circuit first, then full
@@ -27,16 +19,66 @@ the GitHub release notes.
   (convergence, profile, matrix data, mesh statistics), drawn by Hertzon's own widgets: an open report tab and the
   3D view are taken as shown in the window. Without a window, reports and Solutions tabs are drawn off screen by
   the same code. Pictures of `show_result` and `render_image` are kept in `~/.hertzon/shown`.
+
+## 0.3.26 (2026-11-14)
+
+### Added
+- **Memory warning before a tuning model.** Derivative Tuning and the optimizer Derivative Trust Region estimate
+  the memory of the tuning model from the unknowns of the setup's last solve (at one frequency about the memory
+  of the solve, over a sweep 1.15 times for two variables and 1.8 times for four) and ask before the start when it
+  exceeds the free memory: solve on a remote or cloud computer, optimize this run with Conjugate Gradient, or
+  run anyway. Without a solved setup the tuning run checks the memory itself and stops with a message instead
+  of being killed by the operating system; a Derivative Trust Region optimization then continues with Conjugate
+  Gradient from the best design so far. Measurements and rule of thumb in docs/TUNING.md (Memory).
+
+### Changed
+- **Derivative tuning needs far less memory.** The tuning model of one frequency (the solution frequency of the
+  setup, as Derivative Trust Region uses it) no longer keeps the matrices of every mesh state: they are combined
+  into their differences and dropped, the differences are kept in single precision as in the band model, and
+  states are no longer cached when there is only one frequency. Peak memory against 0.3.25: patch (72k
+  tetrahedra) 8.4 to 6.3 GB, UWB monopole with 4 variables 10.5 to 2.6 GB, hairpin filter with 3 variables
+  11.4 GB where 0.3.25 ran out of memory (15 GB machine). The tuned S-parameters are the same.
+- **Derivative tuning over a sweep needs less memory and time.** The tuning model over the frequencies of a
+  sweep no longer assembles the matrix derivatives of every expansion frequency as full double precision
+  matrices next to the factorization (they act as operators on the vectors), the matrices of all mesh states
+  share one sparsity pattern, and the curl-curl matrix is stored real. Peak memory against the previous
+  version: 15 % less for one variable, 27 to 29 % for two, 40 % for four and 45 % for six (patch, 231k and
+  522k unknowns; 4 variables 11.4 to 6.8 GB and 25.1 to 14.8 GB), and 6 to 26 % faster. The products stay in
+  double precision, so the model is closer to a double precision reference than before.
+
+## 0.3.25 (2026-11-14)
+
+### Added
 - **Derivative tuning with wave ports.** A variable may now change the cross-section of a wave port (the trace
   width or substrate height of a grounded CPW at its port) or move a wave port with the end of its line (the
   line length): the port modes of every morphed mesh state are solved on its own port face, and the tuned Zo
   and propagation constant follow the sliders. Before, such a variable stopped with "moves 'Trace' at a wave
   port ... (only lumped ports can stretch)". The air box may also grow with a substrate whose height is tuned.
+- **Port Zo and Gamma in Solution Data.** Matrix Data lists *Gamma* (alpha + j beta, 1/m) and *Zo* (ohm) of every
+  wave port mode (terminal) next to S, Y and Z: for the last adaptive pass, for each sweep and, under *Adaptive
+  Passes*, for every pass, so you can see whether the port impedance has settled and whether the port is sized
+  right. Reports over the passes can plot `Zo(1)` and `Gamma(1)` too. Passes solved before this version have
+  no per-pass values.
+- **Sampled frequencies of an interpolating sweep** in the Message Manager: when the sweep finishes, one line
+  lists all frequencies it solved for its interpolation (GHz, ascending).
+
+### Changed
+- **Integration lines in a Modes tab.** The dialog of a wave or lumped port has a **Modes** tab with one row per
+  mode: Integration Line *None* (the solver's line) or *New Line...*, which closes the dialog to pick start and
+  end point in the 3D view and opens it again; the coordinates can also be typed. A wave port with several
+  modes takes a line per mode: Zo of modes 2, 3, ... is taken along their own line (Zpv), before every mode was
+  integrated along the line of mode 1. Projects keep their line as the line of mode 1; right click › Draw
+  Integration Line stays as the short way.
 
 ### Fixed
 - **Derivative tuning took the wrong face motion when gmsh ordered a face boundary differently** in the
   perturbed builds: the side face of the GCPW substrate gave its bottom corners the motion of the top ones.
   The perturbed face boundaries are now matched point by point to the nominal ones.
+- **Return in the coordinate fields.** Points typed into the X, Y, Z fields of the status bar are entered with
+  Return also while a line or polyline is drawn; before, Return finished the line there and the typed point was
+  lost.
+- **A click in the model view deselects a boundary or excitation** (or mesh operation) selected in the Project
+  Manager, so its highlighted faces go away.
 
 ## 0.3.24 (2026-11-14)
 

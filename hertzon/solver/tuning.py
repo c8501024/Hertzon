@@ -359,6 +359,65 @@ def _orth(cols: list[np.ndarray], tol: float = 1e-10) -> np.ndarray:
     return np.column_stack(V)
 
 
+def _mul(M, X: np.ndarray) -> np.ndarray:
+    """M @ X; a single precision matrix (a difference of states) multiplies in single precision, which is as
+    accurate as its entries and avoids converting the matrix to double precision for every product."""
+    if isinstance(M, _Combined):
+        return M @ X
+    if M.dtype == np.complex64:
+        return (M @ X.astype(np.complex64)).astype(np.complex128)
+    return M @ X
+
+
+class _Combined:
+    """E - k0^2 B + R as an operator: its product with a block of vectors is formed from the three matrices,
+    so that the derivative matrices of an expansion frequency are never assembled (each a full double
+    precision matrix of the mesh, all of them held next to the factorization). The products are in double
+    precision, as with the assembled matrices."""
+
+    def __init__(self, E, B, R, k2: float):
+        self.E, self.B, self.R, self.k2 = E, B, R, k2
+
+    def __matmul__(self, X: np.ndarray) -> np.ndarray:
+        return self.E @ X - self.k2 * (self.B @ X) + self.R @ X
+
+
+def _compact(M, pattern: tuple | None, single: bool):
+    """M (CSR) with real values when its imaginary parts are zero (the curl-curl matrix of materials without
+    magnetic loss), in single precision if asked, and on the index arrays of `pattern` (indptr, indices) when
+    its sparsity pattern is that one: the matrices of all mesh states share one pattern (the morphing moves
+    nodes, not connections), so it is held once instead of once per matrix."""
+    import scipy.sparse as sp
+    data = M.data
+    if np.iscomplexobj(data) and not np.any(data.imag):
+        data = data.real
+    if single:
+        data = data.astype(np.float32 if data.dtype.kind == "f" else np.complex64)
+    else:
+        data = np.ascontiguousarray(data)
+    indptr, indices = M.indptr, M.indices
+    if pattern is not None and _same_pattern(M, pattern):
+        indptr, indices = pattern
+    return sp.csr_matrix((data, indices, indptr), shape=M.shape, copy=False)
+
+
+def _same_pattern(M, pattern: tuple) -> bool:
+    return M.nnz == len(pattern[1]) and np.array_equal(M.indptr, pattern[0]) and np.array_equal(M.indices, pattern[1])
+
+
+def _combination(terms: list, pattern: tuple, scale: float):
+    """sum(c * M for c, M in terms) / scale in single precision; on the shared pattern the values are
+    combined directly (no sparse addition, which would drop zeros and give the result its own pattern)."""
+    import scipy.sparse as sp
+    if all(_same_pattern(M, pattern) for _, M in terms):
+        data = sum(c * M.data for c, M in terms) / scale
+        M = sp.csr_matrix((data, pattern[1], pattern[0]), shape=terms[0][1].shape, copy=False)
+    else:
+        M = sum(c * M for c, M in terms) / scale
+        M = M.tocsr()
+    return _compact(M, pattern, True)
+
+
 def derivative_solutions(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list, bii: list,
                          bij: dict) -> np.ndarray:
     """The solution of A0 x = b and its first and second derivatives with respect to the variables (one
@@ -367,9 +426,9 @@ def derivative_solutions(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list
     fac = factor(A0)
     try:
         x0 = fac.solve(b)
-        xi = [fac.solve(bi[i] - Ai[i] @ x0) for i in range(n)]
-        xii = [fac.solve(bii[i] - (Aii[i] @ x0 + 2 * (Ai[i] @ xi[i]))) for i in range(n)]
-        xij = {(i, j): fac.solve(bij[(i, j)] - (Aij[(i, j)] @ x0 + Ai[i] @ xi[j] + Ai[j] @ xi[i]))
+        xi = [fac.solve(bi[i] - _mul(Ai[i], x0)) for i in range(n)]
+        xii = [fac.solve(bii[i] - (_mul(Aii[i], x0) + 2 * _mul(Ai[i], xi[i]))) for i in range(n)]
+        xij = {(i, j): fac.solve(bij[(i, j)] - (_mul(Aij[(i, j)], x0) + _mul(Ai[i], xi[j]) + _mul(Ai[j], xi[i])))
                for (i, j) in Aij}
     finally:
         if hasattr(fac, "close"):
@@ -406,7 +465,7 @@ def reduce_system(A0, b, Ai: list, Aii: list, Aij: dict, factor, bi: list | None
     bij = bij if bij is not None else {key: zero for key in Aij}
     cols = derivative_solutions(A0, b, Ai, Aii, Aij, factor, bi, bii, bij)
     W = _orth([cols[:, e] for e in range(cols.shape[1])])
-    proj = lambda M: W.T @ (M @ W)      # noqa: E731  (complex symmetric: W^T keeps the reduced matrix symmetric)
+    proj = lambda M: W.T @ _mul(M, W)   # noqa: E731  (complex symmetric: W^T keeps the reduced matrix symmetric)
     k = W.shape[1]
     out = {
         "A0": proj(A0), "b": W.T @ b,
@@ -446,6 +505,7 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
     NF = A.shape[0]
     A0 = submatrix(A, ids).tocsr()
     bs = np.asarray(b[ids], dtype=np.complex128)
+    del A
 
     def X_of(c: dict):
         return asm.X0 + sum(ci * steps[i] * V[i] for i, ci in c.items())
@@ -456,21 +516,31 @@ def frequency_model(asm: Assembly, freq: float, V: list[np.ndarray], steps: list
             raise MO.MorphError("the morphed mesh changes the unknowns of the solve")
         return submatrix(Ac, ids).tocsr(), np.asarray(bc[ids], dtype=np.complex128)
 
+    # as in the band model: the state matrices are combined into their differences as soon as these can be
+    # formed and then dropped (a +step state only while a mixed difference still needs it), and the
+    # differences are kept in single precision (their relative error from the differencing is far larger)
+    low = lambda M: M.astype(np.complex64 if np.iscomplexobj(M.data) else np.float32)      # noqa: E731
     t = time.time()
     Ai, Aii, bi, bii, Ap, bp = [], [], [], [], [], []
     for i in range(n):
         (ap, bpi), (am, bmi) = at({i: +1}), at({i: -1})
-        Ai.append((ap - am) / (2 * steps[i]))
-        Aii.append((ap - 2 * A0 + am) / steps[i] ** 2)
+        Ai.append(low((ap - am) / (2 * steps[i])))
+        Aii.append(low((ap - 2 * A0 + am) / steps[i] ** 2))
         bi.append((bpi - bmi) / (2 * steps[i]))
         bii.append((bpi - 2 * bs + bmi) / steps[i] ** 2)
-        Ap.append(ap)
+        del am
+        Ap.append(ap if n > 1 else None)
         bp.append(bpi)
+        del ap
     Aij, bij = {}, {}
     for i, j in pairs(n):
         apij, bpij = at({i: +1, j: +1})
-        Aij[(i, j)] = (apij - Ap[i] - Ap[j] + A0) / (steps[i] * steps[j])
+        Aij[(i, j)] = low((apij - Ap[i] - Ap[j] + A0) / (steps[i] * steps[j]))
         bij[(i, j)] = (bpij - bp[i] - bp[j] + bs) / (steps[i] * steps[j])
+        del apij
+        if j == n - 1:                  # the last pair of i: its state is no longer needed
+            Ap[i] = None
+    Ap = None
     asm.restore()
     t_asm = time.time() - t
     t = time.time()
@@ -535,26 +605,29 @@ class BandModel:
         self.mats = nom["mats"]
         self._check_memory(E0, B0)
         h = steps
-        low = lambda M: M.astype(np.complex64 if np.iscomplexobj(M.data) else np.float32)      # noqa: E731
+        # one sparsity pattern for the matrices of all states; E is real without magnetic loss
+        pat = (E0.indptr, E0.indices)
+        E0, B0 = _compact(E0, pat, False), _compact(B0, pat, False)
         Ed1, Ed2, Bd1, Bd2, plus = [], [], [], [], []
         for i in range(n):
             sp_, sm = self._state(((i, 1),), f_ref), self._state(((i, -1),), f_ref)
             Ep, Bp, Em, Bm = sp_.pop("E"), sp_.pop("B"), sm.pop("E"), sm.pop("B")
             self.parts[((i, 1),)], self.parts[((i, -1),)] = sp_, sm
-            Ed1.append(low((Ep - Em) / (2 * h[i])))
-            Bd1.append(low((Bp - Bm) / (2 * h[i])))
-            Ed2.append(low((Ep - 2 * E0 + Em) / h[i] ** 2))
-            Bd2.append(low((Bp - 2 * B0 + Bm) / h[i] ** 2))
+            Ed1.append(_combination([(1, Ep), (-1, Em)], pat, 2 * h[i]))
+            Bd1.append(_combination([(1, Bp), (-1, Bm)], pat, 2 * h[i]))
+            Ed2.append(_combination([(1, Ep), (-2, E0), (1, Em)], pat, h[i] ** 2))
+            Bd2.append(_combination([(1, Bp), (-2, B0), (1, Bm)], pat, h[i] ** 2))
             del Em, Bm
-            plus.append((Ep, Bp))
+            plus.append((_compact(Ep, pat, False), _compact(Bp, pat, False)))
+            del Ep, Bp
         Edx, Bdx = [], []
         for i, j in pairs(n):
             key = ((i, 1), (j, 1))
             st = self._state(key, f_ref)
             Epp, Bpp = st.pop("E"), st.pop("B")
             self.parts[key] = st
-            Edx.append(low((Epp - plus[i][0] - plus[j][0] + E0) / (h[i] * h[j])))
-            Bdx.append(low((Bpp - plus[i][1] - plus[j][1] + B0) / (h[i] * h[j])))
+            Edx.append(_combination([(1, Epp), (-1, plus[i][0]), (-1, plus[j][0]), (1, E0)], pat, h[i] * h[j]))
+            Bdx.append(_combination([(1, Bpp), (-1, plus[i][1]), (-1, plus[j][1]), (1, B0)], pat, h[i] * h[j]))
             del Epp, Bpp
         del plus
         self.E = (E0, Ed1, Ed2, Edx)
@@ -576,13 +649,16 @@ class BandModel:
             return
         self.log(f"Tuning model of {n} variables: about {need / 2 ** 30:.1f} GB for the volume matrices of "
                  f"{len(self.states)} mesh states ({free / 2 ** 30:.1f} GB free)")
-        if need > 0.6 * free:
+        import os
+        if need > 0.6 * free and os.environ.get(NO_MEMORY_CHECK) != "1":
             fit = [k for k in range(1, n + 1)
                    if ((k + 1) * (k + 2) // 2 * nnz * 12 + k * nnz * 20 + 2 * nnz * 20) <= 0.6 * free]
             hint = (f"at most {fit[-1]} variable{'s' if fit[-1] > 1 else ''} fit on this mesh"
                     if fit else "not even one variable fits on this mesh")
             raise MO.MorphError(f"not enough memory for the tuning model of {n} variables: it needs about "
-                                f"{need / 2 ** 30:.1f} GB, {free / 2 ** 30:.1f} GB are free ({hint})")
+                                f"{need / 2 ** 30:.1f} GB for its volume matrices, {free / 2 ** 30:.1f} GB are "
+                                f"free ({hint}). Solve on a computer with more memory (Tools > Options > Remote "
+                                f"or Cloud), include fewer variables, or optimize with Conjugate Gradient")
 
     def _move(self, key: tuple) -> None:
         if key:
@@ -681,9 +757,14 @@ class BandModel:
         from .fast_sweep import _Factor
         self.asm.mw._compute_modes(f)
         Rt, bt = self.boundary_terms(f)
-        A0, Ai, Aii, Aij = self._combine(self.E, self.B, Rt, 2 * np.pi * f / 299792458)
+        k2 = (2 * np.pi * f / 299792458) ** 2
+        Et, Bt = self.E, self.B
+        A0 = (Et[0] - k2 * Bt[0] + Rt[0]).tocsr()
+        Ai = [_Combined(Et[1][i], Bt[1][i], Rt[1][i], k2) for i in range(self.n)]
+        Aii = [_Combined(Et[2][i], Bt[2][i], Rt[2][i], k2) for i in range(self.n)]
+        Aij = {key: _Combined(Et[3][q], Bt[3][q], Rt[3][q], k2) for q, key in enumerate(pairs(self.n))}
         bij = {key: bt[3][q] for q, key in enumerate(pairs(self.n))}
-        return derivative_solutions(A0.tocsr(), bt[0], Ai, Aii, Aij, _Factor, bt[1], bt[2], bij)
+        return derivative_solutions(A0, bt[0], Ai, Aii, Aij, _Factor, bt[1], bt[2], bij)
 
     def basis(self, freqs: np.ndarray, tol: float = 1e-4, max_points: int | None = None) -> np.ndarray:
         """Greedy choice of the expansion frequencies: start in the middle of the band, add the frequency
@@ -1051,6 +1132,79 @@ MAX_POINTS = 201
 ADAPTIVE = "LastAdaptive"       # sweep name of the tuning model at the solution frequency of the setup
 
 
+# ---- memory ------------------------------------------------------------------------------------
+# Peak memory of a tuning model, linear in the unknowns of the mesh. Measured on the patch antenna at
+# 2.45 GHz (peak RSS; the solve on the same mesh is 1.6 GB per 100k unknowns):
+# - one frequency (the solution frequency, as Derivative Trust Region uses it), 231k, 522k and 2.05M unknowns,
+#   1 to 6 variables: about the solve for 1 to 2 variables (the nominal solve is the peak), then the
+#   derivatives: per 100k unknowns max(1.40, 1.22 + 0.035 n^2) GB, within -2 to +6 %;
+# - over a band (one basis for the frequencies of a sweep), 231k and 522k unknowns, 1 to 6 variables: 3.5 to
+#   10.4 GB on 231k unknowns, 7.6 to 14.5 GB on 522k; per 100k unknowns 1.40 + 0.15 n + 0.065 n^2 GB
+#   (-1 to +10 %).
+MEMORY_FREQUENCY = (1.40, 1.22, 0.035)  # GB per 100k unknowns: floor, constant, per variable^2
+MEMORY_BAND = (1.40, 0.15, 0.065)       # GB per 100k unknowns: constant, per variable, per variable^2
+MEMORY_USABLE = 0.9         # share of the free memory a model may take
+NO_MEMORY_CHECK = "HERTZON_TUNING_IGNORE_MEMORY"    # "1": compute the model even when it does not seem to fit
+
+
+def mesh_states(n: int) -> int:
+    """Mesh states of a tuning model of n variables: nominal, +-step of each, +step of every pair."""
+    return 1 + 2 * n + n * (n - 1) // 2
+
+
+def memory_estimate(n: int, unknowns: float, band: bool = False) -> float:
+    """Peak memory (bytes) of the tuning model of n variables on a mesh with that many unknowns; band: one
+    model over several frequencies of a sweep."""
+    if band:
+        c0, c1, c2 = MEMORY_BAND
+        gb = c0 + c1 * n + c2 * n * n
+    else:
+        floor, c0, c2 = MEMORY_FREQUENCY
+        gb = max(floor, c0 + c2 * n * n)
+    return unknowns / 1e5 * gb * 2 ** 30
+
+
+def free_memory() -> float:
+    """Memory that a new process can take now (bytes), 0 if unknown."""
+    try:
+        import psutil
+        return float(psutil.virtual_memory().available)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def solved_unknowns(results: Path) -> int:
+    """Unknowns of the last adaptive pass of a solved setup (its result folder), 0 if unknown."""
+    try:
+        passes = json.loads((Path(results) / "convergence.json").read_text(encoding="utf-8")).get("passes") or []
+        return int(passes[-1].get("unknowns", 0) or 0) if passes else 0
+    except (OSError, ValueError, AttributeError, TypeError):
+        return 0
+
+
+def memory_shortage(n: int, unknowns: float, free: float, band: bool = False) -> dict | None:
+    """None when the tuning model of n variables fits into the free memory (or nothing is known), else
+    {"need", "free", "fit"} in bytes; fit: the most variables that fit (0: not even one)."""
+    if unknowns <= 0 or free <= 0:
+        return None
+    need = memory_estimate(n, unknowns, band)
+    if need <= MEMORY_USABLE * free:
+        return None
+    fit = max([k for k in range(1, n) if memory_estimate(k, unknowns, band) <= MEMORY_USABLE * free], default=0)
+    return {"need": need, "free": free, "fit": fit}
+
+
+def memory_message(n: int, short: dict) -> str:
+    """Why a tuning model of n variables does not fit, and what to do instead."""
+    fit = short["fit"]
+    hint = (f"at most {fit} variable{'s' if fit > 1 else ''} fit on this mesh" if fit
+            else "not even one variable fits on this mesh")
+    return (f"not enough memory for the tuning model of {n} variable{'s' if n > 1 else ''}: it needs about "
+            f"{short['need'] / 2 ** 30:.1f} GB, {short['free'] / 2 ** 30:.1f} GB are free ({hint}). Solve on a "
+            f"computer with more memory (Tools > Options > Remote or Cloud), include fewer variables, or optimize "
+            f"with Conjugate Gradient")
+
+
 def tuning_path(out: Path, sweep: str) -> Path:
     from .results import _safe
     return Path(out) / f"tuning_{_safe(sweep)}.npz"
@@ -1109,6 +1263,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     # EMerge state of a regular solve (field, boundary data, materials, port modes)
     fc = 0.5 * (float(freqs.min()) + float(freqs.max()))
     B.solve_at(m, [fc])
+    _check_free_memory(len(variables), int(m.mw.basis.n_field), band and len(freqs) > 1, log)
     t = time.time()
     fixed, slide = morph_constraints(m)
     diag = float(np.linalg.norm(mesh.nodes.max(axis=1) - mesh.nodes.min(axis=1)))
@@ -1129,7 +1284,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     steps = [1e-3 * hmed / max(float(np.abs(Vi).max()), 1e-300) for Vi in V]
     settings = m.mw._settings
     caps = (bool(settings.mw_cap_sp_col), bool(settings.mw_cap_sp_single))
-    asm = Assembly(m)
+    asm = Assembly(m, keep_states=False if len(freqs) == 1 else None)    # one frequency: no state is reused
     ports_move = any(np.abs(Vi[:, it["nid"]]).max() > 1e-9 * max(float(np.abs(Vi).max()), 1e-300)
                      for it in asm.lumped.items for Vi in V)
     if ports_move:
@@ -1225,6 +1380,23 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     np.savez_compressed(path, freq=np.asarray(freqs, float), beta=np.array(beta), z0=z0, nominal=nominal,
                         meta=np.array(json.dumps(meta)), **data, **band_data)
     return meta
+
+
+def _check_free_memory(n: int, unknowns: int, band: bool, log) -> None:
+    """Stop before the mesh states are assembled when the model will not fit (instead of being killed by the
+    operating system half way)."""
+    import os
+    from . import bridge as B
+    free = free_memory()
+    if unknowns <= 0 or free <= 0:
+        return
+    need = memory_estimate(n, unknowns, band)
+    log(f"Tuning model of {n} variable{'s' if n > 1 else ''}: about {need / 2 ** 30:.1f} GB estimated "
+        f"({free / 2 ** 30:.1f} GB free)")
+    # the process holds the solve of this mesh already, which is part of the estimate
+    short = memory_shortage(n, unknowns, free + B._current_rss(), band)
+    if short is not None and os.environ.get(NO_MEMORY_CHECK) != "1":
+        raise MO.MorphError(memory_message(n, short))
 
 
 def tuned_data(model: "TuningModel", dp, base: dict | None) -> dict:

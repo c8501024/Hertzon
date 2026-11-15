@@ -1128,7 +1128,7 @@ class MainWindow(QMainWindow):
         self._note_open_region(False)            # the air box of the opened design: a later change is reported
         d.changed.connect(lambda *_: self._autosave_tick() if self.doc.dirty else None)
         d.selectionChanged.connect(self._on_selection)
-        self.view.picked.connect(lambda picks, add: self.doc.select(picks, add))
+        self.view.picked.connect(self._view_picked)
         self.view.contextMenuRequested.connect(self._view_context)
         self.view.drawFinished.connect(self._draw_finished)
         self.view.drawPhaseChanged.connect(lambda t: self.hint.setText(t or "Ready"))
@@ -1669,7 +1669,26 @@ class MainWindow(QMainWindow):
         else:
             self.doc.select([])
 
+    def _view_picked(self, picks: list, add: bool) -> None:
+        """A click (or a drag rectangle) in the model view. A boundary, excitation or mesh operation selected in
+        the Project Manager is deselected first, so its highlighted faces go away (a click into an empty part
+        of the view only does that)."""
+        tree = self.project_tree
+        items = [it for it in tree.selectedItems()
+                 if isinstance(it.data(0, TREE_ROLE), tuple)
+                 and it.data(0, TREE_ROLE)[0] in ("boundary", "excitation", "meshop")]
+        if items:
+            tree.clearSelection()           # emits None: the highlight of the assignment goes
+            if not picks:
+                self.props.clear()          # it no longer shows the deselected assignment
+        self.doc.select(picks, add)
+
     def _enter(self) -> None:
+        if QApplication.focusWidget() in (self.cx, self.cy, self.cz):
+            # Return in a coordinate field of the status bar enters the typed point, also while a polyline is
+            # drawn (the window-wide Return shortcut "Finish" took the key there and ended the line instead)
+            self._coord_entered()
+            return
         if self.view.draw is not None and self.view.draw.kind == "CreatePolyline":
             self.view.finish_polyline()
 
@@ -4422,7 +4441,11 @@ class MainWindow(QMainWindow):
         if not self.doc.project.path or self.doc.dirty:
             if not self.file_save():
                 return ""
-        job = Job(self.doc.project.path, self.des.name, setup,
+        from .tuning import memory_check
+        env = memory_check(self, setup, len(variables), sweep != "LastAdaptive" and int(points) > 1)
+        if env is None:
+            return ""
+        job = Job(self.doc.project.path, self.des.name, setup, env=env,
                   tuning=json.dumps({"sweep": sweep, "variables": variables, "points": int(points)}))
         self.solver.submit(job)
         return job.key
@@ -4609,7 +4632,15 @@ class MainWindow(QMainWindow):
                 return
         if self._is_circuit() and not self._solve_cross_sections():      # full-wave line model: the start widths
             return
-        self.solver.submit(Job(self.doc.project.path, self.des.name, "", optimization=name))
+        env: dict | None = {}
+        if not self._is_circuit() and op.props.get("Optimizer") == "Derivative Trust Region":
+            from .tuning import memory_check
+            n = sum(1 for v in op.variables if v.get("include", True))
+            setup, _, sol = op.solution.partition(":")
+            env = memory_check(self, setup.strip(), n, sol.strip() != "LastAdaptive", optimization=True)
+            if env is None:
+                return
+        self.solver.submit(Job(self.doc.project.path, self.des.name, "", optimization=name, env=env))
         self.project_tree.rebuild()
         self.optimization_results(name)
 

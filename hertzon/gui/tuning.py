@@ -430,3 +430,51 @@ class TuningPanel(QWidget):
         except Exception:  # noqa: BLE001
             pass
         super().closeEvent(e)
+
+
+def memory_check(win, setup: str, n: int, band: bool, optimization: bool = False) -> dict | None:
+    """Before a tuning model of n variables (Derivative Tuning, or the optimizer Derivative Trust Region) on the
+    adaptive mesh of setup is started: when its estimated memory exceeds the free memory of this computer, ask
+    how to go on. Returns the environment of the job ({} when it fits or nothing is known), None to cancel.
+
+    The estimate follows the unknowns of the setup's last adaptive pass (tuning.memory_estimate); band: a model
+    over the frequencies of a sweep. A remote computer solves with its own memory, so nothing is checked then."""
+    from PySide6.QtWidgets import QMessageBox
+    from ..solver import tuning as T
+    from ..solver.optimize import ALGORITHM_ENV, CONJUGATE_GRADIENT
+    from ..solver.results import results_dir
+    if getattr(win.solver, "remote", None) is not None or not win.doc.project.path:
+        return {}
+    res = results_dir(win.doc.project.path, win.des.name, setup)
+    short = T.memory_shortage(n, T.solved_unknowns(res), T.free_memory(), band)
+    if short is None:
+        return {}
+    fit = short["fit"]
+    box = QMessageBox(win)
+    box.setIcon(QMessageBox.Warning)
+    box.setWindowTitle("Not enough memory")
+    what = "The tuning model of Derivative Trust Region" if optimization else "The tuning model"
+    box.setText(f"{what} ({n} variable{'s' if n > 1 else ''}) needs about {short['need'] / 2 ** 30:.1f} GB of "
+                f"memory; {short['free'] / 2 ** 30:.1f} GB are free on this computer. The operating system may "
+                f"stop the solver.")
+    box.setInformativeText(
+        "Solve on a computer with more memory: a server in your network (Tools > Options > Remote) or a cloud "
+        "computer (Tools > Options > Cloud). "
+        + (f"At most {fit} variable{'s fit' if fit > 1 else ' fits'} here. " if fit else "")
+        + ("Or optimize this run with Conjugate Gradient: every step is a normal solve, which needs only the "
+           "memory of a solve, but it takes more solves." if optimization else ""))
+    remote = box.addButton("Remote / Cloud...", QMessageBox.ActionRole)
+    gradient = box.addButton("Conjugate Gradient", QMessageBox.AcceptRole) if optimization else None
+    anyway = box.addButton("Run Anyway", QMessageBox.DestructiveRole)
+    box.addButton(QMessageBox.Cancel)
+    box.setDefaultButton(gradient or remote)
+    box.exec()
+    clicked = box.clickedButton()
+    if clicked is remote:
+        win.options("Remote")
+        return None
+    if gradient is not None and clicked is gradient:
+        return {ALGORITHM_ENV: CONJUGATE_GRADIENT}
+    if clicked is anyway:
+        return {T.NO_MEMORY_CHECK: "1"}
+    return None

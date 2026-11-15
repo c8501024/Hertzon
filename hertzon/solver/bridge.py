@@ -2447,6 +2447,7 @@ class Bridge:
             hybrid_sweep.ACTIVE = None
         if hyb is not None:
             info(f"Sweep '{name}': {hyb.summary()}")
+        info(solved_frequencies_text(name, sorted(S_all)))
         self.save_s(name, fr, np.concatenate(dense), z0, solved=np.array(sorted(S_all)))
 
     def _interpolate(self, name, fr, nmax, tol, fs, S_all, errs, n_check, par, nw, prog, hyb, known=None,
@@ -2733,6 +2734,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         last = (list(fa), list(Ss), z0, list(fields), m.mesh.n_tets)
         row = {"pass": step, "tets": int(m.mesh.n_tets), "time": time.time() - t_pass,
                "S": [[[float(v.real), float(v.imag)] for v in S.ravel()] for S in Ss]}
+        _pass_port_data(row, fa)
         if passes:
             row["delta_tets"] = 100.0 * (m.mesh.n_tets / max(1, passes[-1]["tets"]) - 1)
         _solver_stats(row, step)
@@ -3942,6 +3944,26 @@ def _mode_z0(port, mode_nr: int, md):
         return abs(Line.from_points(line[0], line[1], 101).line_integral(md.E_function)) ** 2 / 2.0
     except Exception:  # noqa: BLE001
         return md.Z0
+
+
+def solved_frequencies_text(name: str, freqs) -> str:
+    """Message Manager line with the frequencies an interpolating sweep chose and solved (the support points of
+    its interpolation), in GHz, ascending."""
+    fs = sorted(float(f) for f in freqs)
+    return (f"Sweep '{name}': {len(fs)} adaptively sampled frequenc{'y' if len(fs) == 1 else 'ies'} (GHz): "
+            + ", ".join(f"{f / 1e9:.6g}" for f in fs))
+
+
+def _pass_port_data(row: dict, fa) -> None:
+    """Propagation constant and port impedance of every port mode (terminal) of one adaptive pass at the
+    adaptive frequencies, for the Solution Data window: how the port modes settle from pass to pass."""
+    try:
+        gamma, zo = port_data(fa)
+    except Exception:  # noqa: BLE001
+        return
+    for key, A in (("gamma", gamma), ("zo", zo)):
+        if A is not None and np.size(A):
+            row[key] = [[[float(v.real), float(v.imag)] for v in r] for r in np.atleast_2d(A)]
 
 
 def port_data(freq) -> tuple[np.ndarray | None, np.ndarray | None]:
