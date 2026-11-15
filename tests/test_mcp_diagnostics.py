@@ -131,3 +131,48 @@ def test_power_balance_and_delta_s_drift():
     assert "drift_warning" in n and n["delta_s_history"] == [0.3, 0.04, 0.28]
     conv = {"passes": [{"delta_s": 0.3}, {"delta_s": 0.1}, {"delta_s": 0.05}], "converged": False}
     assert "drift_warning" not in dg.convergence_note(conv, 0.02)
+
+
+def test_convergence_note_names_the_next_step():
+    conv = {"passes": [{"pass": 1, "tets": 9000}, {"pass": 2, "tets": 12000, "delta_s": 0.08},
+                       {"pass": 3, "tets": 15000, "delta_s": 0.03}], "converged": False, "final_tets": 15000}
+    n = dg.convergence_note(conv, 0.02, max_passes=3, max_tets=1e6)
+    assert n["stopped_by"] == "MaximumPasses"
+    assert "Raise MaximumPasses (now 3)" in n["warning"] and "continues from the last adaptive mesh" in n["warning"]
+    n = dg.convergence_note(dict(conv, final_tets=990000), 0.02, max_passes=10, max_tets=1e6)
+    assert n["stopped_by"] == "MaximumRefinement" and "tetrahedra limit" in n["warning"]
+    # still running: no warning yet
+    assert "warning" not in dg.convergence_note(dict(conv, running=True), 0.02, max_passes=3)
+
+
+def test_convergence_note_spots_a_phase_driven_delta_s():
+    conv = {"passes": [{"delta_s": 0.05, "delta_mag": 0.03}, {"delta_s": 0.021, "delta_mag": 0.004}],
+            "converged": False}
+    n = dg.convergence_note(conv, 0.02, max_passes=2)
+    assert "phase" in n["phase_note"] and "warning" in n
+    conv["passes"][-1]["delta_mag"] = 0.03
+    assert "phase_note" not in dg.convergence_note(conv, 0.02, max_passes=2)
+
+
+def test_get_status_warns_when_not_converged(server, tmp_path):
+    from hertzon.solver.results import ResultStore
+    call(server, "create_project", path=str(tmp_path / "s.hzn"))
+    call(server, "set_setup", name="Setup1", props={"Frequency": "2GHz", "MaximumPasses": "4"})
+    call(server, "save_project")
+    ctx = tools.load({})
+    out = tools._out_dir(ctx, "Setup1")
+    st = ResultStore(out)
+    st.write_json("status.json", {"state": "done"})
+    st.write_json("convergence.json", {"passes": [{"pass": k, "tets": 100 * k, "delta_s": 0.05} for k in range(1, 5)],
+                                       "converged": False, "final_tets": 400})
+    s = call(server, "get_status", setup="Setup1")
+    assert s["converged"] is False and s["stopped_by"] == "MaximumPasses"
+    assert "Raise MaximumPasses (now 4)" in s["convergence_warning"]
+    st.write_json("convergence.json", {"passes": [{"pass": 1, "tets": 100}, {"pass": 2, "tets": 200, "delta_s": 0.01}],
+                                       "converged": True, "final_tets": 200})
+    assert "convergence_warning" not in call(server, "get_status", setup="Setup1")
+
+
+def test_new_setups_allow_15_passes():
+    from hertzon.model import schema
+    assert schema.defaults(schema.SETUP)["MaximumPasses"] == "15"

@@ -1816,11 +1816,37 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
         res["converged"] = bool(conv.get("converged"))
         if conv.get("final_tets"):
             res["final_tets"] = conv["final_tets"]
+        if state not in ("running", "queued") and not res["converged"]:
+            cn = _conv_note(ctx.des, setup, st)
+            if cn and cn.get("warning"):
+                res["convergence_warning"] = cn["warning"]
+                for k in ("stopped_by", "phase_note", "drift_warning"):
+                    if cn.get(k):
+                        res[k] = cn[k]
     if st is not None:
         res["solutions"] = st.solutions()
         if p is not None or state in ("failed", "running"):
             res["log"] = _log_tail(out)
     return res
+
+
+def _unconverged_variations(out: Path, rows: list) -> list[str]:
+    """Ids of solved parametric variations whose adaptive passes did not converge."""
+    from ..solver.parametric import _safe
+    bad = []
+    for r in rows:
+        for setup, state in (r.get("state") or {}).items():
+            if state != "done":
+                continue
+            p = out / "variations" / str(r.get("id")) / _safe(setup) / "convergence.json"
+            try:
+                conv = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if conv.get("passes") and not conv.get("converged") and not conv.get("plane_wave"):
+                bad.append(str(r.get("id")))
+                break
+    return bad
 
 
 def _study_status(ctx: Ctx, name: str, kind: str) -> dict:
@@ -1857,6 +1883,12 @@ def _study_status(ctx: Ctx, name: str, kind: str) -> dict:
             res["variations"] = len(rows)
             res["variations_done"] = sum(1 for r in rows if (r.get("state") or {})
                                          and all(v == "done" for v in r["state"].values()))
+            bad = _unconverged_variations(out, rows)
+            if bad:
+                res["variations_not_converged"] = bad
+                res["convergence_warning"] = (
+                    f"{len(bad)} of {len(rows)} variations did NOT converge (their adaptive passes stopped before "
+                    "the Delta S target): compare them with care. Raise MaximumPasses of the setup to refine them.")
         else:
             hist = (st.read_json("history.json") or {}).get("evaluations", [])
             best = st.read_json("best.json")
@@ -2058,13 +2090,16 @@ def _conv_note(d, setup: str, st) -> dict | None:
     conv = st.read_json("convergence.json") or {}
     if not conv:
         return None
-    target = None
     su = next((x for x in d.setups if x.name == setup), None)
-    try:
-        target = float(su.props.get("MaximumDeltaS")) if su is not None else None
-    except (TypeError, ValueError):
-        target = None
-    return convergence_note(conv, target)
+    props = su.props if su is not None else {}
+
+    def num(key):
+        try:
+            return float(props.get(key))
+        except (TypeError, ValueError):
+            return None
+    maxp = num("MaximumPasses")
+    return convergence_note(conv, num("MaximumDeltaS"), int(maxp) if maxp else None, num("MaximumRefinement"))
 
 
 def _sweep_solution(st, sols):
@@ -2571,7 +2606,9 @@ TOOLS = [
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_run_simulation),
     Tool("get_status", "State of a setup's analysis (queued, running, done, failed), adaptive passes with "
          "tetrahedra and Delta S, and the last log lines. wait_seconds waits while it runs (up to 25 min in "
-         "Claude Code, 2 min in Claude Desktop, 9 min otherwise); for long analyses tell the user and stop rather than polling.",
+         "Claude Code, 2 min in Claude Desktop, 9 min otherwise); for long analyses tell the user the expected time and call "
+         "it again with wait_seconds. convergence_warning: the passes stopped before the Delta S target; raise "
+         "MaximumPasses and run again (it continues from the last mesh) before using the numbers.",
          _schema({"setup": {"type": "string"}, "sweep": {"type": "string"},
                   "wait_seconds": {"type": "number"}, "parametric": {"type": "string", "description": "a parametric setup instead of a setup"},
                   "optimization": {"type": "string", "description": "an optimization instead of a setup"}}), t_get_status, True),
