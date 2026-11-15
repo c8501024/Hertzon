@@ -30,6 +30,18 @@ the GitHub release notes.
 - **New analysis setups allow 15 adaptive passes** instead of 6, so that ordinary models converge without a
   manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
 
+### Fixed
+- **Lumped port on a sheet whose edges are not square to its integration line.** A port sheet between a pad
+  and a board edge a fraction of a degree off the axis (a parallelogram with its sides along the integration
+  line) found a single low corner node, and the port voltage was taken along that corner only: in a lossless
+  antenna the accepted power differed from the radiated power by 1.6 to 2.8 % (several percent in other
+  models), independent of the mesh. The voltage lines now cover the whole width of any sheet, each from one
+  side of the sheet to the other along the field; the power balance of such a port is the same as that of a
+  rotated rectangle (0.1 %). Rectangular ports are unchanged.
+- **A covered polyline whose outline crosses itself is an error.** Such an outline was accepted, and the
+  solver then hung for an hour and more while mapping the boundaries (the window too when the points were
+  set). The geometry now reports which two edges cross, at once, in the window, the validation and the solver.
+
 ## 0.3.26 (2026-11-14)
 
 ### Added

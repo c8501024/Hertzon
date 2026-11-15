@@ -127,6 +127,58 @@ def _segment_types(spec: str, n: int) -> list[tuple[str, int, list[str]]]:
     return out
 
 
+def polygon_crossing(pts) -> tuple[int, int] | None:
+    """The first pair of edges (i, j) of the closed polygon through pts (edge i runs from point i to point i + 1)
+    that cross or touch although they are not neighbours, else None. A covered polyline whose outline crosses
+    itself has no inside: OpenCASCADE does not reject it but can loop for a very long time on its face (the
+    mesher and the window hang), so it is caught here with a clear message instead."""
+    q = np.asarray(pts, float)
+    if len(q) >= 3 and np.allclose(q[-1], q[0]):
+        q = q[:-1]
+    n = len(q)
+    if n < 4:
+        return None
+    # into the plane of the polygon (best fit), 2D coordinates
+    c = q - q.mean(axis=0)
+    _, s, vt = np.linalg.svd(c, full_matrices=False)
+    size = float(np.ptp(q, axis=0).max())
+    if size <= 0 or s[1] <= 1e-12 * size:
+        return None
+    p = c @ vt[:2].T
+    a, b = p, np.roll(p, -1, axis=0)
+    d = b - a
+    tol = 1e-9 * size
+
+    def cross(u, v):
+        return u[..., 0] * v[..., 1] - u[..., 1] * v[..., 0]
+    for i in range(n - 2):
+        js = np.arange(i + 2, n if i > 0 else n - 1)     # not the neighbours i - 1 and i + 1
+        if not len(js):
+            continue
+        aj, dj = a[js], d[js]
+        o1 = cross(d[i], aj - a[i])
+        o2 = cross(d[i], aj + dj - a[i])
+        o3 = cross(dj, a[i] - aj)
+        o4 = cross(dj, b[i] - aj)
+        li, lj = np.linalg.norm(d[i]), np.linalg.norm(dj, axis=1)
+        # orientations scaled to distances; a crossing has the ends of each edge on both sides of the other
+        s1, s2 = o1 / max(li, 1e-300), o2 / max(li, 1e-300)
+        s3, s4 = o3 / np.maximum(lj, 1e-300), o4 / np.maximum(lj, 1e-300)
+        hit = (s1 * s2 <= tol * tol) & (s3 * s4 <= tol * tol)
+        # collinear edges: only an overlap of their extents counts
+        col = (np.abs(s1) <= tol) & (np.abs(s2) <= tol)
+        if col.any():
+            t0 = (aj - a[i]) @ d[i] / max(li * li, 1e-300)
+            t1 = (aj + dj - a[i]) @ d[i] / max(li * li, 1e-300)
+            e = tol / max(li, 1e-300)
+            overlap = (np.maximum(t0, t1) >= -e) & (np.minimum(t0, t1) <= 1 + e)
+            hit = np.where(col, overlap, hit)
+        k = np.flatnonzero(hit)
+        if len(k):
+            return i, int(js[k[0]])
+    return None
+
+
 def _collinear(a, b, c) -> bool:
     a, b, c = (np.asarray(x, float) for x in (a, b, c))
     L = max(np.linalg.norm(c - a), np.linalg.norm(b - a), 1e-30)
@@ -601,6 +653,19 @@ def _create(cmd: Command, ctx: BuildContext) -> list[tuple[int, int]]:
         if closed and not ends_on_start:
             segs.append(o.addLine(ptags[-1], ptags[0]))
         if closed and p.get("Covered") == "True":
+            straight = all(kind == "Line" for kind, _, _ in _segment_types(p.get("SegmentTypes", ""), n))
+            hit = polygon_crossing(pts) if straight and n <= 20000 else None
+            if hit is not None:
+                m = len(pts) - 1 if ends_on_start else len(pts)
+                raw = [t.strip() for t in p["Points"].split(";") if t.strip()]
+                i, j = hit
+
+                def edge(k):     # with the points as entered (design units)
+                    return f"from {raw[k]} to {raw[(k + 1) % m]}" if len(raw) == len(pts) else \
+                        f"from point {k + 1} to point {(k + 1) % m + 1}"
+                raise GeometryError(f"The outline crosses itself: the edge {edge(i)} meets the edge {edge(j)}. "
+                                    "A covered polyline must be a simple polygon; move the points so that no "
+                                    "edges cross or touch, or split it into several polylines and unite them")
             loops = [o.addCurveLoop(segs)]
 
             def newell(q):   # normal of a planar loop (its direction gives the orientation)
