@@ -34,10 +34,8 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
   SolutionFrequencyMode "Multi-Frequencies" with the band centres, plus a band edge where that edge limits
   the design; for very wide bands "Broadband".
   A sweep never refines the mesh: it is solved on the mesh adapted at these frequencies.
-- Leave the mesh as Hertzon and its design assistants set it: the adaptive meshing refines where it is
-  needed. The only convergence changes are those of `hf-design-loop` (a coarse search while comparing
-  concepts, more passes when a solve did not converge, one final check with Delta S 0.01). A tighter Delta S makes every solve, tuning model and
-  optimizer step slower and much larger.
+- The adaptive meshing refines where it is needed. A tighter Delta S makes every solve, tuning model and
+  optimizer step slower and much larger; a looser one (0.03, few passes) is a cheap way to compare concepts.
 - Use an interpolating sweep over a range wider than the bands for S11, and a discrete sweep with fields saved
   at a few in-band frequencies for far fields.
 
@@ -53,8 +51,8 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
 
 - Patch: length sets the frequency, inset or feed position sets the match, substrate height and permittivity
   set the bandwidth. `create_patch_antenna()` builds one with its optimizer PatchOpt; run that optimization
-  directly (`run_simulation()` with optimization "PatchOpt"): it usually meets the match in one or two solves. Use the
-  assistant and its optimization as they are; do not change the setup or add solves unless the user asks.
+  directly (`run_simulation()` with optimization "PatchOpt"): it usually meets the match in one or two solves. The
+  assistant's setup is tuned for that optimization.
 - IFA/PIFA: total length from the short sets the frequency, the feed-to-short distance sets the resistance,
   the height above ground and the ground clearance set the bandwidth.
 - Monopole/dipole: length sets the frequency; a wider or tapered element gives more bandwidth.

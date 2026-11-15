@@ -6,15 +6,14 @@ description: "Multi-fidelity workflow for planar circuits in Hertzon (filters, c
 # Circuit first, full wave second
 
 Use this with the design loop (skill `hf-design-loop`). A circuit evaluation takes milliseconds, a 3D solve
-minutes. So the circuit does the searching, and full wave only checks and corrects. Never optimize a planar
-circuit with 3D solves alone.
+minutes. So the circuit is the cheap place to search, and full wave checks and corrects.
 
 ## 1. Known structure: the Design Wizard
 
 `list_structures()` lists what Hertzon can synthesize (couplers, dividers, matching networks, filters,
 antennas). For an available one, `create_structure()` with the specification builds the circuit, its 3D layout
 with the same variables and an optimization on the circuit with multi-fidelity. Run that optimization directly
-with `run_simulation()` and `optimization=...`, then `apply_optimization()`. Keep the setups it made.
+with `run_simulation()` and `optimization=...`, then `apply_optimization()`.
 Hairpin filters and diplexers have their own assistants (`create_hairpin_filter()`, `create_hairpin_diplexer()`,
 optimizer Space Mapping).
 
