@@ -71,7 +71,7 @@ studies. What is yours:
   "Multi-Frequencies" with the band centres, and add a frequency at a band edge when that edge limits the
   design.
 - **Coarse search:** while you compare concepts or topologies, solve them coarsely: MaximumDeltaS 0.03 and
-  MaximumPasses 6, fields only at the few frequencies you evaluate. Rank concepts with these numbers, but do not
+  MaximumPasses 6, and a sweep with only a few frequencies per band (its edges and centre), fields only there. Rank concepts with these numbers, but do not
   report them as results. Once you settle on a concept, go back to the normal setup (the project's or
   Hertzon's) for tuning it.
 
