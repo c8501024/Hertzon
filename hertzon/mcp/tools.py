@@ -1809,6 +1809,15 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
         res["error"] = status["error"]
     if status.get("elapsed"):
         res["elapsed_s"] = round(float(status["elapsed"]), 1)
+    if state == "running" and st is not None:
+        # the phase of the run (geometry, mesh, pass, sweep) and how long it has been in it: a phase that
+        # takes far longer than usual (or updates that stopped) points to a hung run
+        pr = st.read_json("progress.json") or {}
+        if pr.get("phase"):
+            now = time.time()
+            res["phase"] = pr["phase"]
+            res["phase_running_s"] = round(now - float(pr.get("phase_started", now)), 1)
+            res["last_update_s"] = round(now - float(pr.get("updated", now)), 1)
     conv = (st.read_json("convergence.json") if st else None) or {}
     if conv.get("passes"):
         res["passes"] = [{k: (round(v, 5) if isinstance(v, float) else v) for k, v in row.items()
@@ -2504,6 +2513,19 @@ def t_show_result(args):
 # ------------------------------------------------------------------------------------------------
 # tools: scripted edit
 # ------------------------------------------------------------------------------------------------
+def _unknown_props(d) -> set[tuple[str, str, str]]:
+    """(object, command kind, property) of every property name a geometry command of design d does not have."""
+    out = set()
+    for o in d.objects:
+        for c in o.history:
+            plist = schema.GEOMETRY.get(c.kind)
+            if plist is None:
+                continue
+            names = {p.name for p in plist}
+            out |= {(o.name, c.kind, k) for k in c.props if k not in names and not k.startswith("_")}
+    return out
+
+
 def t_run_python(args):
     import contextlib
     import io
@@ -2515,8 +2537,16 @@ def t_run_python(args):
            "math": math, "add_object": d.add_object,
            "operation": lambda obj, kind, **props: _append_operation(d, obj, kind, props)}
     before = {o.name for o in d.objects}
+    unknown_before = _unknown_props(d)
     with contextlib.redirect_stdout(buf):
         exec(compile(args["code"], "<hertzon edit>", "exec"), env)  # noqa: S102
+    # a misspelt property name was kept as an extra entry and the object built with the default instead
+    # (e.g. Center for CenterPosition put a cylinder at the origin); nothing is written then
+    bad = sorted(_unknown_props(d) - unknown_before)
+    if bad:
+        raise ToolError("Nothing was changed: unknown property name(s) " + "; ".join(
+            f"{o} ({k}): '{p}', properties: {sorted(x.name for x in schema.GEOMETRY.get(k, []))}"
+            for o, k, p in bad))
     commit(ctx, "script edit")
     added = [o.name for o in d.objects if o.name not in before]
     return {"output": buf.getvalue()[-20000:], "objects_added": added}

@@ -39,3 +39,5 @@ def test_manual_pml_faces_are_the_far_field_surface(tmp_path):
         assert b.open_faces is not None
         # the five faces under the PML; the bottom face (a ground) is not part of the far-field surface
         assert len(b.open_faces.tags) == 5
+        # the PML layers are known, so their absorption is not counted as a loss in the model
+        assert b.pml_geos and b.geos["Air"] not in b.pml_geos

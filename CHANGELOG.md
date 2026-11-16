@@ -30,6 +30,31 @@ the GitHub release notes.
 - **New analysis setups allow 15 adaptive passes** instead of 6, so that ordinary models converge without a
   manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
 
+### Fixed
+- **Lumped port on a sheet whose edges are not square to its integration line.** A port sheet between a pad
+  and a board edge a fraction of a degree off the axis (a parallelogram with its sides along the integration
+  line) found a single low corner node, and the port voltage was taken along that corner only: in a lossless
+  antenna the accepted power differed from the radiated power by 1.6 to 2.8 % (several percent in other
+  models), independent of the mesh. The voltage lines now cover the whole width of any sheet, each from one
+  side of the sheet to the other along the field; the power balance of such a port is the same as that of a
+  rotated rectangle (0.1 %). Rectangular ports are unchanged.
+- **A covered polyline whose outline crosses itself is an error.** Such an outline was accepted, and the
+  solver then hung for an hour and more while mapping the boundaries (the window too when the points were
+  set). The geometry now reports which two edges cross, at once, in the window, the validation and the solver.
+- **Auto Open with PML: loss power and radiation efficiency.** The absorption in the PML layers was counted as
+  a loss in the model (up to 6 W per 1 W incident), and the radiated power was integrated over the faces under
+  the PML with the wrong sign. The PML layers are now left out of the loss power, and the far field and the
+  radiated power are taken on the same Gauss box close around the model as with a radiation boundary: a
+  lossless antenna has the same power balance with a PML (0.05 %) as with a radiation boundary.
+- **losses_<solution>.npz of a lossless model** holds zero loss matrices instead of no `Ploss` entries.
+
+### Changed
+- **get_status (MCP) names the phase of a running solve** (geometry, boundaries, mesh, pass, sweep), how long it
+  has been in that phase and the seconds since the last progress update, so a hung run shows at once.
+- **run_python (MCP) refuses misspelt property names.** An unknown name (e.g. `Center` for `CenterPosition`)
+  was stored as an extra entry and the object built with the default; now nothing is written and the error
+  lists the properties of the command.
+
 ## 0.3.26 (2026-11-14)
 
 ### Added
