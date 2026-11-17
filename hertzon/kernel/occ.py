@@ -2323,24 +2323,133 @@ def _tube_strip(rims: list[int]) -> tuple[np.ndarray, np.ndarray]:
         d = P - c
         a = np.mod(np.arctan2(d @ v, d @ u), 2 * np.pi)
         o = np.argsort(a)
-        return o, a[o]
-    ia, aa = ring(A, ca)
-    ib, ab = ring(B, cb)
-    na, nb = len(A), len(B)
-    aa, ab = np.r_[aa, aa[0] + 2 * np.pi], np.r_[ab, ab[0] + 2 * np.pi]
-    tris, i, j = [], 0, 0
-    while i < na or j < nb:                      # walk both rims by angle (equal or unequal node counts)
-        if j >= nb or (i < na and aa[i + 1] <= ab[j + 1]):
-            tris.append((ia[i % na], ia[(i + 1) % na], na + ib[j % nb]))
-            i += 1
-        else:
-            tris.append((ia[i % na], na + ib[(j + 1) % nb], na + ib[j % nb]))
-            j += 1
-    X = np.vstack([A, B])
-    T = np.asarray(tris, np.int64).reshape(-1, 3)
+        return P[o], a[o]
+    A, aa = ring(A, ca)
+    B, ab = ring(B, cb)
+    X, T = _band(A, aa, B, ab)
     # outward normals
     a, b, c = X[T[:, 0]], X[T[:, 1]], X[T[:, 2]]
     m = (a + b + c) / 3 - ca
+    m -= np.outer(m @ ax, ax)
+    flip = np.einsum("ij,ij->i", np.cross(b - a, c - a), m) < 0
+    T[flip] = T[flip][:, [0, 2, 1]]
+    return X, T
+
+
+def _band(A: np.ndarray, aa: np.ndarray, B: np.ndarray, ab: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Triangles between two closed rings of points round an axis, both sorted by their angle (aa, ab in
+    [0, 2 pi)): walk both rings by angle, equal or unequal node counts."""
+    na, nb = len(A), len(B)
+    aa, ab = np.r_[aa, aa[0] + 2 * np.pi], np.r_[ab, ab[0] + 2 * np.pi]
+    tris, i, j = [], 0, 0
+    while i < na or j < nb:
+        if j >= nb or (i < na and aa[i + 1] <= ab[j + 1]):
+            tris.append((i % na, (i + 1) % na, na + j % nb))
+            i += 1
+        else:
+            tris.append((i % na, na + (j + 1) % nb, na + j % nb))
+            j += 1
+    return np.vstack([A, B]), np.asarray(tris, np.int64).reshape(-1, 3)
+
+
+def _cylinder_frame(e) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Axis point, axis direction and two radial directions of a cylinder face, from its parametrisation."""
+    lo, hi = gmsh.model.getParametrizationBounds(*e)
+    P = np.asarray(gmsh.model.getValue(2, e[1], [lo[0], lo[1], lo[0] + np.pi, lo[1],
+                                                 lo[0], hi[1], lo[0] + np.pi, hi[1]])).reshape(4, 3)
+    c0, c1 = (P[0] + P[1]) / 2, (P[2] + P[3]) / 2
+    ax = (c1 - c0) / max(float(np.linalg.norm(c1 - c0)), 1e-300)
+    x = P[0] - c0
+    x /= max(float(np.linalg.norm(x)), 1e-300)
+    return c0, ax, x, np.cross(ax, x)
+
+
+def _cylinder_angle(X: np.ndarray, frame) -> np.ndarray:
+    c0, _, x, y = frame
+    d = np.asarray(X, float).reshape(-1, 3) - c0
+    return np.mod(np.arctan2(d @ y, d @ x), 2 * np.pi)
+
+
+def _cut_tube(e) -> list[list[int]]:
+    """The two ends of a cylinder face that runs once round its axis, as groups of curves, else []. An end is
+    a rim circle or, where the cylinder is fused with or cut by another body, the curves of that cut (the
+    inner conductor of a coax united with a tilted dipole arm, #476). Each end has to go once round the
+    axis without turning back, so the face is a band between them; the seam lines are left out."""
+    if gmsh.model.getType(*e) != "Cylinder":
+        return []
+    try:
+        lo, hi = gmsh.model.getParametrizationBounds(*e)
+        if abs(hi[0] - lo[0] - 2 * np.pi) > 1e-6:
+            return []
+        count: dict[int, int] = {}
+        for _, c in gmsh.model.getBoundary([e], combined=False, oriented=False):
+            count[abs(c)] = count.get(abs(c), 0) + 1
+        ends = []
+        for c, n in count.items():
+            if n == 2 and gmsh.model.getType(1, c) == "Line":
+                continue                        # the seam: bounds the face on both sides
+            if n != 1:
+                return []
+            ends.append(c)
+        # curves joined at their end points form one end of the band
+        group = {c: c for c in ends}
+
+        def root(c):
+            while group[c] != c:
+                c = group[c]
+            return c
+        at: dict[int, int] = {}
+        for c in ends:
+            for _, pt in gmsh.model.getBoundary([(1, c)], combined=False, oriented=False):
+                if abs(pt) in at:
+                    group[root(c)] = root(at[abs(pt)])
+                else:
+                    at[abs(pt)] = c
+        loops: dict[int, list[int]] = {}
+        for c in ends:
+            loops.setdefault(root(c), []).append(c)
+        if len(loops) != 2:
+            return []
+        frame = _cylinder_frame(e)
+        for grp in loops.values():
+            turn = 0.0
+            for c in grp:
+                clo, chi = gmsh.model.getParametrizationBounds(1, c)
+                t = np.linspace(clo[0], chi[0], 65)
+                du = np.diff(_cylinder_angle(gmsh.model.getValue(1, c, t), frame))
+                turn += float(np.abs(np.mod(du + np.pi, 2 * np.pi) - np.pi).sum())
+            if abs(turn - 2 * np.pi) > 1e-3 * 2 * np.pi:
+                return []                       # does not go round, or turns back
+        return list(loops.values())
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _cut_tube_strip(e, ends: list[list[int]]) -> tuple[np.ndarray, np.ndarray]:
+    """Display triangles of a cut cylinder face (see _cut_tube): one band between the meshed curves of its two
+    ends, with their nodes, so it meets the neighbouring faces node for node and keeps the full number of
+    segments per turn of their discretisation."""
+    rings = []
+    frame = _cylinder_frame(e)
+    r = 1.0 / max(abs(gmsh.model.getCurvature(2, e[1], list(np.mean(gmsh.model.getParametrizationBounds(*e),
+                                                                       axis=0)))[0]), 1e-300)
+    for grp in ends:
+        X = np.vstack([_curve_polyline(c) for c in grp])
+        a = _cylinder_angle(X, frame)
+        o = np.argsort(a, kind="stable")
+        X, a = X[o], a[o]
+        # curve end points come once per curve (OCC: equal within its tolerance): keep one of each
+        keep = np.r_[True, np.linalg.norm(np.diff(X, axis=0), axis=1) > 1e-4 * r]
+        X, a = X[keep], a[keep]
+        if len(X) > 1 and np.linalg.norm(X[-1] - X[0]) <= 1e-4 * r:
+            X, a = X[:-1], a[:-1]
+        rings.append((X, a))
+    (A, aa), (B, ab) = rings
+    X, T = _band(A, aa, B, ab)
+    # outward like the face: the normal of a cylinder points away from its axis
+    c0, ax = frame[0], frame[1]
+    a, b, c = X[T[:, 0]], X[T[:, 1]], X[T[:, 2]]
+    m = (a + b + c) / 3 - c0
     m -= np.outer(m @ ax, ax)
     flip = np.einsum("ij,ij->i", np.cross(b - a, c - a), m) < 0
     T[flip] = T[flip][:, [0, 2, 1]]
@@ -2361,8 +2470,10 @@ def _generate_planar_first() -> None:
     # straight wires (a dipole arm, a monopole, a coax inner conductor): their rims get the full number of
     # segments per turn and the face one band of triangles between them, not the coarse sizing of pipes
     tubes = {e: r for e in swept for r in [_plain_tube(e)] if r}
-    swept = [e for e in swept if e not in tubes]
-    rest = [e for e in S if e not in swept and e not in tubes]
+    # cut wires (a coax inner conductor fused with a dipole arm): a band between the curves of both ends
+    cut = {e: g for e in swept if e not in tubes for g in [_cut_tube(e)] if g}
+    swept = [e for e in swept if e not in tubes and e not in cut]
+    rest = [e for e in S if e not in swept and e not in tubes and e not in cut]
     # lines and points outside every face (wires, helix lines) go with the last pass
     in_faces = set(_closure(swept + rest)) if swept or rest else set()
     loose = [e for e in gmsh.model.getEntities(1) + gmsh.model.getEntities(0) if e not in in_faces]
@@ -2370,6 +2481,11 @@ def _generate_planar_first() -> None:
     for rims in tubes.values():
         for c in rims:
             gmsh.model.mesh.setTransfiniteCurve(c, n_rim + 1)
+    for ends in cut.values():
+        for c in (c for grp in ends for c in grp):
+            lo, hi = gmsh.model.getParametrizationBounds(1, c)
+            if gmsh.model.getType(1, c) == "Circle" and abs(hi[0] - lo[0] - 2 * np.pi) <= 1e-6:
+                gmsh.model.mesh.setTransfiniteCurve(c, n_rim + 1)
     try:
         if swept and rest:
             _mesh_faces(swept, min(curv, 8), last=False)
@@ -2381,9 +2497,11 @@ def _generate_planar_first() -> None:
             _mesh_faces(rest, curv, last=True, loose=loose, fixed=seam)
         else:
             _mesh_faces(swept or rest, min(curv, 8) if swept else curv, last=True, loose=loose,
-                        alone=not tubes)
+                        alone=not (tubes or cut))
         for e, rims in tubes.items():
             _PASS_CACHE[e] = _tube_strip(rims)
+        for e, ends in cut.items():
+            _PASS_CACHE[e] = _cut_tube_strip(e, ends)
     finally:
         gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", curv)
         gmsh.option.setNumber("Mesh.MeshOnlyVisible", 0)
