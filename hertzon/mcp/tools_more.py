@@ -1033,7 +1033,10 @@ def render_schematic(proj, d: Design, w: int, h: int) -> list:
     ax.tick_params(labelsize=7)
     buf = io.BytesIO()
     fig.savefig(buf, format="png")
-    return [Image(buf.getvalue(), f"schematic of {d.name}: {len(d.components)} parts, {len(d.wires)} wires")]
+    from .tools import keep_picture
+    saved = keep_picture(buf.getvalue(), f"{d.name} schematic")
+    return [Image(buf.getvalue(), f"schematic of {d.name}: {len(d.components)} parts, {len(d.wires)} wires"
+                  + (f". Saved: {saved}" if saved else ""))]
 
 
 # ------------------------------------------------------------------------------------------------

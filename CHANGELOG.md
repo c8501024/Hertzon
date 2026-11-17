@@ -5,11 +5,34 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **Claude plugin.** `claude-plugin/` holds a plugin for Claude Code with four skills (a design workflow from
+  the specification to a verified design and a report, multi-fidelity for circuits: circuit first, then full
+  wave, antenna know-how, a checklist for reading results) and
+  the commands `/hertzon:design` and `/hertzon:verify`. It works on top of the MCP server and is installed with it:
+  *Register* next to Claude Code in **Tools > AI Assistants (MCP)** also installs the plugin from the Hertzon folder
+  (it ships with the installers and is updated with Hertzon); without the `claude` command Hertzon shows the line
+  `/plugin install hertzon --marketplace c8501024/hertzon` instead (README, tutorial 5.4). A test keeps the tool names in
+  the skills in step with the MCP server. Its **Hertzon pane** beside the chat shows every picture Hertzon draws
+  for the assistant, and the line above the prompt the adaptive pass of a running analysis.
+- **MCP tool `show_result`.** A picture of a report, a field plot, the 3D view or a tab of the Solutions window
+  (convergence, profile, matrix data, mesh statistics), drawn by Hertzon's own widgets: an open report tab and the
+  3D view are taken as shown in the window. Without a window, reports and Solutions tabs are drawn off screen by
+  the same code. Pictures of `show_result` and `render_image` are kept in `~/.hertzon/shown`.
+
 ### Changed
 - **Tuning ranges at most ±15 % of the value.** The range of a slider was limited only by the distortion of the
   mesh, which allowed up to +780 % of the substrate height of the patch antenna, far beyond where the model is
   accurate. It now ends at 15 % of the solved value at the latest (patch antenna: within 0.2 of full solves
   for every variable, the patch length 0.56 off at +20 %). Measurements in docs/TUNING.md.
+- **AI assistants are told clearly when the adaptive mesh did not converge.** `get_status` now reports a
+  `convergence_warning` with the reason the passes stopped (`stopped_by`: MaximumPasses or the tetrahedra limit),
+  as `get_results` already did, and parametric studies list the variations that did not converge. The warning
+  names the next step: raise MaximumPasses and run again, which continues from the last adaptive mesh, instead of
+  adding mesh operations or a mesh study. When |S| has settled and only the phase of a deep dip keeps Delta S above
+  the target, a `phase_note` says so.
+- **New analysis setups allow 15 adaptive passes** instead of 6, so that ordinary models converge without a
+  manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
 
 ### Fixed
 - **Derivative tuning of a substrate width or length moved the patch with it.** A face that changes its shape
@@ -18,6 +41,34 @@ the GitHub release notes.
   was off a full solve by 0.66 already at −14 %. Now only the outline of such a face is carried; inside, the
   nodes slide in the plane, so sheets on the face stay where they are. Patch antenna against full solves:
   Ws −14 % 0.66 to 0.014, Ws +29 % 1.16 to 0.039, Ls +3 % 0.35 to 0.012 (|ΔS11|, linear).
+- **A thin cylinder cut by a Unite is drawn round again (#476).** The inner conductor of a coax united with a
+  tilted dipole arm was drawn as an octagon: the cut at its end made the face no plain cylinder, and it got the
+  coarse display sizing of swept pipes. A cylinder face whose two ends each go once round it is now drawn as one
+  band of triangles between their curves, with the full number of segments per turn and still few triangles.
+  Helices, swept pipes and faces with holes keep the coarse sizing. Display only; the solver mesh is not touched.
+- **Lumped port on a sheet whose edges are not square to its integration line.** A port sheet between a pad
+  and a board edge a fraction of a degree off the axis (a parallelogram with its sides along the integration
+  line) found a single low corner node, and the port voltage was taken along that corner only: in a lossless
+  antenna the accepted power differed from the radiated power by 1.6 to 2.8 % (several percent in other
+  models), independent of the mesh. The voltage lines now cover the whole width of any sheet, each from one
+  side of the sheet to the other along the field; the power balance of such a port is the same as that of a
+  rotated rectangle (0.1 %). Rectangular ports are unchanged.
+- **A covered polyline whose outline crosses itself is an error.** Such an outline was accepted, and the
+  solver then hung for an hour and more while mapping the boundaries (the window too when the points were
+  set). The geometry now reports which two edges cross, at once, in the window, the validation and the solver.
+- **Auto Open with PML: loss power and radiation efficiency.** The absorption in the PML layers was counted as
+  a loss in the model (up to 6 W per 1 W incident), and the radiated power was integrated over the faces under
+  the PML with the wrong sign. The PML layers are now left out of the loss power, and the far field and the
+  radiated power are taken on the same Gauss box close around the model as with a radiation boundary: a
+  lossless antenna has the same power balance with a PML (0.05 %) as with a radiation boundary.
+- **losses_<solution>.npz of a lossless model** holds zero loss matrices instead of no `Ploss` entries.
+
+### Changed
+- **get_status (MCP) names the phase of a running solve** (geometry, boundaries, mesh, pass, sweep), how long it
+  has been in that phase and the seconds since the last progress update, so a hung run shows at once.
+- **run_python (MCP) refuses misspelt property names.** An unknown name (e.g. `Center` for `CenterPosition`)
+  was stored as an extra entry and the object built with the default; now nothing is written and the error
+  lists the properties of the command.
 
 ## 0.3.26 (2026-11-14)
 

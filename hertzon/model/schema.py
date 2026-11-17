@@ -319,7 +319,7 @@ SETUP: list[Prop] = [
       help="Solve only the port modes of the wave ports: port impedance Zo, propagation constant Gamma and "
            "the port fields at the solution frequency and the sweep frequencies, without the 3D solution "
            "(no S-parameters). For checking ports quickly"),
-    P("MaximumPasses", "int", "6", label="Maximum number of passes"),
+    P("MaximumPasses", "int", "15", label="Maximum number of passes"),
     P("MaximumDeltaS", "float", "0.02", label="Maximum Delta S"),
     P("MaximumDeltaEnergy", "float", "0.001", label="Maximum Delta Energy",
       help="Incident wave designs (no ports): relative change of the scattered energy between passes (default 0.001)"),
