@@ -166,6 +166,10 @@ excitations in one pass over the tetrahedra (geometry and neighbour data once).
   conductors, which the assembly removes; they still get the curved edges for the plots. A thin PEC wall (1 mm
   balun sleeve with 6 mm edges) otherwise straightened the curved edges of its faces to nearly the polygon.
   **Proposal:** pass `conductor_tets` from `apply_curved` to `curved_data` upstream.
+- `apply_port_straight_faces`: `spread_tags` returns no faces, so only the faces of wave ports themselves stay
+  straight (they are in `exclude_tags`), not every curved face connected to them. Coax50: S11 -57.2 dB instead of
+  -46.8 dB with the same mesh, S21 phase error 0.07 deg instead of 0.23 deg. Switch off with
+  `HERTZON_EMERGE_NATIVE=port_spread`. **Proposal:** drop the spread rule upstream.
 
 ## Removed
 

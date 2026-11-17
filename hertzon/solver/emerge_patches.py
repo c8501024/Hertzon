@@ -47,6 +47,25 @@ def apply() -> None:
         apply_port_field_lookup()
     if not native("curved_conductors"):
         apply_curved_conductors()
+    if not native("port_spread"):
+        apply_port_straight_faces()
+
+
+def apply_port_straight_faces() -> None:
+    """EMerge keeps every curved face that is connected to a wave port straight, through shared curves and
+    transitively: on a coax line that is the whole inner conductor and outer wall, on a coax-fed antenna also the
+    arms behind it. Only the port face itself has to stay straight (its mode is solved on the flat triangles, and
+    its edges, rim included, are already kept straight as a face with a surface integral). Measured on Coax50 with
+    the same mesh: S11 -57.2 dB instead of -46.8 dB after two passes, so the curved wall behind a straight port is
+    no impedance step; it removes the polygon error of the line."""
+    from emerge._emerge.physics.microwave.assembly import curvilinear as C
+    if getattr(C.spread_tags, "_hertzon", False):
+        return
+
+    def spread_tags(bcs) -> frozenset:
+        return frozenset()
+    spread_tags._hertzon = True
+    C.spread_tags = spread_tags
 
 
 _CONDUCTOR_TETS: dict[int, np.ndarray] = {}
