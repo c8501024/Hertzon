@@ -162,6 +162,10 @@ excitations in one pass over the tetrahedra (geometry and neighbour data once).
   curvature based sizing.
 - `apply_port_field_lookup`: a sample of a port integral outside the tetrahedra next to the port is looked up in
   the whole mesh instead of counting as zero field. **Proposal:** the same fallback in `interpolate_Ef`.
+- `apply_curved_conductors`: the validity check of the curved elements (det D >= 0.3) skips the tetrahedra inside
+  conductors, which the assembly removes; they still get the curved edges for the plots. A thin PEC wall (1 mm
+  balun sleeve with 6 mm edges) otherwise straightened the curved edges of its faces to nearly the polygon.
+  **Proposal:** pass `conductor_tets` from `apply_curved` to `curved_data` upstream.
 
 ## Removed
 
