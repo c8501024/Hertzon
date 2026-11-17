@@ -31,6 +31,11 @@ the GitHub release notes.
   manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
 
 ### Fixed
+- **A thin cylinder cut by a Unite is drawn round again (#476).** The inner conductor of a coax united with a
+  tilted dipole arm was drawn as an octagon: the cut at its end made the face no plain cylinder, and it got the
+  coarse display sizing of swept pipes. A cylinder face whose two ends each go once round it is now drawn as one
+  band of triangles between their curves, with the full number of segments per turn and still few triangles.
+  Helices, swept pipes and faces with holes keep the coarse sizing. Display only; the solver mesh is not touched.
 - **Lumped port on a sheet whose edges are not square to its integration line.** A port sheet between a pad
   and a board edge a fraction of a degree off the axis (a parallelogram with its sides along the integration
   line) found a single low corner node, and the port voltage was taken along that corner only: in a lossless

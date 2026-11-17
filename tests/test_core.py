@@ -1598,6 +1598,33 @@ def test_straight_wire_is_round(quality):
     assert np.all(n[:, 0] * m[:, 0] + n[:, 1] * m[:, 1] > 0)
 
 
+@pytest.mark.parametrize("quality", ["coarse", "normal", "fine"])
+def test_coax_pin_united_with_a_tilted_arm_is_round(quality):
+    """#476: the inner conductor of a coax united with a tilted dipole arm. The cut at its top made the pin face
+    no plain cylinder, and it fell back to the coarse sizing of swept pipes (an octagon). A cylinder face between
+    two ends that each go once round it is drawn as one band of triangles: full segments per turn, still few
+    triangles, closed."""
+    from hertzon.kernel import occ as K
+    p = Project()
+    d = p.designs[0]
+    d.units = "mm"
+    d.add_object("CreateCylinder", name="Inner", CenterPosition="0,0,-30", Axis="Z", Radius="0.5", Height="30")
+    d.add_object("CreateCylinder", name="ArmR", CenterPosition="0,0,-0.5", Axis="Z", Radius="1", Height="70")
+    d.obj("ArmR").history.append(Command.new("Rotate", Axis="Y", Angle="45deg"))
+    d.obj("ArmR").consumed_by = "Inner"
+    d.obj("Inner").history.append(Command.new("Unite", Tools="ArmR", KeepOriginals="False"))
+    K.ensure_gmsh("test_core")
+    t = K.tessellate(K.build_design(d, d.evaluator(p)), quality)["Inner"]
+    P = np.asarray(t.points)
+    rim = P[np.isclose(np.hypot(P[:, 0], P[:, 1]), 0.5e-3) & np.isclose(P[:, 2], -30e-3)]
+    assert len(np.unique(np.round(rim, 9), axis=0)) >= {"coarse": 18, "normal": 36, "fine": 64}[quality]
+    assert len(t.tris) < 3000
+    _, inv = np.unique(np.round(P, 7), axis=0, return_inverse=True)   # curve end points: within 0.1 um
+    T = inv.ravel()[t.tris]
+    E = np.sort(np.vstack([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]]), axis=1)
+    assert set(np.unique(E, axis=0, return_counts=True)[1]) == {2}
+
+
 def test_solver_preload(monkeypatch):
     """The window starts python -m hertzon.solver.preload, which loads the solver's libraries (the first
     Analyze after a restart or an update then does not wait for them); HERTZON_NO_PRELOAD=1 switches it off."""
