@@ -31,6 +31,12 @@ the GitHub release notes.
   manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
 
 ### Fixed
+- **Derivative tuning of a substrate width or length moved the patch with it.** A face that changes its shape
+  (the top of a substrate that gets wider) was stretched as a whole, so the patch and the lumped port lying on
+  it moved and grew with the substrate: tuning Ws also widened the patch by 0.31 mm per mm, and the tuned S11
+  was off a full solve by 0.66 already at −14 %. Now only the outline of such a face is carried; inside, the
+  nodes slide in the plane, so sheets on the face stay where they are. Patch antenna against full solves:
+  Ws −14 % 0.66 to 0.014, Ws +29 % 1.16 to 0.039, Ls +3 % 0.35 to 0.012 (|ΔS11|, linear).
 - **Curved elements stay curved on thin metal walls.** The curved elements were straightened until every curved
   tetrahedron stayed valid, and the check included the flat tetrahedra inside a PEC wall that the solve leaves
   out. On the 1 mm balun sleeve of a coax-fed dipole only 28 of 370 edges stayed curved, so the sleeve was solved
