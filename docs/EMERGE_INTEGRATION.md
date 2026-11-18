@@ -162,6 +162,28 @@ excitations in one pass over the tetrahedra (geometry and neighbour data once).
   curvature based sizing.
 - `apply_port_field_lookup`: a sample of a port integral outside the tetrahedra next to the port is looked up in
   the whole mesh instead of counting as zero field. **Proposal:** the same fallback in `interpolate_Ef`.
+- `apply_curved_conductors`: the validity check of the curved elements (det D >= 0.3) skips the tetrahedra inside
+  conductors, which the assembly removes; they still get the curved edges for the plots. A thin PEC wall (1 mm
+  balun sleeve with 6 mm edges) otherwise straightened the curved edges of its faces to nearly the polygon.
+  **Proposal:** pass `conductor_tets` from `apply_curved` to `curved_data` upstream.
+- `apply_port_straight_faces`: `spread_tags` returns no faces, so only the faces of wave ports themselves stay
+  straight (they are in `exclude_tags`), not every curved face connected to them. Coax50: S11 -57.2 dB instead of
+  -46.8 dB with the same mesh, S21 phase error 0.07 deg instead of 0.23 deg. Switch off with
+  `HERTZON_EMERGE_NATIVE=port_spread`. **Proposal:** drop the spread rule upstream.
+- `curved_ports.apply` (module `curved_ports.py`): the faces of wave ports (`ModalPort`, `WavePort`) leave
+  `exclude_tags` and are curved like the volume. The 2D mode is solved on the straight triangles with the
+  pulled-back materials of the curved ones (eps_t K, the 1/mu block det D^-1 W D^-T, eps_z det, 1/(mu_z det), with
+  K = det D D^-1 D^-T, averaged per triangle), so beta and the mode are those of the curved face. The mode
+  functions return K^1/2 e (E-like) and K^-1/2 h (H-like) on the straight triangles, which makes the power
+  normalization, kappa, the dense port term, the excitation (`get_Uinc`) and the S-parameter projection exact
+  integrals over the curved face; line integrals (voltage, `terminals.line_voltage`) use the pulled-back fields.
+  The Robin term (`system_pattern.assemble_robin_bc`) is assembled with K at every quadrature point; with K
+  averaged per triangle it disagrees with the excitation by about 0.1 %. The conductor tetrahedra are found
+  before the port solve so that the port face and the volume get the same curved edges. Coax50 after two passes:
+  Z0 49.94/50.05 Ohm (line 50.05, flat port 50.54/50.62), S11 -61.5 dB (flat port with curved walls -57.2 dB);
+  semicircular waveguide: beta 142.746 (analytic 142.774, flat 141.847). Switch off with
+  `HERTZON_EMERGE_NATIVE=curved_ports`. **Proposal:** the metric as a material/weight argument of the 2D port
+  element and of `robinbc` upstream, instead of the per-triangle average and the Python Robin term.
 
 ## Removed
 
