@@ -2900,7 +2900,11 @@ class MainWindow(QMainWindow):
             rename_object(self.des, o.name, new)
         o.material = a.get("Material", o.material)
         o.model = a.get("Model") == "True"
-        o.solve_inside = a.get("SolveInside") == "True" and o.model
+        try:
+            metal = is_conductor(self.doc.project.material(o.material))
+        except KeyError:
+            metal = False
+        o.solve_inside = a.get("SolveInside") == "True" and o.model and not metal
         o.color = normalize_color(a.get("Color", o.color), o.color)
         try:
             o.transparency = float(a.get("Transparency", "0"))

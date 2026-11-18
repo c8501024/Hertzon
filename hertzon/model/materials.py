@@ -346,20 +346,20 @@ def library_materials() -> list[Material]:
     return list(SYSTEM_BY_NAME.values()) + list(emerge_library().values())
 
 
-def is_conductor(mat: Material, threshold: float = 1e5) -> bool:
-    """Solve-inside is off by default for good conductors, as in the reference tool."""
+# EMerge solves a solid with a conductivity above this as a surface impedance (above 1e8 S/m as PEC) and removes
+# its inside from the problem (settings.mw_3d_surfimplim); below it the volume is solved like a lossy dielectric.
+SURFACE_CONDUCTOR_LIMIT = 1e4
+
+
+def is_conductor(mat: Material, threshold: float = SURFACE_CONDUCTOR_LIMIT) -> bool:
+    """A conductor the solver treats by its surface (PEC, or conductivity above SURFACE_CONDUCTOR_LIMIT S/m):
+    its inside is never solved, whatever Solve Inside says, so Solve Inside is off and locked for it."""
     if mat.pec:
         return True
     try:
-        return float(mat.conductivity) >= threshold
+        return float(mat.conductivity) > threshold
     except ValueError:
         return False
-
-
-def surface_conductor(mat: Material, solve_inside: bool) -> bool:
-    """True when an object of this material carries its current on the surface: a perfect conductor always
-    (it has no inside to solve, whatever Solve Inside says), a good conductor when Solve Inside is off."""
-    return bool(mat.pec) or (is_conductor(mat) and not solve_inside)
 
 
 def default_color(name: str) -> str:
