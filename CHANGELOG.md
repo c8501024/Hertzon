@@ -31,6 +31,11 @@ the GitHub release notes.
   manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
 
 ### Fixed
+- **Curved elements stay curved on thin metal walls.** The curved elements were straightened until every curved
+  tetrahedron stayed valid, and the check included the flat tetrahedra inside a PEC wall that the solve leaves
+  out. On the 1 mm balun sleeve of a coax-fed dipole only 28 of 370 edges stayed curved, so the sleeve was solved
+  and drawn as a polygon. The tetrahedra inside conductors now leave that check: 370 of 373 edges stay curved, with
+  the same mesh.
 - **A thin cylinder cut by a Unite is drawn round again (#476).** The inner conductor of a coax united with a
   tilted dipole arm was drawn as an octagon: the cut at its end made the face no plain cylinder, and it got the
   coarse display sizing of swept pipes. A cylinder face whose two ends each go once round it is now drawn as one

@@ -45,6 +45,57 @@ def apply() -> None:
         apply_mesh_fallback()
     if not native("port_field_lookup"):
         apply_port_field_lookup()
+    if not native("curved_conductors"):
+        apply_curved_conductors()
+
+
+_CONDUCTOR_TETS: dict[int, np.ndarray] = {}
+
+
+def apply_curved_conductors() -> None:
+    """EMerge straightens curved edges until every curved tetrahedron keeps det D >= 0.3, and it checks all of them,
+    also those inside PEC that the assembly leaves out. A thin PEC wall (a 1 mm balun sleeve with 6 mm edges on its
+    round faces) is filled with flat tetrahedra that would fold over, so the edges of its faces were straightened
+    to nearly the polygon (342 of 370 on the sleeve of a coax-fed dipole), although the air tetrahedra on them were
+    fine. The check now skips the conductor tetrahedra the assembly removes; they still get the curved edges, so the
+    mesh plot draws their faces round. Same mesh, no extra elements."""
+    import inspect
+    from emerge._emerge.physics.microwave.assembly import curvilinear as C
+    if getattr(C.curved_data, "_hertzon_conductors", False):
+        return
+    src = inspect.getsource(C.curved_data)
+    old = "    tc = np.where(curved_edge[eid].any(0))[0]\n"
+    if src.count(old) != 1 or "def curved_data(mesh, exclude" not in src:
+        from loguru import logger
+        logger.warning("Curved elements: EMerge's curved_data changed; thin PEC walls may stay faceted")
+        return
+    # EMerge's own function with one change: tets inside conductors leave the validity check
+    src = src.replace(old, old + "    _skip = _HZ_SKIP.get(id(mesh))\n"
+                      "    tc_all = tc\n"
+                      "    if _skip is not None and len(_skip):\n"
+                      "        tc = np.setdiff1d(tc, _skip)\n")
+    # and come back with the final (possibly shrunk) edge displacements at the end
+    end = "    keep = np.abs(d).sum((1, 2)) > 0\n    res = (tc[keep], np.ascontiguousarray(d[keep]))\n"
+    if src.count(end) != 1:
+        from loguru import logger
+        logger.warning("Curved elements: EMerge's curved_data changed; thin PEC walls may stay faceted")
+        return
+    src = src.replace(end, "    tc = tc_all\n    d = disp[eid[:, tc].T] * scale[eid[:, tc].T][..., None]\n" + end)
+    src = src.replace("tuple(sorted(exclude)), tuple(sorted(spread)))",
+                      "tuple(sorted(exclude)), tuple(sorted(spread)), len(_HZ_SKIP.get(id(mesh), ())))")
+    ns = dict(vars(C))
+    ns["_HZ_SKIP"] = _CONDUCTOR_TETS
+    exec(compile(src, C.__file__, "exec"), ns)       # noqa: S102 - EMerge's own source with the change above
+    new = ns["curved_data"]
+    new._hertzon_conductors = True
+    C.curved_data = new
+    plain_apply = C.apply_curved
+
+    def apply_curved(field, er, ur, conductor_tets, dataE, dataB, bcs):
+        _CONDUCTOR_TETS.clear()
+        _CONDUCTOR_TETS[id(field.mesh)] = np.unique(np.asarray(conductor_tets, np.int64))
+        return plain_apply(field, er, ur, conductor_tets, dataE, dataB, bcs)
+    C.apply_curved = apply_curved
 
 
 def apply_port_field_lookup() -> None:
