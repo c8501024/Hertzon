@@ -23,10 +23,9 @@ S = L W y. The approximation is applied to the matrix, not to the S-parameters, 
 the variables instead of being smeared by a Taylor series of S. At dp = 0 the result is the nominal
 solution exactly.
 
-The model is valid while the morphed mesh stays reasonable and the change stays moderate: the range of
-every variable is limited to the offsets at which no tetrahedron shrinks below 30 % of its volume
-(morph.valid_range) and to 15 % of its value (limit_range), and the further a slider is from the solved
-value, the larger the error. A full solve at the new value is the reference.
+The model is valid while the morphed mesh stays reasonable: the range of every variable is limited to the
+offsets at which no tetrahedron shrinks below 30 % of its volume (morph.valid_range), and the further a
+slider is from the solved value, the larger the error. A full solve at the new value is the reference.
 
 Saved as tuning_<sweep>.npz in the result folder of the setup; tuning_model() reads it and evaluate()
 gives the S-parameters for slider positions (no solver needed, used by the GUI).
@@ -1239,22 +1238,6 @@ def morph_constraints(m) -> tuple[set, set]:
     return fixed, (set(m.mesh.exterior_face_tags) | wave) - fixed
 
 
-MAX_RELATIVE = 0.15     # a slider reaches at most this fraction of the solved value to either side
-
-
-def limit_range(rng: tuple[float, float], text: str) -> tuple[float, float]:
-    """The tuning range of a variable: the offsets the mesh allows (morph.valid_range), at most
-    MAX_RELATIVE of its value to either side. On the patch antenna every variable stayed within 0.2 of
-    full solves (|S11|, linear) up to 15 %; the patch length was 0.56 off at +20 % and 1.1 at +27 %, while
-    the mesh alone allowed up to +780 % (substrate height)."""
-    lo, hi = float(rng[0]), float(rng[1])
-    sv = MO.split_value(text)
-    if sv is not None and sv[0] != 0:
-        cap = MAX_RELATIVE * abs(float(sv[0]))
-        lo, hi = max(lo, -cap), min(hi, cap)
-    return lo, hi
-
-
 def variable_step(text: str) -> float:
     """Finite difference step of the CAD build for a variable value (in its unit)."""
     sv = MO.split_value(text)
@@ -1296,8 +1279,7 @@ def build(bridge, variables: list[str], freqs: np.ndarray, path: Path, log=None,
     V = [fields[v] for v in variables]
     log(f"Mesh morphing for {', '.join(variables)}: {time.time() - t:.1f} s")
     X0 = np.array(mesh.nodes)
-    ranges = [limit_range(MO.valid_range(X0, mesh.tets, Vi, 0.3), design.variables[v])
-              for v, Vi in zip(variables, V)]
+    ranges = [MO.valid_range(X0, mesh.tets, Vi, 0.3) for Vi in V]
     hmed = float(np.median(mesh.edge_lengths))
     steps = [1e-3 * hmed / max(float(np.abs(Vi).max()), 1e-300) for Vi in V]
     settings = m.mw._settings

@@ -220,23 +220,8 @@ are computed from those two powers.
     within 0.01 of exact solves on the morphed mesh.
   - On the patch antenna with the substrate height +0.2 mm, peak realized gain matched a remeshed solve
     within 0.01 to 0.09 dB, and radiation efficiency within about 0.1 percentage point.
-- **The range of every slider** is at most 15 % of the solved value to either side, and it ends earlier
-  where a tetrahedron would shrink below 30 % of its volume. The mesh alone would often allow far more
-  (on the patch antenna up to +780 % of the substrate height), but the model is not accurate that far out.
-  Patch antenna, sweep 1.2 to 3.7 GHz, largest |ΔS11| (linear) of the model against full solves (two full
-  solves of nearly the same design differ by up to about 0.05 from their own meshes):
-
-  | Variable | up to ±10 % | up to ±15 % | Further out |
-  |---|---|---|---|
-  | Patch length Lp | 0.02–0.10 | up to 0.19 | 0.56 at +20 %, 1.1 at +27 % |
-  | Patch width Wp | 0.03–0.06 | up to 0.14 | 0.58 at +25 % |
-  | Inset | 0.01–0.03 | 0.01–0.03 | 0.25 at +40 % |
-  | Feed width wf | 0.01 | 0.02 | 0.24 at +170 % |
-  | Substrate width Ws, length Ls | 0.01–0.06 | 0.01–0.06 | 0.19 at Ls +22 %, 1.4 at Ls +44 % |
-  | Substrate height h | 0.01–0.03 | 0.01–0.03 | 0.04 at +20 %, 0.13 at +40 %, 1.7 at +180 % |
-
-  The resonant lengths lose accuracy first; a change of Lp by 15 % already moves the resonance by about
-  0.3 GHz.
+- **The range of every slider** is limited to the offsets at which no tetrahedron shrinks below 30 % of
+  its volume. A positive length also stays above 10 % of its value.
 - **The further a slider is from the solved value, the larger the error.** The outer 40 % of each side
   of the range is marked: an orange hint under the sliders, and the shaded areas in a plot against a
   variable. Use the sliders to find the direction and the size of a change. Then **Apply to Design** and

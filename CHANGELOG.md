@@ -21,10 +21,6 @@ the GitHub release notes.
   the same code. Pictures of `show_result` and `render_image` are kept in `~/.hertzon/shown`.
 
 ### Changed
-- **Tuning ranges at most ±15 % of the value.** The range of a slider was limited only by the distortion of the
-  mesh, which allowed up to +780 % of the substrate height of the patch antenna, far beyond where the model is
-  accurate. It now ends at 15 % of the solved value at the latest (patch antenna: within 0.2 of full solves
-  for every variable, the patch length 0.56 off at +20 %). Measurements in docs/TUNING.md.
 - **AI assistants are told clearly when the adaptive mesh did not converge.** `get_status` now reports a
   `convergence_warning` with the reason the passes stopped (`stopped_by`: MaximumPasses or the tetrahedra limit),
   as `get_results` already did, and parametric studies list the variations that did not converge. The warning
