@@ -36,6 +36,10 @@ the GitHub release notes.
   out. On the 1 mm balun sleeve of a coax-fed dipole only 28 of 370 edges stayed curved, so the sleeve was solved
   and drawn as a polygon. The tetrahedra inside conductors now leave that check: 370 of 373 edges stay curved, with
   the same mesh.
+- **Curved elements behind a wave port.** Every curved face connected to a wave port stayed straight, on a coax
+  line the whole inner conductor and outer wall, on a coax-fed antenna also the parts behind it. Only the port
+  face itself stays straight now (its mode is solved on flat triangles). Coax50 with the same mesh: S11 -57.2 dB
+  instead of -46.8 dB and a third of the phase error of S21 against the analytic line.
 - **A thin cylinder cut by a Unite is drawn round again (#476).** The inner conductor of a coax united with a
   tilted dipole arm was drawn as an octagon: the cut at its end made the face no plain cylinder, and it got the
   coarse display sizing of swept pipes. A cylinder face whose two ends each go once round it is now drawn as one
