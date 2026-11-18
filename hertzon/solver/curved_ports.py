@@ -173,6 +173,19 @@ def local_metric(ff, xl: np.ndarray, yl: np.ndarray) -> tuple[np.ndarray, np.nda
     geo = ff._hz_curv
     xl = np.asarray(xl, float).ravel()
     yl = np.asarray(yl, float).ravel()
+    # the port integrals sample the same points at every frequency of a sweep
+    memo = geo.setdefault("_memo", {})
+    key = (len(xl), hash(xl.tobytes()), hash(yl.tobytes()))
+    hit = memo.get(key)
+    if hit is not None:
+        return hit
+    if len(memo) > 32:
+        memo.clear()
+    memo[key] = out = _local_metric(ff, geo, xl, yl)
+    return out
+
+
+def _local_metric(ff, geo, xl, yl):
     t = np.asarray(_finder(ff)(xl, yl), np.int64)
     K = np.broadcast_to(np.eye(2), (len(xl), 2, 2)).copy()
     det = np.ones(len(xl))

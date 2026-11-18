@@ -78,6 +78,28 @@ def apply_port_straight_faces() -> None:
 _CONDUCTOR_TETS: dict[int, np.ndarray] = {}
 
 
+def _detD(g: np.ndarray, d: np.ndarray, lam: np.ndarray) -> np.ndarray:
+    """det D (nt, np) of the curved map at barycentric points lam (np, 4), as EMerge's curvilinear._detD, 6x faster:
+    D = I + sum_e d_e (4 l_i g_j + 4 l_j g_i)^T is linear in lam, D = I + sum_k l_k A_k, and det is written out.
+    The validity check calls it for 79 points on every curved tetrahedron in each shrink round (1.2 s of 2.5 s per
+    pass on Coax50)."""
+    from emerge._emerge.physics.microwave.assembly.curvilinear import _PAIRS
+    A = np.zeros((g.shape[0], 4, 3, 3))
+    for e, (i, j) in enumerate(_PAIRS):
+        A[:, i] += 4 * d[:, e, :, None] * g[:, j, None, :]
+        A[:, j] += 4 * d[:, e, :, None] * g[:, i, None, :]
+    out = np.empty((g.shape[0], lam.shape[0]))
+    for p0 in range(0, lam.shape[0], 16):
+        D = np.einsum("pk,tkab->tpab", lam[p0:p0 + 16], A)
+        D[..., 0, 0] += 1.0
+        D[..., 1, 1] += 1.0
+        D[..., 2, 2] += 1.0
+        out[:, p0:p0 + 16] = (D[..., 0, 0] * (D[..., 1, 1] * D[..., 2, 2] - D[..., 1, 2] * D[..., 2, 1])
+                              - D[..., 0, 1] * (D[..., 1, 0] * D[..., 2, 2] - D[..., 1, 2] * D[..., 2, 0])
+                              + D[..., 0, 2] * (D[..., 1, 0] * D[..., 2, 1] - D[..., 1, 1] * D[..., 2, 0]))
+    return out
+
+
 def apply_curved_conductors() -> None:
     """EMerge straightens curved edges until every curved tetrahedron keeps det D >= 0.3, and it checks all of them,
     also those inside PEC that the assembly leaves out. A thin PEC wall (a 1 mm balun sleeve with 6 mm edges on its
@@ -111,6 +133,8 @@ def apply_curved_conductors() -> None:
                       "tuple(sorted(exclude)), tuple(sorted(spread)), len(_HZ_SKIP.get(id(mesh), ())))")
     ns = dict(vars(C))
     ns["_HZ_SKIP"] = _CONDUCTOR_TETS
+    ns["_detD"] = _detD
+    C._detD = _detD
     exec(compile(src, C.__file__, "exec"), ns)       # noqa: S102 - EMerge's own source with the change above
     new = ns["curved_data"]
     new._hertzon_conductors = True

@@ -44,6 +44,9 @@ the GitHub release notes.
   50.54/50.62 Ohm (line 50.05 Ohm), S11 -61.5 dB instead of -46.8 dB. Semicircular waveguide: port beta within
   0.02 % of the analytic one instead of -0.65 %, S11 -66.6 dB instead of -36 dB after three passes.
   Ports on flat faces (microstrip, rectangular waveguide) are unchanged.
+- **Faster validity check of curved elements.** The check of every curved tetrahedron (det D at 79 points per
+  shrink round) is written out instead of 79 calls of a general determinant: 3-6x faster, same result
+  (Coax50: 0.6 s less per adaptive pass).
 - **A thin cylinder cut by a Unite is drawn round again (#476).** The inner conductor of a coax united with a
   tilted dipole arm was drawn as an octagon: the cut at its end made the face no plain cylinder, and it got the
   coarse display sizing of swept pipes. A cylinder face whose two ends each go once round it is now drawn as one
