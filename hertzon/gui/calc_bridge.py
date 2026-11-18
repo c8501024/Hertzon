@@ -347,9 +347,9 @@ class DocFieldSource(FieldSource):
         return des.obj(name), t, self._cad[name]
 
     def _pec(self, ob) -> bool:
-        from ..model.materials import is_conductor
+        from ..model.materials import surface_conductor
         try:
-            return is_conductor(self.doc.project.material(ob.material)) and not ob.solve_inside
+            return surface_conductor(self.doc.project.material(ob.material), ob.solve_inside)
         except Exception:  # noqa: BLE001
             return str(ob.material).lower() == "pec"
 

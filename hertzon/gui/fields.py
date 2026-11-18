@@ -1003,9 +1003,9 @@ def prepare_overlay(doc, view, quantity: str, solution: str, freq_index: int = 0
                 pec = False
                 ob = doc.design.obj(obj) if doc.design.has_obj(obj) else None
                 if ob is not None:
-                    from ..model.materials import is_conductor
+                    from ..model.materials import surface_conductor
                     try:
-                        pec = is_conductor(doc.project.material(ob.material)) and not ob.solve_inside
+                        pec = surface_conductor(doc.project.material(ob.material), ob.solve_inside)
                     except Exception:  # noqa: BLE001
                         pec = str(ob.material).lower() == "pec"
                 if obj in names:
