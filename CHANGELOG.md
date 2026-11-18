@@ -50,6 +50,11 @@ the GitHub release notes.
   50.54/50.62 Ohm (line 50.05 Ohm), S11 -61.5 dB instead of -46.8 dB. Semicircular waveguide: port beta within
   0.02 % of the analytic one instead of -0.65 %, S11 -66.6 dB instead of -36 dB after three passes.
   Ports on flat faces (microstrip, rectangular waveguide) are unchanged.
+- **Generate Mesh draws thin metal walls round.** The mesh of *Generate Mesh* was saved before the conductor
+  tetrahedra were known, so the check of the curved elements straightened the thin metal walls again: the mesh
+  plot of the initial mesh showed the faces of a balun sleeve or a coax conductor as polygons beside the round
+  model (0-4 % of their edges curved). They are found first now, as in the solve (97-98 %). Solver results do
+  not change.
 - **Faster validity check of curved elements.** The check of every curved tetrahedron (det D at 79 points per
   shrink round) is written out instead of 79 calls of a general determinant: 3-6x faster, same result
   (Coax50: 0.6 s less per adaptive pass).

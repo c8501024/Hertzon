@@ -100,6 +100,27 @@ def _detD(g: np.ndarray, d: np.ndarray, lam: np.ndarray) -> np.ndarray:
     return out
 
 
+def prepare_conductor_tets(sim) -> None:
+    """The conductor tets of the volume assembly (Assembler._find_conductor_tets) before the volume assembly: the
+    port solve and the saved mesh of 'Generate Mesh' need the curved edges of the solve (apply_curved_conductors).
+    Without them the thin metal walls were straightened again in the mesh plot of the initial mesh."""
+    from emerge._emerge.physics.microwave.bcs.boundary_conditions import Void
+    mesh = sim.mesh
+    sim._generate_material_assignment()
+    freq = sim.frequencies[0]
+    cond = np.zeros((3, 3, mesh.n_tets), dtype=np.complex128)
+    for mat, centers, ids in sim.mat_assy.iter_materials():
+        cond = mat.cond(freq, cond, centers, ids)
+    st = sim._settings
+    limit = min(st.mw_3d_peclim, st.mw_3d_surfimplim)
+    mask = np.real(cond[0, 0, :]) > limit
+    for bc in sim.bc.boundary_conditions:
+        if isinstance(bc, Void):
+            mask[mesh.get_tetrahedra(bc.tags)] = True
+    _CONDUCTOR_TETS.clear()
+    _CONDUCTOR_TETS[id(mesh)] = np.flatnonzero(mask).astype(np.int64)
+
+
 def apply_curved_conductors() -> None:
     """EMerge straightens curved edges until every curved tetrahedron keeps det D >= 0.3, and it checks all of them,
     also those inside PEC that the assembly leaves out. A thin PEC wall (a 1 mm balun sleeve with 6 mm edges on its
