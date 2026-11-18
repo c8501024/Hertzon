@@ -161,6 +161,11 @@ def voltage_line(term_pts: np.ndarray, ref_pts: np.ndarray) -> tuple[np.ndarray,
 
 def line_voltage(efunc, p1: np.ndarray, p2: np.ndarray, n: int = 101) -> complex:
     """V = integral of E . dl from p1 (terminal) to p2 (reference): the terminal's voltage."""
+    try:
+        from .curved_ports import raw_field
+        efunc = raw_field(efunc)      # the pulled-back field on a curved port face
+    except ImportError:
+        pass
     t = (np.arange(n) + 0.5) / n
     pts = p1[:, None] + (p2 - p1)[:, None] * t[None, :]
     E = np.asarray(efunc(pts[0], pts[1], pts[2]))

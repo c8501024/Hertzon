@@ -49,6 +49,13 @@ def apply() -> None:
         apply_curved_conductors()
     if not native("port_spread"):
         apply_port_straight_faces()
+    if not native("curved_ports"):
+        try:
+            from . import curved_ports
+            curved_ports.apply()
+        except Exception as ex:  # noqa: BLE001
+            from loguru import logger
+            logger.warning(f"Curved wave ports not available ({ex}); port faces stay straight")
 
 
 def apply_port_straight_faces() -> None:
