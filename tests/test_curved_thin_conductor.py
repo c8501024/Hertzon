@@ -72,3 +72,20 @@ def test_thin_pec_sleeve_keeps_its_curved_edges(tmp_path):
     assert len(mesh["curv_tets"])
     assert _curved_share(mesh, 12.0) > 0.7      # 0.85 with the fix, 0.04 without
     assert _curved_share(mesh, 13.0) > 0.7
+
+
+def test_generate_mesh_keeps_the_curved_edges_of_the_solve(tmp_path):
+    """'Generate Mesh' saves the initial mesh before any assembly: the conductor tetrahedra were not known yet,
+    so the mesh plot showed the sleeve straightened again (triangles beside the round CAD faces)."""
+    em = pytest.importorskip("emerge")
+    from hertzon.solver import bridge as B
+    from hertzon.solver import emerge_patches as EP
+    p, d, st = _sleeve_dipole()
+    EP._CONDUCTOR_TETS.clear()
+    b = B.Bridge(p, d, st, tmp_path / "out")
+    with em.Simulation(f"meshonly_{tmp_path.name}", save_file=False) as m:
+        b.prepare(m)
+        b.save_mesh()
+    mesh = np.load(tmp_path / "out" / "mesh.npz")
+    assert _curved_share(mesh, 12.0) > 0.7      # as after the solve; 0.04 before
+    assert _curved_share(mesh, 13.0) > 0.7

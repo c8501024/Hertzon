@@ -387,7 +387,8 @@ def apply() -> None:
     def modal_analysis(self, port, *a, **k):
         try:
             _STATE["sim"] = self
-            _prepare_conductor_tets(self)
+            from .emerge_patches import prepare_conductor_tets
+            prepare_conductor_tets(self)
         except Exception as ex:  # noqa: BLE001
             from loguru import logger
             logger.debug(f"Curved ports: conductor tets not prepared ({ex})")
@@ -502,24 +503,3 @@ def apply() -> None:
                 logger.warning(f"Curved ports: Robin term on the straight face ({ex})")
         return plain_robin(field, tri_ids, gamma, other_side)
     SP.assemble_robin_bc = assemble_robin_bc
-
-
-def _prepare_conductor_tets(sim) -> None:
-    """The conductor tets of the volume assembly (Assembler._find_conductor_tets) before the port solve, for the
-    validity check of the curved elements (emerge_patches.apply_curved_conductors)."""
-    from emerge._emerge.physics.microwave.bcs.boundary_conditions import Void
-    from . import emerge_patches as EP
-    mesh = sim.mesh
-    sim._generate_material_assignment()
-    freq = sim.frequencies[0]
-    cond = np.zeros((3, 3, mesh.n_tets), dtype=np.complex128)
-    for mat, centers, ids in sim.mat_assy.iter_materials():
-        cond = mat.cond(freq, cond, centers, ids)
-    st = sim._settings
-    limit = min(st.mw_3d_peclim, st.mw_3d_surfimplim)
-    mask = np.real(cond[0, 0, :]) > limit
-    for bc in sim.bc.boundary_conditions:
-        if isinstance(bc, Void):
-            mask[mesh.get_tetrahedra(bc.tags)] = True
-    EP._CONDUCTOR_TETS.clear()
-    EP._CONDUCTOR_TETS[id(mesh)] = np.flatnonzero(mask).astype(np.int64)

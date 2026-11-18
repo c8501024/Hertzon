@@ -2017,6 +2017,14 @@ class Bridge:
             from . import curvilinear as CV
             if not CV.enabled():
                 return {}
+            from . import emerge_patches as EP
+            if id(self.m.mesh) not in EP._CONDUCTOR_TETS:
+                # 'Generate Mesh' saves the mesh before any assembly: find the conductor tets as the solve does,
+                # or the thin metal walls are drawn straightened (the edges the solve keeps curved)
+                try:
+                    EP.prepare_conductor_tets(self.m.mw)
+                except Exception as ex:  # noqa: BLE001
+                    warn(f"Conductor tetrahedra not found for the curved mesh plot: {ex}")
             cd = CV.curved_data_bcs(self.m.mesh, self.m.mw.bc.boundary_conditions)
             if cd is None:
                 return {}
