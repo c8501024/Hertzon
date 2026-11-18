@@ -36,10 +36,17 @@ the GitHub release notes.
   out. On the 1 mm balun sleeve of a coax-fed dipole only 28 of 370 edges stayed curved, so the sleeve was solved
   and drawn as a polygon. The tetrahedra inside conductors now leave that check: 370 of 373 edges stay curved, with
   the same mesh.
-- **Curved elements behind a wave port.** Every curved face connected to a wave port stayed straight, on a coax
-  line the whole inner conductor and outer wall, on a coax-fed antenna also the parts behind it. Only the port
-  face itself stays straight now (its mode is solved on flat triangles). Coax50 with the same mesh: S11 -57.2 dB
-  instead of -46.8 dB and a third of the phase error of S21 against the analytic line.
+- **Curved wave ports.** The port mode was solved on the flat triangles of the port face, and every curved face
+  connected to a wave port stayed straight: on a coax line the whole inner conductor and outer wall, on a
+  coax-fed antenna also the parts behind it. Now the port face is curved like the walls behind it: the 2D mode is
+  solved with the materials of the curved triangles, and the power, the excitation, the port term and the
+  S-parameters are integrated over the curved face. Coax50 after two passes: port Z0 49.94/50.05 Ohm instead of
+  50.54/50.62 Ohm (line 50.05 Ohm), S11 -61.5 dB instead of -46.8 dB. Semicircular waveguide: port beta within
+  0.02 % of the analytic one instead of -0.65 %, S11 -66.6 dB instead of -36 dB after three passes.
+  Ports on flat faces (microstrip, rectangular waveguide) are unchanged.
+- **Faster validity check of curved elements.** The check of every curved tetrahedron (det D at 79 points per
+  shrink round) is written out instead of 79 calls of a general determinant: 3-6x faster, same result
+  (Coax50: 0.6 s less per adaptive pass).
 - **A thin cylinder cut by a Unite is drawn round again (#476).** The inner conductor of a coax united with a
   tilted dipole arm was drawn as an octagon: the cut at its end made the face no plain cylinder, and it got the
   coarse display sizing of swept pipes. A cylinder face whose two ends each go once round it is now drawn as one
