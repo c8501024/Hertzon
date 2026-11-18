@@ -31,6 +31,10 @@ the GitHub release notes.
   manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
 
 ### Fixed
+- **Surface current on a perfect conductor with Solve Inside on.** The solver treats a PEC object as a perfect
+  conductor whatever Solve Inside says, so it has no field inside. Mag_Jsurf and Vector_Jsurf (and the field
+  calculator's surface integrals) took the faces from the inside of such an object and showed 0 A/m everywhere.
+  A PEC object now always takes them from the outside; a good conductor (copper, ...) still follows Solve Inside.
 - **Derivative tuning of a substrate width or length moved the patch with it.** A face that changes its shape
   (the top of a substrate that gets wider) was stretched as a whole, so the patch and the lumped port lying on
   it moved and grew with the substrate: tuning Ws also widened the patch by 0.31 mm per mm, and the tuned S11

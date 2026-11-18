@@ -356,6 +356,12 @@ def is_conductor(mat: Material, threshold: float = 1e5) -> bool:
         return False
 
 
+def surface_conductor(mat: Material, solve_inside: bool) -> bool:
+    """True when an object of this material carries its current on the surface: a perfect conductor always
+    (it has no inside to solve, whatever Solve Inside says), a good conductor when Solve Inside is off."""
+    return bool(mat.pec) or (is_conductor(mat) and not solve_inside)
+
+
 def default_color(name: str) -> str:
     m = library_material(name)
     return m.color if m else "#bebebe"
