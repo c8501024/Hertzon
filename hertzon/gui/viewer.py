@@ -372,24 +372,74 @@ def keep_focal_plane_in_view(ren) -> None:
 
 
 def nice_length(x: float) -> float:
-    """Largest 1/2/2.5/5 x 10^n not above x."""
+    """Largest 1/2/5 x 10^n not above x."""
     if not (x > 0 and math.isfinite(x)):
         return 1.0
     e = 10 ** math.floor(math.log10(x))
-    for m in (5, 2.5, 2, 1):
-        if m * e <= x:
+    for m in (5, 2, 1):
+        if m * e <= x * (1 + 1e-12):
             return m * e
     return e
 
 
+def world_to_display(ren, p) -> np.ndarray:
+    """Display (pixel) coordinates of the world point p in the renderer ren."""
+    ren.SetWorldPoint(float(p[0]), float(p[1]), float(p[2]), 1.0)
+    ren.WorldToDisplay()
+    return np.array(ren.GetDisplayPoint()[:2], float)
+
+
+def pixels_per_world(ren, center=None) -> float:
+    """Display pixels per world length (metre) in the plane through center parallel to the screen.
+
+    The scale is measured where the model is, not at the focal point: in a perspective view the focal point
+    can sit far in front of or behind the model (after zooming toward the cursor, panning ...), and the scale
+    at the focal distance was then up to about twice the scale of the model. center None, or a point behind
+    the camera: the focal point. An orthographic view has one scale everywhere; a perspective view maps a
+    plane parallel to the screen with one scale too (set by the depth of the plane)."""
+    cam = ren.GetActiveCamera()
+    P, F, U = np.array(cam.GetPosition()), np.array(cam.GetFocalPoint()), np.array(cam.GetViewUp())
+    d = F - P
+    n = float(np.linalg.norm(d))
+    if not n > 0:
+        return 0.0
+    d /= n
+    right = np.cross(d, U)
+    if not np.linalg.norm(right) > 0:
+        return 0.0
+    right /= np.linalg.norm(right)
+    c = F if center is None else np.asarray(center, float)
+    depth = float(np.dot(c - P, d))
+    if not cam.GetParallelProjection() and not depth > 1e-9 * n:
+        c, depth = F, n
+    if cam.GetParallelProjection():
+        delta = cam.GetParallelScale()
+    else:
+        delta = depth * math.tan(math.radians(cam.GetViewAngle() / 2))
+    if not delta > 0:
+        return 0.0
+    a, b = world_to_display(ren, c), world_to_display(ren, c + right * delta)
+    return float(np.linalg.norm(b - a)) / delta
+
+
 class ScaleBar:
     """length ruler at the bottom of the 3D view: alternating black/white blocks with
-    0 / half / full length labels in the model unit, rescaled on every render."""
-    SEGMENTS = 4
-    TARGET_PX = 200
+    0 / half / full length labels in the model unit, rescaled on every render (zoom, rotation, window size,
+    display scaling).
 
-    def __init__(self, renderer, unit_fn):
+    The scale is the one in the plane through center_fn() (the model centre, about which the view turns)
+    parallel to the screen: exact in an orthographic view; in a perspective view other depths have other
+    scales, so the label says "ca."."""
+    SEGMENTS = 4
+    TARGET_PX = 200         # logical pixels (times the device pixel ratio)
+
+    def __init__(self, renderer, unit_fn, center_fn=None, dpr_fn=None):
         self.ren, self.unit_fn = renderer, unit_fn
+        self.center_fn = center_fn or (lambda: None)
+        self.dpr_fn = dpr_fn or (lambda: 1.0)
+        self.length = 0.0               # bar length in the model unit
+        self.pixels = 0.0               # bar length in display pixels
+        self.approx = False             # perspective: the scale holds at the depth of the centre only
         self.poly = vtk.vtkPolyData()
         mapper = vtk.vtkPolyDataMapper2D()
         mapper.SetInputData(self.poly)
@@ -417,24 +467,34 @@ class ScaleBar:
         for t in self.labels:
             t.SetVisibility(on)
 
+    def _dpr(self) -> float:
+        try:
+            r = float(self.dpr_fn())
+        except Exception:  # noqa: BLE001
+            r = 1.0
+        return r if r > 0 and math.isfinite(r) else 1.0
+
     def update(self) -> None:
         if not self.visible:
             return
+        r = self._dpr()
         w, h = self.ren.GetSize()
-        if w < 50 or h < 50:
+        if w < 50 * r or h < 50 * r:
             return
-        cam = self.ren.GetActiveCamera()
-        if cam.GetParallelProjection():
-            world_h = 2 * cam.GetParallelScale()
-        else:
-            world_h = 2 * cam.GetDistance() * math.tan(math.radians(cam.GetViewAngle() / 2))
-        if not world_h > 0:
+        try:
+            center = self.center_fn()
+        except Exception:  # noqa: BLE001
+            center = None
+        px_per_m = pixels_per_world(self.ren, center)
+        if not px_per_m > 0:
             return
-        unit, scale = self.unit_fn()
-        px_per_unit = h / (world_h / scale)
-        length = nice_length(self.TARGET_PX / px_per_unit)
+        unit, scale = self.unit_fn()             # scale: metres per model unit
+        px_per_unit = px_per_m * scale
+        length = nice_length(self.TARGET_PX * r / px_per_unit)
         L = length * px_per_unit
-        x0, y0, bh = (w - L) / 2, 28.0, 7.0
+        self.length, self.pixels = length, L
+        self.approx = not self.ren.GetActiveCamera().GetParallelProjection()
+        x0, y0, bh = (w - L) / 2, 28.0 * r, 7.0 * r
         pts = vtk.vtkPoints()
         cells = vtk.vtkCellArray()
         colors = vtk.vtkUnsignedCharArray()
@@ -459,13 +519,23 @@ class ScaleBar:
         self.poly.GetCellData().SetScalars(colors)
         self.poly.Modified()
         fmt = lambda v: f"{v:g}"
-        for t, (x, txt) in zip(self.labels, ((x0, "0"), (x0 + L / 2, fmt(length / 2)),
-                                             (x0 + L, f"{fmt(length)} ({unit})"))):
+        end = f"{fmt(length)} ({'µm' if unit == 'um' else unit})"
+        if self.approx:
+            end = "ca. " + end
+        for t, (x, txt) in zip(self.labels, ((x0, "0"), (x0 + L / 2, fmt(length / 2)), (x0 + L, end))):
             t.SetInput(txt)
-            t.SetDisplayPosition(int(x), int(y0 - 17))
-        # the unit text is centred on the bar end like the other labels; shift it so the number sits there
-        self.labels[2].GetTextProperty().SetJustificationToLeft()
-        self.labels[2].SetDisplayPosition(int(x0 + L - 4), int(y0 - 17))
+            t.GetTextProperty().SetFontSize(max(1, round(12 * r)))
+            t.SetDisplayPosition(int(x), int(y0 - 17 * r))
+        if not self.approx:
+            # the unit text is centred on the bar end like the other labels; shift it so the number sits there
+            self.labels[2].GetTextProperty().SetJustificationToLeft()
+            self.labels[2].SetDisplayPosition(int(x0 + L - 4 * r), int(y0 - 17 * r))
+        else:
+            self.labels[2].GetTextProperty().SetJustificationToCentered()
+
+    def label(self) -> str:
+        """The text at the end of the bar ("20 (mm)", "ca. 20 (mm)" in perspective)."""
+        return self.labels[2].GetInput() or ""
 
 
 class ModelerView(QWidget):
@@ -498,7 +568,8 @@ class ModelerView(QWidget):
         p.add_axes(interactive=False, line_width=2, color="#3b4558", xlabel="X", ylabel="Y", zlabel="Z")
         self._cube_widget = self._view_cube()
         self._cube_press = False
-        self.scale_bar = ScaleBar(p.renderer, lambda: self.length_unit)
+        self.scale_bar = ScaleBar(p.renderer, lambda: self.length_unit, self._scale_center,
+                                  lambda: self.plotter.interactor.devicePixelRatioF())
         p.renderer.AddObserver("ResetCameraClippingRangeEvent", lambda *a: keep_focal_plane_in_view(p.renderer))
         # over the model, so the shafts stay with their X/Y/Z captions when a solid sits at the origin
         self.working_cs = WorkingCSActor(self._top_layer())
@@ -847,6 +918,14 @@ class ModelerView(QWidget):
             size = 0.0
         size = size if size > 0 and math.isfinite(size) else 0.1
         return self.MIN_ZOOM_DISTANCE * size, self.MAX_ZOOM_DISTANCE * size
+
+    def _scale_center(self):
+        """Where the scale bar measures: the model centre, about which the view turns (None: no model, the
+        focal point)."""
+        if not getattr(self.doc, "tess", None):
+            return None
+        b = np.asarray(self.doc.model_bbox(), float)
+        return (b[:3] + b[3:]) / 2
 
     @staticmethod
     def _limit_zoom(factor: float, d: float, dmin: float, dmax: float) -> float:
