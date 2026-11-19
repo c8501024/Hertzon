@@ -744,7 +744,7 @@ _ATTRS = {"color": "color", "transparency": "transparency", "solve_inside": "sol
           "group": "group", "wireframe": "wireframe", "visible": "visible", "orientation": "orientation"}
 
 
-def _apply_attrs(o, a: dict | None, d: Design) -> None:
+def _apply_attrs(o, a: dict | None, d: Design, proj=None) -> None:
     for k, v in (a or {}).items():
         if k not in _ATTRS:
             raise ToolError(f"Unknown attribute '{k}'; use {sorted(_ATTRS)}")
@@ -761,6 +761,14 @@ def _apply_attrs(o, a: dict | None, d: Design) -> None:
                 raise ToolError(f"Unreadable color '{v}'; use '#rrggbb' or 'r,g,b' (0-255)")
             v = c
         setattr(o, _ATTRS[k], v)
+    if proj is not None:
+        # a conductor the solver treats by its surface (PEC, sigma > 1e4 S/m) has no inside to solve
+        from ..model.materials import is_conductor
+        try:
+            if is_conductor(proj.material(o.material)):
+                o.solve_inside = False
+        except KeyError:
+            pass
 
 
 def _append_operation(d: Design, obj: str, kind: str, props: dict | None) -> None:
@@ -831,7 +839,7 @@ def t_add_object(args):
     o = d.add_object(kind, name=name, material=mat)
     o.history[0].props = props
     o.orientation = d.working_cs               # as in the window: new objects are made in the working CS
-    _apply_attrs(o, args.get("attributes"), d)
+    _apply_attrs(o, args.get("attributes"), d, ctx.proj)
     for op in args.get("operations") or []:
         _append_operation(d, o.name, op["kind"], op.get("props"))
     errors = commit(ctx, f"add {o.name}")
@@ -908,7 +916,7 @@ def t_modify_object(args):
         except KeyError:
             raise ToolError(f"Unknown material '{args['material']}'") from None
         o.material = args["material"]
-    _apply_attrs(o, args.get("attributes"), d)
+    _apply_attrs(o, args.get("attributes"), d, ctx.proj)
     if args.get("new_name"):
         new = args["new_name"]
         if d.has_obj(new):

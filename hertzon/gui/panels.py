@@ -21,6 +21,15 @@ from ..solver.results import ResultStore, results_dir
 from .doc import object_attributes, result_dir
 
 
+
+def _conductor(doc, ob) -> bool:
+    """The object's material is a conductor the solver treats by its surface: Solve Inside is off and locked."""
+    from ..model.materials import is_conductor
+    try:
+        return is_conductor(doc.project.material(ob.material))
+    except KeyError:
+        return False
+
 class PropertiesPanel(QWidget):
     """Shows the properties of whatever is selected (object, command, boundary, setup...)."""
 
@@ -70,9 +79,10 @@ class PropertiesPanel(QWidget):
                 self.doc.design.obj(name).history[i].props[k] = v
                 self.doc.commit("model")
             self._grid(f"{c.kind}" if i else f"Command: {c.kind}", schema.GEOMETRY.get(c.kind, []), vals, ch)
-        attrs = {"Name": o.name, "Material": o.material, "SolveInside": str(o.solve_inside), "Model": str(o.model),
-                 "Color": o.color, "Transparency": f"{o.transparency:g}", "DisplayWireframe": str(o.wireframe),
-                 "Orientation": o.orientation}
+        metal = _conductor(self.doc, o)
+        attrs = {"Name": o.name, "Material": o.material, "SolveInside": str(o.solve_inside and not metal),
+                 "Model": str(o.model), "Color": o.color, "Transparency": f"{o.transparency:g}",
+                 "DisplayWireframe": str(o.wireframe), "Orientation": o.orientation}
 
         def ach(k, v):
             self.doc.checkpoint()
@@ -95,7 +105,7 @@ class PropertiesPanel(QWidget):
                 except KeyError:
                     pass
             elif k == "SolveInside":
-                ob.solve_inside = v == "True"
+                ob.solve_inside = v == "True" and not _conductor(self.doc, ob)
             elif k == "Orientation":
                 ob.orientation = v      # the creation command is read in this coordinate system
                 geometry = True
@@ -120,7 +130,8 @@ class PropertiesPanel(QWidget):
             elif k == "DisplayWireframe":
                 ob.wireframe = v == "True"
             self.doc.commit("model" if geometry else "attributes", geometry=geometry)
-        g = self._grid("Attribute", object_attributes(self.doc, name), attrs, ach, ev=False)
+        g = self._grid("Attribute", object_attributes(self.doc, name), attrs, ach, ev=False,
+                       readonly=("SolveInside",) if metal else ())
         if command_index is None:
             self.tabs.setCurrentWidget(g)
 

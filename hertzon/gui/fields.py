@@ -904,8 +904,8 @@ def _refined(cad: pv.PolyData, mesh) -> pv.PolyData:
 
 def _conductivity(doc, grid, freq: float) -> np.ndarray:
     """Conductivity (S/m) at every grid point, for J = sigma E: the bulk conductivity of the object's material
-    plus the dielectric loss (omega eps0 eps_r tan d). Perfect conductors carry no volume current (their
-    current is Jsurf on the surface)."""
+    plus the dielectric loss (omega eps0 eps_r tan d). Conductors the solver treats by their surface (PEC and
+    conductivity above SURFACE_CONDUCTOR_LIMIT) carry no volume current (their current is Jsurf)."""
     npt = int(grid.field_data["npt"][0]) if "npt" in grid.field_data else 0
     mesh = _mesh_of(grid)
     if not npt or mesh is None or "tet_obj" not in mesh:
@@ -920,7 +920,7 @@ def _conductivity(doc, grid, freq: float) -> np.ndarray:
         if ob is not None:
             try:
                 mat = doc.project.material(ob.material)
-                if mat.pec or (is_conductor(mat) and not ob.solve_inside):
+                if is_conductor(mat):
                     val = 0.0
                 else:
                     val = float(ev.value(mat.conductivity or "0"))
@@ -1003,9 +1003,9 @@ def prepare_overlay(doc, view, quantity: str, solution: str, freq_index: int = 0
                 pec = False
                 ob = doc.design.obj(obj) if doc.design.has_obj(obj) else None
                 if ob is not None:
-                    from ..model.materials import surface_conductor
+                    from ..model.materials import is_conductor
                     try:
-                        pec = surface_conductor(doc.project.material(ob.material), ob.solve_inside)
+                        pec = is_conductor(doc.project.material(ob.material))
                     except Exception:  # noqa: BLE001
                         pec = str(ob.material).lower() == "pec"
                 if obj in names:
