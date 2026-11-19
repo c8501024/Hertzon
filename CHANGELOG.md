@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.27 (2026-11-19)
 
 ### Added
 - **F2 renames the selected item** (#475), as in a file manager: an object, an object group, a design, the project,
