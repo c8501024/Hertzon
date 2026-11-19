@@ -19,9 +19,9 @@ the GitHub release notes.
 ### Fixed
 - **Scale bar of the 3D view.** It measures in the plane of the model centre (about which the view turns) instead of
   at the focal point, which in a perspective view could lie far from the model and made the bar up to about twice
-  too long. Exact in an orthographic view; marked "ca." in a perspective view. Lengths on a 1-2-5 grid, recomputed
-  on zoom, rotation, window size and display scaling (bar and labels scale with the device pixel ratio); µm is
-  shown as µm.
+  too long. The same label in orthographic and perspective views, without "ca."; the numbers 0, half and full
+  length sit centred on their ticks, the unit follows the end number. Lengths on a 1-2-5 grid, recomputed on zoom,
+  rotation, window size and display scaling (bar and labels scale with the device pixel ratio); µm is shown as µm.
 
 ## 0.3.27 (2026-11-19)
 

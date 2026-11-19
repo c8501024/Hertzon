@@ -428,8 +428,8 @@ class ScaleBar:
     display scaling).
 
     The scale is the one in the plane through center_fn() (the model centre, about which the view turns)
-    parallel to the screen: exact in an orthographic view; in a perspective view other depths have other
-    scales, so the label says "ca."."""
+    parallel to the screen, in orthographic and perspective views alike (in a perspective view parts nearer to
+    or farther from the camera than the centre appear larger or smaller)."""
     SEGMENTS = 4
     TARGET_PX = 200         # logical pixels (times the device pixel ratio)
 
@@ -439,7 +439,6 @@ class ScaleBar:
         self.dpr_fn = dpr_fn or (lambda: 1.0)
         self.length = 0.0               # bar length in the model unit
         self.pixels = 0.0               # bar length in display pixels
-        self.approx = False             # perspective: the scale holds at the depth of the centre only
         self.poly = vtk.vtkPolyData()
         mapper = vtk.vtkPolyDataMapper2D()
         mapper.SetInputData(self.poly)
@@ -449,7 +448,7 @@ class ScaleBar:
         self.bar.SetPickable(False)
         self.ren.AddViewProp(self.bar)
         self.labels = []
-        for _ in range(3):
+        for _ in range(4):              # 0, half, full length (centred on their ticks), unit after the last
             t = vtk.vtkTextActor()
             tp = t.GetTextProperty()
             tp.SetFontSize(12)
@@ -493,7 +492,6 @@ class ScaleBar:
         length = nice_length(self.TARGET_PX * r / px_per_unit)
         L = length * px_per_unit
         self.length, self.pixels = length, L
-        self.approx = not self.ren.GetActiveCamera().GetParallelProjection()
         x0, y0, bh = (w - L) / 2, 28.0 * r, 7.0 * r
         pts = vtk.vtkPoints()
         cells = vtk.vtkCellArray()
@@ -519,23 +517,34 @@ class ScaleBar:
         self.poly.GetCellData().SetScalars(colors)
         self.poly.Modified()
         fmt = lambda v: f"{v:g}"
-        end = f"{fmt(length)} ({'µm' if unit == 'um' else unit})"
-        if self.approx:
-            end = "ca. " + end
-        for t, (x, txt) in zip(self.labels, ((x0, "0"), (x0 + L / 2, fmt(length / 2)), (x0 + L, end))):
+        ty = int(y0 - 17 * r)
+        # every number centred on its tick (0, half, end); the unit follows the end number
+        for t, (x, txt) in zip(self.labels, ((x0, "0"), (x0 + L / 2, fmt(length / 2)), (x0 + L, fmt(length)))):
             t.SetInput(txt)
             t.GetTextProperty().SetFontSize(max(1, round(12 * r)))
-            t.SetDisplayPosition(int(x), int(y0 - 17 * r))
-        if not self.approx:
-            # the unit text is centred on the bar end like the other labels; shift it so the number sits there
-            self.labels[2].GetTextProperty().SetJustificationToLeft()
-            self.labels[2].SetDisplayPosition(int(x0 + L - 4 * r), int(y0 - 17 * r))
-        else:
-            self.labels[2].GetTextProperty().SetJustificationToCentered()
+            t.GetTextProperty().SetJustificationToCentered()
+            t.SetDisplayPosition(int(round(x)), ty)
+        u = self.labels[3]
+        u.SetInput(f"({'µm' if unit == 'um' else unit})")
+        u.GetTextProperty().SetFontSize(max(1, round(12 * r)))
+        u.GetTextProperty().SetJustificationToLeft()
+        u.SetDisplayPosition(int(round(x0 + L + self._half_width(self.labels[2], r) + 4 * r)), ty)
+        self.end_x = x0 + L
+
+    def _half_width(self, actor, r: float) -> float:
+        """Half the width in pixels of a text label (estimated from the font size without a text renderer)."""
+        try:
+            bb = [0.0] * 4
+            actor.GetBoundingBox(self.ren, bb)
+            if bb[1] > bb[0]:
+                return (bb[1] - bb[0]) / 2
+        except Exception:  # noqa: BLE001
+            pass
+        return 0.3 * 12 * r * len(actor.GetInput() or "")
 
     def label(self) -> str:
-        """The text at the end of the bar ("20 (mm)", "ca. 20 (mm)" in perspective)."""
-        return self.labels[2].GetInput() or ""
+        """The text at the end of the bar, "20 (mm)": the same in orthographic and perspective views."""
+        return f"{self.labels[2].GetInput() or ''} {self.labels[3].GetInput() or ''}".strip()
 
 
 class ModelerView(QWidget):
