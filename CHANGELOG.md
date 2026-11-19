@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.28 (2026-11-19)
 
 ### Changed
 - **Near Field Line: the functions are mag, dB, re, im and ang.** `envelope` (equal to `mag` for a component) and
