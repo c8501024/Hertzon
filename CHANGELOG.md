@@ -3,6 +3,15 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.29 (2026-11-19)
+
+### Fixed
+- **3D connectors look round again.** With many flat faces in a model (every 3D connector with its via fence), the
+  display mesh drew the end faces of the barrel bore, the coax and the pin as heptagons inside the round wall, with
+  dark wedges between them. Circles that a flat face shares with a curved face now get the same number of segments
+  as the curved face, so both meet node for node; all 131 library connectors give closed display meshes. Only the
+  display mesh changes, the solver mesh is the same.
+
 ## 0.3.28 (2026-11-19)
 
 ### Changed
