@@ -2242,16 +2242,19 @@ def _closure(ents: list) -> list:
     return list(out)
 
 
-def _resolve_planar_curves(ents, n_turn: float, skip=()) -> None:
+def _resolve_planar_curves(ents, n_turn: float, skip=(), curved=()) -> None:
     """Without curvature sizing (the plane pass) a circle in a flat face (ring, circular sheet, polygon
     with a round hole) got only the global size: a dozen segments, and inner and outer circle of a thin
     ring not matching. Give every curved edge its segments by how far its tangent turns, twice as many
     as curvature sizing per turn: in a flat face they cost nothing, and the inner and outer circle of a
-    thin ring (rat race, coupled lines) then show no zigzag. Edges of curved faces (skip) keep the
-    curvature sizing of the curved pass."""
+    thin ring (rat race, coupled lines) then show no zigzag. Edges of curved faces (curved) get as many
+    as curvature sizing gives them in the curved pass, so the flat face meshed now and the curved face
+    meshed later meet node for node: left to the global size, the end cap of a cylinder (a coax, a
+    connector barrel) was a heptagon inside a round wall, with dark wedges between them. Edges in skip
+    (fixed by an earlier pass) are left alone."""
     if n_turn <= 0:
         return
-    skip = set(skip)
+    skip, curved = set(skip), set(curved)
     for d, t in ents:
         if d != 1 or (d, t) in skip or gmsh.model.getType(1, t) == "Line":
             continue
@@ -2263,7 +2266,7 @@ def _resolve_planar_curves(ents, n_turn: float, skip=()) -> None:
             turn = float(np.sum(np.arccos(np.clip(np.sum(T[1:] * T[:-1], axis=1), -1.0, 1.0))))
         except Exception:  # noqa: BLE001
             continue
-        n = int(np.ceil(2 * n_turn * turn / (2 * np.pi)))
+        n = int(np.ceil((1 if (d, t) in curved else 2) * n_turn * turn / (2 * np.pi)))
         if n > 1:
             gmsh.model.mesh.setTransfiniteCurve(t, n + 1)
 
@@ -2521,14 +2524,14 @@ def _mesh_faces(faces: list, curv: float, last: bool, loose: list = (), fixed: l
         passes = [(planes, 0.0), (curved, curv)]
     else:
         passes = [(faces, curv if curved else 0.0)]
-    skip = (_closure(curved) if curved else []) + list(fixed)
+    on_curved = _closure(curved) if curved else []
     for i, (grp, c) in enumerate(passes):
         final = last and i == len(passes) - 1
         gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", c)
         cl = (_closure(grp) if grp else []) + (list(loose) if final else [])
         if c == 0:
             gmsh.model.mesh.removeSizeCallback()    # apex floor only matters with curvature sizing
-            _resolve_planar_curves(cl, curv, skip=skip)
+            _resolve_planar_curves(cl, curv, skip=fixed, curved=on_curved)
         elif _APEX_CB is not None:
             gmsh.model.mesh.setSizeCallback(_APEX_CB)
         if alone and len(passes) == 1:
