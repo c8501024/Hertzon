@@ -6,6 +6,14 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **Near Field Line: phase, envelope, markers and skin depth.** New functions `inst` (the field at a phase,
+  Re{E e^(jφ)}, with a phase slider and a ▶ phase animation in the report) and `envelope` (the largest value over all
+  phases; for E Total the semi-major axis of the polarisation ellipse). `mag` stays the magnitude of the complex
+  phasor, which is the envelope only for linear polarisation. The line plot now has markers like the other
+  rectangular plots (double-click, right-click > Marker, delta markers, marker table), axis and trace properties,
+  and right-click > *Skin Depth* fits an exponential to the decay (from the clicked point or in the visible range)
+  and shows the 1/e distance and the attenuation in dB per length unit; the fit is part of Copy Data and Export.
+  The line follows the excitation of Edit Sources like the field overlays.
 - **Claude plugin.** `claude-plugin/` holds a plugin for Claude Code with four skills (a design workflow from
   the specification to a verified design and a report, multi-fidelity for circuits: circuit first, then full
   wave, antenna know-how, a checklist for reading results) and
