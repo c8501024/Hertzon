@@ -327,6 +327,7 @@ class Bridge:
         emit("progress", value=8, text="Mapping boundaries to the solver model")
         self.samples = facematch.final_face_samples()
         self.assign_mesh_ops()
+        self.resolve_thin_curved()
         layers = self.thin_layers()
         self.set_frequencies_for_mesh()
         self.assign_boundaries()
@@ -1408,6 +1409,23 @@ class Bridge:
                     continue
                 mesher.set_face_size(sel, size)
             info(f"Mesh operation '{op.name}' applied")
+
+    def resolve_thin_curved(self) -> None:
+        """Thin curved walls and narrow flat rings get elements short enough for the curved geometry
+        (thin_curved.sizes): no crossing facets of a thin round wall, no flattened rim edges."""
+        try:
+            from . import curvilinear as CV
+            if not CV.enabled():
+                return
+            from . import thin_curved
+            mesher = self.m.mesher
+            faces, curves = thin_curved.sizes(float(getattr(mesher, "curved_boundary_segments", 10) or 10))
+            thin_curved.apply(mesher, faces, curves)
+            if faces or curves:
+                info(f"Thin curved walls and narrow rings: shorter elements on {len(faces)} face(s) and "
+                     f"{len(curves)} edge(s) for the curved geometry")
+        except Exception as ex:  # noqa: BLE001
+            warn(f"Thin curved walls: element sizes for the curved geometry not set ({ex})")
 
     def thin_layers(self) -> list[tuple[str, object, float, float]]:
         """The thin dielectric layers (substrates): (name, geometry, thickness, area of the two larger extents)."""

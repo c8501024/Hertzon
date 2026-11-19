@@ -39,6 +39,14 @@ the GitHub release notes.
   manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
 
 ### Fixed
+- **Thin round walls stay round.** A balun sleeve with a 1 mm wall on a 12 mm radius got curvature sizing only
+  (7.5 mm edges): the 1 mm rim between its two circles was cut into triangles 7 mm long and 1 mm wide, and with the
+  edges bent onto the circles they folded over, so the curved elements straightened the rim to facets 0.4 mm deep
+  (visible in the mesh plot, and solved that way). The straight facets of the inner and the outer wall could also
+  cross, and gmsh stopped with "PLC Error: A segment and a facet intersect" when the nodes of the two walls did not
+  happen to line up. A round face closer than t to another face now gets elements of at most sqrt(8 R t / 3), and a
+  round edge of a narrow flat face (width w) segments of at most sqrt(R w). Thick walls, wide faces and flat
+  models keep their mesh: the initial meshes of all examples are unchanged.
 - **Solve Inside follows the solver for conductors.** The solver never used Solve Inside: PEC and every
   conductivity above 1e4 S/m are solved by their surface (PEC or surface impedance) and their inside is removed.
   The Jsurf plot and the field calculator went by the flag instead, took the faces from the inside of a
