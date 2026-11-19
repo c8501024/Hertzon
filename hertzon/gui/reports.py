@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QLi
                                QListWidgetItem, QScrollArea, QFrame, QSlider, QToolButton)
 
 from ..model.design import Report
+from ..post.quantities import (NF_FUNCS, MAGNITUDE_FUNCS, quantity_meta, functions_for, phasor_value,  # noqa: F401
+                               migrate_near_report)
 from ..solver.results import ResultStore, results_dir
 from .doc import result_dir
 from ..solver.ffquant import monostatic_rcs, farfield_quantities, antenna_parameters  # noqa: F401
@@ -596,31 +598,34 @@ def near_field_line(doc, solution: str, p1, p2, n: int, freq_index: int = 0, por
     return out
 
 
-NF_FUNCS = ["mag", "envelope", "inst", "dB", "re", "im", "ang_deg"]
-
-
 def near_values(nf: dict, func: str, name: str, phase_deg: float = 0.0) -> np.ndarray:
     """Values of a Near Field Line trace func(name).
 
-    mag: magnitude of the complex phasor; for a vector (NearETotal) sqrt(|Ex|^2+|Ey|^2+|Ez|^2), which is
-    the peak over a period only for linear polarisation (circular: sqrt(2) times the peak).
-    inst: the field at the phase phi, Re{v e^(j phi)}; for a vector the length of Re{E e^(j phi)}.
-    envelope: the peak over all phases, max_phi |Re{v e^(j phi)}|: |v| for a component, the semi-major
-    axis of the polarisation ellipse sqrt((|E|^2 + |E.E|)/2) for a vector."""
-    total = name.endswith("Total")
-    if total and func in ("inst", "envelope"):
-        w = name[4]                                             # NearETotal -> E
-        c = np.stack([nf[f"Near{w}{a}"] for a in "XYZ"], axis=1)
-        if func == "inst":
-            return np.linalg.norm(np.real(c * np.exp(1j * np.radians(phase_deg))), axis=1)
-        p = (np.abs(c) ** 2).sum(axis=1)
-        return np.sqrt(np.maximum(0.5 * (p + np.abs((c * c).sum(axis=1))), 0.0))
-    v = nf[name]
-    if func == "inst":
-        return np.real(v * np.exp(1j * np.radians(phase_deg)))
-    if func == "envelope":
-        return np.abs(v)
-    return apply_func(func, v)
+    mag: magnitude of the complex phasor (does not depend on φ); for E Total sqrt(|Ex|^2+|Ey|^2+|Ez|^2),
+    which is the peak over a period only for linear polarisation (circular: sqrt(2) times the peak).
+    re, im: of X e^(jφ) for a field component; re is the instantaneous value at the phase φ.
+    ang_deg: the angle of X (does not depend on φ). Magnitudes (E Total, H Total) have mag and dB only."""
+    meta = quantity_meta(name)
+    if meta.is_magnitude and func not in MAGNITUDE_FUNCS:
+        raise ValueError(f"{func}({name}): {name} is a magnitude, only {', '.join(MAGNITUDE_FUNCS)}")
+    return phasor_value(func, nf[name], phase_deg, meta)
+
+
+def near_phase_traces(traces: list[str]) -> list[str]:
+    """The traces of a Near Field Line report whose quantity has a phase reference (the phase slider
+    acts on their re and im)."""
+    out = []
+    for tr in traces:
+        m = re.match(r"(\w+)\((\w+)\)", tr)
+        if m and quantity_meta(m.group(2)).has_phase_reference:
+            out.append(tr)
+    return out
+
+
+def near_phase_dependent(traces: list[str]) -> bool:
+    """Whether a trace of a Near Field Line report changes with the phase φ: re or im of a quantity with a
+    phase reference."""
+    return any(tr.startswith(("re(", "im(")) for tr in near_phase_traces(traces))
 
 
 def skin_depth_fit(x: np.ndarray, y: np.ndarray, x0: float | None = None, x1: float | None = None) -> dict:
@@ -690,6 +695,7 @@ class ReportWindow(QWidget):
                 + ANTENNA_KINDS and not report.kind.startswith("Monostatic RCS"):
             report.traces[:] = [explicit_magnitude(t) for t in report.traces]
         self.markers: list[float] = [float(x) for x in report.props.get("markers", "").split(",") if x.strip()]
+        self._migrated: list[str] = []          # removed functions of an old report changed on loading
         lay = QHBoxLayout(self)
         split = QSplitter()
         lay.addWidget(split)
@@ -801,14 +807,13 @@ class ReportWindow(QWidget):
             self.func.addItems(["<none>"])
         elif report.kind == "Near Field Line":
             self.cat.addItems(["Near Fields"])
+            # old reports: envelope -> mag, inst -> re (when loaded, or set through the MCP tools)
+            for w in getattr(report, "migration_warnings", []) + migrate_near_report(report):
+                self._migrated.append(w)
+            report.migration_warnings = []
             self.qty.addItems(NF_QUANTITIES)
-            self.func.addItems(NF_FUNCS)
-            self.func.setItemData(0, "Magnitude of the complex field. For E Total sqrt(|Ex|²+|Ey|²+|Ez|²): the peak "
-                                     "over a period only for linear polarisation", Qt.ToolTipRole)
-            self.func.setItemData(1, "Envelope: the largest value over all phases, max |Re{E e^(jφ)}| "
-                                     "(for E Total the semi-major axis of the polarisation ellipse)", Qt.ToolTipRole)
-            self.func.setItemData(2, "Instantaneous value at the phase below, Re{E e^(jφ)} "
-                                     "(for E Total its length)", Qt.ToolTipRole)
+            self._nf_fill_funcs()
+            self.qty.currentTextChanged.connect(self._nf_qty_changed)
             self.nf = {}
             for key, label, default in (("start", "Start (x,y,z):", "0,0,0"), ("end", "End (x,y,z):", "10,0,0"),
                                         ("points", "Points:", "101")):
@@ -816,8 +821,11 @@ class ReportWindow(QWidget):
                 e.editingFinished.connect(self._save_nf)
                 form.addRow(label, e)
                 self.nf[key] = e
-            # phase of the instantaneous traces inst(...): slider, value and a phase animation
-            ph = QHBoxLayout()
+            # phase φ of re/im of the field components (re is the instantaneous value): slider, value and a
+            # phase animation; shown only while a quantity with a phase reference is in the report
+            self.nf_phase_row = QWidget()
+            ph = QHBoxLayout(self.nf_phase_row)
+            ph.setContentsMargins(0, 0, 0, 0)
             self.nf_phase = QSlider(Qt.Horizontal)
             self.nf_phase.setRange(0, 360)
             self.nf_phase_val = QDoubleSpinBox()
@@ -833,7 +841,7 @@ class ReportWindow(QWidget):
             self.nf_play = QToolButton()
             self.nf_play.setText("▶")
             self.nf_play.setCheckable(True)
-            self.nf_play.setToolTip("Animate the phase (instantaneous traces inst(...))")
+            self.nf_play.setToolTip("Animate the phase (re and im of the field components)")
             self.nf_play.toggled.connect(self._nf_animate)
             self._nf_timer = QTimer(self)
             self._nf_timer.setInterval(60)
@@ -842,8 +850,10 @@ class ReportWindow(QWidget):
             ph.addWidget(self.nf_phase_val)
             ph.addWidget(self.nf_play)
             for w in (self.nf_phase, self.nf_phase_val):
-                w.setToolTip("Phase φ of the instantaneous traces inst(...) = Re{E e^(jφ)}")
-            form.addRow("Phase:", ph)
+                w.setToolTip("Phase φ of re(E e^(jφ)) (the instantaneous value) and im(E e^(jφ)) of the field "
+                             "components; mag and ang do not depend on it")
+            self.nf_phase_label = QLabel("Phase:")
+            form.addRow(self.nf_phase_label, self.nf_phase_row)
         elif is_fields_report(doc, report):
             # Fields report: the equations computed from the fields, over the frequencies with saved fields
             from .fields import field_solutions
@@ -1174,13 +1184,52 @@ class ReportWindow(QWidget):
         self.report.props["phase"] = f"{v:g}"
         if not self.nf_play.isChecked():
             self.changed.emit()
-        if not any(t.startswith("inst(") for t in self.report.traces):
+        if not near_phase_dependent(self.report.traces):
             return          # nothing on the plot depends on the phase
         self._nf_reuse = True            # same line and solution: only the phase turns
         try:
             self.refresh()
         finally:
             self._nf_reuse = False
+
+    def _nf_fill_funcs(self) -> None:
+        """The functions of the selected quantity: mag and dB for a magnitude (E Total), else mag, dB, re, im
+        and ang (in degrees)."""
+        want = functions_for(self.qty.currentText())
+        have = [self.func.itemText(i) for i in range(self.func.count())]
+        if have == want:
+            return
+        cur = self.func.currentText()
+        self.func.blockSignals(True)
+        self.func.clear()
+        self.func.addItems(want)
+        tips = {"mag": "Magnitude |X| of the complex field (independent of the phase). For E Total "
+                       "sqrt(|Ex|²+|Ey|²+|Ez|²): the peak over a period only for linear polarisation",
+                "dB": "20 log10 of the magnitude",
+                "re": "re(X e^(jφ)): the instantaneous value at the phase φ of the slider",
+                "im": "im(X e^(jφ)) at the phase φ of the slider",
+                "ang_deg": "Angle of X in degrees (independent of the phase)"}
+        for i, f in enumerate(want):
+            self.func.setItemData(i, tips.get(f, ""), Qt.ToolTipRole)
+        self.func.setCurrentText(cur if cur in want else want[0])
+        self.func.blockSignals(False)
+
+    def _nf_qty_changed(self, *_) -> None:
+        self._nf_fill_funcs()
+        self._nf_update_phase_row()
+
+    def _nf_phase_visible(self) -> bool:
+        """The phase slider is shown while a trace, or the selected quantity, has a phase reference."""
+        return bool(near_phase_traces(self.report.traces))             or quantity_meta(self.qty.currentText()).has_phase_reference
+
+    def _nf_update_phase_row(self) -> None:
+        if getattr(self, "nf_phase_row", None) is None:
+            return
+        on = self._nf_phase_visible()
+        self.nf_phase_row.setVisible(on)
+        self.nf_phase_label.setVisible(on)
+        if not on and self.nf_play.isChecked():
+            self.nf_play.setChecked(False)
 
     def _nf_animate(self, on: bool) -> None:
         self.nf_play.setText("■" if on else "▶")
@@ -2114,6 +2163,8 @@ class ReportWindow(QWidget):
         self._tuned_err = ""
         self.traces.clear()
         self.traces.addItems(self.report.traces)
+        if self.report.kind == "Near Field Line":
+            self._nf_update_phase_row()
         try:
             if self.report.kind in ("Radiation Pattern", "3D Polar Plot"):
                 self._draw_ff()
@@ -2131,11 +2182,19 @@ class ReportWindow(QWidget):
                 self._draw_rect()
         except Exception as e:  # noqa: BLE001
             self.info.setText(f"<span style='color:#c0392b'>{e}</span>")
+            self._show_migrated()
             return
         if self._tuned_err:
             self.info.setText(self.info.text() + f"  <span style='color:#b36b00'>No tuned curve: {self._tuned_err}"
                               "</span>")
+        self._show_migrated()
         self._mark_outdated()
+
+    def _show_migrated(self) -> None:
+        """The traces of an old report changed on loading (envelope -> mag, inst -> re)."""
+        if self._migrated:
+            self.info.setText(self.info.text() + "  <span style='color:#b36b00'>" + "; ".join(self._migrated)
+                              + "</span>")
 
     def _mark_outdated(self) -> None:
         from .trees import solution_state
@@ -2549,8 +2608,10 @@ class ReportWindow(QWidget):
         return nf["distance"] / s, f"Distance along line [{self.doc.design.units}]", cols, nf
 
     def _near_label(self, tr: str) -> str:
-        """Legend and column name: inst(...) with its phase."""
-        return f"{tr} @ {float(self.report.props.get('phase', '0') or 0):g}°" if tr.startswith("inst(") else tr
+        """Legend and column name: re/im of a field component with its phase."""
+        if near_phase_dependent([tr]):
+            return f"{tr} @ {float(self.report.props.get('phase', '0') or 0):g}°"
+        return tr
 
     def _near_skin(self, x: np.ndarray, cols: list):
         """(trace, fit) of the stored skin depth fit (right-click > Skin Depth), None when there is none."""
@@ -2574,13 +2635,12 @@ class ReportWindow(QWidget):
         x, _, cols, _ = self._near_series()
         cand = [t for t, _ in cols if not t.startswith(("dB(", "ang_deg(", "re(", "im("))]
         if not cand:
-            QMessageBox.information(self, "Skin Depth", "Add a mag, envelope or inst trace first.")
+            QMessageBox.information(self, "Skin Depth", "Add a mag trace first.")
             return
         it = self.traces.currentItem()
         tr = it.text() if it is not None else None
         if tr not in cand:
-            env = [t for t in cand if t.startswith("envelope(")]
-            tr = (env or cand)[0]
+            tr = cand[0]
         ax = self.fig.axes[0] if self.fig is not None and self.fig.axes else None
         x0, x1 = ax.get_xlim() if ax is not None else (None, None)
         if at is not None and x0 is not None:
@@ -2617,17 +2677,17 @@ class ReportWindow(QWidget):
                 kw["color"] = stl["color"]
             line, = ax.plot(x, y, **kw)
             curves.append((tr, x, y, ax, line.get_color()))
-        if any(t.startswith("inst(") for t, _ in cols):
+        if near_phase_dependent([t for t, _ in cols]):
             # the scale of the whole period, so that the phase animation does not rescale the axis
             lo, hi = 0.0, 0.0
             for tr, y in cols:
                 m = re.match(r"(\w+)\((\w+)\)", tr)
-                if m and m.group(1) in ("inst", "envelope", "mag"):
-                    pk = near_values(nf, "envelope", m.group(2))
+                if m and m.group(1) in ("re", "im", "mag"):
+                    pk = near_values(nf, "mag", m.group(2))
                     pk = pk[np.isfinite(pk)]
                     if len(pk):
                         hi = max(hi, float(pk.max()))
-                        if m.group(1) == "inst" and not m.group(2).endswith("Total"):
+                        if m.group(1) in ("re", "im"):
                             lo = min(lo, -float(pk.max()))
             if hi > 0 and "ymin" not in self.report.props and "ymax" not in self.report.props:
                 ax.set_ylim(lo * 1.05, hi * 1.05)

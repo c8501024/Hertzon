@@ -478,6 +478,12 @@ def design_from_dict(d: dict) -> Design:
         sp.props.update(s.get("props", {}))
         des.spheres.append(sp)
     des.reports = [Report(**r) for r in d.get("reports", [])]
+    from ..post.quantities import migrate_near_report
+    for r in des.reports:          # removed functions of old Near Field Line reports (envelope, inst)
+        for w in migrate_near_report(r):
+            import logging
+            logging.getLogger("hertzon").warning("Report %s: %s", r.name, w)
+            r.migration_warnings = getattr(r, "migration_warnings", []) + [w]   # shown by the report, not saved
     for f in d.get("field_plots", []):
         f = dict(f)
         f["faces"] = [FaceRef(**x) for x in f.get("faces", [])]
