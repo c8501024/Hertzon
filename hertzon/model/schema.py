@@ -165,7 +165,8 @@ SHEET_COMMANDS = {"CreateRectangle", "CreateCircle", "CreateEllipse", "CreateReg
 
 OBJECT_ATTRIBUTES: list[Prop] = [
     P("Name", "text"), P("Material", "material", "vacuum"), P("SolveInside", "bool", "True", enabled_if=("Model", "True"),
-                                                    help="Non Model objects are not solved"),
+                                                    help="Non Model objects are not solved. Conductors (PEC, or conductivity above 1e4 S/m) are "
+                                                         "always solved by their surface, so this is off and locked for them"),
     P("Model", "bool", "True"), P("Color", "color", "#8f8f8f"), P("Transparency", "float", "0"),
     P("DisplayWireframe", "bool", "False"), P("Orientation", "choice", "Global", choices=("Global",)),
 ]
@@ -319,7 +320,7 @@ SETUP: list[Prop] = [
       help="Solve only the port modes of the wave ports: port impedance Zo, propagation constant Gamma and "
            "the port fields at the solution frequency and the sweep frequencies, without the 3D solution "
            "(no S-parameters). For checking ports quickly"),
-    P("MaximumPasses", "int", "6", label="Maximum number of passes"),
+    P("MaximumPasses", "int", "15", label="Maximum number of passes"),
     P("MaximumDeltaS", "float", "0.02", label="Maximum Delta S"),
     P("MaximumDeltaEnergy", "float", "0.001", label="Maximum Delta Energy",
       help="Incident wave designs (no ports): relative change of the scattered energy between passes (default 0.001)"),

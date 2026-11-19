@@ -41,11 +41,39 @@ TAG = "@@HZN "
 _EMIT_LOCK = threading.Lock()       # sweep progress is also reported from the solver threads
 
 
+_PROGRESS = {"file": None, "phase": None, "since": 0.0, "written": 0.0}
+
+
 def emit(kind: str, **data) -> None:
     line = TAG + json.dumps({"type": kind, **data}, default=float) + "\n"
     with _EMIT_LOCK:
         sys.stdout.write(line)
         sys.stdout.flush()
+        if kind == "progress":
+            _note_progress(str(data.get("text", "")), data.get("value"))
+
+
+def _note_progress(text: str, value) -> None:
+    """progress.json of the result folder: the phase of the run and when it started, so a status query can tell
+    a long phase from a hung one (get_status showed only "running" for 50 minutes). Written when the phase
+    changes and at most every 2 s otherwise."""
+    p = _PROGRESS["file"]
+    if p is None:
+        return
+    now = time.time()
+    phase = text.split(":")[0].strip()
+    if phase != _PROGRESS["phase"]:
+        _PROGRESS["phase"], _PROGRESS["since"] = phase, now
+    elif now - _PROGRESS["written"] < 2.0:
+        return
+    _PROGRESS["written"] = now
+    try:
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"phase": text, "value": value, "phase_started": _PROGRESS["since"],
+                                   "updated": now, "pid": os.getpid()}, default=float), encoding="utf-8")
+        tmp.replace(p)
+    except OSError:
+        pass
 
 
 def info(msg: str) -> None:
@@ -299,6 +327,7 @@ class Bridge:
         emit("progress", value=8, text="Mapping boundaries to the solver model")
         self.samples = facematch.final_face_samples()
         self.assign_mesh_ops()
+        self.resolve_thin_curved()
         layers = self.thin_layers()
         self.set_frequencies_for_mesh()
         self.assign_boundaries()
@@ -648,25 +677,28 @@ class Bridge:
                                   N_mesh_layers=nl, exponent=2.0, deltamax=8.0, sides="TBLRFA")
             for b in boxes:
                 b.background()
+            self.pml_geos = list(boxes[1:])      # absorbing layers: not a material loss (power balance)
             self.region_geo = boxes[0]
             self.open_kind = "PML"
         else:
             box = em.geo.Box(W, D, H, position=pos).set_material(em.lib.AIR).background()
             self.region_geo = box
             self.open_kind = "Radiation"
-            # far-field and radiated-power integration surface: a box close around the model, integrated
-            # with Gauss points (not over the mesh faces of the absorbing boundary), where the mesh is fine
-            # and the ABC reflection is weak; on the ABC faces themselves the radiated power came out up to
-            # ~10 % above the accepted power of lossless antennas (#231). A scattering problem encloses the
-            # scatterers only, an antenna all model objects (ports and feeds included).
-            sb = np.asarray(self.scatter_bbox if self.plane_wave() is not None else self.probe_bbox, np.float64)
-            gap = min(min(sb[i] - pos[i], pos[i] + (W, D, H)[i] - sb[i + 3]) for i in range(3))
-            if gap > 0:
-                d = min(FF_OFFSET * lam, gap / 2)
-                self.ff_bounds = np.r_[sb[:3] - d, sb[3:] + d]
-                self.ff_region = np.r_[pos, pos[0] + W, pos[1] + D, pos[2] + H]
-                # Gauss panels of a quarter wavelength at the highest solved frequency
-                self.ff_panel = C0 / max(highest_frequency(self.design, self.setup, self.ev), f_low) / 4
+        # far-field and radiated-power integration surface: a box close around the model, integrated
+        # with Gauss points (not over the mesh faces of the absorbing boundary), where the mesh is fine
+        # and the ABC reflection is weak; on the ABC faces themselves the radiated power came out up to
+        # ~10 % above the accepted power of lossless antennas (#231). A scattering problem encloses the
+        # scatterers only, an antenna all model objects (ports and feeds included). The same with a PML: on
+        # the faces of the air box under the PML the radiated power came out with the wrong sign and ~10 %
+        # low (lossless antenna of meta benchmark run G).
+        sb = np.asarray(self.scatter_bbox if self.plane_wave() is not None else self.probe_bbox, np.float64)
+        gap = min(min(sb[i] - pos[i], pos[i] + (W, D, H)[i] - sb[i + 3]) for i in range(3))
+        if gap > 0:
+            d = min(FF_OFFSET * lam, gap / 2)
+            self.ff_bounds = np.r_[sb[:3] - d, sb[3:] + d]
+            self.ff_region = np.r_[pos, pos[0] + W, pos[1] + D, pos[2] + H]
+            # Gauss panels of a quarter wavelength at the highest solved frequency
+            self.ff_panel = C0 / max(highest_frequency(self.design, self.setup, self.ev), f_low) / 4
         self.store.write_json("auto_open.json", {"kind": kind, "padding": margin, "lambda_low": lam,
                                                  "box": [*pos, W, D, H]})
 
@@ -705,6 +737,7 @@ class Bridge:
                                       sides="".join(sorted(set(sides))))
                 for bx in boxes:
                     bx.background()
+                self.pml_geos = [*getattr(self, "pml_geos", []), *boxes[1:]]
                 self.geos[rname] = boxes[0]
                 # far fields: the faces of the air box under the PML (not the ones left closed, e.g. a ground)
                 names = {"T": "top", "B": "bottom", "L": "left", "R": "right", "F": "front", "A": "back"}
@@ -1377,6 +1410,23 @@ class Bridge:
                 mesher.set_face_size(sel, size)
             info(f"Mesh operation '{op.name}' applied")
 
+    def resolve_thin_curved(self) -> None:
+        """Thin curved walls and narrow flat rings get elements short enough for the curved geometry
+        (thin_curved.sizes): no crossing facets of a thin round wall, no flattened rim edges."""
+        try:
+            from . import curvilinear as CV
+            if not CV.enabled():
+                return
+            from . import thin_curved
+            mesher = self.m.mesher
+            faces, curves = thin_curved.sizes(float(getattr(mesher, "curved_boundary_segments", 10) or 10))
+            thin_curved.apply(mesher, faces, curves)
+            if faces or curves:
+                info(f"Thin curved walls and narrow rings: shorter elements on {len(faces)} face(s) and "
+                     f"{len(curves)} edge(s) for the curved geometry")
+        except Exception as ex:  # noqa: BLE001
+            warn(f"Thin curved walls: element sizes for the curved geometry not set ({ex})")
+
     def thin_layers(self) -> list[tuple[str, object, float, float]]:
         """The thin dielectric layers (substrates): (name, geometry, thickness, area of the two larger extents)."""
         import gmsh
@@ -1627,7 +1677,7 @@ class Bridge:
         from .emerge_compat import select_refinement_indices, tet_to_node
         from emerge._emerge.physics.microwave.bcs.boundary_conditions import PEC
         m, p = self.m, self.setup.props
-        maxp = max(1, int(p.get("MaximumPasses", "6")))
+        maxp = max(1, int(p.get("MaximumPasses", "15")))
         max_de = float(p.get("MaximumDeltaEnergy", "0.001") or 0.001)
         min_passes = max(2, int(p.get("MinimumPasses", "2")))
         min_conv = max(1, int(p.get("MinimumConvergedPasses", "1")))
@@ -1985,6 +2035,14 @@ class Bridge:
             from . import curvilinear as CV
             if not CV.enabled():
                 return {}
+            from . import emerge_patches as EP
+            if id(self.m.mesh) not in EP._CONDUCTOR_TETS:
+                # 'Generate Mesh' saves the mesh before any assembly: find the conductor tets as the solve does,
+                # or the thin metal walls are drawn straightened (the edges the solve keeps curved)
+                try:
+                    EP.prepare_conductor_tets(self.m.mw)
+                except Exception as ex:  # noqa: BLE001
+                    warn(f"Conductor tetrahedra not found for the curved mesh plot: {ex}")
             cd = CV.curved_data_bcs(self.m.mesh, self.m.mw.bc.boundary_conditions)
             if cd is None:
                 return {}
@@ -2192,8 +2250,16 @@ class Bridge:
         from .power import LossModel
         key = (id(self.m.mesh), np.shape(self.m.mesh.tets))
         if getattr(self, "_loss_key", None) != key:
-            self._loss_model, self._loss_key = LossModel(self.m, fld), key
+            self._loss_model, self._loss_key = LossModel(self.m, fld, self.pml_tets()), key
         return self._loss_model
+
+    def pml_tets(self) -> np.ndarray | None:
+        """Tetrahedra of the PML layers (their complex material absorbs the outgoing wave: that power is
+        radiated, not lost in the model), None without a PML."""
+        tags = [int(t) for g in getattr(self, "pml_geos", []) or [] for t in g.tags]
+        if not tags:
+            return None
+        return np.unique(np.asarray(self.m.mesh.get_tetrahedra(tags), np.int64))
 
     def pass_power(self, fields: list, Ss: list) -> dict | None:
         """Power balance of an adaptive pass: the largest |Prad + Ploss - Pacc| / Pin over the adaptive
@@ -2230,8 +2296,8 @@ class Bridge:
 
     def save_losses(self, fields: list, label: str) -> None:
         """losses_<label>.npz: the loss matrices L_k of the port excitations (Ploss = a^H L a, power.loss_matrix)
-        for the efficiency Prad / (Prad + Ploss) and the power balance. A lossless model stores only the port
-        list (Ploss = 0); ok = 0 when the losses could not be computed (efficiency from Prad / Pacc then)."""
+        for the efficiency Prad / (Prad + Ploss) and the power balance. A lossless model stores zero matrices
+        (Ploss = 0, so readers outside Hertzon find every key); ok = 0 when the losses could not be computed (efficiency from Prad / Pacc then)."""
         ports = [p for p in self.fields_of() if p.get("kind") != "Incident Plane Wave"]
         out = {"ports": np.array([int(p["number"]) for p in ports], np.int64), "ok": np.array([0])}
         if ports and fields:
@@ -2240,8 +2306,8 @@ class Bridge:
                 model = self.loss_model(fields[0])
                 for k, fld in enumerate(fields):
                     out[f"freq_{k}"] = np.array([float(fld.freq)])
-                    if not model.empty:
-                        out[f"Ploss_{k}"] = loss_matrix(model, fld, ports, excite)
+                    out[f"Ploss_{k}"] = (np.zeros((len(ports), len(ports)), complex) if model.empty
+                                         else loss_matrix(model, fld, ports, excite))
                 out["ok"] = np.array([1])
             except Exception as ex:  # noqa: BLE001
                 warn(f"Loss power not computed: {ex}")
@@ -2647,7 +2713,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     change <= MaxDeltaEfficiency; power(fields, Ss) computes them (Bridge.pass_power).
     """
     from .emerge_compat import select_refinement_indices, tet_to_node
-    maxp = max(1, int(p.get("MaximumPasses", "6")))
+    maxp = max(1, int(p.get("MaximumPasses", "15")))
     max_ds = float(p.get("MaximumDeltaS", "0.02"))
     # Max Delta S per adaptive frequency (Multi-Frequencies entries may carry their own)
     lims = list(ds_limits) if ds_limits is not None and len(ds_limits) == len(fa) else [max_ds] * len(fa)
@@ -4194,6 +4260,9 @@ def run(project_path: str, design: str, setup: str, out_dir: str) -> int:
         proj = Project.load(project_path)
         des = proj.design(design)
         st = des.setup(setup)
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        _PROGRESS.update(file=Path(out_dir) / "progress.json", phase=None)
+        _PROGRESS["file"].unlink(missing_ok=True)          # not the phase of an earlier run
         Bridge(proj, des, st, Path(out_dir)).run()
         return 0
     except KeyboardInterrupt:

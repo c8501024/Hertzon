@@ -316,7 +316,7 @@ class DocFieldSource(FieldSource):
                 if ob is not None:
                     try:
                         mat = self.doc.project.material(ob.material)
-                        if not (mat.pec or (is_conductor(mat) and not ob.solve_inside)):
+                        if not is_conductor(mat):
                             vals = _material_values(mat, ev, self.freq)
                     except Exception:  # noqa: BLE001
                         pass
@@ -349,7 +349,7 @@ class DocFieldSource(FieldSource):
     def _pec(self, ob) -> bool:
         from ..model.materials import is_conductor
         try:
-            return is_conductor(self.doc.project.material(ob.material)) and not ob.solve_inside
+            return is_conductor(self.doc.project.material(ob.material))
         except Exception:  # noqa: BLE001
             return str(ob.material).lower() == "pec"
 

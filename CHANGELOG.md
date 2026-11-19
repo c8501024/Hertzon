@@ -3,6 +3,116 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.27 (2026-11-19)
+
+### Added
+- **F2 renames the selected item** (#475), as in a file manager: an object, an object group, a design, the project,
+  a report or an equation, in the tree that has the focus; in the 3D view the one selected object. Edit > Rename shows
+  the shortcut. Enter confirms, Escape cancels, and names already in use are refused as before.
+- **Near Field Line: phase, envelope, markers and skin depth.** New functions `inst` (the field at a phase,
+  Re{E e^(jφ)}, with a phase slider and a ▶ phase animation in the report) and `envelope` (the largest value over all
+  phases; for E Total the semi-major axis of the polarisation ellipse). `mag` stays the magnitude of the complex
+  phasor, which is the envelope only for linear polarisation. The line plot now has markers like the other
+  rectangular plots (double-click, right-click > Marker, delta markers, marker table), axis and trace properties,
+  and right-click > *Skin Depth* fits an exponential to the decay (from the clicked point or in the visible range)
+  and shows the 1/e distance and the attenuation in dB per length unit; the fit is part of Copy Data and Export.
+  The line follows the excitation of Edit Sources like the field overlays.
+- **Claude plugin.** `claude-plugin/` holds a plugin for Claude Code with four skills (a design workflow from
+  the specification to a verified design and a report, multi-fidelity for circuits: circuit first, then full
+  wave, antenna know-how, a checklist for reading results) and
+  the commands `/hertzon:design` and `/hertzon:verify`. It works on top of the MCP server and is installed with it:
+  *Register* next to Claude Code in **Tools > AI Assistants (MCP)** also installs the plugin from the Hertzon folder
+  (it ships with the installers and is updated with Hertzon); without the `claude` command Hertzon shows the line
+  `/plugin install hertzon --marketplace c8501024/hertzon` instead (README, tutorial 5.4). A test keeps the tool names in
+  the skills in step with the MCP server. Its **Hertzon pane** beside the chat shows every picture Hertzon draws
+  for the assistant, and the line above the prompt the adaptive pass of a running analysis.
+- **MCP tool `show_result`.** A picture of a report, a field plot, the 3D view or a tab of the Solutions window
+  (convergence, profile, matrix data, mesh statistics), drawn by Hertzon's own widgets: an open report tab and the
+  3D view are taken as shown in the window. Without a window, reports and Solutions tabs are drawn off screen by
+  the same code. Pictures of `show_result` and `render_image` are kept in `~/.hertzon/shown`.
+
+### Changed
+- **AI assistants are told clearly when the adaptive mesh did not converge.** `get_status` now reports a
+  `convergence_warning` with the reason the passes stopped (`stopped_by`: MaximumPasses or the tetrahedra limit),
+  as `get_results` already did, and parametric studies list the variations that did not converge. The warning
+  names the next step: raise MaximumPasses and run again, which continues from the last adaptive mesh, instead of
+  adding mesh operations or a mesh study. When |S| has settled and only the phase of a deep dip keeps Delta S above
+  the target, a `phase_note` says so.
+- **New analysis setups allow 15 adaptive passes** instead of 6, so that ordinary models converge without a
+  manual change. A converging model stops at its Delta S target as before; existing projects keep their value.
+
+### Fixed
+- **Thin round walls stay round.** A balun sleeve with a 1 mm wall on a 12 mm radius got curvature sizing only
+  (7.5 mm edges): the 1 mm rim between its two circles was cut into triangles 7 mm long and 1 mm wide, and with the
+  edges bent onto the circles they folded over, so the curved elements straightened the rim to facets 0.4 mm deep
+  (visible in the mesh plot, and solved that way). The straight facets of the inner and the outer wall could also
+  cross, and gmsh stopped with "PLC Error: A segment and a facet intersect" when the nodes of the two walls did not
+  happen to line up. A round face closer than t to another face now gets elements of at most sqrt(8 R t / 3), and a
+  round edge of a narrow flat face (width w) segments of at most sqrt(R w). Thick walls, wide faces and flat
+  models keep their mesh: the initial meshes of all examples are unchanged.
+- **Solve Inside follows the solver for conductors.** The solver never used Solve Inside: PEC and every
+  conductivity above 1e4 S/m are solved by their surface (PEC or surface impedance) and their inside is removed.
+  The Jsurf plot and the field calculator went by the flag instead, took the faces from the inside of a
+  conductor with Solve Inside on (made by a script) and showed 0 A/m everywhere. They now use the solver's rule.
+  For conductors Solve Inside is off and greyed out in the properties panel and dialogs, and AI tools leave it
+  off. "Good conductor" in Hertzon now means the solver's limit (above 1e4 S/m instead of 1e5 S/m), so graphite
+  and carbon count as conductors, as they did in the solver already.
+- **Derivative tuning of a substrate width or length moved the patch with it.** A face that changes its shape
+  (the top of a substrate that gets wider) was stretched as a whole, so the patch and the lumped port lying on
+  it moved and grew with the substrate: tuning Ws also widened the patch by 0.31 mm per mm, and the tuned S11
+  was off a full solve by 0.66 already at −14 %. Now only the outline of such a face is carried; inside, the
+  nodes slide in the plane, so sheets on the face stay where they are. Patch antenna against full solves:
+  Ws −14 % 0.66 to 0.014, Ws +29 % 1.16 to 0.039, Ls +3 % 0.35 to 0.012 (|ΔS11|, linear).
+- **Curved elements stay curved on thin metal walls.** The curved elements were straightened until every curved
+  tetrahedron stayed valid, and the check included the flat tetrahedra inside a PEC wall that the solve leaves
+  out. On the 1 mm balun sleeve of a coax-fed dipole only 28 of 370 edges stayed curved, so the sleeve was solved
+  and drawn as a polygon. The tetrahedra inside conductors now leave that check: 370 of 373 edges stay curved, with
+  the same mesh.
+- **Curved wave ports.** The port mode was solved on the flat triangles of the port face, and every curved face
+  connected to a wave port stayed straight: on a coax line the whole inner conductor and outer wall, on a
+  coax-fed antenna also the parts behind it. Now the port face is curved like the walls behind it: the 2D mode is
+  solved with the materials of the curved triangles, and the power, the excitation, the port term and the
+  S-parameters are integrated over the curved face. Coax50 after two passes: port Z0 49.94/50.05 Ohm instead of
+  50.54/50.62 Ohm (line 50.05 Ohm), S11 -61.5 dB instead of -46.8 dB. Semicircular waveguide: port beta within
+  0.02 % of the analytic one instead of -0.65 %, S11 -66.6 dB instead of -36 dB after three passes.
+  Ports on flat faces (microstrip, rectangular waveguide) are unchanged.
+- **Generate Mesh draws thin metal walls round.** The mesh of *Generate Mesh* was saved before the conductor
+  tetrahedra were known, so the check of the curved elements straightened the thin metal walls again: the mesh
+  plot of the initial mesh showed the faces of a balun sleeve or a coax conductor as polygons beside the round
+  model (0-4 % of their edges curved). They are found first now, as in the solve (97-98 %). Solver results do
+  not change.
+- **Faster validity check of curved elements.** The check of every curved tetrahedron (det D at 79 points per
+  shrink round) is written out instead of 79 calls of a general determinant: 3-6x faster, same result
+  (Coax50: 0.6 s less per adaptive pass).
+- **A thin cylinder cut by a Unite is drawn round again (#476).** The inner conductor of a coax united with a
+  tilted dipole arm was drawn as an octagon: the cut at its end made the face no plain cylinder, and it got the
+  coarse display sizing of swept pipes. A cylinder face whose two ends each go once round it is now drawn as one
+  band of triangles between their curves, with the full number of segments per turn and still few triangles.
+  Helices, swept pipes and faces with holes keep the coarse sizing. Display only; the solver mesh is not touched.
+- **Lumped port on a sheet whose edges are not square to its integration line.** A port sheet between a pad
+  and a board edge a fraction of a degree off the axis (a parallelogram with its sides along the integration
+  line) found a single low corner node, and the port voltage was taken along that corner only: in a lossless
+  antenna the accepted power differed from the radiated power by 1.6 to 2.8 % (several percent in other
+  models), independent of the mesh. The voltage lines now cover the whole width of any sheet, each from one
+  side of the sheet to the other along the field; the power balance of such a port is the same as that of a
+  rotated rectangle (0.1 %). Rectangular ports are unchanged.
+- **A covered polyline whose outline crosses itself is an error.** Such an outline was accepted, and the
+  solver then hung for an hour and more while mapping the boundaries (the window too when the points were
+  set). The geometry now reports which two edges cross, at once, in the window, the validation and the solver.
+- **Auto Open with PML: loss power and radiation efficiency.** The absorption in the PML layers was counted as
+  a loss in the model (up to 6 W per 1 W incident), and the radiated power was integrated over the faces under
+  the PML with the wrong sign. The PML layers are now left out of the loss power, and the far field and the
+  radiated power are taken on the same Gauss box close around the model as with a radiation boundary: a
+  lossless antenna has the same power balance with a PML (0.05 %) as with a radiation boundary.
+- **losses_<solution>.npz of a lossless model** holds zero loss matrices instead of no `Ploss` entries.
+
+### Changed
+- **get_status (MCP) names the phase of a running solve** (geometry, boundaries, mesh, pass, sweep), how long it
+  has been in that phase and the seconds since the last progress update, so a hung run shows at once.
+- **run_python (MCP) refuses misspelt property names.** An unknown name (e.g. `Center` for `CenterPosition`)
+  was stored as an extra entry and the object built with the default; now nothing is written and the error
+  lists the properties of the command.
+
 ## 0.3.26 (2026-11-14)
 
 ### Added

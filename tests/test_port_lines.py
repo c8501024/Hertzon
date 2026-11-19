@@ -46,3 +46,44 @@ def test_a_sheet_without_width_keeps_the_lines_of_emerge():
     bc = NS(Vdirection=NS(np=np.array([0.0, 0.0, 1.0])), height=3e-3, voltage_integration_line=["emerge"])
     assert not port_lines.set_port_lines(bc, P)
     assert bc.voltage_integration_line == ["emerge"]
+
+
+def _parallelogram(tilt_deg=0.32, w=0.8e-3, h=0.6e-3, nx=9, ny=5):
+    """A port sheet between a board edge tilted by tilt_deg and a pad: two sides along the field (y), two on the
+    tilted edges."""
+    k = np.tan(np.radians(tilt_deg))
+    return np.array([[x, k * x + v * h, 1e-3] for x in np.linspace(-w / 2, w / 2, nx) for v in np.linspace(0, 1, ny)])
+
+
+def test_a_parallelogram_gets_lines_over_its_whole_width():
+    # its low edge is not level: before, a single low corner node was found and the port voltage was taken at
+    # that corner only (accepted power several percent off in a lossless model)
+    P = _parallelogram()
+    bc = NS(Vdirection=NS(np=np.array([0.0, 1.0, 0.0])), height=0.6e-3, voltage_integration_line=[])
+    assert port_lines.set_port_lines(bc, P)
+    lines = bc.voltage_integration_line
+    assert len(lines) == port_lines.N_LINES
+    xs = np.array([ln.xs[0] for ln in lines])
+    assert abs(xs.mean()) < 1e-12 and np.ptp(xs) > 0.7e-3
+    k = np.tan(np.radians(0.32))
+    for ln in lines:                       # from the tilted low edge to the tilted high edge, along the field
+        assert np.isclose(ln.ys[0], k * ln.xs[0], atol=1e-12)
+        assert np.isclose(ln.ys[-1] - ln.ys[0], 0.6e-3) and np.isclose(ln.xs[-1], ln.xs[0])
+        assert np.allclose(ln.zs, 1e-3)
+
+
+def test_a_trapezoid_lines_end_on_its_sides():
+    # wider at the top than at the bottom: the lines cover the whole width, each from side to side of the sheet
+    P = np.array([[-1e-3, 0, 0], [1e-3, 0, 0], [2e-3, 1e-3, 0], [-2e-3, 1e-3, 0], [0, 0.5e-3, 0]])
+    starts, ends = port_lines.port_line_segments(P, (0, 1, 0), 1e-3, n=4)
+    assert np.allclose(starts[:, 0], [-1.5e-3, -0.5e-3, 0.5e-3, 1.5e-3])
+    assert np.allclose(ends[:, 1], 1e-3)
+    assert np.allclose(starts[:, 1], [0.5e-3, 0, 0, 0.5e-3])
+
+
+def test_the_lines_of_a_rectangle_are_unchanged():
+    # level low edge: lines from that edge, the port height long (as before)
+    P = _sheet()
+    starts, ends = port_lines.port_line_segments(P, (0, 0, 1), 3e-3, n=4)
+    assert np.allclose(np.sort(starts[:, 0]), [-4.8e-3, -1.6e-3, 1.6e-3, 4.8e-3])
+    assert np.allclose(ends - starts, [0, 0, 3e-3])

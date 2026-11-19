@@ -41,11 +41,14 @@ class LossModel:
     port: the tetrahedra with conductivity or a lossy permittivity / permeability, and the faces of finite
     conductivity, impedance and lumped RLC boundaries."""
 
-    def __init__(self, m, fld):
+    def __init__(self, m, fld, absorbing=None):
+        """absorbing: tetrahedra of PML layers, left out (their absorption is the radiated power)."""
         nodes = np.asarray(m.mesh.nodes, float)
         tets = np.asarray(m.mesh.tets, np.int64)
         self.vol = None
         lossy = _lossy_tets(fld, _conductor_limit(m))
+        if absorbing is not None and len(absorbing):
+            lossy[np.asarray(absorbing, np.int64)] = False
         if lossy.any():
             ids = np.nonzero(lossy)[0]
             P = nodes[:, tets[:, ids]]                                  # (3, 4, T)
