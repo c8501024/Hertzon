@@ -239,6 +239,8 @@ class MainWindow(QMainWindow):
         self.a_copy = A("&Copy", self.copy_objects, "Ctrl+C")
         self.a_paste = A("&Paste", self.paste_objects, "Ctrl+V")
         self.a_delete = A("&Delete", self.delete_selection, "Delete")
+        self.a_rename = A("Re&name...", self.rename_selection, "F2",
+                          tip="Rename the selected object, group, design, project, report or equation")
         self.a_selall = A("Select &All", self.select_all, "Ctrl+A")
         self.a_selname = A("Select by &Name...", self.select_by_name, "Ctrl+Shift+N")
         self.a_group = A("&Group", self.group_selection, "Ctrl+G",
@@ -308,7 +310,7 @@ class MainWindow(QMainWindow):
         for a in (self.a_undo, self.a_redo):
             m.addAction(a)
         m.addSeparator()
-        for a in (self.a_copy, self.a_paste, self.a_delete):
+        for a in (self.a_copy, self.a_paste, self.a_delete, self.a_rename):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.a_selall)
@@ -3372,6 +3374,58 @@ class MainWindow(QMainWindow):
         self.doc.commit("model", geometry=False)
         self.doc.select([Pick(n) for n in sel])
         self.msgs.add("info", f"Ungrouped {', '.join(gone)}")
+
+    def rename_selection(self) -> None:
+        """F2: rename the selected item of the tree with the focus (object, group, design, project, report,
+        equation), elsewhere the one selected object. Text fields keep F2."""
+        from PySide6.QtWidgets import QAbstractSpinBox, QPlainTextEdit, QTextEdit
+        focus = QApplication.focusWidget()
+        if isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)):
+            return
+
+        def single(tree):
+            items = tree.selectedItems()
+            if len(items) == 1:
+                return items[0].data(0, TREE_ROLE)
+            it = tree.currentItem()
+            return it.data(0, TREE_ROLE) if it is not None and not items else None
+        if focus is self.project_tree or (focus and self.project_tree.isAncestorOf(focus)):
+            d = single(self.project_tree)
+            kind = d[0] if isinstance(d, tuple) and d else None
+            if kind == "project":
+                self.rename_project()
+            elif kind == "design":
+                self.rename_design(d[1])
+            elif kind == "report":
+                self.rename_report(d[1])
+            elif kind == "equation":
+                self.rename_equation(d[1])
+            return
+        if self._is_circuit() or self.view.draw is not None:
+            return
+        if focus is self.model_tree or (focus and self.model_tree.isAncestorOf(focus)):
+            d = single(self.model_tree)
+            if isinstance(d, tuple) and d and d[0] == "objgroup":
+                self.rename_group(d[1])
+                return
+            if isinstance(d, tuple) and d and d[0] == "object":
+                self.rename_object(d[1])
+                return
+        objs = self.doc.selected_objects()
+        if len(objs) == 1:
+            self.rename_object(objs[0])
+
+    def rename_object(self, name: str) -> None:
+        new, ok = QInputDialog.getText(self, "Rename Object", "Name:", text=name)
+        new = new.strip()
+        if not ok or not new or new == name:
+            return
+        if new in self.des.all_names():
+            QMessageBox.warning(self, "Rename Object", f"The name '{new}' is already used.")
+            return
+        self.doc.checkpoint()
+        rename_object(self.des, name, new)
+        self.doc.commit("model", geometry=True)
 
     def rename_group(self, name: str) -> None:
         new, ok = QInputDialog.getText(self, "Rename Group", "Name:", text=name)
@@ -6901,12 +6955,18 @@ class MainWindow(QMainWindow):
         self.doc.project.designs.append(d)
         self.doc.commit("all", geometry=False)
 
-    def rename_design(self) -> None:
-        new, ok = QInputDialog.getText(self, "Rename Design", "Name:", text=self.doc.design_name)
-        if ok and new.strip() and new not in {d.name for d in self.doc.project.designs}:
+    def rename_design(self, name: str | None = None) -> None:
+        name = name or self.doc.design_name
+        des = next((d for d in self.doc.project.designs if d.name == name), None)
+        if des is None:
+            return
+        new, ok = QInputDialog.getText(self, "Rename Design", "Name:", text=name)
+        new = new.strip()
+        if ok and new and new not in {d.name for d in self.doc.project.designs}:
             self.doc.checkpoint()
-            self.des.name = new.strip()
-            self.doc.design_name = new.strip()
+            des.name = new
+            if name == self.doc.design_name:
+                self.doc.design_name = new
             self.doc.commit("all", geometry=False)
 
     def rename_project(self) -> None:
