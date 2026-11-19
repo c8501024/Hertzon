@@ -57,20 +57,35 @@ def _check(sb, ren, unit_scale, tol, z=CENTER[2]):
 
 
 @pytest.mark.parametrize("unit", [("mm", 1e-3), ("meter", 1.0), ("um", 1e-6)])
-def test_orthographic_exact_without_ca(unit):
+def test_orthographic_exact(unit):
     ren, rw, cam, sb = _scene(parallel=True, unit=unit)
     _check(sb, ren, unit[1], 0.02)
     _check(sb, ren, unit[1], 0.02, z=BOARD[5])          # the top face: same scale in an orthographic view
-    assert not sb.approx
-    assert "ca." not in sb.label()
+    shown = {"meter": "meter", "mm": "mm", "um": "µm"}[unit[0]]
+    assert sb.label() == f"{sb.length:g} ({shown})"
 
 
-def test_perspective_at_the_model_centre_with_ca():
+def test_perspective_at_the_model_centre():
     ren, rw, cam, sb = _scene(parallel=False)
     _check(sb, ren, 1e-3, 0.05)
     _check(sb, ren, 1e-3, 0.05, z=BOARD[5])             # the visible top face
-    assert sb.approx
-    assert sb.label().startswith("ca. ")
+    assert sb.label() == f"{sb.length:g} (mm)"
+
+
+def test_same_label_in_orthographic_and_perspective_without_ca():
+    labels = []
+    for parallel in (True, False):
+        ren, rw, cam, sb = _scene(parallel=parallel)
+        labels.append(sb.label())
+        assert "ca." not in " ".join(t.GetInput() or "" for t in sb.labels)
+        # the numbers are centred on their ticks: 0, half and the end of the bar; the unit follows the end number
+        x0 = sb.end_x - sb.pixels
+        ticks = [x0, x0 + sb.pixels / 2, sb.end_x]
+        for t, x in zip(sb.labels[:3], ticks):
+            assert t.GetTextProperty().GetJustificationAsString() == "Centered"
+            assert t.GetPosition()[0] == pytest.approx(x, abs=1)
+        assert sb.labels[3].GetPosition()[0] > sb.end_x
+    assert labels[0] == labels[1]
 
 
 @pytest.mark.parametrize("focal_z", [CENTER[2] + 0.11, CENTER[2] - 0.2])
