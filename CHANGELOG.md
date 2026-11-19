@@ -6,6 +6,9 @@ the GitHub release notes.
 ## Unreleased
 
 ### Added
+- **F2 renames the selected item** (#475), as in a file manager: an object, an object group, a design, the project,
+  a report or an equation, in the tree that has the focus; in the 3D view the one selected object. Edit > Rename shows
+  the shortcut. Enter confirms, Escape cancels, and names already in use are refused as before.
 - **Near Field Line: phase, envelope, markers and skin depth.** New functions `inst` (the field at a phase,
   Re{E e^(jφ)}, with a phase slider and a ▶ phase animation in the report) and `envelope` (the largest value over all
   phases; for E Total the semi-major axis of the polarisation ellipse). `mag` stays the magnitude of the complex
