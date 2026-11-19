@@ -3,6 +3,26 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Near Field Line: the functions are mag, dB, re, im and ang.** `envelope` (equal to `mag` for a component) and
+  `inst` (equal to `re` at the phase) are gone; `re` and `im` of a field component now take the phase φ of the
+  slider, re(X e^(jφ)) and im(X e^(jφ)), so `re` is the instantaneous value. `mag` and `ang` do not depend on φ.
+  E Total and H Total are magnitudes and offer `mag` and `dB` only. Old reports load without error: `envelope`
+  becomes `mag`, `inst` becomes `re` (`mag` for E/H Total), with a warning in the report.
+- **The phase slider is shown only for quantities with a phase reference** (the field components NearEX ... NearHZ),
+  decided by the metadata of the quantity (`hertzon/post/quantities.py`), and hidden for magnitudes such as
+  E Total; in a mixed report it acts only on the curves with a phase reference. S, Z, Y and VSWR have no slider,
+  their re/im are taken at φ = 0.
+
+### Fixed
+- **Scale bar of the 3D view.** It measures in the plane of the model centre (about which the view turns) instead of
+  at the focal point, which in a perspective view could lie far from the model and made the bar up to about twice
+  too long. Exact in an orthographic view; marked "ca." in a perspective view. Lengths on a 1-2-5 grid, recomputed
+  on zoom, rotation, window size and display scaling (bar and labels scale with the device pixel ratio); µm is
+  shown as µm.
+
 ## 0.3.27 (2026-11-19)
 
 ### Added

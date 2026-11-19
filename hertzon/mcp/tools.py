@@ -1395,9 +1395,13 @@ def t_set_report(args):
         if any(x.name == args["new_name"] for x in d.reports):
             raise ToolError(f"A report '{args['new_name']}' exists")
         r.name = args["new_name"]
+    from ..post.quantities import migrate_near_report
+    migrated = migrate_near_report(r)       # envelope -> mag, inst -> re (removed functions)
     commit(ctx, f"report {r.name}")
     out = {"name": r.name, "created": created, "kind": r.kind, "solution": r.solution, "traces": r.traces,
            "props": r.props}
+    if migrated:
+        out["warnings"] = migrated
     if args.get("open") and ctx.gui is not None:
         ctx.gui.call("open_report", design=ctx.des.name, name=r.name)
         out["opened"] = True
