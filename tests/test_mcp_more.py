@@ -370,3 +370,27 @@ def test_sweep_choices_are_checked_and_points_take_semicolons(server, tmp_path):
     pts = next(x for x in call(server, "get_schema", section="sweep")["Sweep"] if x["name"] == "Points")
     assert "';'" in pts["help"] and "x, y, z" not in pts["help"]
     assert "not valid" in error(server, "set_setup", props={"BasisOrder": "Third Order"})
+
+
+def test_report_issue_prefilled_link(server):
+    from urllib.parse import parse_qs, urlparse
+    r = call(server, "report_issue", title="Multi-section Wilkinson divider",
+             problem="A 3-6 GHz divider needs two or more sections; the Design Wizard has only one.",
+             proposal="A Wilkinson structure with a number of sections.")
+    assert r["title"] == "[Missing tool] Multi-section Wilkinson divider"
+    assert "## Proposal" in r["body"] and "## Environment" in r["body"] and "Hertzon " in r["body"]
+    assert "## Example" not in r["body"]                    # empty parts are left out
+    u = urlparse(r["url"])
+    assert f"{u.scheme}://{u.netloc}{u.path}" == "https://github.com/c8501024/Hertzon/issues/new"
+    q = parse_qs(u.query)
+    assert q["title"] == [r["title"]] and q["body"] == [r["body"]] and not r["truncated"]
+
+
+def test_report_issue_long_text_and_bad_input(server):
+    from urllib.parse import parse_qs, urlparse
+    r = call(server, "report_issue", title="Long", kind="bug", problem="x" * 20000)
+    assert r["truncated"] and r["title"].startswith("[Bug]") and len(r["body"]) > 20000
+    link_body = parse_qs(urlparse(r["url"]).query)["body"][0]
+    assert len(link_body) <= 6000 and "full text is in the tool result" in link_body
+    assert "title is required" in error(server, "report_issue", title=" ")
+    assert "Unknown kind" in error(server, "report_issue", title="t", kind="wish")
