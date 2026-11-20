@@ -42,7 +42,11 @@ computed from it the first time a plot or `ResultStore.npz("fields_<solution>.np
 port mode (wave or Floquet ports with several modes), `field_sources.json` lists the excitations instead, one
 per row of S and numbered 1, 2, ...: `<port>` is then that number, and an entry of a port mode has `port` (the
 port number) and `mode` (1, 2, ...). Edit Sources, the far field files and `losses_<solution>.npz` use the same
-numbers.
+numbers. After the adaptive solution an entry of a wave port mode also has `label`, for example
+"P1 M2 (TE10-like, beta 72.3 rad/m)" (`ports.json` lists them per wave port as `mode_labels`); the field plots,
+Edit Sources and the MCP name the excitations with it. The same data per mode (type, gamma, Zo, `short`,
+`symmetry` about the principal axes u and v of the port face, `rect_match`) is in the `meta` entry of
+`portfields_<solution>.npz`.
 
 ## farfield_\<sphere\>_\<solution\>.npz: far field of an infinite sphere
 

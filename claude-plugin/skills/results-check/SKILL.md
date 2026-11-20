@@ -22,6 +22,9 @@ conclusions. These are the checks that tell a trustworthy result from a wrong on
 
 - Lumped port: a small sheet between two conductors, IntegrationLine across it, nothing else touching it.
 - Wave port: on the boundary, covering the whole cross section of the line, with its line impedance as expected.
+- Wave port with several modes: `get_results()` kind `ports` names every mode ("P1 M2 (TE10-like, beta ...)"),
+  with beta, Zo and its symmetry; `image=true` shows the mode fields. Check that the modes are the ones
+  intended before reading S of a mode; field plots take `port` and `mode`.
 - `render_image()` shows ports and boundaries on the faces; look at it.
 
 ## 3. Does the energy add up?

@@ -322,6 +322,10 @@ SETUP: list[Prop] = [
            "(no S-parameters). For checking ports quickly"),
     P("MaximumPasses", "int", "15", label="Maximum number of passes"),
     P("MaximumDeltaS", "float", "0.02", label="Maximum Delta S"),
+    P("DeltaSQuantity", "choice", "Complex S", label="Delta S of", choices=("Complex S", "Magnitude |S|"),
+      help="Complex S: the change of the complex S-parameters between passes (magnitude and phase). "
+           "Magnitude |S|: only the change of their magnitudes. Port modes are compared in the same sign and "
+           "order either way (matched by their fields from pass to pass)"),
     P("MaximumDeltaEnergy", "float", "0.001", label="Maximum Delta Energy",
       help="Incident wave designs (no ports): relative change of the scattered energy between passes (default 0.001)"),
     P("UseMatrixConvergence", "bool", "False", label="Use matrix convergence"),

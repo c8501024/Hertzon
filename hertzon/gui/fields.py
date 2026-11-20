@@ -212,6 +212,35 @@ def field_solutions(doc) -> list[str]:
     return out
 
 
+def excitation_choices(st, nports: int = 1) -> list[tuple[int, str]]:
+    """(number, text) of every excitation whose fields the result folder st stores, in the numbering of the
+    field plots: one per port, or one per port mode with wave ports of several modes ("2: P1 M2 (TE10-like,
+    beta 72.3 rad/m)"), or one per terminal."""
+    rows = (st.read_json("field_sources.json", None) or st.read_json("ports.json", None) or []) if st else []
+    out = []
+    for q in rows:
+        try:
+            n = int(q.get("number"))
+        except (TypeError, ValueError):
+            continue
+        if q.get("label"):
+            txt = f"{n}: {q['label']}"
+        elif q.get("kind") == "Terminal":
+            txt = f"{n}: terminal {q.get('name', n)}"
+        else:
+            txt = f"{n}: {q.get('name', n)}"
+        out.append((n, txt))
+    return out or [(i, str(i)) for i in range(1, max(1, nports) + 1)]
+
+
+def excitation_text(st, port: int) -> str:
+    """How a plot title names its excitation: "P1 M2 (TE10-like, beta 72.3 rad/m)" or "port 2"."""
+    for n, txt in excitation_choices(st):
+        if n == port and ":" in txt:
+            return txt.split(":", 1)[1].strip()
+    return f"port {port}"
+
+
 def source_vector(doc, st, fields: dict, grid, which: str, fi: int, port: int) -> np.ndarray:
     """Field of the excitation as set in Edit Sources: port fields superposed with
     sqrt(P) exp(j phase); an incident plane wave scaled to its V/m and shown as total, scattered
@@ -1102,6 +1131,7 @@ def prepare_overlay(doc, view, quantity: str, solution: str, freq_index: int = 0
         shared.append(inv)
     return dict(at=at, quantity=quantity, jsurf=jsurf, work=work, sampled=sampled, shared=shared, arrows={},
                 spacing_m=spacing_m, note=note, freq_index=freq_index, port=port, freqs=frequencies(fields),
+                excitation=excitation_text(st, port),
                 eigen=bool(st.read_json("eigenmodes.json")),
                 vector=vector, unit=unit, signed=signed, static=static)
 
@@ -1290,7 +1320,7 @@ def overlay_at(prep: dict, phase_deg: float = 0.0, log_scale: bool = False, vmin
     if prep.get("eigen"):    # an eigenvector has no amplitude of its own: the values are relative
         return meshes, (f"{quantity}  mode {freq_index + 1}  {fr / 1e9:.6g} GHz  phase {phase_deg:g} deg  "
                         f"max {hi:.4g} {ulabel} (relative amplitude){note}")
-    return meshes, f"{quantity}  port {port}  {fr / 1e9:.6g} GHz  phase {phase_deg:g} deg  max {hi:.4g} {ulabel}{note}"
+    return meshes, f"{quantity}  {prep.get('excitation') or f'port {port}'}  {fr / 1e9:.6g} GHz  phase {phase_deg:g} deg  max {hi:.4g} {ulabel}{note}"
 
 
 MESH_QUALITY = ["None", "Mean Ratio", "Aspect Ratio", "Max Edge Length", "Volume"]
