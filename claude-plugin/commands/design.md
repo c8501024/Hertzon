@@ -5,13 +5,11 @@ argument-hint: <what to design, e.g. "2.45 GHz patch antenna on 1.6 mm FR4, S11 
 
 Design the following with Hertzon: $ARGUMENTS
 
-Follow the skill `hf-design-loop` step by step. For antennas also use `antenna-design`, and check every result
-that leads to a decision with `results-check`.
+The skills `hf-design-loop`, `antenna-design`, `circuit-first` and `results-check` describe what Hertzon offers
+and how to read its results; the approach is yours.
 
 - If no specification is given above, ask the user what to design and the numbers it must reach.
-- Begin with `get_context()` and write the goal into the design log before you build anything.
 - Ask the user only about what changes the goal (environment, figure of merit, what may change). Choose and
   record sensible defaults for everything else.
 - Before an analysis that will take long, say how long, then wait for it with `get_status()` and `wait_seconds`.
-- When the goal is met, do the one final check of the design loop and stop.
-- End with the verification and the report of the design loop.
+- End with a short report: specification and result side by side, final values, where the project is.

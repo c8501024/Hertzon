@@ -1818,6 +1818,9 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
         elif state == "running":
             state = "failed" if rc != 0 else state
             res["exit_code"] = rc
+            if rc != 0 and not status.get("error"):
+                from ..solver.results import exit_reason
+                status = dict(status, error=f"exit {rc}: {exit_reason(rc, rc < 0)}".rstrip(": "))
     if ctx.gui is not None:
         try:
             q = ctx.gui.call("queue", timeout=10)
@@ -1831,6 +1834,10 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
     res["state"] = state
     if status.get("error"):
         res["error"] = status["error"]
+        if status.get("step"):
+            res["failed_in"] = status["step"]
+        if status.get("traceback"):
+            res["traceback_tail"] = status["traceback"][-1500:]
     if status.get("elapsed"):
         res["elapsed_s"] = round(float(status["elapsed"]), 1)
     if state == "running" and st is not None:

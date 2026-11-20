@@ -3,7 +3,7 @@ packages (the remote service and the solver never import them)."""
 import sys
 import tomllib
 
-GUI = ("pyside6", "pyvistaqt")      # EMerge itself needs pyvista and matplotlib
+GUI = ("pyside6", "pyvistaqt", "keyring")      # EMerge itself needs pyvista and matplotlib
 
 deps = tomllib.load(open(sys.argv[1], "rb"))["project"]["dependencies"]
 for d in deps:

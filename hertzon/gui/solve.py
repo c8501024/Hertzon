@@ -22,6 +22,31 @@ def solver_python() -> str:
 
 TAG = "@@HZN "
 NO_RESULT = -999_999          # end code of a remote analysis that produced no solver exit code
+from ..solver.results import OOM_CODES, exit_reason  # noqa: E402,F401  (plain words for exit codes)
+SERVER_LOST = -999_998        # end code of a cloud analysis whose server disappeared while it ran
+
+
+BYTES_PER_TET = 140e3         # second-order elements + direct solver (solver.bridge.memory_forecast)
+
+
+def free_memory() -> float:
+    """Memory free for a new solver process on this computer (bytes; 0 if unknown)."""
+    try:
+        import psutil
+        return float(psutil.virtual_memory().available)
+    except Exception:  # noqa: BLE001
+        from ..solver.bridge import available_memory
+        return available_memory()
+
+
+def previous_need(out: Path) -> tuple[float, int]:
+    """(bytes, tetrahedra) the last run of a setup needed, from its convergence.json ((0, 0): no run)."""
+    try:
+        conv = json.loads((Path(out) / "convergence.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0.0, 0
+    tets = max([int(conv.get("final_tets", 0) or 0)] + [int(p.get("tets", 0) or 0) for p in conv.get("passes", [])])
+    return tets * BYTES_PER_TET, tets
 
 
 @dataclass
@@ -35,6 +60,7 @@ class Job:
     parametric: str = ""          # Optimization: solve the variations of this parametric setup
     tuning: str = ""              # derivative tuning model of a sweep (JSON: sweep, variables, points)
     env: dict = field(default_factory=dict)     # environment of this run (remote.protocol.JOB_ENV keys)
+    requeued: int = 0             # times the job was queued again after its cloud server was lost
 
     @property
     def key(self) -> str:
@@ -78,6 +104,8 @@ class SolveManager(QObject):
         self.cores = 0              # 0 = all cores
         self.sweep_workers = 2
         self.remote = None          # RemoteHost: solve on that computer (Tools > Options > Remote)
+        self.requeue_lost = False   # queue an analysis again whose cloud server was lost (Tools > Options > Cloud)
+        self.cloud_off_hint = ""    # set while a cloud is configured but analyses run here (for the memory warning)
         self._downloading = None    # RemoteRun still fetching field files of a finished remote analysis
 
     @property
@@ -116,6 +144,8 @@ class SolveManager(QObject):
         self.queueChanged.emit()
         out = job.out
         keep = None
+        if self.remote is None and not job.tuning:
+            self._memory_warning(job, out)
         if job.tuning:
             pass                    # reads the adaptive mesh and writes only its tuning model
         elif job.sweep and out.exists():
@@ -177,7 +207,8 @@ class SolveManager(QObject):
         self.proc = p
         self.started.emit(job.key)
         self.progress.emit(job.key, 0, "Starting solver")
-        self.message.emit("info", f"{job.key}: solving with {n} core(s)")
+        self.message.emit("info", f"{job.key}: solving with {n} core(s)"
+                          + (" on this computer (cloud solving is off)" if self.cloud_off_hint else ""))
         if job.parametric:
             p.start(solver_python(), ["-m", "hertzon.solver.parametric", job.project_path, job.design, job.parametric,
                                      str(out)])
@@ -186,6 +217,18 @@ class SolveManager(QObject):
                                      str(out)])
         else:
             p.start(solver_python(), ["-m", "hertzon.solver.run", job.project_path, job.design, job.setup, str(out)])
+
+    def _memory_warning(self, job: Job, out: Path) -> None:
+        """A local analysis that will likely not fit: the last run of the setup needed more memory than is free."""
+        need, tets = previous_need(out)
+        free = free_memory()
+        if need <= 0 or free <= 0 or need < 0.8 * free:
+            return
+        self.message.emit("warning", f"{job.key}: runs on this computer, but its last run reached {tets:,} "
+                                     f"tetrahedra (about {need / 2 ** 30:.0f} GB) and only {free / 2 ** 30:.1f} GB "
+                                     "are free; it will likely run out of memory. "
+                                     + (self.cloud_off_hint or "Solve on a computer with more memory (status bar: "
+                                                               "Solve on)."))
 
     def _start_remote(self, job: Job, out: Path) -> None:
         """Solve JOB on the remote computer; its lines and end go through the same handlers as locally."""
@@ -319,21 +362,34 @@ class SolveManager(QObject):
                     (self.job.out / "status.json").write_text(json.dumps({"state": "aborted"}), encoding="utf-8")
                 except OSError:
                     pass
+        elif not ok and code == SERVER_LOST:
+            reason = getattr(self._downloading, "lost", "") or "the server is gone"
+            self.message.emit("error", f"{key}: aborted because the cloud server was lost ({reason})")
+            if self.job is not None and not self.job.tuning:
+                try:
+                    (self.job.out / "status.json").write_text(json.dumps(
+                        {"state": "failed", "error": "aborted: cloud server lost", "reason": reason}), encoding="utf-8")
+                except OSError:
+                    pass
+            if self.job is not None and self.requeue_lost and self.job.requeued < 1:
+                import dataclasses
+                again = dataclasses.replace(self.job, requeued=self.job.requeued + 1)
+                self.queue.insert(0, again)
+                self.message.emit("warning", f"{key}: queued again; the next analysis creates a new cloud server")
         elif not ok and not getattr(self, "_failed", False):
             crashed = (status == QProcess.CrashExit or code < 0 or code > 128) and not self._aborted
-            if code in (-1073741819, 3221225477):       # 0xC0000005: access violation, not memory
-                hint = " The solver process crashed (access violation 0xC0000005)."
-            else:
-                hint = (" The solver process was killed, most likely because it ran out of memory. "
-                        "Lower 'Maximum Refinement' or the number of passes." if crashed else "")
+            why = exit_reason(code, crashed)
+            hint = f" {why}" if why else ""
             self.message.emit("error", f"{key}: the remote analysis did not finish" if code == NO_RESULT else
                               f"{key}: solver process ended with code {code}.{hint}")
             if self.job is not None and not self.job.tuning:
                 try:
-                    (self.job.out / "status.json").write_text(json.dumps({"state": "failed", "error": f"exit {code}"}), encoding="utf-8")
+                    (self.job.out / "status.json").write_text(json.dumps({
+                        "state": "failed", "error": f"exit {code}" + (f": {why}" if why else "")}), encoding="utf-8")
                 except OSError:
                     pass
-        self.progress.emit(key, 100 if ok else 0, "Done" if ok else ("Aborted" if self._aborted else "Failed"))
+        self.progress.emit(key, 100 if ok else 0, "Done" if ok else (
+            "Aborted" if self._aborted else ("Cloud server lost" if code == SERVER_LOST else "Failed")))
         self.proc = None
         self.job = None
         self.finished.emit(key, ok)

@@ -405,3 +405,21 @@ def renormalize(S: np.ndarray, z0v: np.ndarray, zref: np.ndarray) -> np.ndarray:
         Zn = sqr @ Z @ sqr
         out[k] = (Zn - I) @ np.linalg.inv(Zn + I)
     return out
+
+
+OOM_CODES = (-9, 9, 137)      # SIGKILL (Linux out-of-memory killer): -9 from Python/ssh, 137 = 128 + 9 from a shell
+
+
+def exit_reason(code: int, crashed: bool = True) -> str:
+    """Plain words for the exit code of a solver process that ended without its own error message."""
+    if code in (-1073741819, 3221225477):       # 0xC0000005: access violation, not memory
+        return "The solver process crashed (access violation 0xC0000005)."
+    if code in OOM_CODES:
+        return ("The operating system killed the solver process (SIGKILL), almost always because the memory ran "
+                "out. Lower 'Maximum Refinement' or the number of passes, or use a machine with more memory.")
+    if code in (-1073741571, 3221225725):       # 0xC00000FD: stack overflow
+        return "The solver process crashed (stack overflow 0xC00000FD)."
+    if crashed:
+        return ("The solver process was killed, most likely because it ran out of memory. "
+                "Lower 'Maximum Refinement' or the number of passes.")
+    return ""
