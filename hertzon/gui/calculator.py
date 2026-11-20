@@ -217,6 +217,7 @@ SYMBOL_KEYS = [("·", r"\cdot ", "·", "dot product   (\\cdot)"), ("×", r"\time
                ("εᵣ", r"\varepsilon_r", "eps_r", "relative permittivity of the material   (\\epsr)"),
                ("μᵣ", r"\mu_r", "mu_r", "relative permeability of the material   (\\mur)"),
                ("tanδ", r"\tan\delta", "tand", "loss tangent of the material   (\\tand)"),
+               ("tanδₘ", r"\tan\delta_m", "tandm", "magnetic loss tangent of the material"),
                ("σ", r"\sigma", "sigma", "conductivity of the material   (\\sigma)"),
                ("c₀", "c_0", "c0", "speed of light"), ("Z₀", "Z_0", "Z0", "free-space impedance"),
                ("f", "f", "f", "frequency of the solution"), ("°", r"^{\circ}", "deg", "degree, after a number")]

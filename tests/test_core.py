@@ -79,6 +79,22 @@ def test_sweep_frequencies():
     assert f[0] == pytest.approx(1e9) and f[-1] == pytest.approx(1e11) and len(f) == 21
 
 
+@pytest.mark.parametrize("pts", ["2GHz;1GHz;3GHz", "2GHz,1GHz,3GHz", " 2GHz ; 1GHz,3GHz; "])
+def test_single_points_accept_semicolon_and_comma(pts):
+    f = B.sweep_frequencies({"Distribution": "Single Points", "Points": pts}, Evaluator({}, "mm"))
+    assert np.allclose(f, [1e9, 2e9, 3e9])
+
+
+def test_unknown_sweep_distribution_is_refused():
+    """A typo must not fall back silently to the default Linear Step 1-10 GHz."""
+    ev = Evaluator({}, "mm")
+    with pytest.raises(ValueError, match="Unknown sweep distribution 'SinglePoints'"):
+        B.sweep_frequencies({"Distribution": "SinglePoints", "Points": "1GHz;2GHz", "Start": "1GHz",
+                             "Stop": "10GHz", "Step": "0.1GHz"}, ev)
+    with pytest.raises(ValueError, match="no frequencies"):
+        B.sweep_frequencies({"Distribution": "Single Points", "Points": " ; "}, ev)
+
+
 def test_aligned_delta_ignores_port_sign_flip():
     S = np.array([[0.1 + 0.2j, 0.9j], [0.9j, 0.1 - 0.2j]])
     flip = np.diag([1, -1])

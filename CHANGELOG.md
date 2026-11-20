@@ -3,6 +3,28 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Far field over an infinite ground plane.** A far-field surface that is open at one flat outer face of the model
+  (PML or radiation boundary on the other five sides, the floor a conductor, e.g. a monopole on a ground) is
+  mirrored at that face (image theory), and the far field behind it is zero. Before, the image was missing and the
+  pattern was that of the open surface alone. Symmetry planes and the PML far-field box of Auto Open work as before.
+- **Post-processing for AI assistants.** New tools `evaluate_fields` (Fields Calculator values on the saved fields:
+  Poynting flux through any sheet, face, cut plane or the closed boundary of a solid, volume and surface integrals,
+  maxima, point values) and `get_power_budget` (per port: accepted, reflected, transmitted, radiated and lost
+  power, the balance, and the volume losses per object and material split into dielectric/conduction and
+  magnetic). The Fields Calculator knows the magnetic loss tangent `tandm`; `add_material` takes `tan_delta_m`.
+
+### Changed
+- **Single Points sweeps take ';' or ',' between the frequencies** (`2.4GHz;2.45GHz` or `2.4GHz,2.45GHz`). The schema
+  help of the sweep's Points was the one of polyline points.
+- **Unknown choice values are refused.** A sweep distribution such as "SinglePoints" fell back silently to Linear
+  Step 1-10 GHz; the solver now stops with the valid names, and the AI tools refuse an unknown value of any choice
+  property (any upper or lower case is accepted).
+- **"Touch tangentially" is information, not a warning,** in the Validation Check and the solver log, and coaxial
+  cylinders of the same radius (a coax whose dielectric is the outer cylinder minus the pin) are no longer reported.
+
 ## 0.3.30 (2026-11-20)
 
 ### Changed

@@ -294,11 +294,23 @@ def _props_in(kind: str, plist: list, values: dict | None, base: dict | None = N
         values.setdefault("Axis", out.get("Axis", "Z"))
         schema.upgrade_props(kind, values)
     schema.upgrade_values(values)
+    by_name = {p.name: p for p in plist}
     for k, v in values.items():
         if k not in names:
             raise ToolError(f"{kind} has no property '{k}'. Properties: {sorted(names)}")
-        out[k] = _s(v)
+        out[k] = _choice(kind, by_name[k], _s(v))
     return out
+
+
+def _choice(kind: str, p, v: str) -> str:
+    """A value of a choice property as listed in the schema (any case); an unknown value is refused instead of
+    falling back silently to a default. Choices filled at run time (coordinate systems) are not checked."""
+    if getattr(p, "type", "") != "choice" or not p.choices or p.choices == ("Global",):
+        return v
+    for c in p.choices:
+        if v.strip().lower() == c.lower():
+            return c
+    raise ToolError(f"{kind} {p.name} '{v}' is not valid. Choices: {', '.join(p.choices)}")
 
 
 def _s(v) -> str:
@@ -692,7 +704,7 @@ def t_add_material(args):
     ctx = load(args)
     name = args["name"]
     fields = {"permittivity": "eps_r", "permeability": "mu_r", "conductivity": "sigma",
-              "loss_tangent": "tan_delta"}
+              "loss_tangent": "tan_delta", "magnetic_loss_tangent": "tan_delta_m"}
     m = next((x for x in ctx.proj.materials if x.name == name), None) or Material(name)
     for f, a in fields.items():
         if a in args:
@@ -2614,6 +2626,7 @@ TOOLS = [
     Tool("add_material", "Add or change a project material.",
          _schema({"name": {"type": "string"}, "eps_r": {"type": "string"}, "mu_r": {"type": "string"},
                   "sigma": {"type": "string", "description": "S/m"}, "tan_delta": {"type": "string"},
+                  "tan_delta_m": {"type": "string", "description": "magnetic loss tangent"},
                   "description": {"type": "string"}}, ["name"]), t_add_material),
     Tool("set_design", "Change units, variables (null deletes), design settings (SolutionType, AutoOpen, "
          "AutoOpenBoundary, AutoOpenPadding, DifferentialPairs ...), rename, or add a new design. "
@@ -2815,5 +2828,6 @@ TOOLS = [
 
 from .tools_io import TOOLS as _IO_TOOLS  # noqa: E402
 from .tools_more import TOOLS as _MORE_TOOLS  # noqa: E402
+from .tools_post import TOOLS as _POST_TOOLS  # noqa: E402
 
-TOOLS += _MORE_TOOLS + _IO_TOOLS
+TOOLS += _MORE_TOOLS + _IO_TOOLS + _POST_TOOLS

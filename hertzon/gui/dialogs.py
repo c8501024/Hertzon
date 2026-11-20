@@ -845,8 +845,8 @@ class ValidationDialog(QDialog):
     """Validation check; clicking a problem selects the object or assignment it is about."""
     from PySide6.QtCore import Signal as _Signal
     messageActivated = _Signal(str)
-    ICON = {"ok": "✔", "warning": "⚠", "error": "✖"}
-    COLOR = {"ok": "#1e8449", "warning": "#b9770e", "error": "#c0392b"}
+    ICON = {"ok": "✔", "info": "ℹ", "warning": "⚠", "error": "✖"}
+    COLOR = {"ok": "#1e8449", "info": "#2471a3", "warning": "#b9770e", "error": "#c0392b"}
 
     def __init__(self, doc, parent=None, overlaps=None, resolve=None, sheets=None):
         """overlaps: classified overlapping solids (model.validate.Overlap) from the exact geometry check;
@@ -871,7 +871,7 @@ class ValidationDialog(QDialog):
                     it.setForeground(0, QBrush(QColor(self.COLOR[c.level])))
                     top.addChild(it)
             tree.addTopLevelItem(top)
-            top.setExpanded(lv != "ok")
+            top.setExpanded(lv not in ("ok", "info"))
         tree.itemClicked.connect(lambda it, _c: self.messageActivated.emit(it.data(0, Qt.UserRole) or ""))
         lay.addWidget(tree, 1)
         side = QVBoxLayout()

@@ -73,6 +73,7 @@ SYMBOLS: dict[str, Sym] = {
     "eps_r": Sym(False, True, ONE, False, r"\varepsilon_r", "relative permittivity of the material"),
     "mu_r": Sym(False, True, ONE, False, r"\mu_r", "relative permeability of the material"),
     "tand": Sym(False, True, ONE, False, r"\tan\delta", "dielectric loss tangent of the material"),
+    "tandm": Sym(False, True, ONE, False, r"\tan\delta_m", "magnetic loss tangent of the material"),
 }
 PEAK_FIELDS = {"E", "H", "D", "B", "J", "Js"}
 ALIASES = {"ε0": "eps0", "ε₀": "eps0", "μ0": "mu0", "μ₀": "mu0", "ω": "omega", "π": "pi", "σ": "sigma",

@@ -257,7 +257,8 @@ def _material_values(mat, ev, freq: float) -> dict:
             er, tand = eps.real, -eps.imag / eps.real
     except Exception:  # noqa: BLE001
         pass
-    return {"eps_r": er, "mu_r": num(mat.permeability, "1"), "sigma": num(mat.conductivity, "0"), "tand": tand}
+    return {"eps_r": er, "mu_r": num(mat.permeability, "1"), "sigma": num(mat.conductivity, "0"), "tand": tand,
+            "tandm": num(getattr(mat, "magnetic_loss_tangent", "0"), "0")}
 
 
 class DocFieldSource(FieldSource):
@@ -311,7 +312,7 @@ class DocFieldSource(FieldSource):
             rows = []
             des = self.doc.design
             for name in self.names:
-                vals = {"eps_r": 1.0, "mu_r": 1.0, "sigma": 0.0, "tand": 0.0}
+                vals = {"eps_r": 1.0, "mu_r": 1.0, "sigma": 0.0, "tand": 0.0, "tandm": 0.0}
                 ob = des.obj(name) if name and des.has_obj(name) else None
                 if ob is not None:
                     try:
@@ -321,7 +322,7 @@ class DocFieldSource(FieldSource):
                     except Exception:  # noqa: BLE001
                         pass
                 rows.append(vals)
-            rows.append({"eps_r": 1.0, "mu_r": 1.0, "sigma": 0.0, "tand": 0.0})     # tet_obj -1
+            rows.append({"eps_r": 1.0, "mu_r": 1.0, "sigma": 0.0, "tand": 0.0, "tandm": 0.0})     # tet_obj -1
             idx = np.asarray(self.m["tet_obj"], np.int64) if "tet_obj" in self.m else np.full(len(self.tets), -1)
             self._mat = {k: np.array([r[k] for r in rows])[idx] for k in rows[0]}
         return self._mat[prop]
