@@ -2869,8 +2869,8 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
                 if prev is not None and len(prev) == len(pw["eff"]):
                     row["delta_eff"] = max(abs(a - b) for a, b in zip(prev, pw["eff"]))
         track = tracker.match(samples) if samples is not None else None
-        if track is not None and track[2]:
-            info(f"Pass {step}: " + "; ".join(track[2]) + " (matched by their fields; Delta S compares the same modes)")
+        if track is not None and track[1]:
+            info(f"Pass {step}, port modes matched by their fields: " + "; ".join(track[1]))
         if S_prev is not None:
             ds = [aligned_delta(a, b, track if len(fa) == 1 or k == 0 else None) for k, (a, b) in enumerate(zip(S_prev, Ss))]
             if on_mag:

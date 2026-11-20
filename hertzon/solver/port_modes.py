@@ -170,10 +170,11 @@ def excitation_label(port: int, mode: int, info: dict | None) -> str:
 # ------------------------------------------------------------------------------------------------
 class ModeTracker:
     """Samples the port modes of every S-matrix row at fixed points of each port face (the triangle centroids
-    of the first pass) and matches them with the modes of the previous pass."""
+    of the first pass, weighted with the square root of their area) and matches them with the modes of the
+    previous pass."""
 
     def __init__(self):
-        self.points: dict[int, np.ndarray] = {}
+        self.points: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         self.prev: list | None = None
 
     def sample(self, m, freq: float) -> list:
@@ -189,24 +190,27 @@ class ModeTracker:
                     if num not in self.points:
                         mesh = m.mesh
                         tris = mesh.tris[:, mesh.get_triangles(port.tags)]
-                        P = np.asarray(mesh.nodes, float)[:, tris]
-                        self.points[num] = P.mean(axis=1)
+                        fr = face_frame(mesh.nodes, tris)
+                        self.points[num] = (fr["points"], np.sqrt(fr["weights"] / fr["area"]))
+                    pts, w = self.points[num]
                     md = port.get_modes(k0)[mode_nr - 1]
-                    vec = np.nan_to_num(np.asarray(md.E_function(*self.points[num]), complex)).ravel()
+                    vec = (np.nan_to_num(np.asarray(md.E_function(*pts), complex)) * w).ravel()
                 except Exception:  # noqa: BLE001
                     vec = None
             out.append((num, int(mode_nr), vec))
         return out
 
-    def match(self, cur: list) -> tuple[np.ndarray, np.ndarray, list[str]] | None:
-        """(perm, phase, notes) of the current modes against the previous pass: current row i is row perm[i] of
-        the previous pass, and its mode is phase[i] times that previous mode. None for the first pass or when
-        the rows do not fit. The current samples become the reference of the next pass."""
+    def match(self, cur: list) -> tuple[np.ndarray, list[str]] | None:
+        """(U, notes): the modes of the current pass in terms of those of the previous pass, current mode
+        i = sum_k U[i, k] previous mode k (block diagonal per port, unitary): a permutation when the modes changed
+        their order, signs or phases when they flipped, a rotation when modes of the same propagation constant
+        came out as another mix. None for the first pass or when the rows do not fit. The current samples
+        become the reference of the next pass."""
         prev, self.prev = self.prev, cur
         if prev is None or len(prev) != len(cur):
             return None
         n = len(cur)
-        perm, phase, notes = np.arange(n), np.ones(n, complex), []
+        U, notes = np.eye(n, dtype=complex), []
         ports: dict[int, list[int]] = {}
         for i, (num, _, _) in enumerate(cur):
             ports.setdefault(num, []).append(i)
@@ -217,36 +221,37 @@ class ModeTracker:
                 continue
             A = np.array([prev[i][2] for i in rows])
             B = np.array([cur[i][2] for i in rows])
-            O = np.conj(A) @ B.T                                        # O[p, c] = <prev p, cur c>
-            nrm = np.outer(np.linalg.norm(A, axis=1), np.linalg.norm(B, axis=1))
-            with np.errstate(all="ignore"):
-                C = np.where(nrm > 0, np.abs(O) ** 2 / np.where(nrm > 0, nrm, 1) ** 2, 0.0)
-            if len(rows) > 1:
-                from scipy.optimize import linear_sum_assignment
-                pr, cc = linear_sum_assignment(-C)
-                assign = dict(zip(cc, pr))
-            else:
-                assign = {0: 0}
-            for c_i, p_i in assign.items():
-                perm[rows[c_i]] = rows[p_i]
-                o = O[p_i, c_i]
-                if abs(o) > 0 and C[p_i, c_i] > 0.25:
-                    phase[rows[c_i]] = o / abs(o)
-            if any(assign[c] != c for c in assign):
-                order = ", ".join(f"mode {c + 1} = previous mode {assign[c] + 1}" for c in sorted(assign)
-                                  if assign[c] != c)
-                notes.append(f"port {num}: the modes changed their order ({order})")
-        return perm, phase, notes
+            na, nb = np.linalg.norm(A, axis=1), np.linalg.norm(B, axis=1)
+            if np.any(na == 0) or np.any(nb == 0):
+                continue
+            A, B = A / na[:, None], B / nb[:, None]
+            # least squares B ~ M A, then the closest unitary matrix (the modes are power normalized)
+            M = np.linalg.lstsq(A.T, B.T, rcond=None)[0].T
+            W, _, Vh = np.linalg.svd(M)
+            Uk = W @ Vh
+            if np.linalg.norm(B - Uk @ A) > 0.5 * np.sqrt(len(rows)):
+                notes.append(f"port {num}: the modes are not those of the previous pass (more modes of the same "
+                             "propagation constant than the port takes?), Delta S compares them as they are")
+                continue
+            U[np.ix_(rows, rows)] = Uk
+            P = np.abs(Uk) ** 2
+            best = P.argmax(axis=1)
+            if np.any(P.max(axis=1) < 0.9):
+                notes.append(f"port {num}: modes of equal propagation constant came out as another mix, compared in "
+                             "the mix of the previous pass")
+            elif np.any(best != np.arange(len(rows))):
+                order = ", ".join(f"mode {c + 1} = previous mode {best[c] + 1}" for c in range(len(rows))
+                                  if best[c] != c)
+                notes.append(f"port {num}: the modes changed their order ({order}), compared in the previous order")
+        return U, notes
 
 
-def to_previous_gauge(S: np.ndarray, perm: np.ndarray, phase: np.ndarray) -> np.ndarray:
-    """S of the current pass in the mode order and gauge of the previous pass: current mode i = phase[i] x
-    previous mode perm[i]; the waves of a mode scaled by c scale by 1/c, so S_ij -> S_ij c_i / c_j."""
-    S = np.asarray(S, complex)
-    T = S * phase[:, None] / phase[None, :]
-    out = np.empty_like(T)
-    out[np.ix_(perm, perm)] = T
-    return out
+def to_previous_gauge(S: np.ndarray, U: np.ndarray) -> np.ndarray:
+    """S of the current pass in the modes of the previous pass. With current mode i = sum_k U[i, k] previous
+    mode k the waves transform as a_prev = U^T a_cur, so S_prev = U^T S_cur U^-T = U^T S_cur conj(U) (U
+    unitary). For a sign flip c of mode i: S_ij -> c_i S_ij / c_j."""
+    U = np.asarray(U, complex)
+    return U.T @ np.asarray(S, complex) @ np.conj(U)
 
 
 def sign_gauge(S_old: np.ndarray, S_new: np.ndarray, rel: float = 0.05) -> np.ndarray:
@@ -293,13 +298,13 @@ def sign_gauge(S_old: np.ndarray, S_new: np.ndarray, rel: float = 0.05) -> np.nd
 
 def gauge_aligned(S_old: np.ndarray, S_new: np.ndarray, track=None) -> np.ndarray:
     """S_new in the gauge (mode order, signs) closest to S_old: the candidates are S_new as it is, matched by
-    the mode fields (track = (perm, phase) of ModeTracker.match) and by the S-parameters (sign_gauge); the one
+    the mode fields (track = (U, notes) of ModeTracker.match) and by the S-parameters (sign_gauge); the one
     with the smallest max |S_new - S_old| is taken. All of them describe the same solution, a different
     sign or order of a port mode is no change of the model."""
     S_old, S_new = np.asarray(S_old, complex), np.asarray(S_new, complex)
     cands = [S_new]
     if track is not None:
-        cands.append(to_previous_gauge(S_new, *track[:2]))
+        cands.append(to_previous_gauge(S_new, track[0]))
     for base in list(cands):
         s = sign_gauge(S_old, base)
         if np.any(s < 0):

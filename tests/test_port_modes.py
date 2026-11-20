@@ -42,25 +42,37 @@ def test_delta_s_ignores_a_sign_flip_of_a_mode_that_does_not_couple_to_port_1():
     assert d == pytest.approx(0.04, abs=1e-9)
 
 
-def test_tracker_matches_modes_that_swapped_and_flipped():
-    """The modes of a port that come out in the other order and with another sign are matched by their fields;
-    S is then compared in the order and gauge of the previous pass."""
+def test_tracker_matches_modes_that_swapped_flipped_or_mixed():
+    """The modes of a port that come out in the other order, with another sign or, for modes of equal propagation
+    constant, as another mix are matched by their fields; S is then compared in the modes of the previous pass."""
     rng = np.random.default_rng(2)
     e1, e2, e3 = (rng.standard_normal(30) for _ in range(3))
     tr = PM.ModeTracker()
     assert tr.match([(1, 1, e1), (1, 2, e2), (2, 1, e3)]) is None
-    perm, phase, notes = tr.match([(1, 1, -e2 * 1.01), (1, 2, e1), (2, 1, -e3)])
-    assert list(perm) == [1, 0, 2] and np.allclose(phase, [-1, 1, -1])
-    assert notes and "port 1" in notes[0]
+    # port 1: order swapped and mode 1 flipped; port 2 flipped
+    U, notes = tr.match([(1, 1, -e2 * 1.01), (1, 2, e1), (2, 1, -e3)])
+    assert np.allclose(np.abs(U), [[0, 1, 0], [1, 0, 0], [0, 0, 1]], atol=1e-6)
+    assert notes and "port 1" in notes[0] and "order" in notes[0]
     S_prev = np.array([[0.1, 0.02, 0.9j], [0.02, 0.3, 0.1], [0.9j, 0.1, 0.2]])
-    # the same solution in the new order and gauge: cur mode i = phase_i * prev mode perm_i, S_ij scales c_j / c_i
-    S_cur = np.empty_like(S_prev)
-    for i in range(3):
-        for j in range(3):
-            S_cur[i, j] = S_prev[perm[i], perm[j]] * phase[j] / phase[i]
-    assert np.allclose(PM.to_previous_gauge(S_cur, perm, phase), S_prev)
-    d, *_ = B.aligned_delta(S_prev, S_cur, (perm, phase, notes))
-    assert d == pytest.approx(0, abs=1e-12)
+    # the same solution in the modes of this pass: a_prev = U^T a_cur, so S_cur = U^-T S_prev U^T
+    S_cur = np.linalg.inv(U.T) @ S_prev @ U.T
+    assert np.allclose(PM.to_previous_gauge(S_cur, U), S_prev)
+    d, *_ = B.aligned_delta(S_prev, S_cur, (U, notes))
+    assert d == pytest.approx(0, abs=1e-9)
+    # two modes of one beta (degenerate): any rotation of them is the same solution
+    tr = PM.ModeTracker()
+    tr.match([(1, 1, e1 / np.linalg.norm(e1)), (1, 2, e2 / np.linalg.norm(e2))])
+    q1, q2 = np.linalg.qr(np.array([e1, e2]).T)[0].T
+    tr2 = PM.ModeTracker()
+    tr2.match([(1, 1, q1), (1, 2, q2)])
+    c, s_ = np.cos(0.6), np.sin(0.6)
+    R = np.array([[c, s_], [-s_, c]])
+    U, notes = tr2.match([(1, 1, R[0, 0] * q1 + R[0, 1] * q2), (1, 2, R[1, 0] * q1 + R[1, 1] * q2)])
+    assert np.allclose(U, R, atol=1e-9) and "mix" in notes[0]
+    S_prev = np.array([[0.3 + 0.1j, 0.5], [0.5, -0.2j]])
+    S_cur = np.linalg.inv(R.T) @ S_prev @ R.T
+    assert np.max(np.abs(S_cur - S_prev)) > 0.1
+    assert B.aligned_delta(S_prev, S_cur, (U, notes))[0] == pytest.approx(0, abs=1e-9)
 
 
 def _rect_face(a=22.86e-3, b=10.16e-3, n=12):
