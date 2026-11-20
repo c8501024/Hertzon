@@ -1876,6 +1876,17 @@ def near_contacts(built: dict, tol: float | None = None) -> list[tuple[str, str,
                 if d < min(half_thickness(na, nrm), half_thickness(nb, nrm)):
                     add(na, nb, "gap", d)
 
+    def coaxial(name, c, a, r) -> bool:
+        """name has a cylinder on the same axis with the same radius: coincident round faces (a coax whose
+        dielectric is the outer conductor minus the inner one) are conformal, the straight seam edge of that
+        face lies on the other cylinder by construction and is no tangential touch."""
+        for n2, c2, a2, r2, _ in cyls:
+            if n2 == name and abs(r2 - r) <= lo_tol and abs(abs(float(a2 @ a)) - 1) < 1e-9:
+                dv = (c2 - c) - a * float((c2 - c) @ a)
+                if float(np.linalg.norm(dv)) <= lo_tol:
+                    return True
+        return False
+
     # cylinders against straight edges and plane faces of other objects
     for nc, c, a, r, (t0, t1) in cyls:
         span = (t1 - t0) * 1e-6
@@ -1892,7 +1903,7 @@ def near_contacts(built: dict, tol: float | None = None) -> list[tuple[str, str,
                 dv = (p0 - c) - a * float((p0 - c) @ a)
                 d = float(np.linalg.norm(dv))
                 s0, s1 = sorted((float((p0 - c) @ a), float((p1 - c) @ a)))
-                if abs(d - r) < tol and s0 < t1 - span and s1 > t0 + span:
+                if abs(d - r) < tol and s0 < t1 - span and s1 > t0 + span and not coaxial(ns, c, a, r):
                     add(nc, ns, "tangent", abs(d - r))
                 continue
             # closest points of the axis line c + s a and the edge line p0 + t u

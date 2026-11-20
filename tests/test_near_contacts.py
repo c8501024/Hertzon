@@ -30,7 +30,7 @@ def _near(case: str, gap: float):
         A("CreateCylinder", "ViaT", CenterPosition=f"{21.0 + gap},14,0", Axis="Z", Radius="0.5",
           Height="1.6").material = "copper"
     pl = _placement(p, d)
-    msgs = [c.message for c in validate(p, d, sheets=pl) if c.level == "warning"]
+    msgs = [c.message for c in validate(p, d, sheets=pl) if c.level in ("warning", "info")]
     return [x for x in pl if ":" in x[2]], msgs
 
 
@@ -53,6 +53,33 @@ def test_via_tangent_to_a_trace_edge_is_named(gap):
     near, msgs = _near("via", gap)
     assert [(a, b, how.split(":")[0]) for a, b, how in near] == [("Trace", "ViaT", "tangent")]
     assert any("'Trace' and 'ViaT' touch tangentially" in m for m in msgs), msgs
+
+
+def test_tangential_touch_is_information_not_a_warning():
+    p, d, _ = _board("clip")
+    d.add_object("CreateCylinder", "ViaT", CenterPosition="21.0,14,0", Axis="Z", Radius="0.5",
+                 Height="1.6").material = "copper"
+    checks = [c for c in validate(p, d, sheets=_placement(p, d)) if "touch tangentially" in c.message]
+    assert checks and all(c.level == "info" for c in checks)
+
+
+@pytest.mark.parametrize("keep", ["True", "False"])
+def test_coaxial_subtracted_cylinders_are_not_a_tangential_touch(keep):
+    """A coax: the dielectric is a cylinder minus the inner conductor; the seam edges of the coincident round faces
+    lie on the other cylinder by construction and are no near contact."""
+    from hertzon.model.design import Command, Project
+    p = Project()
+    d = p.designs[0]
+    d.units = "mm"
+    d.add_object("CreateCylinder", "Outer", CenterPosition="0,0,0", Axis="Z", Radius="1.15",
+                 Height="5").material = "PTFE"
+    d.add_object("CreateCylinder", "Inner", CenterPosition="0,0,0", Axis="Z", Radius="0.5",
+                 Height="5").material = "copper"
+    d.obj("Outer").history.append(Command.new("Subtract", Tools="Inner", KeepOriginals=keep))
+    if keep == "False":     # the pin made again, as a separate object
+        d.add_object("CreateCylinder", "Pin", CenterPosition="0,0,0", Axis="Z", Radius="0.5",
+                     Height="5").material = "copper"
+    assert not [x for x in _placement(p, d) if ":" in x[2]]
 
 
 @pytest.mark.parametrize("gap", [0.1, -0.1])

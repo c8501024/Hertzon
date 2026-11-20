@@ -238,7 +238,7 @@ def apply_frequencies(setup, sweep_name: str | None, freq: str | None, points: s
         fs = sorted(freq_hz(x, ev) for x in points.split(",") if x.strip())
         if not fs or fs[0] <= 0:
             raise CliError("--points needs positive frequencies")
-        sw.props.update({"Distribution": "Single Points", "Points": ",".join(_fmt_hz(f) for f in fs)})
+        sw.props.update({"Distribution": "Single Points", "Points": ";".join(_fmt_hz(f) for f in fs)})
     if sweep_type:
         sw.props["SweepType"] = {"discrete": "Discrete", "interpolating": "Interpolating", "fast": "Fast"}[sweep_type]
     return sw
