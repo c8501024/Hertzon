@@ -43,7 +43,7 @@ class FieldSource:
         raise NotImplementedError
 
     def material(self, prop: str) -> np.ndarray:
-        """'eps_r', 'mu_r', 'sigma' or 'tand' of every element (M,)."""
+        """'eps_r', 'mu_r', 'sigma', 'tand' or 'tandm' (magnetic loss tangent) of every element (M,)."""
         raise NotImplementedError
 
     def network(self, kind: str, ports: list[int]) -> complex:
@@ -236,7 +236,7 @@ class Evaluator:
         self._need_points(S, name)
         if name in ("x", "y", "z"):
             return S.P[:, "xyz".index(name)].astype(complex)
-        if name in ("eps_r", "mu_r", "sigma", "tand"):
+        if name in ("eps_r", "mu_r", "sigma", "tand", "tandm"):
             return self._per_element(np.asarray(self.src.material(name), float), S).astype(complex)
         if name == "E":
             return self._at_sides(self._nodal_of("E"), S)

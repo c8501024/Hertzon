@@ -41,3 +41,30 @@ def test_manual_pml_faces_are_the_far_field_surface(tmp_path):
         assert len(b.open_faces.tags) == 5
         # the PML layers are known, so their absorption is not counted as a loss in the model
         assert b.pml_geos and b.geos["Air"] not in b.pml_geos
+
+
+def test_the_floor_under_a_five_sided_pml_is_a_ground_plane(tmp_path):
+    """The bottom face of the air box stays the conducting outer boundary: the far field is mirrored there."""
+    p = Project()
+    d = p.designs[0]
+    d.add_object("CreateCylinder", "Wire", CenterPosition="0,0,0", Axis="Z", Radius="1mm", Height="20mm",
+                 material="pec")
+    d.add_object("CreateBox", "Air", Position="-40mm,-40mm,0", XSize="80mm", YSize="80mm", ZSize="60mm",
+                 material="air")
+    K.ensure_gmsh("test_manual_pml_gnd")
+    t = K.tessellate(K.build_design(d, d.evaluator(p)))["Air"]
+    up = [FaceRef("Air", i) for i, c in enumerate(t.face_center) if c[2] > 1e-6]
+    props = schema.defaults(schema.BOUNDARIES["PML"])
+    props.update(Thickness="10mm", Layers="2")
+    d.boundaries.append(Assignment("PML1", "PML", props, faces=up))
+    d.spheres.append(InfiniteSphere("FF"))
+    st = Setup("Setup1")
+    st.props.update(Frequency="3GHz", LambdaRefinement="False", CurvedElements="False")
+    d.setups.append(st)
+    b = B.Bridge(p, d, st, tmp_path)
+    with em.Simulation("manual_pml_gnd", save_file=False) as m:
+        b.prepare(m)
+        surf = b.huygens_surface()
+    assert surf is not None
+    assert (str(surf["gnd_kind"][0]), int(surf["gnd_axis"][0]), int(surf["gnd_dir"][0])) == ("E", 2, 1)
+    assert abs(float(surf["gnd_pos"][0])) < 1e-9

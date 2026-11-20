@@ -148,6 +148,9 @@ HELP: dict[str, str] = {
     "MaximumPasses": "Maximum number of adaptive passes. Raising it later continues from the last adaptive "
                      "mesh (only convergence settings changed).",
     "MaximumDeltaS": "Convergence target: maximum change of any S-parameter magnitude between two passes.",
+    "DeltaSQuantity": "Delta S of the complex S-parameters (default) or of their magnitudes |S| only. Port "
+                      "modes are matched from pass to pass by their fields, so a sign flip or a new order of the "
+                      "modes of a wave port is no change.",
     "UseMatrixConvergence": "Use separate magnitude and phase targets instead of Delta S.",
     "MaxDeltaMag": "Maximum change of |S| between passes.",
     "UsePowerBalance": "Antennas: also require Prad + Ploss = Pacc (power balance) and a stable radiation efficiency.",

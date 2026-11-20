@@ -10,8 +10,10 @@ by shutting down an instance that terminates on shutdown; on Google Cloud with t
 - the running solver printed nothing for QUIET_H hours (hung),
 - the service did not answer for START_MIN minutes (image not pulled, service crashed).
 
-The GUI removes its server itself (when Hertzon closes, or with Delete Cloud Servers); this is the safety
-net for a GUI that crashed or lost its network.
+The GUI removes its server itself (when the last Hertzon window that uses it closes, or with Delete Cloud
+Servers); this is the safety net for a GUI that crashed or lost its network. Before deleting, the watchdog
+writes the reason to deleting.json in the service's work folder; the service reports it to the GUIs, which
+show it and record it in their events.log.
 """
 from __future__ import annotations
 
@@ -23,6 +25,7 @@ import urllib.error
 import urllib.request
 
 CONFIG = "/etc/hertzon/watchdog.json"
+ANNOUNCE = "/var/lib/hertzon/remote/deleting.json"   # the service's work folder (/work/remote in the container)
 
 
 def decide(info: dict | None, cfg: dict, unreachable: float) -> str:
@@ -101,6 +104,19 @@ def _azure_delete(cfg: dict) -> None:
 DELETE = {"hetzner": _hetzner_delete, "aws": _shutdown, "gcp": _gcp_delete, "azure": _azure_delete}
 
 
+def announce(cfg: dict, reason: str, busy: bool) -> None:
+    """Tell the remote service why the server goes (it reports it to the GUIs in /api/info and in the events
+    of a job); while analyses run, wait so that a GUI that follows one sees it before the server is gone."""
+    try:
+        with open(cfg.get("announce", ANNOUNCE), "w", encoding="utf-8") as f:
+            json.dump({"reason": reason, "time": time.time()}, f)
+    except OSError as ex:
+        print(f"hertzon watchdog: could not announce the deletion: {ex}", flush=True)
+        return
+    if busy:
+        time.sleep(cfg.get("announce_s", 90))
+
+
 def delete(cfg: dict, reason: str) -> None:
     print(f"hertzon watchdog: deleting this server: {reason}", flush=True)
     for _ in range(5):
@@ -123,6 +139,7 @@ def main() -> int:
             last_ok = time.time()
         reason = decide(info, cfg, time.time() - last_ok)
         if reason:
+            announce(cfg, reason, bool(info and (info.get("busy") or info.get("queued"))))
             delete(cfg, reason)
             return 0
         time.sleep(60)

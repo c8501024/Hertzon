@@ -1013,7 +1013,7 @@ def farfield_basis(bridge, W: np.ndarray, ids: np.ndarray, f_ref: float) -> dict
         E[j] = np.array(basis.interpolate(full, *vis, mapping, usenan=False))
         C[j] = np.array(basis.interpolate_curl(full, *vis, c, mapping, usenan=False))
     out = {"ff_vis": vis, "ff_wns": np.asarray(surf["wns"], np.float64), "ff_E": E, "ff_C": C}
-    for key in ("sym_kind", "sym_axis", "sym_pos"):
+    for key in ("sym_kind", "sym_axis", "sym_pos", "gnd_kind", "gnd_axis", "gnd_pos", "gnd_dir"):
         if key in surf:
             out[f"ff_{key}"] = surf[key]
     return out
@@ -1549,7 +1549,7 @@ class TuningModel:
         """Far fields of the basis vectors (basis x 3 x directions) on the grid theta x phi at model frequency
         k, with the mirror images and the scaling to 1 W into the full structure: the far field is linear in
         the reduced solution, so a slider move only sums them (cached per frequency and grid)."""
-        from .farfield_post import mirrored, stratton_chu_multi, symmetry_planes
+        from .farfield_post import ground_plane, mirrored, stratton_chu_multi, symmetry_planes
         key = (k, np.asarray(theta, float).tobytes(), np.asarray(phi, float).tobytes())
         cache = self._ffcache
         if key not in cache:
@@ -1558,10 +1558,16 @@ class TuningModel:
             Es = list(Eb)
             Hs = list(Cb / (-1j * 2 * np.pi * f))
             planes = symmetry_planes(self.ff)
-            v2, w2, Ein, Hin = mirrored(self.ff["vis"], self.ff["wns"], Es, Hs, planes)
+            gnd = ground_plane(self.ff)
+            v2, w2, Ein, Hin = mirrored(self.ff["vis"], self.ff["wns"], Es, Hs,
+                                        planes + ([gnd[:3]] if gnd is not None else []))
             T, P = np.meshgrid(theta, phi, indexing="ij")
             Fs = stratton_chu_multi(Ein, Hin, v2, w2, T.ravel(), P.ravel(), 2 * np.pi * f / 299792458.0)
             F = np.array(Fs) * (0.5 ** len(planes)) ** 0.5
+            if gnd is not None:     # no field behind an infinite ground plane
+                Tr, Pr = T.ravel(), P.ravel()
+                r = np.stack([np.sin(Tr) * np.cos(Pr), np.sin(Tr) * np.sin(Pr), np.cos(Tr)])[gnd[1]]
+                F = np.where((gnd[3] * r < -1e-9)[None, None, :], 0, F)
             while cache and sum(v.nbytes for v in cache.values()) + F.nbytes > FF_CACHE_BYTES:
                 cache.pop(next(iter(cache)))            # the oldest grid or frequency first
             cache[key] = F

@@ -227,7 +227,7 @@ def edit_setup(parent, doc, s: Setup) -> bool:
     props = schema.EIGEN_SETUP if s.eigen else schema.SETUP
     des = doc.design
     pw = not des.ports() and any(e.kind == "Incident Plane Wave" and e.enabled for e in des.excitations)
-    drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
+    drop = ({"MaximumDeltaS", "DeltaSQuantity", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
                  "MaxPowerBalance", "MaxDeltaEfficiency"} if pw
             else {"MaximumDeltaEnergy"})
     props = [p for p in props if p.name not in drop]
@@ -845,8 +845,8 @@ class ValidationDialog(QDialog):
     """Validation check; clicking a problem selects the object or assignment it is about."""
     from PySide6.QtCore import Signal as _Signal
     messageActivated = _Signal(str)
-    ICON = {"ok": "✔", "warning": "⚠", "error": "✖"}
-    COLOR = {"ok": "#1e8449", "warning": "#b9770e", "error": "#c0392b"}
+    ICON = {"ok": "✔", "info": "ℹ", "warning": "⚠", "error": "✖"}
+    COLOR = {"ok": "#1e8449", "info": "#2471a3", "warning": "#b9770e", "error": "#c0392b"}
 
     def __init__(self, doc, parent=None, overlaps=None, resolve=None, sheets=None):
         """overlaps: classified overlapping solids (model.validate.Overlap) from the exact geometry check;
@@ -871,7 +871,7 @@ class ValidationDialog(QDialog):
                     it.setForeground(0, QBrush(QColor(self.COLOR[c.level])))
                     top.addChild(it)
             tree.addTopLevelItem(top)
-            top.setExpanded(lv != "ok")
+            top.setExpanded(lv not in ("ok", "info"))
         tree.itemClicked.connect(lambda it, _c: self.messageActivated.emit(it.data(0, Qt.UserRole) or ""))
         lay.addWidget(tree, 1)
         side = QVBoxLayout()
@@ -1048,7 +1048,8 @@ class OptionsDialog(QDialog):
         self.remote_on.setChecked(s.value("remote/enabled", False, type=bool))
         self.remote_addr = QLineEdit(s.value("remote/address", ""))
         self.remote_addr.setPlaceholderText("simstation02 or 192.168.1.20:47820")
-        self.remote_token = QLineEdit(s.value("remote/token", ""))
+        from ..remote import keystore
+        self.remote_token = QLineEdit(keystore.get(s, "remote/token"))
         self.remote_token.setEchoMode(QLineEdit.Password)
         self.remote_find = QPushButton("Find in Network ...")
         self.remote_find.setToolTip("Looks for computers in the local network that share themselves "
@@ -1381,14 +1382,15 @@ class OptionsDialog(QDialog):
         f = QFormLayout(w)
         self.cloud_on = QCheckBox("Solve in the cloud")
         self.cloud_on.setToolTip("The first analysis creates a server at the cloud provider (one to three "
-                                 "minutes);\nfurther analyses use it at once. It is deleted when Hertzon closes "
-                                 "or when it is idle.")
+                                 "minutes);\nfurther analyses use it at once. It is deleted when the last Hertzon "
+                                 "window that uses it closes, or when it is idle.")
         self.cloud_on.setChecked(s.value("cloud/enabled", False, type=bool))
         self.cloud_on.toggled.connect(lambda on: on and self.remote_on.setChecked(False))
         self.remote_on.toggled.connect(lambda on: on and self.cloud_on.setChecked(False))
         self.cloud_on.toggled.connect(lambda _on: self._hpc_remote_state())
         f.addRow("", self.cloud_on)
-        get = s.value
+        from ..remote import keystore
+        get = keystore.getter(s)
         self._cloud_vals = {}                  # provider -> the fields, kept while another provider is shown
         for key in providers.NAMES:
             creds = providers.credentials(get, key)
@@ -1445,6 +1447,12 @@ class OptionsDialog(QDialog):
         f.addRow("Delete the server when idle for", self.cloud_idle)
         f.addRow("... when the solver shows no progress for", self.cloud_quiet)
         f.addRow("... when no Hertzon is connected for", self.cloud_contact)
+        self.cloud_requeue = QCheckBox("Queue an analysis again when its server is lost")
+        self.cloud_requeue.setToolTip("When the cloud server disappears while an analysis runs on it (deleted "
+                                      "outside Hertzon, crashed),\nthe analysis is queued once more and a new "
+                                      "server is created for it. Off: it is reported as aborted.")
+        self.cloud_requeue.setChecked(s.value("cloud/requeue_lost", False, type=bool))
+        f.addRow("", self.cloud_requeue)
         self.cloud_state = QLabel("Check Account lists them")
         self.cloud_state.setWordWrap(True)
         self.cloud_state.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -1454,11 +1462,15 @@ class OptionsDialog(QDialog):
         delete.clicked.connect(self._cloud_delete_all)
         f.addRow("Servers", self.cloud_state)
         f.addRow("", delete)
-        note = QLabel("Billing is for the time the server exists (Hetzner per hour, the others per second or "
-                      "minute). Hertzon deletes "
-                      "it when it closes; the server also deletes itself in the cases above, so a crashed or "
-                      "disconnected Hertzon leaves nothing running. The connection is an SSH tunnel (encrypted, "
-                      "the server's key is known in advance). Cores and sweep processes: all of the server and 2.")
+        note = QLabel("Billing is for the time the server exists (Hetzner per started hour, the others per "
+                      "second or minute); the status bar shows the price and the costs so far. All Hertzon windows "
+                      "of this computer share the server; it is deleted when the last window that uses it "
+                      "closes (with a question if analyses still run there). The server also deletes itself in "
+                      "the cases above, so a crashed or disconnected Hertzon leaves nothing running; why a server "
+                      "went is shown in the Message Manager and recorded in cloud/events.log of the Hertzon work "
+                      "folder. The connection is an SSH tunnel (encrypted, the server's key is known in advance). "
+                      "Cores and sweep processes: all of the server and 2. API tokens and keys are kept in "
+                      f"{keystore.where()}.")
         note.setWordWrap(True)
         f.addRow(note)
         return w
@@ -1615,7 +1627,30 @@ class OptionsDialog(QDialog):
             self.cloud_state.setText("Connected; no Hertzon server is running.")
             return
         self.cloud_state.setText("Running: " + ", ".join(
-            f"{x['name']} ({x['type']}, {x['status']}, from {x['client'] or '?'})" for x in servers))
+            f"{x['name']} ({x['type']}, {x['status']}, from {x['client'] or '?'}{self._cloud_cost_text(x)})"
+            for x in servers))
+
+    def _cloud_cost_text(self, srv: dict) -> str:
+        """', 2.3 h, about 0.36 EUR' for a server of the list (running time from its creation time, price of
+        its type from Check Account); '' when unknown."""
+        from datetime import datetime, timezone
+        created = str(srv.get("created") or "")
+        try:
+            t0 = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            if t0.tzinfo is None:
+                t0 = t0.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return ""
+        hours = max(0.0, (datetime.now(timezone.utc) - t0).total_seconds() / 3600)
+        loc = self._cloud_field(self.cloud_location)
+        t = next((t for t in self._cloud_types if t["name"] == srv.get("type")), None)
+        price = (t or {}).get("prices", {}).get(loc) or (t or {}).get("price")
+        text = f", {hours:.1f} h"
+        if price:
+            import math
+            billed = math.ceil(hours) if self._cloud_key() == "hetzner" else hours
+            text += f", about {billed * float(price):.2f} {(t or {}).get('currency', 'EUR')}"
+        return text
 
     def _cloud_delete_all(self) -> None:
         from PySide6.QtWidgets import QMessageBox
@@ -1632,10 +1667,9 @@ class OptionsDialog(QDialog):
                 return
             for x in servers:
                 prov.delete(x["id"])
-            cloud = getattr(self.win, "_cloud", None)
-            if cloud is not None:
-                cloud[1].tunnel.close()
-                cloud[1].state_file.unlink(missing_ok=True)
+            session = getattr(self.win, "cloud_session", None)
+            if session is not None:         # the state shared by all windows: their analyses learn why
+                session().forget("deleted with Delete Cloud Servers in Tools > Options")
             self._cloud_servers(prov.servers())
         except RemoteError as ex:
             self.cloud_state.setText(str(ex))
@@ -1774,7 +1808,8 @@ class OptionsDialog(QDialog):
         s.setValue("hpc/default_solver", self.solver.currentText())
         s.setValue("remote/enabled", self.remote_on.isChecked())
         s.setValue("remote/address", self.remote_addr.text().strip())
-        s.setValue("remote/token", self.remote_token.text().strip())
+        from ..remote import keystore
+        keystore.put(s, "remote/token", self.remote_token.text().strip())
         s.setValue("remote/mode", self.remote_mode.currentData())
         s.setValue("remote/ssh_target", self.ssh_target.text().strip())
         s.setValue("remote/ssh_key", self.ssh_key.text().strip())
@@ -1784,23 +1819,24 @@ class OptionsDialog(QDialog):
         h, a, g = self._cloud_vals["hetzner"], self._cloud_vals["aws"], self._cloud_vals["gcp"]
         z = self._cloud_vals["azure"]
         s.setValue("cloud/provider", self._cloud_key())
-        s.setValue("cloud/hetzner_token", h["token"])
+        keystore.put(s, "cloud/hetzner_token", h["token"])
         s.setValue("cloud/location", h["location"] or "fsn1")
         s.setValue("cloud/server_type", h["type"] or "ccx33")
         s.setValue("cloud/aws_key_id", a["token"])
-        s.setValue("cloud/aws_secret", a["secret"])
+        keystore.put(s, "cloud/aws_secret", a["secret"])
         s.setValue("cloud/aws_region", a["location"] or "eu-central-1")
         s.setValue("cloud/aws_type", a["type"] or "m7a.2xlarge")
         s.setValue("cloud/gcp_key_file", g["token"])
         s.setValue("cloud/gcp_project", g["secret"])
         s.setValue("cloud/gcp_zone", g["location"] or "europe-west3-a")
         s.setValue("cloud/gcp_type", g["type"] or "c3d-standard-8")
-        s.setValue("cloud/azure_credentials", z["token"])
+        keystore.put(s, "cloud/azure_credentials", z["token"])
         s.setValue("cloud/azure_subscription", z["secret"])
         s.setValue("cloud/azure_location", z["location"] or "germanywestcentral")
         s.setValue("cloud/azure_type", z["type"] or "Standard_D8as_v5")
         from ..remote.cloud import providers
-        s.setValue("cloud/enabled", self.cloud_on.isChecked() and providers.configured(s.value))
+        s.setValue("cloud/enabled", self.cloud_on.isChecked() and providers.configured(keystore.getter(s)))
+        s.setValue("cloud/requeue_lost", self.cloud_requeue.isChecked())
         s.setValue("cloud/idle_min", self.cloud_idle.value())
         s.setValue("cloud/quiet_h", self.cloud_quiet.value())
         s.setValue("cloud/contact_h", self.cloud_contact.value())
@@ -1835,7 +1871,8 @@ class EditSourcesDialog(QDialog):
     """Edit Sources: magnitude and phase of every excitation for post processing, and for an
     incident wave the field that is shown (Total, Scattered or Incident)."""
 
-    def __init__(self, parent, design, on_apply=None, names: list[str] | None = None):
+    def __init__(self, parent, design, on_apply=None, names: list[str] | None = None,
+                 labels: dict[str, str] | None = None):
         super().__init__(parent)
         from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QComboBox, QDoubleSpinBox, QLabel, QHBoxLayout
         from ..model import sources as SRC
@@ -1858,7 +1895,8 @@ class EditSourcesDialog(QDialog):
             typ = "Incident Wave" if pw else "Port" if not names or n in ports else \
                 "Terminal" if design.settings.get("SolutionType") == "Terminal" else "Port Mode"
             self._types[n] = typ
-            for c, txt in ((0, n), (1, typ),
+            lab = (labels or {}).get(n, "")
+            for c, txt in ((0, n), (1, f"{typ}: {lab}" if lab else typ),
                            (3, "V/m" if pw else "W")):
                 it = QTableWidgetItem(txt)
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)

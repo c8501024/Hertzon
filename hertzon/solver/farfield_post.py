@@ -49,6 +49,13 @@ def symmetry_planes(huy: dict) -> list[tuple[str, int, float]]:
     return [(str(k), int(a), float(x)) for k, a, x in zip(huy["sym_kind"], huy["sym_axis"], huy["sym_pos"])]
 
 
+def ground_plane(huy: dict) -> tuple[str, int, float, int] | None:
+    """Infinite ground plane stored with the surface fields: (E or H, axis, position in m, side of the model +1/-1)."""
+    if "gnd_axis" not in huy:
+        return None
+    return str(huy["gnd_kind"][0]), int(huy["gnd_axis"][0]), float(huy["gnd_pos"][0]), int(huy["gnd_dir"][0])
+
+
 def mirrored(vis: np.ndarray, wns: np.ndarray, Es: list, Hs: list, planes: list) -> tuple:
     """The surface and the fields with all mirror images at the symmetry planes appended (1, 2 or 4 ... copies).
     At a Perfect E plane normal to axis a, E_a and the other two H components keep their sign, the other two E
@@ -109,6 +116,14 @@ def compute_sphere(huy: dict, props: dict, ev, design=None, plane_wave=None, pro
     vis, wns = huy["vis"], huy["wns"]
     planes = symmetry_planes(huy)
     scale = (0.5 ** len(planes)) ** 0.5     # 1 W into the full structure instead of into the simulated part
+    gnd = ground_plane(huy)
+    if gnd is not None:
+        # image theory: the surface and its mirror image radiate the field above an infinite ground plane; the
+        # 1 W stays the power into the real structure (no scaling), and below the plane there is no field
+        planes = planes + [gnd[:3]]
+        rdir = np.stack([np.sin(Tg) * np.cos(Pg), np.sin(Tg) * np.sin(Pg), np.cos(Tg)])
+        behind = gnd[3] * rdir[gnd[1]] < -1e-9
+        res["gnd"] = np.array([gnd[1], gnd[2], gnd[3]], float)
     if "E0" in huy:
         res["E0"] = huy["E0"]
     keys = [k for k in huy if k.startswith("E_")]
@@ -125,13 +140,16 @@ def compute_sphere(huy: dict, props: dict, ev, design=None, plane_wave=None, pro
         Es = stratton_chu_multi(Ein, Hin, v2, w2, Tg, Pg, k0, None if progress is None else
                                 (lambda x, d=done, n=len(group): progress((d + x * n) / len(keys))))
         done += len(group)
+        nsym = len(planes) - (gnd is not None)
         for key, port, E in zip(group, ports, Es):
             pw = f"pw_{port}" in huy    # a plane wave keeps its amplitude; its scattered power is all images'
+            if gnd is not None:
+                E = np.where(behind[None, :], 0, E)
             if R is not None:
                 E = R.T @ E
             res[key] = (E if pw else E * scale).reshape((3,) + T.shape)
             prad = huy[f"Prad_{k}_{port}"]
-            res[f"Prad_{k}_{port}"] = prad * 2 ** len(planes) if pw else prad
+            res[f"Prad_{k}_{port}"] = prad * 2 ** nsym if pw else prad
         res[f"freq_{k}"] = np.array([f])
         if "mono_dir" in huy:
             tb, pb = [float(x) for x in huy["mono_dir"]]

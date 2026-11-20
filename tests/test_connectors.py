@@ -99,6 +99,7 @@ def test_modes_switch_losslessly():
     tr = d.obj("Trace")
     cuts = [c for c in tr.history if c.kind == "Subtract"]
     assert len(cuts) == 2 and all(c.suppressed for c in cuts)
+    assert "cut back" in j1.props["Warnings"] and "J1_lf" in j1.props["Warnings"]
     assert d.obj("Region").history[0].props == region_before
     snap_ideal = json.dumps(Project.to_dict(pr))
     # 3D for J1
@@ -210,6 +211,13 @@ def test_transition_and_cascade():
     t = pr.design(tnames.pop())
     assert C.transition_state(pr, d, d.connectors[0]) == "current"
     assert [e.name for e in t.ports()] == ["Coax", "Board"]
+    # the board port: voltage line from the ground plane to the trace and mode type TEM, so the solver aligns the
+    # polarity of the (dispersive) microstrip mode at every frequency like that of the coax (S21 not turned by 180
+    # degrees); the coax port keeps its automatic line between its two conductors
+    b0, b1 = t.evaluator(pr).points(t.ports()[1].props["IntegrationLine"])
+    assert b0[2] == pytest.approx(-H * 1e-3) and b1[2] == pytest.approx(0) and b0[:2] == pytest.approx(b1[:2])
+    assert not t.ports()[0].props.get("IntegrationLine")
+    assert t.ports()[1].props["ModeType"] == "TEM"         # polarity aligned at every frequency
     line = json.loads(t.settings[C.TRANSITION_LINE])
     assert line["w"] == pytest.approx(W) and line["h"] == pytest.approx(H) and line["Lb"] > 2
     tess, errors = tessellate_here(pr, t, None)

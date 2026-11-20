@@ -347,3 +347,50 @@ def test_wideband_sweep_and_short_padding_are_flagged(server, tmp_path):
     assert not any("reaches" in x for x in sweep_coverage(p, d, st))
     d.settings["AutoOpenPadding"] = ""                 # automatic: lambda/3 at the lowest sweep frequency
     assert sweep_coverage(p, d, st) == []
+
+
+def test_sweep_choices_are_checked_and_points_take_semicolons(server, tmp_path):
+    """An unknown Distribution (a typo) is refused instead of falling back to Linear Step 1-10 GHz; the case of a
+    choice does not matter; Single Points accept ';' (as the schema says) and ','; the schema help of the sweep's
+    Points is about frequencies, not polyline points."""
+    call(server, "create_project", path=str(tmp_path / "c.hzn"))
+    call(server, "create_patch_antenna", frequency_ghz=2.45)
+    msg = error(server, "set_sweep", name="P", props={"Distribution": "SinglePoints", "Points": "2.4GHz;2.5GHz"})
+    assert "Distribution 'SinglePoints' is not valid" in msg and "Single Points" in msg
+    r = call(server, "set_sweep", name="P", props={"SweepType": "discrete", "Distribution": "single points",
+                                                   "Points": "2.4GHz;2.45GHz;2.5GHz"})
+    assert r["props"]["Distribution"] == "Single Points" and r["props"]["SweepType"] == "Discrete"
+    from hertzon.model.design import Project
+    import numpy as np
+    from hertzon.solver.sweeps import sweep_frequencies
+    p = Project.load(str(tmp_path / "c.hzn"))
+    d = p.design("Patch_2.45GHz")
+    sw = next(w for w in d.setup("Setup1").sweeps if w.name == "P")
+    assert np.allclose(sweep_frequencies(sw.props, d.evaluator(p)), [2.4e9, 2.45e9, 2.5e9])
+    pts = next(x for x in call(server, "get_schema", section="sweep")["Sweep"] if x["name"] == "Points")
+    assert "';'" in pts["help"] and "x, y, z" not in pts["help"]
+    assert "not valid" in error(server, "set_setup", props={"BasisOrder": "Third Order"})
+
+
+def test_report_issue_prefilled_link(server):
+    from urllib.parse import parse_qs, urlparse
+    r = call(server, "report_issue", title="Multi-section Wilkinson divider",
+             problem="A 3-6 GHz divider needs two or more sections; the Design Wizard has only one.",
+             proposal="A Wilkinson structure with a number of sections.")
+    assert r["title"] == "[Missing tool] Multi-section Wilkinson divider"
+    assert "## Proposal" in r["body"] and "## Environment" in r["body"] and "Hertzon " in r["body"]
+    assert "## Example" not in r["body"]                    # empty parts are left out
+    u = urlparse(r["url"])
+    assert f"{u.scheme}://{u.netloc}{u.path}" == "https://github.com/c8501024/Hertzon/issues/new"
+    q = parse_qs(u.query)
+    assert q["title"] == [r["title"]] and q["body"] == [r["body"]] and not r["truncated"]
+
+
+def test_report_issue_long_text_and_bad_input(server):
+    from urllib.parse import parse_qs, urlparse
+    r = call(server, "report_issue", title="Long", kind="bug", problem="x" * 20000)
+    assert r["truncated"] and r["title"].startswith("[Bug]") and len(r["body"]) > 20000
+    link_body = parse_qs(urlparse(r["url"]).query)["body"][0]
+    assert len(link_body) <= 6000 and "full text is in the tool result" in link_body
+    assert "title is required" in error(server, "report_issue", title=" ")
+    assert "Unknown kind" in error(server, "report_issue", title="t", kind="wish")

@@ -9,11 +9,12 @@ from ..model import connectors as C
 
 MODE_HELP = {
     "Ideal": "The lumped port is solved as before; the connector and its footprint are shown transparent, "
-             "outside the model.",
+             "outside the model. The trace still runs to the board edge under the connector.",
     "Transition": "The 3D model stays as in Ideal. A small 3D design of the connector-to-board transition "
                   "(solved once) is cascaded with the lumped port solution in a circuit design.",
-    "3D": "The connector and its footprint are solved with the board, with a wave port on the coax. The air "
-          "region gets no padding toward the connector.",
+    "3D": "The connector and its footprint are solved with the board, with a wave port on the coax. The trace "
+          "is cut back to the end of the footprint, so the contact rests on the pad only. The air region gets no "
+          "padding toward the connector.",
 }
 
 

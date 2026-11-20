@@ -294,11 +294,23 @@ def _props_in(kind: str, plist: list, values: dict | None, base: dict | None = N
         values.setdefault("Axis", out.get("Axis", "Z"))
         schema.upgrade_props(kind, values)
     schema.upgrade_values(values)
+    by_name = {p.name: p for p in plist}
     for k, v in values.items():
         if k not in names:
             raise ToolError(f"{kind} has no property '{k}'. Properties: {sorted(names)}")
-        out[k] = _s(v)
+        out[k] = _choice(kind, by_name[k], _s(v))
     return out
+
+
+def _choice(kind: str, p, v: str) -> str:
+    """A value of a choice property as listed in the schema (any case); an unknown value is refused instead of
+    falling back silently to a default. Choices filled at run time (coordinate systems) are not checked."""
+    if getattr(p, "type", "") != "choice" or not p.choices or p.choices == ("Global",):
+        return v
+    for c in p.choices:
+        if v.strip().lower() == c.lower():
+            return c
+    raise ToolError(f"{kind} {p.name} '{v}' is not valid. Choices: {', '.join(p.choices)}")
 
 
 def _s(v) -> str:
@@ -692,7 +704,7 @@ def t_add_material(args):
     ctx = load(args)
     name = args["name"]
     fields = {"permittivity": "eps_r", "permeability": "mu_r", "conductivity": "sigma",
-              "loss_tangent": "tan_delta"}
+              "loss_tangent": "tan_delta", "magnetic_loss_tangent": "tan_delta_m"}
     m = next((x for x in ctx.proj.materials if x.name == name), None) or Material(name)
     for f, a in fields.items():
         if a in args:
@@ -1449,6 +1461,18 @@ def t_set_field_plot(args):
         fp.plane = "XY@"
     if "volume" in args:
         fp.props["Volume"] = str(bool(args["volume"]))
+    if args.get("mode") is not None:
+        # a mode of a wave port with several modes: the number of that excitation in the stored fields
+        from ..solver.results import ResultStore
+        st = ResultStore(_out_dir(ctx, fp.solution.split(":")[0].strip()))
+        srcs = st.read_json("field_sources.json", None) or []
+        want = (int(args.get("port") or 1), int(args["mode"]))
+        hit = next((q for q in srcs if (q.get("port"), q.get("mode")) == want), None)
+        if hit is None:
+            have = [f"{q['number']}: port {q['port']} mode {q['mode']}" for q in srcs if "mode" in q]
+            raise ToolError(f"The solution stores no fields of port {want[0]} mode {want[1]}"
+                            + (f"; it has {have}" if have else " (its ports have one mode each: give port only)"))
+        args = {**args, "port": hit["number"]}
     for key, prop in (("port", "port"), ("freq_index", "freq"), ("phase_deg", "phase")):
         if args.get(key) is not None:
             fp.props[prop] = f"{float(args[key]):g}" if key == "phase_deg" else str(int(args[key]))
@@ -1806,6 +1830,9 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
         elif state == "running":
             state = "failed" if rc != 0 else state
             res["exit_code"] = rc
+            if rc != 0 and not status.get("error"):
+                from ..solver.results import exit_reason
+                status = dict(status, error=f"exit {rc}: {exit_reason(rc, rc < 0)}".rstrip(": "))
     if ctx.gui is not None:
         try:
             q = ctx.gui.call("queue", timeout=10)
@@ -1819,6 +1846,10 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
     res["state"] = state
     if status.get("error"):
         res["error"] = status["error"]
+        if status.get("step"):
+            res["failed_in"] = status["step"]
+        if status.get("traceback"):
+            res["traceback_tail"] = status["traceback"][-1500:]
     if status.get("elapsed"):
         res["elapsed_s"] = round(float(status["elapsed"]), 1)
     if state == "running" and st is not None:
@@ -2162,6 +2193,43 @@ def _efficiency_with_q(q: dict, fq: float, sweep) -> dict:
     return eb
 
 
+def _port_modes(st, sols: list[str], args: dict):
+    """kind="ports": the modes of the wave ports (label, type, beta, alpha, Zo, symmetry, closest rectangular
+    guide mode) and the excitations whose fields are stored (the numbers set_field_plot takes as port);
+    image=true adds a picture of the transverse E of each mode."""
+    from ..solver import port_modes as PM
+    label = args.get("solution") or "LastAdaptive"
+    table = PM.port_mode_table(st, label)
+    if not table:
+        have = [p.stem[len("portfields_"):] for p in st.folder.glob("portfields_*.npz")]
+        raise ToolError(f"No port modes stored for '{label}' (wave ports only); solutions with port modes: {have}")
+    if args.get("port"):
+        table = [q for q in table if q["number"] == int(args["port"])]
+    k = int(args.get("freq_index", 0))
+    for q in table:     # one frequency (freq_index) of the solution
+        q["modes"] = [r for r in q["modes"] if r.pop("freq_index") == k]
+    srcs = st.read_json("field_sources.json", None) or st.read_json("ports.json", []) or []
+    out = {"solution": label, "ports": table,
+           "excitations": [{"number": q.get("number"), "name": q.get("name"),
+                            **({"port": q["port"], "mode": q["mode"]} if "mode" in q else {}),
+                            **({"label": q["label"]} if q.get("label") else {})} for q in srcs],
+           "notes": "symmetry: per principal axis of the port face, even = the mid-plane normal to that axis is a "
+                    "magnetic wall (E parallel to it), odd = an electric wall (E normal to it). rect_match: the "
+                    "TE/TM mode of a rectangular guide over the face's bounding box with the largest field "
+                    "correlation (named in the label when >= 0.75). Modes are ordered by beta at the highest "
+                    "frequency and followed over frequency by their fields. Field plots and set_field_plot take "
+                    "the excitation number (or port + mode)."}
+    if not args.get("image"):
+        return out
+    parts: list = [out]
+    for q in table:
+        for r in q["modes"][:8]:
+            png = PM.mode_picture(st, label, q["number"], r["mode"], k, title=r["label"])
+            if png:
+                parts.append(Image(png, r["label"]))
+    return parts
+
+
 def t_get_results(args):
     from ..solver.results import ResultStore
     ctx = load(args)
@@ -2297,6 +2365,8 @@ def t_get_results(args):
         return out_
     if kind == "convergence":
         return _status(ctx, setup)
+    if kind == "ports":
+        return _port_modes(st, sols, args)
     if kind in ("farfield", "rcs"):
         sph = args.get("sphere") or (d.spheres[0].name if d.spheres else None)
         if sph is None:
@@ -2330,7 +2400,7 @@ def t_get_results(args):
                 "efficiency": _efficiency_with_q(q, fq, _sweep_solution(st, sols)),
                 "cuts": [_cut(q, qty, ph, to_db, n) for ph in args.get("phi_cuts", [0, 90])],
                 "unit": "dBi" if qty.startswith(("Gain", "Dir", "Realized")) else "dB"}
-    raise ToolError("kind must be summary, sparameters, impedance, efficiency, convergence, farfield or rcs")
+    raise ToolError("kind must be summary, sparameters, impedance, efficiency, convergence, ports, farfield or rcs")
 
 
 # ------------------------------------------------------------------------------------------------
@@ -2614,6 +2684,7 @@ TOOLS = [
     Tool("add_material", "Add or change a project material.",
          _schema({"name": {"type": "string"}, "eps_r": {"type": "string"}, "mu_r": {"type": "string"},
                   "sigma": {"type": "string", "description": "S/m"}, "tan_delta": {"type": "string"},
+                  "tan_delta_m": {"type": "string", "description": "magnetic loss tangent"},
                   "description": {"type": "string"}}, ["name"]), t_add_material),
     Tool("set_design", "Change units, variables (null deletes), design settings (SolutionType, AutoOpen, "
          "AutoOpenBoundary, AutoOpenPadding, DifferentialPairs ...), rename, or add a new design. "
@@ -2717,7 +2788,11 @@ TOOLS = [
                   "plane": {"type": "string", "description": "cut plane 'XY', 'YZ' or 'XZ' with position: 'XY@1mm'"},
                   "volume": {"type": "boolean", "description": "inside the objects (dots or arrows), not on "
                                                                "their surface"},
-                  "port": {"type": "integer"}, "freq_index": {"type": "integer"}, "phase_deg": {"type": "number"},
+                  "port": {"type": "integer", "description": "the excitation: a port number, or with mode the port "
+                                                            "of a wave port with several modes (else the excitation "
+                                                            "number of get_results kind=ports)"},
+                  "mode": {"type": "integer", "description": "mode of a wave port with several modes (1, 2, ...)"},
+                  "freq_index": {"type": "integer"}, "phase_deg": {"type": "number"},
                   "attributes": {"type": "object", "description": "ColorMap, Scale ('Use Limits'), Min, Max, dB, "
                                                                   "Log, Transparency, PlotType, ArrowCount ..."},
                   "new_name": {"type": "string"}}), t_set_field_plot),
@@ -2766,11 +2841,14 @@ TOOLS = [
          "hints, mesh convergence with warnings, peak gain or RCS with the efficiency split), sparameters (table in "
          "dB/deg; params like ['S11','S21'], frequencies or max_points), impedance (R, X, Q_Z, mismatch "
          "efficiency and resonances of one port over a sweep), efficiency (per far-field frequency: total = "
-         "mismatch x radiation efficiency, the limiting factor and Q_Z), convergence, farfield (antenna parameters and pattern cuts; quantity GainTotal, DirTotal, "
+         "mismatch x radiation efficiency, the limiting factor and Q_Z), convergence, ports (wave port modes: label "
+         "such as 'P1 M2 (TE10-like, beta 72.3 rad/m)', beta, alpha, Zo, symmetry, image=true for mode pictures; and "
+         "the stored field excitations), farfield (antenna parameters and pattern cuts; quantity GainTotal, DirTotal, "
          "RealizedGainTotal ...), rcs (monostatic over frequency and bistatic cuts). With parametric=...: the "
          "variations and their calculations; with optimization=...: best values, cost and the last evaluations.",
          _schema({"setup": {"type": "string"}, "kind": {"type": "string", "enum": ["summary", "sparameters", "impedance", "efficiency",
-                                                                                 "convergence", "farfield", "rcs"]},
+                                                                                 "convergence", "ports", "farfield", "rcs"]},
+                  "image": {"type": "boolean", "description": "kind=ports: also a picture of every port mode"},
                   "solution": {"type": "string"}, "params": {"type": "array", "items": {"type": "string"}},
                   "frequencies": {"type": "array", "items": {"type": ["string", "number"]}},
                   "max_points": {"type": "integer"}, "sphere": {"type": "string"},
@@ -2815,5 +2893,6 @@ TOOLS = [
 
 from .tools_io import TOOLS as _IO_TOOLS  # noqa: E402
 from .tools_more import TOOLS as _MORE_TOOLS  # noqa: E402
+from .tools_post import TOOLS as _POST_TOOLS  # noqa: E402
 
-TOOLS += _MORE_TOOLS + _IO_TOOLS
+TOOLS += _MORE_TOOLS + _IO_TOOLS + _POST_TOOLS

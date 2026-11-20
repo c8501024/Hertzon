@@ -559,6 +559,11 @@ def _place_parts(design, p: dict, L: Launch, fp: Footprint, place: EdgePlacement
                 cuts.append(o.name)
     if not cuts:
         warns.append("no board conductor reaches into the footprint: the trace is not cut to the launch")
+    elif position_vars:
+        warns.append(f"{name}: in Full 3D the trace ({', '.join(cuts)}) is cut back {fp.lf:g} mm from the board edge "
+                     f"({name}_lf) and the footprint takes its place, the contact rests on the pad only; in Ideal "
+                     "the trace runs to the board edge under the connector (the lumped port is there), the "
+                     "Transition model de-embeds that stretch")
     sig = [add("CreateRectangle", "Pad", "vacuum", "#d4a017", into=foot,
                **F.rect(f"-({V('lp')})", 0.0, f"-{V('wp')}/2", f"{V('wp')}/2"))]
     if fp.lt > 0:
@@ -1063,7 +1068,7 @@ def transition_signature(project, design, inst) -> str:
                        "substrate": inst.props.get("Substrate", ""), "fp": _footprint_values(design, inst),
                        "metal": [like.kind, sorted(like.props.items())] if like else [],
                        "z": lump.props.get("Impedance", "50ohm") if lump else "50ohm",
-                       "f": [round(lo, 6), round(hi, 6)]}, sort_keys=True)
+                       "f": [round(lo, 6), round(hi, 6)], "board port": "line ground to trace, TEM"}, sort_keys=True)
 
 
 def transition_state(project, design, inst) -> str:
@@ -1172,7 +1177,13 @@ def ensure_transition(project, design, inst):
     t.variables.update({"wpt": f"{wpt:g}mm", "hpt": f"{hpt:g}mm"})
     p2 = t.add_object("CreateRectangle", "LinePort", Position="-wpt/2,Lb,-h", Axis="Y", XSize="wpt", ZSize="h+hpt")
     pr = schema.defaults(schema.EXCITATIONS["Wave Port"])
-    pr.update({"PortNumber": "2", "Renormalize": "True", "RenormImpedance": z_ref})
+    # polarity of the line mode: the solver aligns a TEM mode with a positive voltage along the port's voltage line.
+    # From the ground to the trace (like the lumped ports) it matches the mode of the coax port; with the automatic
+    # line between the two conductors S21 of the transition came out turned by 180 degrees. Mode type TEM: above
+    # some frequency the dispersive microstrip mode no longer passes as quasi-TEM, and its polarity would then stay
+    # as the eigensolver found it
+    pr.update({"PortNumber": "2", "Renormalize": "True", "RenormImpedance": z_ref, "IntegrationLine": "0,Lb,-h;0,Lb,0",
+               "ModeType": "TEM"})
     t.excitations.append(Assignment("Board", "Wave Port", pr, objects=[p2.name]))
     # the cascade removes the line Lb (to the board edge) with a microstrip line of length -Lb: closed-form, with
     # dispersion and loss at every frequency (the wave-port de-embedding extrapolates the propagation constant
