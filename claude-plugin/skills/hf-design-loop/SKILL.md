@@ -1,13 +1,13 @@
 ---
 name: hf-design-loop
-description: "What Hertzon's MCP tools offer for designing an RF/microwave structure (antenna, filter, coupler, matching network, circuit or PCB) and how to read what they return. Use whenever the user asks to design, tune or improve an RF design in Hertzon."
+description: "What Hertzon's MCP tools offer for designing an RF/microwave structure (antenna, filter, coupler, matching network, circuit or PCB), how to explore many variants quickly and how to read what the tools return. Use whenever the user asks to design, tune or improve an RF design in Hertzon."
 ---
 
 # Designing with Hertzon
 
 Hertzon's MCP tools (server `hertzon`) build, solve and evaluate 3D full-wave FEM models and circuits. The
-numbers come from the solver. How you approach the design is your decision; this page only tells you what
-Hertzon offers and what its answers mean.
+numbers come from the solver. How you approach the design is your decision; this page tells you what Hertzon
+offers, how to get through many variants quickly and what its answers mean.
 
 ## Connection
 
@@ -25,16 +25,62 @@ With **Let AI assistants work in this window** every change appears in the open 
 - Boards: `import_pcb()`, `set_stackup()`. Circuits: `create_circuit()`, `edit_circuit()`; `circuit_layout()`
   turns a schematic into a 3D design and back. A circuit evaluates in milliseconds, a full-wave solve in
   minutes (skill `circuit-first`). Antennas have no circuit model (skill `antenna-design`).
-- `set_design()` variables let sweeps, optimizers and derivative tuning change a dimension.
-  `render_image()` shows the model.
+- `set_design()` variables let sweeps, optimizers and derivative tuning change a dimension; `set_design()` can
+  also add a new design, so every variant can live in a design of its own. `render_image()` shows the model.
 - Ways to explore and tune:
-  - single solves: `run_simulation()`, then `get_status()` with `wait_seconds` and `get_results()`;
+  - solves: `run_simulation()`, then `get_status()` with `wait_seconds` and `get_results()`;
   - `compute_tuning()` / `get_tuning()` after a solve: S-parameters at other variable values in milliseconds;
   - optimizers, `set_optimization()`: Derivative Trust Region (up to about 6 variables, fixed topology),
     Latin Hypercube + Nelder-Mead (far from the start); `apply_optimization()` takes the result;
-  - parametric sweeps, `set_parametric()`: every value is a full solve.
+  - parametric sweeps, `set_parametric()`: every value is a full solve; with the property
+    `ParallelVariations` several variations are solved at the same time.
 - Reports and pictures: `set_report()`, `set_field_plot()`, `show_result()` (Hertzon draws them as in its
   window), `export()` (e.g. Touchstone).
+
+## Many variants at once
+
+For a simple structure (a single patch, a standard filter) start with the design assistant
+(`create_patch_antenna()`, `create_hairpin_filter()`, ...) or `list_structures()`, one solve and then
+derivative tuning or the optimization it sets up. No broad search is needed there.
+
+A demanding design (several bands, tight space, an unusual topology) is found fastest by exploring
+broadly and in batches before settling on anything:
+
+- `run_simulation()` returns at once. Start several variants (designs or setups) one after another: the
+  window queues them and solves them back to back while you wait. Then wait once with `get_status()` on the
+  last one and compare all results together, instead of one solve, one look, one change.
+- A parametric sweep with `ParallelVariations` solves variations of one design truly in parallel, as far
+  as cores and memory allow.
+- Compare whole concepts (topologies, not only dimensions) side by side in the first batches; tuning
+  dimensions does not rescue a concept that cannot reach the goal.
+- A coarse setup (below) makes each variant of such a batch take minutes instead of tens of minutes.
+- Hertzon keeps the fields of every solve, several GB per design. In a long search check the free disk
+  space now and then: a full disk aborts solves.
+
+## Systems of many parts
+
+A system such as a VNA test set (dividers, couplers, filters, switches, amplifiers) is not designed as one
+model:
+
+- Split it into its parts and their interfaces first: function, band, port impedance and the phase each
+  path must have. Write this plan down for the user before solving anything.
+- Design each part in its own design (`set_design()` adds one, a design assistant or `list_structures()`
+  where one fits, `create_circuit()` for what a circuit can describe), with ports at the interface
+  impedance. Each part is finished and checked on its own.
+- Assemble the system in a circuit: every part as a 3D design block (type EM) or Touchstone block, joined
+  by lines. On the board (2D editor of the circuit) `Connect` routes the joins with the width for the line
+  impedance, tapers and bends, and `Match Phase` makes several paths equal in phase at f0, with an offset
+  per line where a path needs one. These two are buttons of the board editor in the window: ask the user
+  to press them, or set the line lengths for the phases in the schematic yourself. The example `VNA_TestSet_2G4` (`open_example()`) shows the whole chain.
+  `circuit_layout()` turns the result into a 3D design for a final full-wave check of the assembly.
+- Before starting, estimate for the user how long the development takes and what it costs, in two ways:
+  - serially on this computer: the sum over all parts of (solves expected × time per solve), plus the
+    assembly;
+  - in parallel on cloud servers, one part per server: the longest part plus the assembly, and the cost
+    as servers × hours × price per hour of the server type (the user's cloud settings in Hertzon show the
+    offers and prices).
+  Base the time per solve on a first coarse solve of a typical part, say which numbers are guesses, and
+  update the estimate when the first parts are done.
 
 ## Mesh, setup and convergence
 
@@ -43,15 +89,19 @@ With **Let AI assistants work in this window** every change appears in the open 
   mesh and never refine it.
 - `set_setup()` changes the setup. Raising `MaximumPasses` and solving again continues from the last
   adaptive mesh, so only the extra passes cost time.
-- A looser setup (for example MaximumDeltaS 0.03, MaximumPasses 6, fields only at a few frequencies plus an
+- A coarse setup (for example MaximumDeltaS 0.03, MaximumPasses 6, fields only at a few frequencies plus an
   interpolating S11 sweep without fields) solves several times faster; its numbers are rougher.
-- The tightest useful target is MaximumDeltaS 0.01: below it solve time and memory grow steeply without
-  changing design decisions, so do not go tighter.
+- Below MaximumDeltaS 0.01 solve time and memory grow steeply without changing design decisions, so do not
+  go tighter.
 - Solve time and memory grow quickly with a tighter Delta S, second-order elements, many discrete sweep
   points with fields and parallel sweeps.
 - `get_status()` and `get_results()` add a `convergence_warning` when the passes stopped before the target:
   numbers from such a solve are not converged. `phase_note` says when only the phase of a small S11 kept
   Delta S above the target.
+- Always tell the user when a solve did not converge: which design and setup, the Delta S it reached and
+  the target, and that its numbers are not reliable. Do this for coarse screening solves too, and in the
+  final summary name every result that comes from an unconverged solve. If the result matters, raising
+  `MaximumPasses` continues from the last pass.
 
 ## Reading results
 

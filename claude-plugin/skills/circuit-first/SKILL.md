@@ -45,8 +45,8 @@ When the wizard does not know the structure (a filter type, a coupler variant, a
    circuit again.
 4. Take the result with `apply_optimization()`: it sets the values in the circuit and in the layout.
 
-The 3D setups stay as Hertzon makes them, with the two exceptions of `hf-design-loop` (more passes when a solve
-did not converge, one final check with Delta S 0.01).
+The 3D setups stay as Hertzon makes them, except where `hf-design-loop` says otherwise (a coarse setup while
+searching, more passes when a solve did not converge).
 
 ## 4. Systems of several parts
 
