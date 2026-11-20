@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **MCP tool `report_issue`.** When a tool is missing (a structure the Design Wizard does not have), fails or gives
+  a result that looks wrong, the assistant prepares an issue for the Hertzon developers: title, what happened, an
+  example, a proposal and the versions of Hertzon, EMerge and the system, with a link to the prefilled "New issue"
+  page of the repository. Nothing is sent; the user reads the text and posts it from the link.
+
 ## 0.3.30 (2026-11-20)
 
 ### Changed
