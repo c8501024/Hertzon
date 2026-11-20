@@ -11,7 +11,7 @@ from . import schema
 @dataclass
 class Check:
     category: str
-    level: str          # ok | warning | error
+    level: str          # ok | info | warning | error
     message: str
 
 
@@ -98,7 +98,13 @@ def sheet_messages(design: Design, placement) -> list[str]:
 def contact_messages(placement) -> list[str]:
     """Messages for objects that almost touch (kernel.occ.near_contacts, listed by sheet_placement as
     "gap:<m>" / "tangent:<m>"): the mesher can fail there ("Unknown model face", "Invalid boundary mesh") or
-    the solution get NaN error estimates. Warnings: simple models of that kind often mesh and solve."""
+    the solution get NaN error estimates."""
+    return [m for _, m in contact_notes(placement)]
+
+
+def contact_notes(placement) -> list[tuple[str, str]]:
+    """(level, message) of contact_messages: near-coincident parallel faces are warnings; a tangential touch
+    is information only, since such models usually mesh and solve and the touch is often intended."""
     out = []
     for a, b, how in placement or []:
         kind, _, d = how.partition(":")
@@ -109,15 +115,15 @@ def contact_messages(placement) -> list[str]:
         except ValueError:
             um = "?"
         if kind == "gap":
-            out.append(f"'{a}' and '{b}' almost touch: parallel faces {um} apart (a gap or overlap of a few "
+            out.append(("warning", f"'{a}' and '{b}' almost touch: parallel faces {um} apart (a gap or overlap of a few "
                        "micrometres). The mesher can fail there (\"Unknown model face\", \"Invalid boundary mesh\"). "
                        "Make the faces coincide exactly, or overlap the objects clearly (0.05 mm or more), or "
-                       "leave a real gap")
+                       "leave a real gap"))
         else:
-            out.append(f"'{a}' and '{b}' touch tangentially: an edge or face of one runs along the round face of "
-                       f"the other (off by {um}), e.g. a via exactly as wide as the trace that ends on it. The "
-                       "slivers there can break the solution (\"NaN detected in the a-posteriori error estimate\"). "
-                       "Make the via clearly wider or narrower than the trace, or let it overlap the edge")
+            out.append(("info", f"'{a}' and '{b}' touch tangentially: an edge or face of one runs along the round "
+                       f"face of the other (off by {um}), e.g. a via exactly as wide as the trace that ends on it. "
+                       "Usually fine; if the solution reports \"NaN detected in the a-posteriori error estimate\", "
+                       "make the via clearly wider or narrower than the trace, or let it overlap the edge"))
     return out
 
 
@@ -187,8 +193,8 @@ def validate(project: Project, design: Design, tess: dict | None = None, errors:
                                                "(material override)")
     for m in sheet_messages(design, sheets):
         add("3D Model", "warning", m)
-    for m in contact_messages(sheets):
-        add("3D Model", "warning", m)
+    for lv, m in contact_notes(sheets):
+        add("3D Model", lv, m)
     if not any(c.level == "error" for c in out if c.category == "3D Model"):
         add("3D Model", "ok", f"{len(live)} objects")
 
@@ -481,4 +487,6 @@ def worst(checks: list[Check], category: str) -> str:
         return "error"
     if "warning" in lv:
         return "warning"
+    if "info" in lv:
+        return "info"
     return "ok"

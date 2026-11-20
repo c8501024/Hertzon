@@ -415,7 +415,8 @@ SWEEP: list[Prop] = [
     P("Step", "freq", "0.1GHz", visible_if=("Distribution", "Linear Step")),
     P("Count", "int", "101", visible_if=("Distribution", "Linear Count")),
     P("SamplesPerDecade", "int", "20", visible_if=("Distribution", "Log Scale")),
-    P("Points", "text", "1GHz,2GHz", visible_if=("Distribution", "Single Points")),
+    P("Points", "text", "1GHz;2GHz", visible_if=("Distribution", "Single Points"),
+      help="Frequencies separated by ';' (',' is accepted as well)"),
     P("SaveFields", "bool", "False", label="Save fields (all frequencies)", visible_if=("SweepType", "!Interpolating"),
       help="Store the fields at every sweep frequency: field plots, far fields, gain patterns and antenna "
            "parameters over frequency (needs disk space). Discrete and Fast sweeps"),

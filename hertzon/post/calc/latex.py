@@ -516,6 +516,13 @@ def to_text(tex: str, env: L.Env | None = None) -> str:
         if v == "tan":
             if is_cmd("delta"):
                 p += 1
+                if is_ch("_"):                        # \tan\delta_m: the magnetic loss tangent
+                    q = p
+                    p += 1
+                    if raw_text() == "m":
+                        push_word(atoms, "tandm")
+                        return
+                    p = q
                 push_word(atoms, "tand")
                 return
             fail("tan() is not available, only tan δ (tand)")

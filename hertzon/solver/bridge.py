@@ -629,16 +629,17 @@ class Bridge:
         fails (they are the usual cause of an inconsistent mesh). Run only then: it builds the whole model again
         in a scratch model and intersects every sheet with every solid, which made every start slower. The
         Validation Check shows the same warnings before a run."""
-        from ..model.validate import contact_messages, sheet_messages
+        from ..model.validate import contact_notes, sheet_messages
         try:
             cond = lambda n: is_conductor(self.project.material(self.design.obj(n).material))  # noqa: E731
             pl = K.sheet_placement(self.design, self.ev, cond)
-            self.sheet_hints = contact_messages(pl) + sheet_messages(self.design, pl)
+            notes = contact_notes(pl) + [("warning", m) for m in sheet_messages(self.design, pl)]
         except Exception as e:  # noqa: BLE001
-            self.sheet_hints = []
+            notes = []
             info(f"Sheet placement check skipped: {e}")
-        for h in self.sheet_hints:
-            warn(h)
+        self.sheet_hints = [m for _, m in notes]
+        for lv, h in notes:
+            (info if lv == "info" else warn)(h)
 
     def check_overlaps(self) -> None:
         """Partial overlaps the reference tool rejects are errors: two dielectrics or two conductors of
@@ -2233,7 +2234,57 @@ class Bridge:
             out["sym_kind"] = np.array([p[0] for p in planes])
             out["sym_axis"] = np.array([p[1] for p in planes], np.int64)
             out["sym_pos"] = np.array([p[2] for p in planes], np.float64)
+        if getattr(self, "ff_bounds", None) is None:
+            gnd = self.ground_plane(vis, wns, planes)
+            if gnd is not None:
+                out["gnd_kind"], out["gnd_axis"] = np.array([gnd[0]]), np.array([gnd[1]], np.int64)
+                out["gnd_pos"], out["gnd_dir"] = np.array([gnd[2]], np.float64), np.array([gnd[3]], np.int64)
         return out
+
+    def ground_plane(self, vis: np.ndarray, wns: np.ndarray, planes: list) -> tuple | None:
+        """An infinite ground plane under an open far-field surface: the open faces (PML or radiation) cover all
+        sides of their bounding box but one, and that side is a flat outer boundary of the model (a Perfect E
+        floor, or the default conducting boundary, e.g. a monopole on a ground with a PML on the other five
+        sides). The far field then mirrors the surface fields at that plane (image theory) and is zero behind
+        it: (E or H, axis, position, +1/-1 for the side the model is on). None if no side or more than one
+        side is open, or the open side is a symmetry plane (mirrored as such) or not flat."""
+        try:
+            nodes = np.asarray(self.m.mesh.nodes, float)
+        except Exception:  # noqa: BLE001
+            return None
+        lo, hi = vis.min(axis=1), vis.max(axis=1)
+        size = float(np.max(hi - lo)) or 1.0
+        tol = 1e-6 * size
+        nrm = wns / np.maximum(np.linalg.norm(wns, axis=0), 1e-300)
+        missing = []
+        for ax in range(3):
+            for side, pos in ((-1, lo[ax]), (1, hi[ax])):
+                on = (np.abs(vis[ax] - pos) < tol) & (np.abs(nrm[ax]) > 0.99)
+                if not on.any():
+                    missing.append((ax, side, float(pos)))
+        sym = {(ax, round(p / tol)) for _, ax, p in planes}
+        missing = [m for m in missing if (m[0], round(m[2] / tol)) not in sym]
+        if len(missing) != 1:
+            return None
+        ax, side, pos = missing[0]
+        # the meshed domain ends at that plane: the open surface stops at an outer boundary, not in the air
+        dom = nodes[ax].min() if side < 0 else nodes[ax].max()
+        if abs(dom - pos) > tol:
+            return None
+        kind = "E"
+        for b in self.design.boundaries:
+            if b.enabled and (b.kind == "Perfect H" or (b.kind == "Symmetry" and b.props.get("Type") == "Perfect H")):
+                try:
+                    _, tags = self.selection_for(b)
+                    tri = np.asarray(self.m.mesh.get_triangles(tags), np.int64)
+                    pts = nodes[:, np.unique(np.asarray(self.m.mesh.tris)[:, tri])]
+                    if pts.size and np.all(np.abs(pts[ax] - pos) < tol):
+                        kind = "H"
+                except Exception:  # noqa: BLE001
+                    continue
+        info(f"Far field: infinite {'conducting' if kind == 'E' else 'magnetic'} ground plane at "
+             f"{'xyz'[ax]} = {pos * 1e3:.4g} mm (the far-field surface is mirrored there, no field behind it)")
+        return kind, ax, pos, -side
 
     def save_huygens(self, fields: list, label: str) -> bool:
         """E/H on the open boundary for post-processed far fields (infinite spheres can be
