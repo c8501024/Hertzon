@@ -82,6 +82,20 @@ model:
   Base the time per solve on a first coarse solve of a typical part, say which numbers are guesses, and
   update the estimate when the first parts are done.
 
+## When Hertzon lacks something
+
+When a part needs more than Hertzon's tools offer (for example a Wilkinson divider over an octave needs
+several sections, and the assistant builds only one), build it another way (circuit-first, `set_design()`,
+`run_python()`) and tell the user what was missing. Then offer an issue for Hertzon:
+
+- Draft it: title, what you were designing, what was missing (for example "multi-section Wilkinson in the
+  Design Wizard"), how you worked around it, and the Hertzon version. No project data
+  without the user's consent.
+- Show the draft and ask whether to post it. Post only after the user says so: with `gh issue create
+  --repo c8501024/Hertzon` or a GitHub connector when one is available; otherwise give the user the link
+  `https://github.com/c8501024/Hertzon/issues/new?title=<title>&body=<body>` (URL-encoded), which opens the
+  filled-in form.
+
 ## Mesh, setup and convergence
 
 - Hertzon refines the mesh adaptively at the setup's adaptive frequencies until Delta S falls below
