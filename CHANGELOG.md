@@ -3,6 +3,16 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Near Field Line: the quantities have the names of the field plots.** `Mag_E` is |Re(E e^(jφ))|, the length of
+  the field vector at the phase φ of the slider (instantaneous), the same as `Mag_E` in Plot Fields; `ComplexMag_E`
+  is sqrt(|Ex|²+|Ey|²+|Ez|²), independent of the phase, the same as `ComplexMag_E` in Plot Fields; the components
+  are `E_X`, `E_Y`, `E_Z` (likewise for H). Before, `mag(NearETotal)` was the complex magnitude, while `Mag_E` in the
+  field plots is the instantaneous one. The old names (NearETotal, NearEX ... NearHZ) are still accepted and
+  renamed when a project is loaded, with the same values: `mag(NearETotal)` becomes `mag(ComplexMag_E)`.
+
 ## 0.3.29 (2026-11-19)
 
 ### Fixed

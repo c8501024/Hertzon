@@ -597,7 +597,7 @@ def test_report_axes_show_units():
     cases = {"dB(S(1,1))": "dB", "mag(Z(1,1))": "Ω", "re(Y(2,1))": "S", "ang_deg(S(2,1))": "deg",
              "VSWR(1)": "", "GroupDelay(S(2,1))": "s", "Pin": "W", "Pin @ Setup1 : Sweep": "W", "2*Pin": "W",
              "dB(Pin)": "dB", "RL": "dB", "dB(GainTotal)": "dB", "mag(rETotal)": "V", "dBsm(MonostaticRCSTotal)": "dBsm",
-             "MonostaticRCSTotal": "m²", "mag(NearETotal)": "V/m", "RadiatedPower": "W", "Pin + dB(S(1,1))": None,
+             "MonostaticRCSTotal": "m²", "mag(ComplexMag_E)": "V/m", "mag(NearETotal)": "V/m", "re(H_X)": "A/m", "RadiatedPower": "W", "Pin + dB(S(1,1))": None,
              "myvar": None}
     for tr, u in cases.items():
         assert trace_unit(doc, tr) == u, tr

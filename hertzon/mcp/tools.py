@@ -1381,7 +1381,7 @@ def t_set_report(args):
             ["dB(GainTotal)"] if r.kind in ("Radiation Pattern", "3D Polar Plot") else \
             ["dBsm(MonostaticRCSTotal)"] if r.kind.startswith("Monostatic") else \
             ["dB(PeakGain)", "dB(PeakRealizedGain)", "dB(PeakDirectivity)"] if r.kind.startswith("Antenna") else \
-            ["mag(NearETotal)"] if r.kind == "Near Field Line" else [f"dB(S({i},1))" for i in range(1, n + 1)][:4]
+            ["mag(ComplexMag_E)"] if r.kind == "Near Field Line" else [f"dB(S({i},1))" for i in range(1, n + 1)][:4]
     if created and fields and not r.traces:
         r.traces = [e.name for e in d.field_exprs][:1]
     if args.get("port") is not None:
@@ -1396,7 +1396,7 @@ def t_set_report(args):
             raise ToolError(f"A report '{args['new_name']}' exists")
         r.name = args["new_name"]
     from ..post.quantities import migrate_near_report
-    migrated = migrate_near_report(r)       # envelope -> mag, inst -> re (removed functions)
+    migrated = migrate_near_report(r)       # old names and removed functions
     commit(ctx, f"report {r.name}")
     out = {"name": r.name, "created": created, "kind": r.kind, "solution": r.solution, "traces": r.traces,
            "props": r.props}
