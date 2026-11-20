@@ -13,27 +13,44 @@ import numpy as np
 
 @dataclass(frozen=True)
 class QuantityMeta:
-    has_phase_reference: bool = False   # a field phasor: re/im follow the phase φ of the slider
-    is_magnitude: bool = False          # real and non-negative (no phase): only mag (and dB)
+    has_phase_reference: bool = False   # depends on the phase φ of the slider (field phasors, Mag_E)
+    is_magnitude: bool = False          # real and non-negative: only mag (and dB)
 
 
-_FIELD_COMPONENT = re.compile(r"^Near[EH][XYZ]$")       # NearEX, NearHZ: complex field components
-_FIELD_MAGNITUDE = re.compile(r"^Near[EH]Total$")       # sqrt(|X|^2+|Y|^2+|Z|^2)
+# Near Field Line quantities, named like the field plots (Plot Fields): Mag_E is the length of the real
+# field vector at the phase φ, |Re(E e^(jφ))| (instantaneous, follows the slider); ComplexMag_E is
+# sqrt(|Ex|^2+|Ey|^2+|Ez|^2) (independent of the phase); E_X, E_Y, E_Z are the complex components.
+NF_QUANTITIES = ["Mag_E", "ComplexMag_E", "E_X", "E_Y", "E_Z", "Mag_H", "ComplexMag_H", "H_X", "H_Y", "H_Z"]
+# old names (up to 0.3.29), still accepted: the same values under the new name
+NF_ALIASES = {f"Near{w}{a}": f"{w}_{a}" for w in "EH" for a in "XYZ"}
+NF_ALIASES.update({"NearETotal": "ComplexMag_E", "NearHTotal": "ComplexMag_H"})
+
+_FIELD_COMPONENT = re.compile(r"^[EH]_[XYZ]$")          # E_X, H_Z: complex field components
+_FIELD_MAGNITUDE = re.compile(r"^ComplexMag_[EH]$")     # sqrt(|X|^2+|Y|^2+|Z|^2)
+_FIELD_INSTANT = re.compile(r"^Mag_[EH]$")              # |Re(E e^(jφ))|: a magnitude that follows the phase
 _MAGNITUDES = {"VSWR"}
 
 
 def _base(name: str) -> str:
-    """'S(1,1)' -> 'S', 'NearEX' -> 'NearEX'."""
-    return re.split(r"[(\s]", name.strip(), maxsplit=1)[0]
+    """'S(1,1)' -> 'S', 'NearEX' -> 'E_X'."""
+    b = re.split(r"[(\s]", name.strip(), maxsplit=1)[0]
+    return NF_ALIASES.get(b, b)
+
+
+def nf_name(name: str) -> str:
+    """The current name of a Near Field Line quantity: 'NearETotal' -> 'ComplexMag_E', 'E_X' -> 'E_X'."""
+    return NF_ALIASES.get(name, name)
 
 
 def quantity_meta(name: str) -> QuantityMeta:
     """Metadata of a report quantity. Field components are phasors with a phase reference; S, Z, Y, Zo,
-    Gamma ... are complex network quantities without one (re/im at φ = 0); E Total, H Total and VSWR are
-    magnitudes."""
+    Gamma ... are complex network quantities without one (re/im at φ = 0); ComplexMag_E, ComplexMag_H and
+    VSWR are magnitudes; Mag_E and Mag_H are magnitudes that follow the phase."""
     b = _base(name)
     if _FIELD_COMPONENT.match(b):
         return QuantityMeta(has_phase_reference=True)
+    if _FIELD_INSTANT.match(b):
+        return QuantityMeta(has_phase_reference=True, is_magnitude=True)
     if _FIELD_MAGNITUDE.match(b) or b in _MAGNITUDES:
         return QuantityMeta(is_magnitude=True)
     return QuantityMeta()
@@ -72,38 +89,54 @@ def phasor_value(func: str, v, phase_deg: float = 0.0, meta: QuantityMeta | None
 
 
 def migrate_near_trace(trace: str) -> tuple[str, str | None]:
-    """A Near Field Line trace of an old report in the current functions: envelope -> mag, inst -> re
-    (mag for a magnitude such as NearETotal, which has no re/im/ang either). Returns the trace and a warning
-    (None when nothing changed)."""
+    """A Near Field Line trace of an old report in the current names and functions. The old quantity names
+    (NearETotal, NearEX ...) become the names of the field plots (ComplexMag_E, E_X ...) without a warning,
+    the values are the same. The removed functions: envelope -> mag, inst -> re of a component; inst of a
+    vector was its length at the phase, now Mag_E; envelope of a vector becomes ComplexMag_E (the same for
+    linear polarisation). Returns the trace and a warning (None when the meaning did not change)."""
     m = re.fullmatch(r"\s*(\w+)\((\w+)\)\s*", trace)
     if not m:
         return trace, None
-    func, name = m.groups()
+    func, old = m.groups()
+    name = nf_name(old)
     new = LEGACY_NF_FUNCS.get(func, func)
+    if func == "inst" and _FIELD_MAGNITUDE.match(name):
+        name = "Mag_" + name[-1]                     # inst(NearETotal) = |Re(E e^(jφ))|
     if quantity_meta(name).is_magnitude and new not in MAGNITUDE_FUNCS:
         new = "mag"
-    if new == func:
-        return trace, None
     out = f"{new}({name})"
+    if out == trace.strip():
+        return trace, None
+    if new == func:
+        return out, None                             # only renamed
     return out, f"{trace} is no longer available and was changed to {out}"
 
 
 def migrate_near_report(report) -> list[str]:
-    """Change the removed functions of a Near Field Line report (envelope, inst, re/im/ang of a magnitude)
-    to the current ones, in place; the warnings. Other reports are left alone."""
+    """Change the old names (NearETotal ...) and the removed functions (envelope, inst, re/im/ang of a
+    magnitude) of a Near Field Line report to the current ones, in place; the warnings. Other reports are
+    left alone."""
     if getattr(report, "kind", "") != "Near Field Line":
         return []
-    warnings, traces = [], []
+    warnings, traces, changed = [], [], False
     for t in report.traces:
         new, w = migrate_near_trace(t)
+        changed |= new != t
         if w:
             warnings.append(w)
         if new not in traces:
             traces.append(new)
-    if warnings:
+    if changed:
         report.traces[:] = traces
-        skin = report.props.get("skin", "")
-        if skin:
-            tr, sep, rng = skin.partition("|")
-            report.props["skin"] = migrate_near_trace(tr)[0] + sep + rng
+    skin = report.props.get("skin", "")
+    if skin:
+        tr, sep, rng = skin.partition("|")
+        new = migrate_near_trace(tr)[0] + sep + rng
+        if new != skin:
+            report.props["skin"] = new
+    for k in [k for k in report.props if k.startswith("trace:")]:
+        # per-trace styles are stored by the trace name
+        new = "trace:" + migrate_near_trace(k[6:])[0]
+        if new != k and new not in report.props:
+            report.props[new] = report.props.pop(k)
     return warnings

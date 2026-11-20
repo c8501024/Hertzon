@@ -5134,7 +5134,7 @@ class MainWindow(QMainWindow):
             sol = esols[0] if esols else f"{eig} : LastAdaptive"
             traces = ["Freq", "Q"]
         elif kind == "Near Field Line":
-            traces = ["mag(NearETotal)"]
+            traces = ["mag(ComplexMag_E)"]
             sol = next((s for s in sols if s.endswith("LastAdaptive")), sol)
         else:
             traces = [f"dB(S({i},1))" for i in range(1, max(1, n) + 1)][:4]
