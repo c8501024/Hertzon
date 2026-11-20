@@ -72,6 +72,13 @@ the GitHub release notes.
   last run needed more memory than is free.
 
 ### Fixed
+- **Real connectors, mode Transition: S21 had the wrong sign.** The line port of the transition design had no
+  voltage line, and its mode came out with the opposite polarity to the coax mode, so the transmission phase through
+  a connector was off by 180 degrees (with connectors at both ends of a board the two errors cancelled). The line port
+  now has a voltage line from the ground to the trace and mode type TEM (the polarity of the dispersive microstrip
+  mode is then also aligned at the top of the band). Measured on a 20 mm microstrip with a 2.92 mm connector,
+  1–20 GHz: the cascade against Full 3D from max |ΔS21| 1.99 to 0.038, same mesh, time and memory. Existing
+  transition designs are marked stale; set the mode again and solve them once.
 - **Wave ports with several modes: Delta S no longer jumps on a sign flip of a mode.** Between adaptive passes the
   sign of every port mode was matched on the S-parameters of port 1 only. A mode that does not couple to port 1
   (the second mode of a symmetric guide, an odd slot mode) was flipped on numerical noise, and Delta S jumped to
