@@ -22,6 +22,10 @@ the GitHub release notes.
   example, a proposal and the versions of Hertzon, EMerge and the system, with a link to the prefilled "New issue"
   page of the repository. Nothing is sent; the user reads the text and posts it from the link.
 ### Changed
+- **Real connectors: where the trace ends is stated.** Putting a connector at a lumped port now says how far the
+  trace is cut back from the board edge in Full 3D (the footprint length `J1_lf`; the contact then rests on the pad
+  only) and that in Ideal the trace still runs to the edge under the connector, which the Transition model
+  de-embeds. The help of the modes says the same.
 - **Cloud server shared by all windows.** Closing a Hertzon window no longer deletes the cloud server that other
   windows (also of other Hertzon processes) use: each window holds a lease, and the server is deleted when the
   last window that uses it closes. If analyses still run or wait there, Hertzon asks first (delete, keep until
