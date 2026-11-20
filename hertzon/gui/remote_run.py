@@ -20,6 +20,7 @@ from PySide6.QtCore import QObject, Signal
 
 from .. import __version__
 from ..remote.client import Mirror, RemoteError, RemoteHost, prepare
+from ..remote.cloud import ServerLost
 
 TAG = "@@HZN "
 SYNC_ON = ("pass", "passdata", "convergence", "optim", "param")   # lines whose handlers read the results folder
@@ -54,6 +55,8 @@ class RemoteRun(QObject):
         self._pending: list[str] = []
         self._sync_cond = threading.Condition()
         self._sync_stop = False
+        self._deleting = ""                # why the cloud server's watchdog deletes the server (it said so)
+        self.lost = ""                     # why the cloud server is gone (the analysis ended because of it)
 
     def start(self) -> None:
         self._thread.start()
@@ -71,11 +74,15 @@ class RemoteRun(QObject):
 
     # ---- background thread -------------------------------------------------------------------------
     def _run(self) -> None:
-        from .solve import NO_RESULT
+        from .solve import NO_RESULT, SERVER_LOST
         code = NO_RESULT
         mirror = None
         try:
             code, mirror = self._job()
+        except ServerLost as ex:
+            self.lost = ex.reason
+            self.note.emit("error", f"Analysis ended because the cloud server is gone: {ex}")
+            code = SERVER_LOST
         except RemoteError as ex:
             self.note.emit("error", str(ex))
             self._give_up()
@@ -97,11 +104,15 @@ class RemoteRun(QObject):
 
     def _job(self) -> tuple[int, Mirror]:
         host = self.host
-        if hasattr(host, "ensure"):          # a cloud computer (created or found again) or one reached over SSH
+        from ..remote.cloud import CloudHost
+        if isinstance(host, CloudHost):      # a cloud computer (found again or created)
+            host.ensure(lambda text: self.status.emit(0, text), self._abort, note=self.note.emit)
+            st = host.session.state()
+            p = st.get("price") or {}
+            price = f", {p['hourly']:.3f} {p.get('currency', 'EUR')}/h" if p.get("hourly") else ""
+            self.note.emit("info", f"Cloud server {st.get('name')}: {st.get('type')} in {st.get('location')}{price}")
+        elif hasattr(host, "ensure"):        # a computer reached over SSH
             host.ensure(lambda text: self.status.emit(0, text), self._abort)
-            if hasattr(host.session, "state"):
-                st = host.session.state()
-                self.note.emit("info", f"Cloud server {st.get('name')}: {st.get('type')} in {st.get('location')}")
         self.status.emit(0, f"Connecting to {host.address}")
         info = host.info()
         if info.get("hertzon") != __version__:
@@ -130,12 +141,19 @@ class RemoteRun(QObject):
                 try:
                     ev = host.events(self.jid, since)
                     lost = None
+                except ServerLost:
+                    raise
                 except RemoteError as ex:
                     lost = lost or time.monotonic()
                     if time.monotonic() - lost > RETRY_FOR:
                         raise RemoteError(f"Connection to {host.address} lost: {ex}") from None
                     time.sleep(5)
                     continue
+                if ev.get("deleting") and ev["deleting"] != self._deleting:
+                    self._deleting = ev["deleting"]
+                    self.note.emit("error", f"The cloud server deletes itself now: {self._deleting}")
+                    if hasattr(getattr(host, "session", None), "note_watchdog"):
+                        host.session.note_watchdog(self._deleting)
                 for text in ev.get("lines", []):
                     self._relay(text)
                 since = ev.get("next", since)
@@ -183,6 +201,8 @@ class RemoteRun(QObject):
             try:
                 fn()
                 return
+            except ServerLost:
+                raise
             except RemoteError:
                 if attempt == attempts - 1:
                     raise

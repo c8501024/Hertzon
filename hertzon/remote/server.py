@@ -192,8 +192,12 @@ class Service:
             start = max(0, since - job.dropped)
             lines = job.lines[start:]
             nxt = job.dropped + len(job.lines)
-            return {"lines": lines, "next": nxt, "state": job.state, "code": job.code,
-                    "aborted": job.aborted, "ahead": self.ahead(job) if job.state == "queued" else 0}
+            out = {"lines": lines, "next": nxt, "state": job.state, "code": job.code,
+                   "aborted": job.aborted, "ahead": self.ahead(job) if job.state == "queued" else 0}
+        deleting = self.deleting()
+        if deleting:
+            out["deleting"] = deleting
+        return out
 
     def abort(self, job: Job) -> None:
         with self.cond:
@@ -352,7 +356,14 @@ class Service:
                     "host": socket.gethostname(), "platform": platform.platform(), "cores": self.cores,
                     "sweep_workers": self.sweep_workers, "cpus": os.cpu_count() or 1,
                     "python": platform.python_version(), "busy": run is not None, "queued": len(self.queue),
-                    **self.activity(run)}
+                    **self.activity(run), **({"deleting": d} if (d := self.deleting()) else {})}
+
+    def deleting(self) -> str:
+        """On a cloud server: why its watchdog deletes the server now ('' when it does not)."""
+        try:
+            return str(json.loads((self.workdir / "deleting.json").read_text(encoding="utf-8")).get("reason", ""))
+        except (OSError, ValueError, AttributeError):
+            return ""
 
     def activity(self, run: Job | None = None) -> dict:
         """Seconds without work (idle), without a GUI request (contact) and without solver output (quiet)."""
