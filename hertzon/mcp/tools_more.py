@@ -1040,6 +1040,49 @@ def render_schematic(proj, d: Design, w: int, h: int) -> list:
 
 
 # ------------------------------------------------------------------------------------------------
+# report_issue: a prefilled issue on the Hertzon repository (nothing is sent)
+# ------------------------------------------------------------------------------------------------
+ISSUES_URL = "https://github.com/c8501024/Hertzon/issues"
+ISSUE_KINDS = {"missing_tool": "Missing tool", "bug": "Bug", "wrong_result": "Wrong result", "other": "Other"}
+ISSUE_BODY_MAX = 6000      # characters of the body in the link; browsers and GitHub reject much longer URLs
+
+
+def _versions() -> str:
+    import platform
+    from importlib import metadata
+
+    from .. import __version__
+    try:
+        emerge = metadata.version("emerge")
+    except metadata.PackageNotFoundError:
+        emerge = "not installed"
+    return f"Hertzon {__version__}, EMerge {emerge}, Python {platform.python_version()}, {platform.platform()}"
+
+
+def t_report_issue(args):
+    from urllib.parse import quote
+
+    title = (args.get("title") or "").strip()
+    if not title:
+        raise ToolError("title is required")
+    kind = args.get("kind") or "missing_tool"
+    if kind not in ISSUE_KINDS:
+        raise ToolError(f"Unknown kind '{kind}'; use one of {sorted(ISSUE_KINDS)}")
+    parts = [("What happened", args.get("problem")), ("Example", args.get("example")),
+             ("Proposal", args.get("proposal")), ("Workaround used", args.get("workaround"))]
+    body = f"**Kind:** {ISSUE_KINDS[kind]}\n\n" + "".join(f"## {h}\n\n{t.strip()}\n\n" for h, t in parts
+                                                          if t and t.strip())
+    body += f"## Environment\n\n{_versions()}\n\n_Reported through the Hertzon MCP tool report_issue._\n"
+    truncated = len(body) > ISSUE_BODY_MAX
+    link_body = body[:ISSUE_BODY_MAX - 60] + "\n\n_(cut: the full text is in the tool result)_" if truncated else body
+    full_title = f"[{ISSUE_KINDS[kind]}] {title}"
+    url = f"{ISSUES_URL}/new?title={quote(full_title)}&body={quote(link_body)}"
+    return {"url": url, "title": full_title, "body": body, "truncated": truncated, "issues_page": ISSUES_URL,
+            "next": "Nothing was sent. Show the user the text and the link; the issue is posted when the user opens "
+                    "the link and presses Submit on GitHub. Ask before posting it any other way: it is public."}
+
+
+# ------------------------------------------------------------------------------------------------
 # registry
 # ------------------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------------------
@@ -1375,4 +1418,15 @@ TOOLS = [
     Tool("get_connectors", "The connectors of a 3D design: part, lumped port, mode, footprint variables, transition "
          "design and its state, the cascade circuit design and what it still needs.",
          _schema({}), t_get_connectors, True),
+    Tool("report_issue", "Prepare an issue for the Hertzon developers when a tool is missing (e.g. a structure the "
+         "Design Wizard does not have), a tool fails or a result looks wrong: returns the text and a link to the "
+         "prefilled 'New issue' page on GitHub. Nothing is sent; the user posts it from the link. Use it instead of "
+         "keeping a workaround for later.",
+         _schema({"title": {"type": "string", "description": "short, e.g. 'Multi-section Wilkinson divider'"},
+                  "kind": {"type": "string", "enum": list(ISSUE_KINDS), "description": "default missing_tool"},
+                  "problem": {"type": "string", "description": "what was needed or what went wrong"},
+                  "example": {"type": "string", "description": "the task, inputs and tool calls that show it"},
+                  "proposal": {"type": "string", "description": "the tool or behaviour that would solve it"},
+                  "workaround": {"type": "string", "description": "what was done instead, if anything"}},
+                 ["title"], project=False), t_report_issue, True),
 ]

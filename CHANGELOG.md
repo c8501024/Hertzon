@@ -17,6 +17,10 @@ the GitHub release notes.
 - **Claude plugin skills** for system design: split a system (for example a VNA test set) into parts, design
   them separately, assemble them on the board with Connect and Match Phase, and estimate time and cost serially
   and in parallel on cloud servers; every unconverged solve is reported to the user.
+- **MCP tool `report_issue`.** When a tool is missing (a structure the Design Wizard does not have), fails or gives
+  a result that looks wrong, the assistant prepares an issue for the Hertzon developers: title, what happened, an
+  example, a proposal and the versions of Hertzon, EMerge and the system, with a link to the prefilled "New issue"
+  page of the repository. Nothing is sent; the user reads the text and posts it from the link.
 
 ## 0.3.30 (2026-11-20)
 

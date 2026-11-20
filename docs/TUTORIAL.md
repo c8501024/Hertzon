@@ -582,6 +582,7 @@ The assistant works step by step with the same building blocks you used above, a
 | Files and boards | `export` (Touchstone, STEP, Gerber, EMerge script), `import_pcb` (Gerber, Excellon, job files), `set_stackup`, `manage_design` (copy, delete), `list_examples`, `open_example` |
 | Where analyses run | `cloud` (this computer, the remote computer or a cloud server per window; server types with price per hour) |
 | Scripting | `run_python` for anything else, with the Hertzon model API |
+| Feedback | `report_issue` (the text of an issue for the Hertzon developers and a link to the prefilled "New issue" page; nothing is sent until the user posts it) |
 
 ### 5.4 The Claude plugin (optional)
 
