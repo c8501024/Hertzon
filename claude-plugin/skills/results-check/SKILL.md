@@ -22,6 +22,9 @@ conclusions. These are the checks that tell a trustworthy result from a wrong on
 
 - Lumped port: a small sheet between two conductors, IntegrationLine across it, nothing else touching it.
 - Wave port: on the boundary, covering the whole cross section of the line, with its line impedance as expected.
+- Wave port with several modes: `get_results()` kind `ports` names every mode ("P1 M2 (TE10-like, beta ...)"),
+  with beta, Zo and its symmetry; `image=true` shows the mode fields. Check that the modes are the ones
+  intended before reading S of a mode; field plots take `port` and `mode`.
 - `render_image()` shows ports and boundaries on the faces; look at it.
 
 ## 3. Does the energy add up?
@@ -31,6 +34,10 @@ conclusions. These are the checks that tell a trustworthy result from a wrong on
   screening mesh with a coarse far-field sphere (10 degrees) a few percent are normal; the balance says
   something about the port only on a converged mesh.
 - For passive two-ports: |S11|^2 + |S21|^2 should not exceed 1 and should match the expected losses.
+- `get_power_budget()` lists per port the accepted, reflected, transmitted, radiated and lost power, the
+  balance, and the volume losses per object and material (dielectric/conduction and magnetic). `evaluate_fields()`
+  evaluates Fields Calculator values on the saved fields, e.g. `flux(Box1, re(S))` (Poynting flux out of a closed
+  solid or through a sheet) or `int_vol(Sub, 0.5*omega*eps0*eps_r*tand*|E|^2)`.
 
 ## 4. Which factor limits?
 

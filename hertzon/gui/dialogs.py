@@ -227,7 +227,7 @@ def edit_setup(parent, doc, s: Setup) -> bool:
     props = schema.EIGEN_SETUP if s.eigen else schema.SETUP
     des = doc.design
     pw = not des.ports() and any(e.kind == "Incident Plane Wave" and e.enabled for e in des.excitations)
-    drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
+    drop = ({"MaximumDeltaS", "DeltaSQuantity", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
                  "MaxPowerBalance", "MaxDeltaEfficiency"} if pw
             else {"MaximumDeltaEnergy"})
     props = [p for p in props if p.name not in drop]
@@ -845,8 +845,8 @@ class ValidationDialog(QDialog):
     """Validation check; clicking a problem selects the object or assignment it is about."""
     from PySide6.QtCore import Signal as _Signal
     messageActivated = _Signal(str)
-    ICON = {"ok": "✔", "warning": "⚠", "error": "✖"}
-    COLOR = {"ok": "#1e8449", "warning": "#b9770e", "error": "#c0392b"}
+    ICON = {"ok": "✔", "info": "ℹ", "warning": "⚠", "error": "✖"}
+    COLOR = {"ok": "#1e8449", "info": "#2471a3", "warning": "#b9770e", "error": "#c0392b"}
 
     def __init__(self, doc, parent=None, overlaps=None, resolve=None, sheets=None):
         """overlaps: classified overlapping solids (model.validate.Overlap) from the exact geometry check;
@@ -871,7 +871,7 @@ class ValidationDialog(QDialog):
                     it.setForeground(0, QBrush(QColor(self.COLOR[c.level])))
                     top.addChild(it)
             tree.addTopLevelItem(top)
-            top.setExpanded(lv != "ok")
+            top.setExpanded(lv not in ("ok", "info"))
         tree.itemClicked.connect(lambda it, _c: self.messageActivated.emit(it.data(0, Qt.UserRole) or ""))
         lay.addWidget(tree, 1)
         side = QVBoxLayout()
@@ -1871,7 +1871,8 @@ class EditSourcesDialog(QDialog):
     """Edit Sources: magnitude and phase of every excitation for post processing, and for an
     incident wave the field that is shown (Total, Scattered or Incident)."""
 
-    def __init__(self, parent, design, on_apply=None, names: list[str] | None = None):
+    def __init__(self, parent, design, on_apply=None, names: list[str] | None = None,
+                 labels: dict[str, str] | None = None):
         super().__init__(parent)
         from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QComboBox, QDoubleSpinBox, QLabel, QHBoxLayout
         from ..model import sources as SRC
@@ -1894,7 +1895,8 @@ class EditSourcesDialog(QDialog):
             typ = "Incident Wave" if pw else "Port" if not names or n in ports else \
                 "Terminal" if design.settings.get("SolutionType") == "Terminal" else "Port Mode"
             self._types[n] = typ
-            for c, txt in ((0, n), (1, typ),
+            lab = (labels or {}).get(n, "")
+            for c, txt in ((0, n), (1, f"{typ}: {lab}" if lab else typ),
                            (3, "V/m" if pw else "W")):
                 it = QTableWidgetItem(txt)
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)

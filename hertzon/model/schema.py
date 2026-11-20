@@ -322,6 +322,10 @@ SETUP: list[Prop] = [
            "(no S-parameters). For checking ports quickly"),
     P("MaximumPasses", "int", "15", label="Maximum number of passes"),
     P("MaximumDeltaS", "float", "0.02", label="Maximum Delta S"),
+    P("DeltaSQuantity", "choice", "Complex S", label="Delta S of", choices=("Complex S", "Magnitude |S|"),
+      help="Complex S: the change of the complex S-parameters between passes (magnitude and phase). "
+           "Magnitude |S|: only the change of their magnitudes. Port modes are compared in the same sign and "
+           "order either way (matched by their fields from pass to pass)"),
     P("MaximumDeltaEnergy", "float", "0.001", label="Maximum Delta Energy",
       help="Incident wave designs (no ports): relative change of the scattered energy between passes (default 0.001)"),
     P("UseMatrixConvergence", "bool", "False", label="Use matrix convergence"),
@@ -415,7 +419,8 @@ SWEEP: list[Prop] = [
     P("Step", "freq", "0.1GHz", visible_if=("Distribution", "Linear Step")),
     P("Count", "int", "101", visible_if=("Distribution", "Linear Count")),
     P("SamplesPerDecade", "int", "20", visible_if=("Distribution", "Log Scale")),
-    P("Points", "text", "1GHz,2GHz", visible_if=("Distribution", "Single Points")),
+    P("Points", "text", "1GHz;2GHz", visible_if=("Distribution", "Single Points"),
+      help="Frequencies separated by ';' (',' is accepted as well)"),
     P("SaveFields", "bool", "False", label="Save fields (all frequencies)", visible_if=("SweepType", "!Interpolating"),
       help="Store the fields at every sweep frequency: field plots, far fields, gain patterns and antenna "
            "parameters over frequency (needs disk space). Discrete and Fast sweeps"),

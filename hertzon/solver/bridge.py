@@ -27,6 +27,7 @@ from ..model import schema
 from ..kernel import occ as K
 from . import facematch
 from . import sparta_setup
+from . import port_modes as PM
 from .results import ResultStore, port_entries, deembed_renormalize, running_status
 from .sweeps import sweep_frequencies  # noqa: F401  (re-exported: bridge.sweep_frequencies)
 from .emerge_compat import amr as _amr
@@ -629,16 +630,17 @@ class Bridge:
         fails (they are the usual cause of an inconsistent mesh). Run only then: it builds the whole model again
         in a scratch model and intersects every sheet with every solid, which made every start slower. The
         Validation Check shows the same warnings before a run."""
-        from ..model.validate import contact_messages, sheet_messages
+        from ..model.validate import contact_notes, sheet_messages
         try:
             cond = lambda n: is_conductor(self.project.material(self.design.obj(n).material))  # noqa: E731
             pl = K.sheet_placement(self.design, self.ev, cond)
-            self.sheet_hints = contact_messages(pl) + sheet_messages(self.design, pl)
+            notes = contact_notes(pl) + [("warning", m) for m in sheet_messages(self.design, pl)]
         except Exception as e:  # noqa: BLE001
-            self.sheet_hints = []
+            notes = []
             info(f"Sheet placement check skipped: {e}")
-        for h in self.sheet_hints:
-            warn(h)
+        self.sheet_hints = [m for _, m in notes]
+        for lv, h in notes:
+            (info if lv == "info" else warn)(h)
 
     def check_overlaps(self) -> None:
         """Partial overlaps the reference tool rejects are errors: two dielectrics or two conductors of
@@ -1952,21 +1954,58 @@ class Bridge:
                 out[f"nodes_{n}"] = xyz.T.astype(np.float64)
                 out[f"tris_{n}"] = inv.reshape(tris.shape).T.astype(np.int32)
                 rows = []
+                fr = PM.face_frame(mesh.nodes, tris)
                 for k, f in enumerate(np.atleast_1d(freqs)):
                     k0 = 2 * np.pi * float(f) / C0
                     modes = bc.get_modes(k0)
                     for i, md in enumerate(modes[:len(bc.port_modes)]):
                         out[f"E_{n}_{i + 1}_{k}"] = np.asarray(md.E_function(*xyz), complex).T.astype(np.complex64)
                         out[f"H_{n}_{i + 1}_{k}"] = np.asarray(md.H_function(*xyz), complex).T.astype(np.complex64)
-                        rows.append({"freq_index": k, "mode": i + 1, "type": str(md.modetype),
-                                     "gamma": [float(np.real(1j * md.beta)), float(np.imag(1j * md.beta))],
-                                     "zo": float(np.real(md.Z0))})
-                meta.append({"name": q["name"], "number": n, "modes": rows})
+                        row = {"freq_index": k, "mode": i + 1, "type": str(md.modetype),
+                               "gamma": [float(np.real(1j * md.beta)), float(np.imag(1j * md.beta))],
+                               "zo": float(np.real(_mode_z0(bc, i + 1, md)))}
+                        try:
+                            d = PM.describe_mode(md.E_function, fr, str(md.modetype), md.beta)
+                            row.update(short=d["short"], symmetry=d["symmetry"], rect_match=d["rect_match"],
+                                       label=PM.excitation_label(n, i + 1, d))
+                        except Exception as e:  # noqa: BLE001
+                            row["label"] = PM.excitation_label(n, i + 1, None)
+                            info(f"Port {n} mode {i + 1}: no mode label ({e})")
+                        rows.append(row)
+                meta.append({"name": q["name"], "number": n, "modes": rows,
+                             "axes": {"u": PM.axis_name(fr["u"]), "v": PM.axis_name(fr["v"]),
+                                      "normal": PM.axis_name(fr["normal"])}})
             out["meta"] = np.array(json.dumps(meta))
             if meta:
                 self.store.save_npz(f"portfields_{label}.npz", **out)
+                if label == "LastAdaptive":
+                    self.label_field_sources(meta)
         except Exception as e:  # noqa: BLE001
             warn(f"Port fields not saved: {e}")
+
+    def label_field_sources(self, meta: list) -> None:
+        """Mode labels (mode type, "TE10-like", beta) of the stored excitations in field_sources.json and
+        ports.json: field plots, Edit Sources and the MCP show "P1 M2 (TE10-like, beta 72.3 rad/m)"."""
+        first = {(q["number"], r["mode"]): r for q in meta for r in q["modes"] if r.get("freq_index", 0) == 0}
+        for fname in ("field_sources.json", "ports.json"):
+            rows = self.store.read_json(fname, None)
+            if not rows:
+                continue
+            changed = False
+            for q in rows:
+                if "port" in q and "mode" in q:            # field_sources.json: one row per port mode
+                    r = first.get((int(q["port"]), int(q["mode"])))
+                    if r and r.get("label"):
+                        q["label"] = r["label"]
+                        changed = True
+                elif q.get("kind") == "Wave Port":          # ports.json: the labels of all modes of the port
+                    labels = [first[(int(q["number"]), k)].get("label", "")
+                              for k in range(1, int(q.get("modes") or 1) + 1) if (int(q["number"]), k) in first]
+                    if labels:
+                        q["mode_labels"] = labels
+                        changed = True
+            if changed:
+                self.store.write_json(fname, rows)
 
     def run_ports_only(self) -> None:
         """Solve only the port modes: propagation constant, port impedance and port fields at the adaptive
@@ -2233,7 +2272,57 @@ class Bridge:
             out["sym_kind"] = np.array([p[0] for p in planes])
             out["sym_axis"] = np.array([p[1] for p in planes], np.int64)
             out["sym_pos"] = np.array([p[2] for p in planes], np.float64)
+        if getattr(self, "ff_bounds", None) is None:
+            gnd = self.ground_plane(vis, wns, planes)
+            if gnd is not None:
+                out["gnd_kind"], out["gnd_axis"] = np.array([gnd[0]]), np.array([gnd[1]], np.int64)
+                out["gnd_pos"], out["gnd_dir"] = np.array([gnd[2]], np.float64), np.array([gnd[3]], np.int64)
         return out
+
+    def ground_plane(self, vis: np.ndarray, wns: np.ndarray, planes: list) -> tuple | None:
+        """An infinite ground plane under an open far-field surface: the open faces (PML or radiation) cover all
+        sides of their bounding box but one, and that side is a flat outer boundary of the model (a Perfect E
+        floor, or the default conducting boundary, e.g. a monopole on a ground with a PML on the other five
+        sides). The far field then mirrors the surface fields at that plane (image theory) and is zero behind
+        it: (E or H, axis, position, +1/-1 for the side the model is on). None if no side or more than one
+        side is open, or the open side is a symmetry plane (mirrored as such) or not flat."""
+        try:
+            nodes = np.asarray(self.m.mesh.nodes, float)
+        except Exception:  # noqa: BLE001
+            return None
+        lo, hi = vis.min(axis=1), vis.max(axis=1)
+        size = float(np.max(hi - lo)) or 1.0
+        tol = 1e-6 * size
+        nrm = wns / np.maximum(np.linalg.norm(wns, axis=0), 1e-300)
+        missing = []
+        for ax in range(3):
+            for side, pos in ((-1, lo[ax]), (1, hi[ax])):
+                on = (np.abs(vis[ax] - pos) < tol) & (np.abs(nrm[ax]) > 0.99)
+                if not on.any():
+                    missing.append((ax, side, float(pos)))
+        sym = {(ax, round(p / tol)) for _, ax, p in planes}
+        missing = [m for m in missing if (m[0], round(m[2] / tol)) not in sym]
+        if len(missing) != 1:
+            return None
+        ax, side, pos = missing[0]
+        # the meshed domain ends at that plane: the open surface stops at an outer boundary, not in the air
+        dom = nodes[ax].min() if side < 0 else nodes[ax].max()
+        if abs(dom - pos) > tol:
+            return None
+        kind = "E"
+        for b in self.design.boundaries:
+            if b.enabled and (b.kind == "Perfect H" or (b.kind == "Symmetry" and b.props.get("Type") == "Perfect H")):
+                try:
+                    _, tags = self.selection_for(b)
+                    tri = np.asarray(self.m.mesh.get_triangles(tags), np.int64)
+                    pts = nodes[:, np.unique(np.asarray(self.m.mesh.tris)[:, tri])]
+                    if pts.size and np.all(np.abs(pts[ax] - pos) < tol):
+                        kind = "H"
+                except Exception:  # noqa: BLE001
+                    continue
+        info(f"Far field: infinite {'conducting' if kind == 'E' else 'magnetic'} ground plane at "
+             f"{'xyz'[ax]} = {pos * 1e3:.4g} mm (the far-field surface is mirrored there, no field behind it)")
+        return kind, ax, pos, -side
 
     def save_huygens(self, fields: list, label: str) -> bool:
         """E/H on the open boundary for post-processed far fields (infinite spheres can be
@@ -2714,20 +2803,20 @@ def _solver_stats(row: dict, step: int) -> None:
              f"{FACTOR['bytes'] / 2 ** 30:.2f} GB, peak memory {mem / 1024:.2f} GB")
 
 
-def aligned_delta(S_old: np.ndarray, S_new: np.ndarray) -> tuple[float, float, float]:
-    """Max |dS|, max d|S| and max dphase between passes, insensitive to port mode polarity flips."""
-    n = S_new.shape[0]
-    sgn = np.ones(n)
-    for j in range(1, n):
-        ref = S_new[0, j] * np.conj(S_old[0, j])
-        if abs(S_old[0, j]) > 1e-6 and ref.real < 0:
-            sgn[j] = -1.0
-    S_al = S_old * np.outer(sgn, sgn)
-    d = float(np.max(np.abs(S_new - S_al)))
-    dm = float(np.max(np.abs(np.abs(S_new) - np.abs(S_al))))
+def aligned_delta(S_old: np.ndarray, S_new: np.ndarray, track=None) -> tuple[float, float, float]:
+    """Max |dS|, max d|S| and max dphase between passes, insensitive to the sign (phase) and order of port
+    modes: S_new is compared in the gauge closest to S_old (port_modes.gauge_aligned; track = the match of the
+    port mode fields with the previous pass)."""
+    from .port_modes import gauge_aligned
+    S_old, S_new = np.asarray(S_old, complex), np.asarray(S_new, complex)
+    if S_old.shape != S_new.shape:
+        return float("inf"), float("inf"), 180.0
+    S_al = gauge_aligned(S_old, S_new, track)
+    d = float(np.max(np.abs(S_al - S_old)))
+    dm = float(np.max(np.abs(np.abs(S_al) - np.abs(S_old))))
     with np.errstate(all="ignore"):
-        ph = np.angle(S_new / np.where(np.abs(S_al) > 1e-12, S_al, 1)) * 180 / np.pi
-    ph[np.abs(S_new) < 1e-6] = 0
+        ph = np.angle(S_al / np.where(np.abs(S_old) > 1e-12, S_old, 1)) * 180 / np.pi
+    ph[(np.abs(S_al) < 1e-6) | (np.abs(S_old) < 1e-6)] = 0
     return d, dm, float(np.max(np.abs(ph)))
 
 
@@ -2753,6 +2842,8 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     # reached its own Max Delta S
     broadband = p.get("SolutionFrequencyMode") == "Broadband" and len(fa) > 1
     use_mat = p.get("UseMatrixConvergence") == "True"
+    # Delta S of the complex S-parameters (default) or of their magnitudes only
+    on_mag = p.get("DeltaSQuantity", "Complex S") == "Magnitude |S|"
     max_dm = float(p.get("MaxDeltaMag", "0.02")) if use_mat else float("inf")
     max_dp = float(p.get("MaxDeltaPhase", "2")) if use_mat else float("inf")
     use_pow = power is not None and p.get("UsePowerBalance") == "True"
@@ -2805,6 +2896,8 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         info(f"Continuing the adaptive analysis from pass {first} ({m.mesh.n_tets} tetrahedra)")
     t_pass = time.time()
     last = None
+    from .port_modes import ModeTracker
+    tracker = ModeTracker()       # the port modes of every pass, matched to those of the previous pass
     for step in range(first, maxp + 1):
         if (out / "ABORT").exists():
             warn("Adaptive meshing aborted by user")
@@ -2813,6 +2906,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         warn_memory_before_solve(f"Pass {step}", m.mesh.n_tets, passes[-1]["tets"] if passes else 0)
         m.data.sim.new(iter_step=step)
         fields, Ss = [], []
+        samples = None
         solve_ids = None
         z0 = np.array([50.0])
         for sf in fa:
@@ -2826,6 +2920,11 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
             except Exception:  # noqa: BLE001
                 pass
             _record_port_data(data.scalar[-1], sf, m)
+            if sf == fa[0] and TERMINALS is None:
+                try:
+                    samples = tracker.sample(m, sf)
+                except Exception:  # noqa: BLE001
+                    samples = None
             if TERMINALS is not None:
                 # convergence and results on the terminal S-parameters (unique for degenerate port modes)
                 Ss[-1] = TERMINALS.transform([sf], Ss[-1][None], list(data.scalar[-1]._portnumbers), DEEMBED)[0]
@@ -2853,8 +2952,13 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
                 prev = passes[-1].get("eff") if passes else None
                 if prev is not None and len(prev) == len(pw["eff"]):
                     row["delta_eff"] = max(abs(a - b) for a, b in zip(prev, pw["eff"]))
+        track = tracker.match(samples) if samples is not None else None
+        if track is not None and track[1]:
+            info(f"Pass {step}, port modes matched by their fields: " + "; ".join(track[1]))
         if S_prev is not None:
-            ds = [aligned_delta(a, b) for a, b in zip(S_prev, Ss)]
+            ds = [aligned_delta(a, b, track if len(fa) == 1 or k == 0 else None) for k, (a, b) in enumerate(zip(S_prev, Ss))]
+            if on_mag:
+                ds = [(d[1], d[1], d[2]) for d in ds]
             row["delta_s"] = max(d[0] for d in ds)
             row["delta_mag"] = max(d[1] for d in ds)
             row["delta_phase"] = max(d[2] for d in ds)

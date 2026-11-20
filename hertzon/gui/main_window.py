@@ -5884,7 +5884,8 @@ class MainWindow(QMainWindow):
             state["applied"] = (sources, ftype)
             self._apply_sources(sources, ftype)
 
-        dlg = EditSourcesDialog(self, self.des, on_apply=apply, names=names)
+        from .terminal_dialogs import field_source_labels
+        dlg = EditSourcesDialog(self, self.des, on_apply=apply, names=names, labels=field_source_labels(self.doc))
         if dlg.exec() == QDialog.Accepted:
             apply(*dlg.values())
 
