@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **The material list shows the magnetic loss tangent.** "Select Definition" has a column *Magnetic Loss
+  Tangent*; before, a magnetic loss set in View/Edit Material (e.g. an absorber with complex μr) was used in the
+  solve but not shown in the list. For anisotropic materials the permeability and loss tangent columns show the
+  xx,yy,zz tensors, as the permittivity column already did.
+
 ## 0.3.30 (2026-11-20)
 
 ### Changed
