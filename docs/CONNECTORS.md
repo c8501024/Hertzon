@@ -27,9 +27,9 @@ the variables `J1_x`, `J1_y`, `J1_z`.
 
 | Mode | 3D model | What you get |
 |---|---|---|
-| **Ideal port** | the lumped port is solved; connector and footprint are drawn transparent, outside the model | exactly the results without a connector |
-| **Transition** | as Ideal | a circuit design `<Design>_Connectors` that cascades your lumped-port solution with a solved 3D model of the connector-to-board transition |
-| **Full 3D** | connector and footprint are solved with the board, the wave port sits on the coax at the mating plane | the most faithful model, and the most expensive |
+| **Ideal port** | the lumped port is solved; connector and footprint are hidden, outside the model | exactly the results without a connector |
+| **Transition** | the lumped port is solved; connector and footprint are drawn transparent, outside the model | a circuit design `<Design>_Connectors` that cascades your lumped-port solution with a solved 3D model of the connector-to-board transition |
+| **Full 3D** | connector and footprint are solved with the board, the wave port sits on the coax at the mating plane, backed by a PEC cap | the most faithful model, and the most expensive |
 
 **Connectors › Simulate As** switches the selected connectors (or all of them). The project tree shows them
 under *Connectors* with their port and mode; right-click a connector for its mode, the transition design, the
@@ -37,16 +37,19 @@ launch optimization, Flatten and Remove.
 
 Switching is lossless. Nothing is deleted or rebuilt; the mode only switches parts on and off:
 
-- the *Model* flag and transparency of the connector and footprint objects,
+- the *Model* flag, visibility and transparency of the connector and footprint objects (hidden in Ideal, a
+  transparent preview in Transition, solid in Full 3D),
 - the cut of the footprint out of the board conductors (a Subtract in the conductor's history, suppressed
   outside Full 3D),
 - the lumped port or the connector's wave port (the wave port has the lumped port's number and is renormalized
   to its impedance, so the S-parameters of all modes compare directly),
-- the footprint's conductor boundary,
-- the air region: a wave port has to lie on the outer boundary, so in Full 3D a region object gets no padding
-  toward the connector and its open boundary leaves that face, which becomes Perfect E like the connector body.
-  With **Auto Open**, an explicit region with the same padding and a Radiation boundary takes its place while a
-  connector is in Full 3D. Everything that was changed is restored when the last connector leaves Full 3D.
+- the footprint's conductor boundary.
+
+The air region is never touched. The wave port on the coax is closed behind by a PEC cap (`<name>_Cap`, a disc
+as wide as the barrel), which the solver treats as a void with a conducting surface. So the port can sit
+anywhere inside the air region, and a region object, its padding and boundaries, or **Auto Open** stay exactly as
+you set them. Projects saved with 0.3.31 or older, where Full 3D removed the padding toward the connector or
+replaced Auto Open by a `ConnectorRegion`, get their air region back at the next mode change.
 
 **Flatten** makes a connector plain geometry: it is solved in 3D from then on, and the lumped port and its
 sheet are deleted. This is the only one-way step (Undo still works).
