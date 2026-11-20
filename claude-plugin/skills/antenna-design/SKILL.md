@@ -60,11 +60,12 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
   can widen a band but cannot create radiation that is not there.
 - Small antennas: bandwidth is limited by size. Check Q_Z from `get_results()` kind `impedance`: a very
   high Q_Z means the bandwidth goal may be out of reach without changing the size or the topology.
-- A band wider than one resonance of the available size can cover (high Q_Z, little space) needs several
-  resonances placed side by side in that band: parasitic resonators coupled to the driven element, a second
-  arm or branch of another length, a slot, or a feed and short arranged so that two modes are excited. Look
-  for such concepts early and compare several of them; tuning a single-resonance antenna does not widen it
-  enough.
+- Wide bands: where the antenna may be large compared with the wavelength, an inherently broadband form
+  (tapered, flared or elliptical monopoles, Vivaldi, log-periodic, spiral) covers the band without
+  resonances. Where space is small (high Q_Z), one resonance cannot cover a wide band; then several
+  resonances placed side by side help: parasitic resonators coupled to the driven element, a second arm or
+  branch of another length, a slot, or a feed and short that excite two modes. Look for such concepts early
+  and compare several of them.
 
 ## Matching networks
 
