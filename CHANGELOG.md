@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.32 (2026-11-20)
 
 ### Changed
 - **Full 3D connectors are fed by a wave port with a PEC cap behind it.** The cap closes the coax at the mating
