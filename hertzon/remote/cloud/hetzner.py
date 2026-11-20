@@ -69,12 +69,14 @@ class Hetzner:
             if t.get("deprecated") or t.get("architecture", "x86") != "x86":
                 continue
             prices = {p["location"]: float(p["price_hourly"]["gross"]) for p in t.get("prices", [])}
+            monthly = {p["location"]: float(p["price_monthly"]["gross"]) for p in t.get("prices", [])
+                       if (p.get("price_monthly") or {}).get("gross")}
             if location and location not in prices:
                 continue
             price = prices.get(location) if location else (min(prices.values()) if prices else None)
             out.append({"name": t["name"], "cores": t.get("cores"), "memory": t.get("memory"),
                         "dedicated": t.get("cpu_type") == "dedicated", "price": price, "prices": prices,
-                        "locations": sorted(prices)})
+                        "monthly": monthly, "currency": "EUR", "locations": sorted(prices)})
         return sorted(out, key=lambda t: (not t["dedicated"], t["cores"] or 0, t["name"]))
 
     def locations_for(self, server_type: str) -> list[str]:
