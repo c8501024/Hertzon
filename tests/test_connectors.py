@@ -96,6 +96,8 @@ def test_modes_switch_losslessly():
     assert [e.name for e in d.ports()] == ["P1", "P2"]
     assert all(not d.obj(n).model for n in C.parts_of(j1).body + C.parts_of(j1).footprint)
     assert all(d.obj(n).transparency >= C.PREVIEW_TRANSPARENCY for n in C.parts_of(j1).body)
+    # Ideal hides the connector
+    assert not any(d.obj(n).visible for n in C.parts_of(j1).body + C.parts_of(j1).footprint)
     tr = d.obj("Trace")
     cuts = [c for c in tr.history if c.kind == "Subtract"]
     assert len(cuts) == 2 and all(c.suppressed for c in cuts)
@@ -110,28 +112,46 @@ def test_modes_switch_losslessly():
     assert all(d.obj(n).model for n in C.parts_of(j1).body + C.parts_of(j1).footprint)
     assert not d.obj("PortSheet1").model
     assert [c.suppressed for c in tr.history if c.kind == "Subtract"] == [False, True]
-    assert d.obj("Region").history[0].props["-Y"] == "0"
+    assert all(d.obj(n).visible for n in C.parts_of(j1).body + C.parts_of(j1).footprint)
+    # the wave port is backed by a PEC cap; the air region and its boundary stay as set
+    cap = d.obj("J1_Cap")
+    assert cap.name in C.parts_of(j1).body and cap.material == "pec" and cap.model and not cap.solve_inside
+    assert d.obj("Region").history[0].props == region_before
     rad = d.assignment("Rad1")
-    assert rad.objects == [] and sorted(f.face for f in rad.faces) == [0, 1, 3, 4, 5]
+    assert rad.objects == ["Region"] and rad.faces == []
     # both 3D
     C.set_mode(pr, d, "3D")
-    assert sorted(f.face for f in d.assignment("Rad1").faces) == [0, 1, 4, 5]
+    assert d.obj("Region").history[0].props == region_before
     # back to Ideal: identical to before
     C.set_mode(pr, d, "Ideal")
     assert json.dumps(Project.to_dict(pr)) == snap_ideal
 
 
-def test_auto_open_becomes_region_in_3d():
+def test_auto_open_stays_in_3d():
     pr = microstrip("auto")
     d = pr.designs[0]
     C.attach_connector(pr, d, "P1", PID)
     snap = json.dumps(Project.to_dict(pr))
     C.set_mode(pr, d, "3D")
-    regs = [o for o in d.objects if o.history[0].kind == "CreateRegion"]
-    assert len(regs) == 1 and d.settings["AutoOpen"] == "Off"
-    assert regs[0].history[0].props["-Y"] == "0"
-    rad = next(b for b in d.boundaries if b.kind == "Radiation")
-    assert sorted(f.face for f in rad.faces) == [0, 1, 3, 4, 5]
+    assert not any(o.history[0].kind == "CreateRegion" for o in d.objects)
+    assert d.settings["AutoOpen"] == "Auto Open" and C.OPEN_STATE not in d.settings
+    C.set_mode(pr, d, "Ideal")
+    assert json.dumps(Project.to_dict(pr)) == snap
+
+
+def test_old_open_state_is_restored():
+    """Projects of 0.3.31 and before kept a 3D connector's port on the outer boundary (region without padding,
+    Auto Open replaced by a region); the next mode change restores the air region as set."""
+    pr = microstrip("auto")
+    d = pr.designs[0]
+    C.attach_connector(pr, d, "P1", PID)
+    snap = json.dumps(Project.to_dict(pr))
+    reg = d.add_object("CreateRegion", name="ConnectorRegion", PaddingType="Absolute Offset", **{"-Y": "0"})
+    d.boundaries.append(Assignment("ConnectorRad", "Radiation", schema.defaults(schema.BOUNDARIES["Radiation"]),
+                                   objects=[reg.name]))
+    d.settings["AutoOpen"] = "Off"
+    d.settings[C.OPEN_STATE] = json.dumps({"flat": [], "pads": {}, "faces": {}, "auto": {
+        "AutoOpen": "Auto Open", "region": reg.name, "boundary": "ConnectorRad"}})
     C.set_mode(pr, d, "Ideal")
     assert json.dumps(Project.to_dict(pr)) == snap
 
@@ -150,11 +170,11 @@ def test_geometry_builds_and_validates(mode):
     checks = validate(pr, d, tess=tess, errors=errors)
     bad = [c.message for c in checks if c.level == "error"]
     assert bad == []
-    # the wave port circle lies on the region face toward the connector
+    # the wave port circle lies inside the air region, on the PEC cap
     if mode == "3D":
-        port = tess["J1_Port"]
-        reg = tess["Region"]
-        assert port.bbox[1] == pytest.approx(reg.bbox[1], abs=1e-6)
+        port, cap, reg = tess["J1_Port"], tess["J1_Cap"], tess["Region"]
+        assert port.bbox[1] == pytest.approx(cap.bbox[4], abs=1e-6)
+        assert reg.bbox[1] == pytest.approx(cap.bbox[1] - 5e-3, abs=1e-6)
 
 
 def test_flatten():
@@ -167,12 +187,8 @@ def test_flatten():
     assert not any(e.name == "P1" for e in d.excitations)
     assert not d.has_obj("PortSheet1")
     assert [e.name for e in d.ports()] == [wave, "P2"]
-    assert d.obj("Region").history[0].props["-Y"] == "0"
-    # a later mode change of another connector keeps the flattened side open
-    C.attach_connector(pr, d, "P2", PID)
-    C.set_mode(pr, d, "Ideal")
-    assert d.obj("Region").history[0].props["-Y"] == "0"
-    assert d.obj("Region").history[0].props["+Y"] == "5mm"
+    assert d.has_obj("J1_Cap") and d.obj("J1_Cap").model
+    assert d.obj("Region").history[0].props["-Y"] == "5mm"
 
 
 def test_remove_connector_restores_design():
@@ -224,8 +240,12 @@ def test_transition_and_cascade():
     assert errors == {}
     bad = [c.message for c in validate(pr, t, tess=tess, errors=errors) if c.level == "error"]
     assert bad == []
-    # 3D design unchanged in Transition mode (lumped ports solved)
+    # 3D design unchanged in Transition mode (lumped ports solved), the connectors a transparent preview
     assert [e.name for e in d.ports()] == ["P1", "P2"]
+    for j in d.connectors:
+        assert all(d.obj(n).visible and not d.obj(n).model for n in C.parts_of(j).body)
+    # the coax port of the transition model lies on its outer boundary: no cap
+    assert not any(o.name.endswith("_Cap") for o in t.objects)
     c = pr.design(C.cascade_name(d))
     assert c.kind == "circuit"
     types = sorted(x.type for x in c.components)

@@ -393,7 +393,7 @@ def footprint_for(L: Launch, place: EdgePlacement) -> Footprint:
 # connector objects
 # ------------------------------------------------------------------------------------------------------------
 MODES = ("Ideal", "Transition", "3D")
-MODE_LABELS = {"Ideal": "Ideal port (connector shown)", "Transition": "Transition model (circuit)",
+MODE_LABELS = {"Ideal": "Ideal port (connector hidden)", "Transition": "Transition model (circuit)",
                "3D": "Full 3D connector"}
 PREVIEW_TRANSPARENCY = 0.75
 OPEN_STATE = "_ConnectorOpen"          # design setting: what the connectors changed at the air region
@@ -435,12 +435,36 @@ def _conductor_boundaries(design):
     return [b for b in design.boundaries if b.kind in ("Perfect E", "Finite Conductivity")]
 
 
+def _cap_props(L: Launch, F: "_Frame") -> tuple:
+    """The PEC cap behind the wave port of the coax: a disc as wide as the barrel on the mating plane, half the coax
+    diameter thick. The solver makes it a void (no field inside, PEC on its surface) that backs the port, so the
+    port lies inside the air region instead of on its outer boundary. Returns (name, material, color, props)."""
+    s_rear = L.wall_est if L.template == "flange_block" else 0.0
+    s_if = s_rear + L.coax_len_est
+    r = L.thread_d / 2 - 0.6
+    return "Cap", "pec", "#9a9a9a", False, F.cyl(s_if, s_if + L.b / 2, r, L.z_axis)
+
+
+def _ensure_cap(design, inst) -> None:
+    """Connectors placed before the cap existed get it when they are switched to 3D."""
+    pa = parts_of(inst)
+    if any(nm[len(inst.name) + 1:] == "Cap" for nm in pa.body):
+        return
+    pl = placement(inst)
+    L = launch_for(part(inst.part), pl.board_h)
+    nm, mat, color, inside, props = _cap_props(L, _Frame(pl, [f"{inst.name}_{c}" for c in "xyz"]))
+    o = design.add_object("CreateCylinder", name=design.unique_name(f"{inst.name}_{nm}"), material=mat, **props)
+    o.group, o.color, o.solve_inside = inst.name, color, inside
+    inst.props["Body"] = ",".join(pa.body + [o.name])
+
+
 def _place_parts(design, p: dict, L: Launch, fp: Footprint, place: EdgePlacement, name: str,
                  bboxes: dict[str, tuple] | None, port_number: int, port_name: str, z_ref: str = "50ohm",
-                 position_vars: bool = True) -> Parts:
+                 position_vars: bool = True, backing: bool = True) -> Parts:
     """Draws the connector ``p`` at ``place``: coax with bead and wave port, body, block or legs, and the launch
     footprint. Conductor sheets of the board in the board plane whose bounding box (``bboxes``, mm) reaches into
-    the footprint get the footprint area cut out (a Subtract of the keepout box)."""
+    the footprint get the footprint area cut out (a Subtract of the keepout box). With ``backing`` a PEC cap closes
+    the coax behind the wave port, so the port can lie anywhere inside the air region."""
     from .design import Assignment, Command
     from . import schema
     warns = []
@@ -597,8 +621,11 @@ def _place_parts(design, p: dict, L: Launch, fp: Footprint, place: EdgePlacement
     fb = Assignment(design.unique_name(f"{name}_Footprint"), like.kind if like else "Perfect E",
                     dict(like.props) if like else {}, objects=[o.name for o in sig + gnd])
     design.boundaries.append(fb)
-    # ---- wave port on the mating plane ------------------------------------------------------------------------
+    # ---- wave port on the mating plane, backed by a PEC cap ---------------------------------------------------
     sheet = add("CreateCircle", "Port", "vacuum", "#8080ff", **F.circle(s_if, b / 2, zax))
+    if backing:
+        nm, mat, color, inside, props = _cap_props(L, F)
+        add("CreateCylinder", nm, mat, color, **props).solve_inside = inside
     pr = schema.defaults(schema.EXCITATIONS["Wave Port"])
     pr.update({"PortNumber": str(port_number), "Renormalize": "True", "RenormImpedance": z_ref})
     wp_ = Assignment(design.unique_name(port_name), "Wave Port", pr, objects=[sheet.name])
@@ -765,8 +792,8 @@ def port_placement(project, design, port: str, bboxes: dict[str, tuple], er: flo
 def attach_connector(project, design, port: str, pid: str, bboxes: dict[str, tuple] | None = None,
                      name: str = "J1", mode: str = "Ideal", er: float | None = None):
     """Puts connector ``pid`` at the lumped port ``port`` (at a board edge) and returns the ConnectorInstance.
-    Nothing of the design is removed: in mode Ideal the connector is a transparent preview outside the model and
-    the lumped port is solved as before; ``set_mode`` switches to the transition model or the full 3D connector
+    Nothing of the design is removed: in mode Ideal the connector is hidden, outside the model, and the lumped
+    port is solved as before; ``set_mode`` switches to the transition model or the full 3D connector
     and back."""
     from .design import ConnectorInstance
     if connector_at(design, port) is not None:
@@ -801,13 +828,12 @@ def attach_connector(project, design, port: str, pid: str, bboxes: dict[str, tup
     return inst
 
 
-def _side_key(place: EdgePlacement) -> str:
-    return ("+" if place.sign > 0 else "-") + "XYZ"[place.u]
-
-
 def _apply_instance(design, inst) -> list[str]:
-    """Switches the objects and assignments of one connector to its mode."""
+    """Switches the objects and assignments of one connector to its mode. In Ideal the connector is hidden, in
+    Transition it is a transparent preview outside the model, in 3D it is solved."""
     on = inst.mode == "3D"
+    if on:
+        _ensure_cap(design, inst)
     pa = parts_of(inst)
     warns = []
     for nm in pa.body + pa.footprint:
@@ -816,6 +842,7 @@ def _apply_instance(design, inst) -> list[str]:
             continue
         o = design.obj(nm)
         o.model = on
+        o.visible = inst.mode != "Ideal"
         role = nm[len(inst.name) + 1:]
         o.transparency = (0.6 if role in DIELECTRIC_ROLES or role == "Port" else 0.0) if on else PREVIEW_TRANSPARENCY
     if pa.keepout and design.has_obj(pa.keepout):
@@ -879,38 +906,16 @@ def set_mode(project, design, mode: str, names: list[str] | None = None) -> list
 
 
 # ------------------------------------------------------------------------------------------------------------
-# air region: the wave port of a 3D connector lies on the outer boundary
+# air region: left as the user set it (the wave port of a 3D connector is backed by its PEC cap)
 # ------------------------------------------------------------------------------------------------------------
-def _lowest_frequency(design, ev) -> float:
-    fs = []
-    for st in design.setups:
-        try:
-            fs.append(ev.freq(st.props.get("Frequency", "") or "1GHz"))
-        except Exception:  # noqa: BLE001
-            pass
-        for sw in st.sweeps:
-            if sw.props.get("Enabled", "True") != "True":
-                continue
-            try:
-                from ..solver.sweeps import sweep_frequencies
-                f = sweep_frequencies(sw.props, ev)
-                if len(f):
-                    fs.append(float(min(f)))
-            except Exception:  # noqa: BLE001
-                pass
-    fs = [f for f in fs if f > 0]
-    return min(fs) if fs else 1e9
-
-
 def _sync_open(project, design) -> list[str]:
-    """A wave port has to lie on the outer boundary. For every side with a 3D connector: a region object gets no
-    padding there and its open boundary (Radiation, PML) leaves that face (Perfect E, like the connector body);
-    with Auto Open, an explicit region with the same padding and a Radiation boundary takes its place. What was
-    changed is kept in a design setting and restored as soon as no 3D connector needs it."""
-    from .design import Assignment, FaceRef
-    from . import schema
-    state = json.loads(design.settings.get(OPEN_STATE, "") or "{}")
-    # ---- restore
+    """Up to 0.3.31 a 3D connector moved its wave port onto the outer boundary: no padding of the air region toward
+    the connector, its open boundary off that face, Auto Open replaced by an explicit region. The port is backed by
+    a PEC cap now and the air region stays as set; what an older project still has changed is restored here."""
+    from .design import FaceRef
+    state = json.loads(design.settings.pop(OPEN_STATE, "") or "{}")
+    if not state:
+        return []
     for reg, pads in state.get("pads", {}).items():
         if design.has_obj(reg):
             design.obj(reg).history[0].props.update(pads)
@@ -924,58 +929,8 @@ def _sync_open(project, design) -> list[str]:
         design.objects = [o for o in design.objects if o.name != auto["region"]]
         design.boundaries = [b for b in design.boundaries if b.name != auto["boundary"]]
         design.settings["AutoOpen"] = auto["AutoOpen"]
-    flat = list(state.get("flat", []))
-    design.settings.pop(OPEN_STATE, None)
-    sides = sorted({_side_key(placement(c)) for c in design.connectors if c.mode == "3D"} | set(flat))
-    if not sides:
-        return []
-    new = {"flat": flat, "pads": {}, "faces": {}}
-    warns = []
-    idx = {k: 2 * "XYZ".index(k[1]) + (1 if k[0] == "+" else 0) for k in sides}
-    regions = [o for o in design.live_objects() if o.history[0].kind == "CreateRegion"]
-    if regions:
-        for r in regions:
-            props = r.history[0].props
-            new["pads"][r.name] = {k: props.get(k, "0") for k in sides}
-            for k in sides:
-                props[k] = "0"
-            for b in design.boundaries:
-                if not b.enabled or b.kind not in ("Radiation", "PML", "Layered Impedance", "Finite Conductivity",
-                                                   "Perfect H", "Impedance"):
-                    continue
-                whole = r.name in b.objects
-                listed = [f.face for f in b.faces if f.obj == r.name]
-                if not whole and not listed:
-                    continue
-                new["faces"][b.name] = {"objects": list(b.objects), "faces": [[f.obj, f.face] for f in b.faces]}
-                keep = set(range(6)) if (whole or -1 in listed) else set(listed)
-                keep -= set(idx.values())
-                b.objects = [o for o in b.objects if o != r.name]
-                b.faces = [f for f in b.faces if f.obj != r.name] + [FaceRef(r.name, i) for i in sorted(keep)]
-        warns.append(f"air region '{regions[0].name}': no padding toward the 3D connector(s) ({', '.join(sides)}), "
-                     "the open boundary leaves that face")
-    elif design.settings.get("AutoOpen", "Off") != "Off":
-        ev = design.evaluator(project)
-        mode = design.settings["AutoOpen"]
-        if mode == "Auto Open - Filter":
-            margin = ev.length(design.settings.get("FilterAirMargin", "12mm") or "12mm")
-        else:
-            pad = design.settings.get("AutoOpenPadding", "")
-            margin = ev.length(pad) if pad.strip() else C0_MM_GHZ * 1e6 / _lowest_frequency(design, ev) / 3 / 1e3
-        pr = {"PaddingType": "Absolute Offset"}
-        for ax in "XYZ":
-            for sgn in "+-":
-                pr[sgn + ax] = "0" if sgn + ax in sides else f"{margin * 1e3:.6g}mm"
-        reg = design.add_object("CreateRegion", name=design.unique_name("ConnectorRegion"), **pr)
-        rad = Assignment(design.unique_name("ConnectorRad"), "Radiation", schema.defaults(schema.BOUNDARIES["Radiation"]),
-                         faces=[FaceRef(reg.name, i) for i in range(6) if i not in idx.values()])
-        design.boundaries.append(rad)
-        new["auto"] = {"AutoOpen": mode, "region": reg.name, "boundary": rad.name}
-        design.settings["AutoOpen"] = "Off"
-        warns.append(f"Auto Open: replaced by the region '{reg.name}' (padding {margin * 1e3:.3g} mm, none toward "
-                     f"the 3D connector) with a Radiation boundary while a connector is solved in 3D")
-    design.settings[OPEN_STATE] = json.dumps(new)
-    return warns
+    return ["air region: restored as set before (the wave port of a 3D connector is backed by a PEC cap and no "
+            "longer needs the outer boundary)"]
 
 
 # ------------------------------------------------------------------------------------------------------------
@@ -987,10 +942,6 @@ def flatten(project, design, name: str) -> list[str]:
     inst = instance(design, name)
     inst.mode = "3D"
     warns = apply_modes(project, design)
-    side = _side_key(placement(inst))
-    state = json.loads(design.settings.get(OPEN_STATE, "") or "{}")
-    state["flat"] = sorted(set(state.get("flat", [])) | {side})
-    design.settings[OPEN_STATE] = json.dumps(state)
     sheet = inst.props.get("PortSheet", "")
     design.excitations = [e for e in design.excitations if e.name != inst.port]
     used = {o for a in design.excitations + design.boundaries for o in a.objects} | \
@@ -1161,7 +1112,8 @@ def ensure_transition(project, design, inst):
     bbs = {trace.name: (-tw / 2, 0.0, 0.0, tw / 2, Lb, 0.0)}
     lump = next((e for e in design.excitations if e.name == inst.port), None)
     z_ref = (lump.props.get("Impedance", "50ohm") if lump else "50ohm") or "50ohm"
-    pa = _place_parts(t, p, L, fp, place, "J", bbs, 1, "Coax", z_ref, position_vars=False)
+    # the coax port lies on the outer boundary of this model (Perfect E around it): no cap
+    pa = _place_parts(t, p, L, fp, place, "J", bbs, 1, "Coax", z_ref, position_vars=False, backing=False)
     for v in "xyz":
         t.variables[f"J_{v}"] = "0mm"
     # in this model the connector is solved: everything on, the cuts active

@@ -826,14 +826,14 @@ class MainWindow(QMainWindow):
                     "2.4 mm) with its footprint at the selected lumped port at a board edge")
         g = pg.group("Simulate As")
         g.large("Ideal Port", "nonmodel", lambda: self.connector_mode("Ideal"),
-                tip="Solve the lumped ports; the connectors are shown transparent, outside the model (selected "
-                    "connectors, or all)")
+                tip="Solve the lumped ports; the connectors are hidden, outside the model (selected connectors, "
+                    "or all)")
         g.large("Transition", "chip", lambda: self.connector_mode("Transition"),
                 tip="Keep the lumped ports in 3D and cascade a solved 3D model of the connector-to-board "
                     "transition in a circuit design (selected connectors, or all)")
         g.large("Full 3D", "cylinder", lambda: self.connector_mode("3D"),
-                tip="Solve the connectors and their footprints with the board, wave port on the coax (selected "
-                    "connectors, or all)")
+                tip="Solve the connectors and their footprints with the board, fed by a wave port on the coax "
+                    "with a PEC cap behind it (selected connectors, or all)")
         g.large("Flatten", "group", lambda: self.connector_flatten(),
                 tip="Make the selected connectors plain geometry of the design and delete their lumped ports")
         g = pg.group("Transition")

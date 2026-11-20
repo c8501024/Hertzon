@@ -3,6 +3,17 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.32 (2026-11-20)
+
+### Changed
+- **Full 3D connectors are fed by a wave port with a PEC cap behind it.** The cap closes the coax at the mating
+  plane, so the port lies inside the air region. Full 3D no longer removes the padding of the air region toward
+  the connector and no longer replaces Auto Open by an explicit `ConnectorRegion` that enclosed the whole board.
+  The air region, its boundaries and Auto Open stay as set; projects changed by older versions get them back at
+  the next mode change.
+- **Ideal hides the connector.** In Ideal the connector and its footprint are no longer drawn; Transition still
+  shows them as a transparent preview.
+
 ## 0.3.31 (2026-11-20)
 
 ### Added
