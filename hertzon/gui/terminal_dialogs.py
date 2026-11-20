@@ -40,6 +40,20 @@ def field_terminal_names(doc) -> list[str] | None:
     return [q["name"] for q in best] if best else None
 
 
+def field_source_labels(doc) -> dict[str, str]:
+    """Labels of the port modes whose fields the newest solution stores ("P1 M2 (TE10-like, beta 72.3 rad/m)")."""
+    from .doc import result_dir
+    best, t_best = None, -1.0
+    for s in doc.design.setups:
+        try:
+            p = result_dir(doc, s.name) / "field_sources.json"
+        except Exception:  # noqa: BLE001
+            continue
+        if p.exists() and p.stat().st_mtime > t_best:
+            best, t_best = ResultStore(p.parent).read_json("field_sources.json"), p.stat().st_mtime
+    return {q["name"]: q["label"] for q in best or [] if q.get("label")}
+
+
 def terminal_names(doc) -> list[str]:
     """Names of the terminals in the order of the terminal S-parameters: from the newest solution, else one
     per port (lumped ports are always one terminal; the terminals of a wave port are known after solving)."""

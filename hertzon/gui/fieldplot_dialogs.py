@@ -59,10 +59,12 @@ class FieldPlotDialog(QDialog):
         f.addRow("Phase", self.phase)
         self.port = QComboBox()
         ports = win.des.ports() if hasattr(win.des, "ports") else []
-        nports = max(1, len(ports))
-        for i in range(1, nports + 1):
-            self.port.addItem(str(i))
-        f.addRow("Excited port", self.port)
+        self._nports = max(1, len(ports))
+        self._load_excitations(self.sol.currentText())
+        self.sol.currentTextChanged.connect(self._load_excitations)
+        self.port.setToolTip("The excitation whose field is plotted (a port, or one mode of a wave port with "
+                             "several modes). Edit Sources overrides it with a superposition.")
+        f.addRow("Excitation", self.port)
         self._load_freqs(self.sol.currentText())     # again, now with its row: names it for an eigenmode solution
         self.where = QComboBox()
         self.where.addItems(["(selection)", "(selection, inside solids)", "XY", "YZ", "XZ"])
@@ -77,7 +79,7 @@ class FieldPlotDialog(QDialog):
             p = fp.props
             self.freq.setCurrentIndex(min(int(p.get("freq", 0)), self.freq.count() - 1))
             self.phase.setValue(float(p.get("phase", 0)))
-            self.port.setCurrentText(str(p.get("port", 1)))
+            self._set_port(int(p.get("port", 1) or 1))
             if fp.plane:
                 ax, _, val = fp.plane.partition("@")
                 self.where.setCurrentText(ax)
@@ -128,6 +130,24 @@ class FieldPlotDialog(QDialog):
         self.reject()
         self.win.fields_calculator(for_plot=True)
 
+    def _load_excitations(self, text: str) -> None:
+        """The excitations the solution stores: ports, or port modes with their labels ("P1 M2 (TE10-like, ...)")."""
+        cur = self.port.currentData()
+        self.port.clear()
+        try:
+            st, _ = F.store_for(self.win.doc, text)
+        except Exception:  # noqa: BLE001
+            st = None
+        for n, txt in F.excitation_choices(st, self._nports):
+            self.port.addItem(txt, n)
+        if cur is not None:
+            self._set_port(int(cur))
+
+    def _set_port(self, n: int) -> None:
+        i = self.port.findData(n)
+        if i >= 0:
+            self.port.setCurrentIndex(i)
+
     def _load_freqs(self, text: str) -> None:
         self.freq.clear()
         try:
@@ -157,7 +177,7 @@ class FieldPlotDialog(QDialog):
         pl = "" if sel else f"{self.where.currentText()}@{self.pval.text()}"
         return {"name": self.name.text().strip(), "quantity": self.qty.currentText(),
                 "solution": self.sol.currentText(), "plane": pl, "keep": self.keep.isChecked(),
-                "props": {"port": self.port.currentText(), "freq": str(max(0, self.freq.currentIndex())),
+                "props": {"port": str(self.port.currentData() or self.port.currentText().split(":")[0]), "freq": str(max(0, self.freq.currentIndex())),
                           "phase": f"{self.phase.value():g}", "Volume": str(self.where.currentIndex() == 1)}}
 
 

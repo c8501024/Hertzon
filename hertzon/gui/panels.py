@@ -229,7 +229,7 @@ class PropertiesPanel(QWidget):
         props = schema.EIGEN_SETUP if s.eigen else schema.SETUP
         pw = not des.ports() and any(e.kind == "Incident Plane Wave" and e.enabled for e in des.excitations)
         # an incident wave design converges on Delta Energy, a port design on Delta S
-        drop = ({"MaximumDeltaS", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
+        drop = ({"MaximumDeltaS", "DeltaSQuantity", "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "UsePowerBalance",
                  "MaxPowerBalance", "MaxDeltaEfficiency"} if pw
                 else {"MaximumDeltaEnergy"})
         props = [p for p in props if p.name not in drop]

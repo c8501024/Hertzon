@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 # setup properties that only steer convergence: changing them keeps the adaptive mesh (continues)
-CONVERGENCE_KEYS = {"MaximumPasses", "MaximumDeltaS", "MinimumPasses", "MinimumConvergedPasses",
+CONVERGENCE_KEYS = {"MaximumPasses", "MaximumDeltaS", "DeltaSQuantity", "MinimumPasses", "MinimumConvergedPasses",
                     "UseMatrixConvergence", "MaxDeltaMag", "MaxDeltaPhase", "MaximumRefinement", "SaveFields",
                     "UsePowerBalance", "MaxPowerBalance", "MaxDeltaEfficiency"}
 

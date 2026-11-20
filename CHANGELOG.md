@@ -3,6 +3,31 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Wave ports with several modes: Delta S no longer jumps on a sign flip of a mode.** Between adaptive passes the
+  sign of every port mode was matched on the S-parameters of port 1 only. A mode that does not couple to port 1
+  (the second mode of a symmetric guide, an odd slot mode) was flipped on numerical noise, and Delta S jumped to
+  about 2 with every |S| and phase unchanged (a two-mode guide: pass 6 Delta S 1.99 instead of 0.02), so the
+  complex Delta S could not be used and the passes ran on. Now the modes of every pass are sampled at fixed
+  points of the port face and matched to the modes of the previous pass by their field overlap (order and
+  sign), and the sign of a mode is otherwise fixed on its strongest couplings, not on noise. A change of the
+  mode order between passes is reported in the Message Manager.
+
+### Added
+- **Port mode labels.** Every mode of a wave port is named after its type, the mode of a rectangular guide it
+  resembles and its propagation constant, for example "P1 M2 (TE10-like, beta 72.3 rad/m)"; a mode that resembles
+  none gives its symmetry instead ("TE, odd in x"). The field plot dialog lists the excitations of the solution
+  with these labels (before it offered 1 ... number of ports, so the second mode of port 1 appeared as "2" and the
+  modes of the last ports could not be chosen), the plot title and Edit Sources show them.
+- **Setup: Delta S of complex S or of |S|.** "Delta S of" (Convergence) chooses whether the passes converge on
+  the change of the complex S-parameters (default, as before) or of their magnitudes only.
+- **MCP: port modes.** `get_results(kind="ports")` lists the modes of every wave port with label, type, beta,
+  alpha, Zo, propagating or not, the symmetry about the two principal axes of the port face (even = magnetic
+  wall, odd = electric wall) and the closest rectangular guide mode, plus the excitations whose fields are stored;
+  `image=true` adds a picture of the transverse E of every mode. `set_field_plot` takes `port` and `mode`.
+
 ## 0.3.30 (2026-11-20)
 
 ### Changed
