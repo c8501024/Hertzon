@@ -321,7 +321,7 @@ def design_patch_array(p: Project) -> Design:
                     ["dB(PeakDirectivity)", "dB(PeakGain)", "dB(PeakRealizedGain)", "RadiationEfficiency",
                      "RadiatedPower", "AcceptedPower", "dB(FrontToBackRatio)", "dB(AxialRatioAtMax)"],
                     {"sphere": "FF_Global"}))
-    R.append(Report("Near Field 1", "Near Field Line", "Setup1 : LastAdaptive", ["mag(NearETotal)"],
+    R.append(Report("Near Field 1", "Near Field Line", "Setup1 : LastAdaptive", ["mag(ComplexMag_E)"],
                     {"start": "-60,15,20", "end": "60,15,20", "points": "121"}))
     R.append(Report("Fields Plot 1", "Rectangular", "Setup1 : Fast", ["Pin"], {"port": "1", "fields": "1"}))
     R.append(Report("Fields Table 1", "Data Table", "Setup1 : Points", ["Pin", "Emax_sub"],

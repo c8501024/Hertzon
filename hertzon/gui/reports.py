@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QLi
 
 from ..model.design import Report
 from ..post.quantities import (NF_FUNCS, MAGNITUDE_FUNCS, quantity_meta, functions_for, phasor_value,  # noqa: F401
-                               migrate_near_report)
+                               migrate_near_report, NF_QUANTITIES, nf_name, QuantityMeta)
 from ..solver.results import ResultStore, results_dir
 from .doc import result_dir
 from ..solver.ffquant import monostatic_rcs, farfield_quantities, antenna_parameters  # noqa: F401
@@ -64,13 +64,13 @@ def ff_trace(tr: str) -> tuple[str, str]:
     return m.groups() if m else ("", tr.strip())
 
 
-NF_QUANTITIES = ["NearETotal", "NearEX", "NearEY", "NearEZ", "NearHTotal", "NearHX", "NearHY", "NearHZ"]
 
 
 # units of the report quantities (linear); dB of them is "dB", of an area "dBsm"
 _QTY_UNITS = {"S": "", "Y": "S", "Z": "Ω", "VSWR": "", "Zo": "Ω", "Gamma": "1/m", "Freq": "Hz", "F": "Hz",
               "RadiatedPower": "W", "AcceptedPower": "W", "IncidentPower": "W", "MaxU": "W/sr",
               "ThetaAtMax": "deg", "PhiAtMax": "deg"}
+_QTY_UNITS.update({q: "V/m" if q.endswith("_E") or q.startswith("E_") else "A/m" for q in NF_QUANTITIES})
 _PREFIX_UNITS = (("rE", "V"), ("NearE", "V/m"), ("NearH", "A/m"), ("BistaticRCS", "m²"), ("MonostaticRCS", "m²"))
 
 
@@ -593,22 +593,41 @@ def near_field_line(doc, solution: str, p1, p2, n: int, freq_index: int = 0, por
         valid = np.asarray(smp.point_data.get("vtkValidPointMask", np.ones(len(P))), bool)
         c = smp.point_data["re"] + 1j * smp.point_data["im"]
         c[~valid] = np.nan
-        out[f"Near{w}X"], out[f"Near{w}Y"], out[f"Near{w}Z"] = c[:, 0], c[:, 1], c[:, 2]
-        out[f"Near{w}Total"] = np.sqrt((np.abs(c) ** 2).sum(axis=1))
+        out[f"{w}_X"], out[f"{w}_Y"], out[f"{w}_Z"] = c[:, 0], c[:, 1], c[:, 2]
+        out[f"ComplexMag_{w}"] = np.sqrt((np.abs(c) ** 2).sum(axis=1))
     return out
 
 
-def near_values(nf: dict, func: str, name: str, phase_deg: float = 0.0) -> np.ndarray:
-    """Values of a Near Field Line trace func(name).
+def near_quantity(nf: dict, name: str, phase_deg: float = 0.0):
+    """The values of a Near Field Line quantity (old names such as NearETotal accepted), None when the line
+    has none. Mag_E is |Re(E e^(jφ))|, the length of the real field vector at the phase φ, as in the field
+    plots."""
+    name = nf_name(name)
+    if name in nf:
+        return nf[name]
+    if name in ("Mag_E", "Mag_H") and f"{name[-1]}_X" in nf:
+        c = np.stack([nf[f"{name[-1]}_{a}"] for a in "XYZ"], axis=1)
+        return np.linalg.norm(np.real(c * np.exp(1j * np.radians(phase_deg))), axis=1)
+    return None
 
-    mag: magnitude of the complex phasor (does not depend on φ); for E Total sqrt(|Ex|^2+|Ey|^2+|Ez|^2),
-    which is the peak over a period only for linear polarisation (circular: sqrt(2) times the peak).
-    re, im: of X e^(jφ) for a field component; re is the instantaneous value at the phase φ.
-    ang_deg: the angle of X (does not depend on φ). Magnitudes (E Total, H Total) have mag and dB only."""
+
+def near_values(nf: dict, func: str, name: str, phase_deg: float = 0.0) -> np.ndarray:
+    """Values of a Near Field Line trace func(name), with the names of the field plots.
+
+    Mag_E: |Re(E e^(jφ))|, the instantaneous length of the field vector at the phase φ.
+    ComplexMag_E: sqrt(|Ex|^2+|Ey|^2+|Ez|^2), does not depend on φ; the peak of Mag_E over a period for
+    linear polarisation (circular: sqrt(2) times the peak).
+    E_X, E_Y, E_Z: the complex components; re, im of X e^(jφ), re is the instantaneous value at φ; mag and
+    ang_deg do not depend on φ. Mag_E and ComplexMag_E are magnitudes: mag and dB only."""
     meta = quantity_meta(name)
     if meta.is_magnitude and func not in MAGNITUDE_FUNCS:
         raise ValueError(f"{func}({name}): {name} is a magnitude, only {', '.join(MAGNITUDE_FUNCS)}")
-    return phasor_value(func, nf[name], phase_deg, meta)
+    v = near_quantity(nf, name, phase_deg)
+    if v is None:
+        raise KeyError(name)
+    if meta.is_magnitude:
+        meta = QuantityMeta(is_magnitude=True)        # Mag_E is already taken at φ
+    return phasor_value(func, v, phase_deg, meta)
 
 
 def near_phase_traces(traces: list[str]) -> list[str]:
@@ -623,9 +642,10 @@ def near_phase_traces(traces: list[str]) -> list[str]:
 
 
 def near_phase_dependent(traces: list[str]) -> bool:
-    """Whether a trace of a Near Field Line report changes with the phase φ: re or im of a quantity with a
-    phase reference."""
-    return any(tr.startswith(("re(", "im(")) for tr in near_phase_traces(traces))
+    """Whether a trace of a Near Field Line report changes with the phase φ: re or im of a field component,
+    or Mag_E / Mag_H (the instantaneous magnitude)."""
+    return any(tr.startswith(("re(", "im(")) or quantity_meta(re.match(r"\w+\((\w+)\)", tr).group(1)).is_magnitude
+               for tr in near_phase_traces(traces))
 
 
 def skin_depth_fit(x: np.ndarray, y: np.ndarray, x0: float | None = None, x1: float | None = None) -> dict:
@@ -812,6 +832,17 @@ class ReportWindow(QWidget):
                 self._migrated.append(w)
             report.migration_warnings = []
             self.qty.addItems(NF_QUANTITIES)
+            # the names of the field plots (Plot Fields), with the same meaning
+            qtips = {"Mag": "|Re({w} e^(jφ))|: the length of the field vector at the phase φ of the slider "
+                            "(instantaneous), as Mag_{w} of the field plots",
+                     "ComplexMag": "sqrt(|{w}x|²+|{w}y|²+|{w}z|²), independent of the phase, as ComplexMag_{w} of "
+                                   "the field plots; the peak of Mag_{w} over a period for linear polarisation",
+                     "comp": "Complex {a} component of {w}; re/im at the phase φ of the slider"}
+            for i, q in enumerate(NF_QUANTITIES):
+                head, _, tail = q.partition("_")
+                tip = qtips[head] if head in qtips else qtips["comp"]
+                w, a = (tail, "") if head in qtips else (head, tail.lower())
+                self.qty.setItemData(i, tip.format(w=w, a=a), Qt.ToolTipRole)
             self._nf_fill_funcs()
             self.qty.currentTextChanged.connect(self._nf_qty_changed)
             self.nf = {}
@@ -1193,8 +1224,8 @@ class ReportWindow(QWidget):
             self._nf_reuse = False
 
     def _nf_fill_funcs(self) -> None:
-        """The functions of the selected quantity: mag and dB for a magnitude (E Total), else mag, dB, re, im
-        and ang (in degrees)."""
+        """The functions of the selected quantity: mag and dB for a magnitude (Mag_E, ComplexMag_E), else mag,
+        dB, re, im and ang (in degrees)."""
         want = functions_for(self.qty.currentText())
         have = [self.func.itemText(i) for i in range(self.func.count())]
         if have == want:
@@ -1203,8 +1234,7 @@ class ReportWindow(QWidget):
         self.func.blockSignals(True)
         self.func.clear()
         self.func.addItems(want)
-        tips = {"mag": "Magnitude |X| of the complex field (independent of the phase). For E Total "
-                       "sqrt(|Ex|²+|Ey|²+|Ez|²): the peak over a period only for linear polarisation",
+        tips = {"mag": "Magnitude of the quantity; |X| of a complex component (independent of the phase)",
                 "dB": "20 log10 of the magnitude",
                 "re": "re(X e^(jφ)): the instantaneous value at the phase φ of the slider",
                 "im": "im(X e^(jφ)) at the phase φ of the slider",
@@ -2601,7 +2631,7 @@ class ReportWindow(QWidget):
         cols = []
         for tr in self.report.traces:
             m = re.match(r"(\w+)\((\w+)\)", tr)
-            if not m or m.group(2) not in nf:
+            if not m or near_quantity(nf, m.group(2), phase) is None:
                 continue
             func, name = m.groups()
             cols.append((tr, near_values(nf, func, name, phase)))
@@ -2683,7 +2713,8 @@ class ReportWindow(QWidget):
             for tr, y in cols:
                 m = re.match(r"(\w+)\((\w+)\)", tr)
                 if m and m.group(1) in ("re", "im", "mag"):
-                    pk = near_values(nf, "mag", m.group(2))
+                    q = nf_name(m.group(2))
+                    pk = near_values(nf, "mag", "ComplexMag_" + q[-1] if q.startswith("Mag_") else q)
                     pk = pk[np.isfinite(pk)]
                     if len(pk):
                         hi = max(hi, float(pk.max()))
@@ -2723,7 +2754,7 @@ class ReportWindow(QWidget):
         ax.legend(loc="best", fontsize=8)
         ax.set_title(f"{self.report.name}   ({self.sol.currentText()})", fontsize=10)
         self.canvas.draw_idle()
-        bad = int(np.isnan(nf.get("NearETotal", np.zeros(1))).sum())
+        bad = int(np.isnan(nf.get("ComplexMag_E", np.zeros(1))).sum())
         self.info.setText(f"{n} points from ({p.get('start')}) to ({p.get('end')})" +
                           (f"; {bad} points outside the solution volume" if bad else "") + note +
                           ".  Double-click: marker. Right-click: markers, skin depth, axes, traces.")
