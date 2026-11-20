@@ -5,6 +5,12 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- **MCP tool `report_issue`.** When a tool is missing (a structure the Design Wizard does not have), fails or gives
+  a result that looks wrong, the assistant prepares an issue for the Hertzon developers: title, what happened, an
+  example, a proposal and the versions of Hertzon, EMerge and the system, with a link to the prefilled "New issue"
+  page of the repository. Nothing is sent; the user reads the text and posts it from the link.
+
 ### Changed
 - **Cloud server shared by all windows.** Closing a Hertzon window no longer deletes the cloud server that other
   windows (also of other Hertzon processes) use: each window holds a lease, and the server is deleted when the
