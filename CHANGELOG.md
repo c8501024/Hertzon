@@ -43,6 +43,10 @@ the GitHub release notes.
   `image=true` adds a picture of the transverse E of every mode. `set_field_plot` takes `port` and `mode`.
 
 ### Changed
+- **Real connectors: where the trace ends is stated.** Putting a connector at a lumped port now says how far the
+  trace is cut back from the board edge in Full 3D (the footprint length `J1_lf`; the contact then rests on the pad
+  only) and that in Ideal the trace still runs to the edge under the connector, which the Transition model
+  de-embeds. The help of the modes says the same.
 - **Single Points sweeps take ';' or ',' between the frequencies** (`2.4GHz;2.45GHz` or `2.4GHz,2.45GHz`). The schema
   help of the sweep's Points was the one of polyline points.
 - **Unknown choice values are refused.** A sweep distribution such as "SinglePoints" fell back silently to Linear

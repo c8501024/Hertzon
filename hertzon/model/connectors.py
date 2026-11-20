@@ -559,6 +559,11 @@ def _place_parts(design, p: dict, L: Launch, fp: Footprint, place: EdgePlacement
                 cuts.append(o.name)
     if not cuts:
         warns.append("no board conductor reaches into the footprint: the trace is not cut to the launch")
+    elif position_vars:
+        warns.append(f"{name}: in Full 3D the trace ({', '.join(cuts)}) is cut back {fp.lf:g} mm from the board edge "
+                     f"({name}_lf) and the footprint takes its place, the contact rests on the pad only; in Ideal "
+                     "the trace runs to the board edge under the connector (the lumped port is there), the "
+                     "Transition model de-embeds that stretch")
     sig = [add("CreateRectangle", "Pad", "vacuum", "#d4a017", into=foot,
                **F.rect(f"-({V('lp')})", 0.0, f"-{V('wp')}/2", f"{V('wp')}/2"))]
     if fp.lt > 0:

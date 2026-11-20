@@ -99,6 +99,7 @@ def test_modes_switch_losslessly():
     tr = d.obj("Trace")
     cuts = [c for c in tr.history if c.kind == "Subtract"]
     assert len(cuts) == 2 and all(c.suppressed for c in cuts)
+    assert "cut back" in j1.props["Warnings"] and "J1_lf" in j1.props["Warnings"]
     assert d.obj("Region").history[0].props == region_before
     snap_ideal = json.dumps(Project.to_dict(pr))
     # 3D for J1
