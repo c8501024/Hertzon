@@ -3,6 +3,21 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **AI assistants can lay out a board and pick where analyses run.** New MCP tool `board`: the board of a circuit
+  as the 2D board editor shows it (parts, routes with length, width, impedance and insertion phase, connections not
+  yet routed), and its actions Auto Place, moving parts, Connect (lines of one impedance with tapers and bends),
+  Match Phase (equal phase or a set phase offset per route, with meanders) and the bend of a route. New MCP tool
+  `cloud`: where the analyses of a window run, the server types of the cloud provider with cores, memory and price
+  per hour, a choice of target per window, and deleting the window's server. With `own_server` a window gets a
+  cloud server of its own, so the parts of a larger design, each in its own project and window, are solved in
+  parallel on several servers.
+- **Claude plugin skills** for system design: split a system (for example a VNA test set) into parts, design
+  them separately, assemble them on the board with Connect and Match Phase, and estimate time and cost serially
+  and in parallel on cloud servers; every unconverged solve is reported to the user.
+
 ## 0.3.30 (2026-11-20)
 
 ### Changed

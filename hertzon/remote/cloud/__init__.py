@@ -114,7 +114,7 @@ class CloudSession:
     """One server at PROVIDER for the analyses of this computer, created on demand."""
 
     def __init__(self, provider, server_type: str, location: str, idle_min: float = 30, contact_h: float = 48,
-                 quiet_h: float = 2, workdir: Path | None = None, version: str | None = None):
+                 quiet_h: float = 2, workdir: Path | None = None, version: str | None = None, slot: str = ""):
         from ... import __version__
         self.provider = provider
         self.server_type, self.location = server_type, location
@@ -122,8 +122,13 @@ class CloudSession:
         self.version = version or __version__
         self.folder = Path(workdir or default_workdir()) / "cloud"
         self.folder.mkdir(parents=True, exist_ok=True)
-        self.state_file = self.folder / f"{provider.key}.json"
-        self.tunnel = Tunnel(self.folder, self.folder / "id_ed25519", getattr(provider, "ssh_user", "root"))
+        # SLOT: a server of its own (a window that runs its analyses in parallel to the others); "" is the one
+        # server the windows of this computer share
+        self.slot = "".join(ch for ch in slot if ch.isalnum() or ch in "-_")
+        self.state_file = self.folder / (f"{provider.key}-{self.slot}.json" if self.slot else f"{provider.key}.json")
+        tfolder = self.folder / self.slot if self.slot else self.folder
+        tfolder.mkdir(parents=True, exist_ok=True)
+        self.tunnel = Tunnel(tfolder, self.folder / "id_ed25519", getattr(provider, "ssh_user", "root"))
         self.lock = threading.RLock()
         self.client = socket.gethostname()
 

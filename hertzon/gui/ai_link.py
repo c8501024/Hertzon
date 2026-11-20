@@ -222,6 +222,8 @@ class AiLink(QObject):
             else:
                 raise RuntimeError("what is report, field_plot, view or solutions")
             return {"png": base64.b64encode(png).decode("ascii"), "shown": shown and size is None}
+        if cmd == "cloud":
+            return self._cloud(a)
         if cmd == "queue":
             sv = w.solver
             return {"running": sv.job.key if sv.busy and sv.job else None, "queued": [j.key for j in sv.queue]}
@@ -288,6 +290,64 @@ class AiLink(QObject):
             w._refresh_reports()
             return out
         raise RuntimeError(f"unknown command {cmd!r}")
+
+    def _cloud(self, a: dict) -> dict:
+        """MCP cloud: where this window solves, the cloud offers with prices, a server of its own, its deletion."""
+        from ..remote.cloud import CloudHost, providers
+        w = self.win
+        s = w.settings
+        action = a.get("action", "status")
+        prov = providers.current(s.value)
+        if action == "use":
+            target = a.get("target", "cloud")
+            if target not in ("local", "remote", "cloud", "settings"):
+                raise RuntimeError("target is local, remote, cloud or settings")
+            if target == "cloud" and not providers.configured(s.value):
+                raise RuntimeError("no cloud provider is set up: the user enters it in Tools > Options > Cloud")
+            if target == "remote" and not w._remote_label():
+                raise RuntimeError("no remote computer is set up: Tools > Options > Remote")
+            if w.solver.busy or w.solver.queue:
+                raise RuntimeError("this window is solving; change the target when its queue is empty")
+            w.solve_target = None if target == "settings" else target
+            if "own_server" in a:
+                w.cloud_slot = f"w{os.getpid()}" if a.get("own_server") else ""
+            if "server_type" in a:
+                w.cloud_type = str(a.get("server_type") or "")
+            w.apply_hpc_settings()
+            r = w.solver.remote
+            w.msgs.add("info", "AI assistant: analyses of this window run "
+                       + ("on this computer" if r is None else f"on {r.address}"))
+        elif action == "stop":
+            cloud = getattr(w, "_cloud", None)
+            if w.solver.busy and isinstance(w.solver.remote, CloudHost):
+                raise RuntimeError("this window is solving on the server; wait or abort first")
+            deleted = bool(cloud and cloud[1].delete())
+            return {"deleted": deleted}
+        elif action != "status" and action != "offers":
+            raise RuntimeError("action is status, offers, use or stop")
+        stype, loc = providers.placement(s.value, prov)
+        stype = getattr(w, "cloud_type", "") or stype
+        r = w.solver.remote
+        out = {"solves_on": "local" if r is None else ("cloud" if isinstance(r, CloudHost) else "remote"),
+               "solves_on_label": "this computer" if r is None else r.address,
+               "remote_computer": w._remote_label() or None,
+               "cloud": {"provider": providers.SHORT[prov], "configured": providers.configured(s.value),
+                         "tested": prov not in providers.UNTESTED, "server_type": stype, "location": loc,
+                         "own_server": bool(getattr(w, "cloud_slot", "")),
+                         "idle_min": float(s.value("cloud/idle_min", 30))}}
+        cloud = getattr(w, "_cloud", None)
+        st = cloud[1].state() if cloud else {}
+        out["cloud"]["server"] = {"name": st.get("name"), "running": True} if st else None
+        if action == "offers":
+            if not providers.configured(s.value):
+                raise RuntimeError("no cloud provider is set up: the user enters it in Tools > Options > Cloud")
+            client, _, _ = providers.from_settings(s.value)
+            types = client.server_types(loc)
+            currency = "USD" if prov in ("aws", "azure", "gcp") else "EUR"
+            out["offers"] = [{"name": t["name"], "cores": t.get("cores"), "memory_gb": t.get("memory"),
+                              "dedicated": t.get("dedicated"), "price_per_hour": t.get("price"),
+                              "currency": t.get("currency") or currency} for t in types]
+        return out
 
 
 class AiAssistantsDialog(QDialog):

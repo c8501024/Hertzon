@@ -1042,6 +1042,141 @@ def render_schematic(proj, d: Design, w: int, h: int) -> list:
 # ------------------------------------------------------------------------------------------------
 # registry
 # ------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------
+# board of a circuit: placement, automatic connections, equal phase (the 2D board editor)
+# ------------------------------------------------------------------------------------------------
+def _board_summary(proj, circ, board, f0: float | None = None) -> dict:
+    from ..model import board as BD
+    from ..model import routing as RT
+    parts, nodes, notes = BD.board_parts(proj, circ)
+    f0 = f0 or float(board.opts.get("f0") or 0) or RT.analysis_frequency(proj, circ)
+    try:
+        _, sub = RT.substrate(proj, circ)
+    except Exception:  # noqa: BLE001
+        sub = None
+    out_parts = []
+    for name, bp in parts.items():
+        pl = board.placements.get(name, BD.Placement())
+        x0, y0, x1, y1 = bp.outline()
+        out_parts.append({"part": name, "type": bp.type, "x_mm": _r(pl.x), "y_mm": _r(pl.y), "rot": pl.rot,
+                          "size_mm": [_r(x1 - x0), _r(y1 - y0)], **({"design": bp.design} if bp.design else {})})
+    routes = []
+    for i, r in enumerate(board.routes):
+        row = {"route": i + 1, "from": f"{r.a[0]}:{r.a[1] + 1}", "to": f"{r.b[0]}:{r.b[1] + 1}",
+               "length_mm": _r(RT.length(r)), "width_mm": _r(r.w), "z0": _r(r.z0),
+               "ok": BD.route_ok(parts, board, r)}
+        if sub is not None:
+            try:
+                row["phase_deg"] = _r(RT.phase(r, sub, f0))
+            except Exception:  # noqa: BLE001
+                pass
+        if r.group:
+            row["group"], row["offset_deg"] = r.group, _r(r.offset)
+        routes.append(row)
+    missing = [{"from": f"{a[0]}:{a[1] + 1}", "to": f"{b[0]}:{b[1] + 1}"}
+               for _n, a, b in BD.connections(parts, board, nodes)]
+    return {"circuit": circ.name, "f0_ghz": _r(f0 / 1e9), "parts": out_parts, "routes": routes,
+            "unrouted": missing, "overlaps": [list(p) for p in BD.overlaps(parts, board, nodes)],
+            "notes": list(dict.fromkeys(notes))}
+
+
+def t_board(args):
+    from ..model import board as BD
+    from ..model import routing as RT
+    ctx = load(args)
+    circ = _circuit(ctx)
+    proj = ctx.proj
+    action = args.get("action", "get")
+    f0 = float(args["f0_ghz"]) * 1e9 if args.get("f0_ghz") else None
+    saved = BD.load(circ)
+    if saved is None or action == "auto_place":
+        board, warnings = BD.auto_place(proj, circ)
+        if saved is not None:
+            board.routes = []
+    else:
+        board, warnings = BD.complete(proj, circ, saved)
+    warnings = list(warnings)
+    if action == "place":
+        parts, _nodes, _ = BD.board_parts(proj, circ)
+        for p in args.get("parts") or []:
+            name = p.get("part")
+            if name not in parts:
+                raise ToolError(f"No part '{name}' on the board; parts: {sorted(parts)}")
+            pl = board.placements.get(name, BD.Placement())
+            rot = float(p.get("rot", pl.rot))
+            if rot % 90:
+                raise ToolError("rot is a multiple of 90 degrees")
+            board.placements[name] = BD.Placement(float(p.get("x_mm", pl.x)), float(p.get("y_mm", pl.y)), rot % 360)
+        moved = {p.get("part") for p in args.get("parts") or []}
+        n0 = len(board.routes)
+        board.routes = [r for r in board.routes if r.a[0] not in moved and r.b[0] not in moved]
+        if len(board.routes) < n0:
+            warnings.append(f"{n0 - len(board.routes)} route(s) at the moved parts removed: connect again")
+    elif action == "connect":
+        only = set(args.get("only") or []) or None
+        style = args.get("style", "Arc")
+        if style not in RT.STYLES:
+            raise ToolError(f"style is one of {list(RT.STYLES)}")
+        try:
+            board, ws = RT.connect(proj, circ, board, float(args.get("z0", 50.0)), style, only, f=f0)
+        except RT.RouteError as e:
+            raise ToolError(f"connect: {e}") from None
+        warnings += ws
+    elif action == "match_phase":
+        idx = [int(i) - 1 for i in args.get("routes") or []]
+        if len(idx) < 2 or any(not 0 <= i < len(board.routes) for i in idx):
+            raise ToolError(f"routes: two or more route numbers (1 to {len(board.routes)}), see board(action='get')")
+        offs = {int(k) - 1: float(v) for k, v in (args.get("offsets_deg") or {}).items()}
+        try:
+            board, ws, _ph = RT.match_phase(proj, circ, board, idx, f0 or RT.analysis_frequency(proj, circ), offs)
+        except RT.RouteError as e:
+            raise ToolError(f"match_phase: {e}") from None
+        warnings += ws
+    elif action == "remove_routes":
+        idx = sorted({int(i) - 1 for i in args.get("routes") or []}, reverse=True)
+        for i in idx:
+            if 0 <= i < len(board.routes):
+                del board.routes[i]
+    elif action == "bend":
+        i = int(args.get("route", 0)) - 1
+        if not 0 <= i < len(board.routes):
+            raise ToolError("route: a route number, see board(action='get')")
+        r = board.routes[i]
+        warnings += RT.set_bend(r, list(range(len(r.pts) - 2)), 0.0 if args.get("miter") else
+                                float(args.get("radius_mm", RT.RADIUS_W * r.w)))
+    elif action not in ("get", "auto_place"):
+        raise ToolError("action is get, auto_place, place, connect, match_phase, remove_routes or bend")
+    if action != "get" or saved is None:
+        BD.store(circ, board)
+        commit(ctx, f"board {action}")
+    res = _board_summary(proj, circ, board, f0)
+    if warnings:
+        res["warnings"] = list(dict.fromkeys(warnings))
+    if action != "get":
+        res["next"] = ("the routes are part of the circuit: run_simulation(design=circuit) simulates them; "
+                       "circuit_layout(action='create' or 'update') builds the board in 3D")
+    return res
+
+
+# ------------------------------------------------------------------------------------------------
+# where analyses run: this computer, a remote computer, a cloud server (one per window for parallel work)
+# ------------------------------------------------------------------------------------------------
+def t_cloud(args):
+    ctx = load(args, design_required=False)
+    if ctx.gui is None:
+        raise ToolError("cloud needs the Hertzon window of the project (window mode); the cloud and remote "
+                        "settings are those of Tools > Options > Cloud / Remote")
+    a = {k: v for k, v in args.items() if k in ("action", "target", "own_server", "server_type")}
+    try:
+        res = ctx.gui.call("cloud", timeout=120, **a)
+    except live.LinkError as e:
+        raise ToolError(str(e)) from None
+    if a.get("action") == "offers":
+        res["note"] = ("price_per_hour is the provider's list price of one server; the cost of a run is about "
+                       "hours (including ~3 min start and the idle time before the server deletes itself) x price")
+    return res
+
+
 from .protocol import Tool  # noqa: E402
 
 NUM = {"type": "number"}
@@ -1184,6 +1319,33 @@ TOOLS = [
                   "layout": {"type": "string", "description": "layout design (default: the newest of the "
                                                               "circuit; from_3d: the shown 3D design)"},
                   "name": {"type": "string", "description": "name of a new layout or circuit"}}), t_circuit_layout),
+    Tool("board", "Circuit board (the 2D board editor of a circuit): 'get' shows parts with position, routes "
+         "with length, width, impedance and insertion phase at f0, and the connections not yet routed; "
+         "'auto_place' places all parts anew; 'place' moves/rotates parts [{part, x_mm, y_mm, rot}]; 'connect' "
+         "routes the missing connections (only: parts) with microstrip of impedance z0 (width from the substrate), "
+         "tapers and Arc or Miter bends; 'match_phase' gives routes [numbers] the same insertion phase at f0_ghz "
+         "with meanders, offsets_deg {route: degrees} for a set phase difference; 'remove_routes'; 'bend' sets "
+         "the bend radius (or miter) of a route. The routes are simulated as part of the circuit and built by "
+         "circuit_layout.",
+         _schema({"action": {"type": "string", "enum": ["get", "auto_place", "place", "connect", "match_phase",
+                                                         "remove_routes", "bend"]},
+                  "parts": {"type": "array", "items": {"type": "object", "properties": {
+                      "part": {"type": "string"}, "x_mm": NUM, "y_mm": NUM, "rot": NUM}, "required": ["part"]}},
+                  "only": {"type": "array", "items": {"type": "string"}},
+                  "z0": NUM, "style": {"type": "string", "enum": ["Arc", "Miter"]}, "f0_ghz": NUM,
+                  "routes": {"type": "array", "items": {"type": "integer"}},
+                  "offsets_deg": {"type": "object"}, "route": {"type": "integer"}, "radius_mm": NUM,
+                  "miter": {"type": "boolean"}}), t_board),
+    Tool("cloud", "Where this window's analyses run and what a cloud server costs: 'status' (target, provider, "
+         "server type, a running server); 'offers' (the provider's server types with cores, memory and price per "
+         "hour); 'use' sets this window's target (local, remote, cloud, or settings = Tools > Options), "
+         "own_server true gives the window a cloud server of its own so several windows (projects) solve in "
+         "parallel, server_type picks another type for it; 'stop' deletes this window's server. Servers cost "
+         "money: ask the user before 'use' with cloud. The provider and its key are set up by the user in "
+         "Tools > Options > Cloud.",
+         _schema({"action": {"type": "string", "enum": ["status", "offers", "use", "stop"]},
+                  "target": {"type": "string", "enum": ["local", "remote", "cloud", "settings"]},
+                  "own_server": {"type": "boolean"}, "server_type": {"type": "string"}}), t_cloud),
     Tool("import_3d_designs", "Copy the 3D designs with ports (and their results) of another .hzn file into the "
          "project, to use them as blocks in a circuit.",
          _schema({"file": {"type": "string"}}, ["file"]), t_import_3d_designs),

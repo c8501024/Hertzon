@@ -64,23 +64,28 @@ model:
 
 - Split it into its parts and their interfaces first: function, band, port impedance and the phase each
   path must have. Write this plan down for the user before solving anything.
-- Design each part in its own design (`set_design()` adds one, a design assistant or `list_structures()`
-  where one fits, `create_circuit()` for what a circuit can describe), with ports at the interface
-  impedance. Each part is finished and checked on its own.
-- Assemble the system in a circuit: every part as a 3D design block (type EM) or Touchstone block, joined
-  by lines. On the board (2D editor of the circuit) `Connect` routes the joins with the width for the line
-  impedance, tapers and bends, and `Match Phase` makes several paths equal in phase at f0, with an offset
-  per line where a path needs one. These two are buttons of the board editor in the window: ask the user
-  to press them, or set the line lengths for the phases in the schematic yourself. The example `VNA_TestSet_2G4` (`open_example()`) shows the whole chain.
+- Design each part on its own, with ports at the interface impedance (a design assistant or
+  `list_structures()` where one fits, `create_circuit()` for what a circuit can describe), and check it on its
+  own. Parts that should be solved at the same time go into projects of their own: every project opens in its
+  own Hertzon window, and each window has its own solve queue.
+- Assemble the system in a circuit: every part as a 3D design block (type EM, `import_3d_designs()` brings
+  them from the part projects) or a Touchstone block. `board()` lays out the board of the circuit:
+  `connect` routes the joins with the width for the line impedance, tapers and bends; `match_phase` makes
+  several paths equal in phase at f0, or gives each a set offset, with meanders; the routes are simulated as
+  part of the circuit. The example `VNA_TestSet_2G4` (`open_example()`) shows the whole chain.
   `circuit_layout()` turns the result into a 3D design for a final full-wave check of the assembly.
 - Before starting, estimate for the user how long the development takes and what it costs, in two ways:
   - serially on this computer: the sum over all parts of (solves expected × time per solve), plus the
     assembly;
-  - in parallel on cloud servers, one part per server: the longest part plus the assembly, and the cost
-    as servers × hours × price per hour of the server type (the user's cloud settings in Hertzon show the
-    offers and prices).
+  - in parallel on cloud servers, one part per window and server: the longest part plus the assembly, and
+    the cost as servers × hours × price per hour. `cloud(action='offers')` lists the server types of the
+    user's provider with cores, memory and price; count about 3 minutes start and the idle time before a
+    server deletes itself.
   Base the time per solve on a first coarse solve of a typical part, say which numbers are guesses, and
   update the estimate when the first parts are done.
+- Cloud servers cost money: start them only when the user agrees to the estimate. Then
+  `cloud(action='use', target='cloud', own_server=true)` in each part's window makes its solves run on a
+  server of its own; `cloud(action='stop')` deletes it when the part is done.
 
 ## When Hertzon lacks something
 
@@ -89,12 +94,10 @@ several sections, and the assistant builds only one), build it another way (circ
 `run_python()`) and tell the user what was missing. Then offer an issue for Hertzon:
 
 - Draft it: title, what you were designing, what was missing (for example "multi-section Wilkinson in the
-  Design Wizard"), how you worked around it, and the Hertzon version. No project data
-  without the user's consent.
-- Show the draft and ask whether to post it. Post only after the user says so: with `gh issue create
-  --repo c8501024/Hertzon` or a GitHub connector when one is available; otherwise give the user the link
-  `https://github.com/c8501024/Hertzon/issues/new?title=<title>&body=<body>` (URL-encoded), which opens the
-  filled-in form.
+  Design Wizard"), how you worked around it. No project data without the user's consent.
+- `report_issue()` builds the text and a link to the filled-in GitHub form. Show both and ask; issues are
+  public. Post only after the user says so (with `gh issue create --repo c8501024/Hertzon` or a GitHub
+  connector when one is available); otherwise the user opens the link and submits it.
 
 ## Mesh, setup and convergence
 

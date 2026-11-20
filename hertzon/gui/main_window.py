@@ -1713,7 +1713,9 @@ class MainWindow(QMainWindow):
         from ..remote.cloud import providers
         if providers.configured(s.value):
             prov = providers.current(s.value)
-            box.addItem(f"{providers.SHORT[prov]} ({providers.placement(s.value, prov)[0]})", "cloud")
+            stype = getattr(self, "cloud_type", "") or providers.placement(s.value, prov)[0]
+            box.addItem(f"{providers.SHORT[prov]} ({stype}{', own server' if getattr(self, 'cloud_slot', '') else ''})",
+                        "cloud")
         box.addItem("Remote computer ..." if not addr else "Other remote computer ...", "setup-remote")
         box.addItem("Cloud ...", "setup-cloud")
         r = self.solver.remote
@@ -1730,6 +1732,7 @@ class MainWindow(QMainWindow):
             return
         self.settings.setValue("remote/enabled", what == "remote")
         self.settings.setValue("cloud/enabled", what == "cloud")
+        self.solve_target = None            # the user's choice replaces one an AI assistant made for this window
         self.apply_hpc_settings()
         r = self.solver.remote
         from ..remote.cloud import CloudHost
@@ -1892,10 +1895,14 @@ class MainWindow(QMainWindow):
         s = self.settings
         addr = self._remote_label()
         from ..remote.cloud import providers
-        if s.value("cloud/enabled", False, type=bool) and providers.configured(s.value):
+        # where this window solves: its own choice (set by an AI assistant, see ai_link "cloud"), else the setting
+        target = getattr(self, "solve_target", None) or (
+            "cloud" if s.value("cloud/enabled", False, type=bool) else
+            "remote" if s.value("remote/enabled", False, type=bool) else "local")
+        if target == "cloud" and providers.configured(s.value):
             from ..remote.cloud import CloudHost
             self.solver.remote = CloudHost(self.cloud_session())
-        elif s.value("remote/enabled", False, type=bool) and addr:
+        elif target == "remote" and addr:
             from ..remote.client import RemoteError, RemoteHost
             if str(s.value("remote/mode", "service") or "service") == "ssh":
                 from ..remote.ssh import SSHHost
@@ -1913,16 +1920,19 @@ class MainWindow(QMainWindow):
         from ..remote.cloud import CloudSession, providers
         s = self.settings
         prov = providers.current(s.value)
-        key = (prov, providers.credentials(s.value, prov), *providers.placement(s.value, prov),
+        stype, loc = providers.placement(s.value, prov)
+        stype = getattr(self, "cloud_type", "") or stype          # this window's own server type (ai_link "cloud")
+        slot = getattr(self, "cloud_slot", "")                    # its own server (ai_link "cloud"), "" shared
+        key = (prov, providers.credentials(s.value, prov), stype, loc,
                float(s.value("cloud/idle_min", 30)), float(s.value("cloud/contact_h", 48)),
-               float(s.value("cloud/quiet_h", 2)))
+               float(s.value("cloud/quiet_h", 2)), slot)
         old = getattr(self, "_cloud", None)
         if old is not None and old[0] == key:
             return old[1]
         if old is not None:
             old[1].tunnel.close()
         session = CloudSession(providers.make(prov, key[1], key[3]), key[2], key[3], idle_min=key[4],
-                               contact_h=key[5], quiet_h=key[6])
+                               contact_h=key[5], quiet_h=key[6], slot=slot)
         self._cloud = (key, session)
         return session
 
