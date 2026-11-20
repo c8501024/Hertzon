@@ -2993,9 +2993,11 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         need, avail = memory_forecast(m.mesh.n_tets * (1 + pct / 100.0), m.mesh.n_tets)
         # the frequency sweep on the final mesh needs more than its adaptive pass (measured: peak of the
         # whole solve 1.23x the peak of the last pass), so the next pass must leave room for it. The
-        # forecast itself errs on the safe side (n^(4/3)), hence 90 % of the memory instead of 85 %.
+        # forecast itself errs on the safe side (n^(4/3)), and the usable memory already leaves out what other
+        # programs hold, hence 95 % of it (90 % of it stopped the hairpin filter on a 16 GB machine a pass
+        # before 0.3.30, whose pass fitted with room to spare: forecast 13.9 GB, peak 12.0 GB of 15.7 GB).
         need *= SWEEP_MEMORY_FACTOR
-        if avail and need > 0.9 * avail:
+        if avail and need > GUARD_FRACTION * avail:
             warn(f"Stopping refinement: the next pass and the frequency sweep on its mesh would need about "
                  f"{need / 2**30:.1f} GB of memory, {avail / 2**30:.1f} GB available. "
                  f"Reduce Maximum Refinement or use coarser settings.")
@@ -3813,6 +3815,8 @@ def _system_free_memory() -> float:
 # peak memory of the frequency sweep on the final mesh relative to the peak of its adaptive pass (Patch
 # 245 MHz, 30k tetrahedra: 6.25 GB vs 5.08 GB; Hairpin, 66k: a 12.0 GB pass, sweep out of memory at 15.7 GB)
 SWEEP_MEMORY_FACTOR = 1.25
+# share of the usable memory (own process + free) the next adaptive pass and the sweep may plan with
+GUARD_FRACTION = 0.95
 
 
 def memory_forecast(next_tets: float, cur_tets: int) -> tuple[float, float]:
