@@ -581,6 +581,7 @@ The assistant works step by step with the same building blocks you used above, a
 | Connectors | `list_edge_connectors` (SMA, 2.92 mm, 2.4 mm library), `attach_edge_connector` (a connector with its launch footprint at a lumped port at the board edge), `set_connector_mode` (Ideal, Transition, 3D; flatten, remove, optimize_launch, apply_footprint), `get_connectors` |
 | Files and boards | `export` (Touchstone, STEP, Gerber, EMerge script), `import_pcb` (Gerber, Excellon, job files), `set_stackup`, `manage_design` (copy, delete), `list_examples`, `open_example` |
 | Scripting | `run_python` for anything else, with the Hertzon model API |
+| Feedback | `report_issue` (the text of an issue for the Hertzon developers and a link to the prefilled "New issue" page; nothing is sent until the user posts it) |
 
 ### 5.4 The Claude plugin (optional)
 
