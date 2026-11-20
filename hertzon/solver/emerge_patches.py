@@ -45,6 +45,128 @@ def apply() -> None:
         apply_mesh_fallback()
     if not native("port_field_lookup"):
         apply_port_field_lookup()
+    if not native("curved_conductors"):
+        apply_curved_conductors()
+    if not native("port_spread"):
+        apply_port_straight_faces()
+    if not native("curved_ports"):
+        try:
+            from . import curved_ports
+            curved_ports.apply()
+        except Exception as ex:  # noqa: BLE001
+            from loguru import logger
+            logger.warning(f"Curved wave ports not available ({ex}); port faces stay straight")
+
+
+def apply_port_straight_faces() -> None:
+    """EMerge keeps every curved face that is connected to a wave port straight, through shared curves and
+    transitively: on a coax line that is the whole inner conductor and outer wall, on a coax-fed antenna also the
+    arms behind it. Only the port face itself has to stay straight (its mode is solved on the flat triangles, and
+    its edges, rim included, are already kept straight as a face with a surface integral). Measured on Coax50 with
+    the same mesh: S11 -57.2 dB instead of -46.8 dB after two passes, so the curved wall behind a straight port is
+    no impedance step; it removes the polygon error of the line."""
+    from emerge._emerge.physics.microwave.assembly import curvilinear as C
+    if getattr(C.spread_tags, "_hertzon", False):
+        return
+
+    def spread_tags(bcs) -> frozenset:
+        return frozenset()
+    spread_tags._hertzon = True
+    C.spread_tags = spread_tags
+
+
+_CONDUCTOR_TETS: dict[int, np.ndarray] = {}
+
+
+def _detD(g: np.ndarray, d: np.ndarray, lam: np.ndarray) -> np.ndarray:
+    """det D (nt, np) of the curved map at barycentric points lam (np, 4), as EMerge's curvilinear._detD, 6x faster:
+    D = I + sum_e d_e (4 l_i g_j + 4 l_j g_i)^T is linear in lam, D = I + sum_k l_k A_k, and det is written out.
+    The validity check calls it for 79 points on every curved tetrahedron in each shrink round (1.2 s of 2.5 s per
+    pass on Coax50)."""
+    from emerge._emerge.physics.microwave.assembly.curvilinear import _PAIRS
+    A = np.zeros((g.shape[0], 4, 3, 3))
+    for e, (i, j) in enumerate(_PAIRS):
+        A[:, i] += 4 * d[:, e, :, None] * g[:, j, None, :]
+        A[:, j] += 4 * d[:, e, :, None] * g[:, i, None, :]
+    out = np.empty((g.shape[0], lam.shape[0]))
+    for p0 in range(0, lam.shape[0], 16):
+        D = np.einsum("pk,tkab->tpab", lam[p0:p0 + 16], A)
+        D[..., 0, 0] += 1.0
+        D[..., 1, 1] += 1.0
+        D[..., 2, 2] += 1.0
+        out[:, p0:p0 + 16] = (D[..., 0, 0] * (D[..., 1, 1] * D[..., 2, 2] - D[..., 1, 2] * D[..., 2, 1])
+                              - D[..., 0, 1] * (D[..., 1, 0] * D[..., 2, 2] - D[..., 1, 2] * D[..., 2, 0])
+                              + D[..., 0, 2] * (D[..., 1, 0] * D[..., 2, 1] - D[..., 1, 1] * D[..., 2, 0]))
+    return out
+
+
+def prepare_conductor_tets(sim) -> None:
+    """The conductor tets of the volume assembly (Assembler._find_conductor_tets) before the volume assembly: the
+    port solve and the saved mesh of 'Generate Mesh' need the curved edges of the solve (apply_curved_conductors).
+    Without them the thin metal walls were straightened again in the mesh plot of the initial mesh."""
+    from emerge._emerge.physics.microwave.bcs.boundary_conditions import Void
+    mesh = sim.mesh
+    sim._generate_material_assignment()
+    freq = sim.frequencies[0]
+    cond = np.zeros((3, 3, mesh.n_tets), dtype=np.complex128)
+    for mat, centers, ids in sim.mat_assy.iter_materials():
+        cond = mat.cond(freq, cond, centers, ids)
+    st = sim._settings
+    limit = min(st.mw_3d_peclim, st.mw_3d_surfimplim)
+    mask = np.real(cond[0, 0, :]) > limit
+    for bc in sim.bc.boundary_conditions:
+        if isinstance(bc, Void):
+            mask[mesh.get_tetrahedra(bc.tags)] = True
+    _CONDUCTOR_TETS.clear()
+    _CONDUCTOR_TETS[id(mesh)] = np.flatnonzero(mask).astype(np.int64)
+
+
+def apply_curved_conductors() -> None:
+    """EMerge straightens curved edges until every curved tetrahedron keeps det D >= 0.3, and it checks all of them,
+    also those inside PEC that the assembly leaves out. A thin PEC wall (a 1 mm balun sleeve with 6 mm edges on its
+    round faces) is filled with flat tetrahedra that would fold over, so the edges of its faces were straightened
+    to nearly the polygon (342 of 370 on the sleeve of a coax-fed dipole), although the air tetrahedra on them were
+    fine. The check now skips the conductor tetrahedra the assembly removes; they still get the curved edges, so the
+    mesh plot draws their faces round. Same mesh, no extra elements."""
+    import inspect
+    from emerge._emerge.physics.microwave.assembly import curvilinear as C
+    if getattr(C.curved_data, "_hertzon_conductors", False):
+        return
+    src = inspect.getsource(C.curved_data)
+    old = "    tc = np.where(curved_edge[eid].any(0))[0]\n"
+    if src.count(old) != 1 or "def curved_data(mesh, exclude" not in src:
+        from loguru import logger
+        logger.warning("Curved elements: EMerge's curved_data changed; thin PEC walls may stay faceted")
+        return
+    # EMerge's own function with one change: tets inside conductors leave the validity check
+    src = src.replace(old, old + "    _skip = _HZ_SKIP.get(id(mesh))\n"
+                      "    tc_all = tc\n"
+                      "    if _skip is not None and len(_skip):\n"
+                      "        tc = np.setdiff1d(tc, _skip)\n")
+    # and come back with the final (possibly shrunk) edge displacements at the end
+    end = "    keep = np.abs(d).sum((1, 2)) > 0\n    res = (tc[keep], np.ascontiguousarray(d[keep]))\n"
+    if src.count(end) != 1:
+        from loguru import logger
+        logger.warning("Curved elements: EMerge's curved_data changed; thin PEC walls may stay faceted")
+        return
+    src = src.replace(end, "    tc = tc_all\n    d = disp[eid[:, tc].T] * scale[eid[:, tc].T][..., None]\n" + end)
+    src = src.replace("tuple(sorted(exclude)), tuple(sorted(spread)))",
+                      "tuple(sorted(exclude)), tuple(sorted(spread)), len(_HZ_SKIP.get(id(mesh), ())))")
+    ns = dict(vars(C))
+    ns["_HZ_SKIP"] = _CONDUCTOR_TETS
+    ns["_detD"] = _detD
+    C._detD = _detD
+    exec(compile(src, C.__file__, "exec"), ns)       # noqa: S102 - EMerge's own source with the change above
+    new = ns["curved_data"]
+    new._hertzon_conductors = True
+    C.curved_data = new
+    plain_apply = C.apply_curved
+
+    def apply_curved(field, er, ur, conductor_tets, dataE, dataB, bcs):
+        _CONDUCTOR_TETS.clear()
+        _CONDUCTOR_TETS[id(field.mesh)] = np.unique(np.asarray(conductor_tets, np.int64))
+        return plain_apply(field, er, ur, conductor_tets, dataE, dataB, bcs)
+    C.apply_curved = apply_curved
 
 
 def apply_port_field_lookup() -> None:

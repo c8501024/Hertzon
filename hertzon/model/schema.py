@@ -165,7 +165,8 @@ SHEET_COMMANDS = {"CreateRectangle", "CreateCircle", "CreateEllipse", "CreateReg
 
 OBJECT_ATTRIBUTES: list[Prop] = [
     P("Name", "text"), P("Material", "material", "vacuum"), P("SolveInside", "bool", "True", enabled_if=("Model", "True"),
-                                                    help="Non Model objects are not solved"),
+                                                    help="Non Model objects are not solved. Conductors (PEC, or conductivity above 1e4 S/m) are "
+                                                         "always solved by their surface, so this is off and locked for them"),
     P("Model", "bool", "True"), P("Color", "color", "#8f8f8f"), P("Transparency", "float", "0"),
     P("DisplayWireframe", "bool", "False"), P("Orientation", "choice", "Global", choices=("Global",)),
 ]

@@ -744,7 +744,7 @@ _ATTRS = {"color": "color", "transparency": "transparency", "solve_inside": "sol
           "group": "group", "wireframe": "wireframe", "visible": "visible", "orientation": "orientation"}
 
 
-def _apply_attrs(o, a: dict | None, d: Design) -> None:
+def _apply_attrs(o, a: dict | None, d: Design, proj=None) -> None:
     for k, v in (a or {}).items():
         if k not in _ATTRS:
             raise ToolError(f"Unknown attribute '{k}'; use {sorted(_ATTRS)}")
@@ -761,6 +761,14 @@ def _apply_attrs(o, a: dict | None, d: Design) -> None:
                 raise ToolError(f"Unreadable color '{v}'; use '#rrggbb' or 'r,g,b' (0-255)")
             v = c
         setattr(o, _ATTRS[k], v)
+    if proj is not None:
+        # a conductor the solver treats by its surface (PEC, sigma > 1e4 S/m) has no inside to solve
+        from ..model.materials import is_conductor
+        try:
+            if is_conductor(proj.material(o.material)):
+                o.solve_inside = False
+        except KeyError:
+            pass
 
 
 def _append_operation(d: Design, obj: str, kind: str, props: dict | None) -> None:
@@ -831,7 +839,7 @@ def t_add_object(args):
     o = d.add_object(kind, name=name, material=mat)
     o.history[0].props = props
     o.orientation = d.working_cs               # as in the window: new objects are made in the working CS
-    _apply_attrs(o, args.get("attributes"), d)
+    _apply_attrs(o, args.get("attributes"), d, ctx.proj)
     for op in args.get("operations") or []:
         _append_operation(d, o.name, op["kind"], op.get("props"))
     errors = commit(ctx, f"add {o.name}")
@@ -908,7 +916,7 @@ def t_modify_object(args):
         except KeyError:
             raise ToolError(f"Unknown material '{args['material']}'") from None
         o.material = args["material"]
-    _apply_attrs(o, args.get("attributes"), d)
+    _apply_attrs(o, args.get("attributes"), d, ctx.proj)
     if args.get("new_name"):
         new = args["new_name"]
         if d.has_obj(new):
@@ -1373,7 +1381,7 @@ def t_set_report(args):
             ["dB(GainTotal)"] if r.kind in ("Radiation Pattern", "3D Polar Plot") else \
             ["dBsm(MonostaticRCSTotal)"] if r.kind.startswith("Monostatic") else \
             ["dB(PeakGain)", "dB(PeakRealizedGain)", "dB(PeakDirectivity)"] if r.kind.startswith("Antenna") else \
-            ["mag(NearETotal)"] if r.kind == "Near Field Line" else [f"dB(S({i},1))" for i in range(1, n + 1)][:4]
+            ["mag(ComplexMag_E)"] if r.kind == "Near Field Line" else [f"dB(S({i},1))" for i in range(1, n + 1)][:4]
     if created and fields and not r.traces:
         r.traces = [e.name for e in d.field_exprs][:1]
     if args.get("port") is not None:
@@ -1387,9 +1395,13 @@ def t_set_report(args):
         if any(x.name == args["new_name"] for x in d.reports):
             raise ToolError(f"A report '{args['new_name']}' exists")
         r.name = args["new_name"]
+    from ..post.quantities import migrate_near_report
+    migrated = migrate_near_report(r)       # old names and removed functions
     commit(ctx, f"report {r.name}")
     out = {"name": r.name, "created": created, "kind": r.kind, "solution": r.solution, "traces": r.traces,
            "props": r.props}
+    if migrated:
+        out["warnings"] = migrated
     if args.get("open") and ctx.gui is not None:
         ctx.gui.call("open_report", design=ctx.des.name, name=r.name)
         out["opened"] = True
@@ -1809,6 +1821,15 @@ def _status(ctx: Ctx, setup: str, sweep: str = "") -> dict:
         res["error"] = status["error"]
     if status.get("elapsed"):
         res["elapsed_s"] = round(float(status["elapsed"]), 1)
+    if state == "running" and st is not None:
+        # the phase of the run (geometry, mesh, pass, sweep) and how long it has been in it: a phase that
+        # takes far longer than usual (or updates that stopped) points to a hung run
+        pr = st.read_json("progress.json") or {}
+        if pr.get("phase"):
+            now = time.time()
+            res["phase"] = pr["phase"]
+            res["phase_running_s"] = round(now - float(pr.get("phase_started", now)), 1)
+            res["last_update_s"] = round(now - float(pr.get("updated", now)), 1)
     conv = (st.read_json("convergence.json") if st else None) or {}
     if conv.get("passes"):
         res["passes"] = [{k: (round(v, 5) if isinstance(v, float) else v) for k, v in row.items()
@@ -2504,6 +2525,19 @@ def t_show_result(args):
 # ------------------------------------------------------------------------------------------------
 # tools: scripted edit
 # ------------------------------------------------------------------------------------------------
+def _unknown_props(d) -> set[tuple[str, str, str]]:
+    """(object, command kind, property) of every property name a geometry command of design d does not have."""
+    out = set()
+    for o in d.objects:
+        for c in o.history:
+            plist = schema.GEOMETRY.get(c.kind)
+            if plist is None:
+                continue
+            names = {p.name for p in plist}
+            out |= {(o.name, c.kind, k) for k in c.props if k not in names and not k.startswith("_")}
+    return out
+
+
 def t_run_python(args):
     import contextlib
     import io
@@ -2515,8 +2549,16 @@ def t_run_python(args):
            "math": math, "add_object": d.add_object,
            "operation": lambda obj, kind, **props: _append_operation(d, obj, kind, props)}
     before = {o.name for o in d.objects}
+    unknown_before = _unknown_props(d)
     with contextlib.redirect_stdout(buf):
         exec(compile(args["code"], "<hertzon edit>", "exec"), env)  # noqa: S102
+    # a misspelt property name was kept as an extra entry and the object built with the default instead
+    # (e.g. Center for CenterPosition put a cylinder at the origin); nothing is written then
+    bad = sorted(_unknown_props(d) - unknown_before)
+    if bad:
+        raise ToolError("Nothing was changed: unknown property name(s) " + "; ".join(
+            f"{o} ({k}): '{p}', properties: {sorted(x.name for x in schema.GEOMETRY.get(k, []))}"
+            for o, k, p in bad))
     commit(ctx, "script edit")
     added = [o.name for o in d.objects if o.name not in before]
     return {"output": buf.getvalue()[-20000:], "objects_added": added}

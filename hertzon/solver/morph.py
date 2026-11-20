@@ -407,20 +407,64 @@ def classify(mesh, faces: list[Face], fixed_ftags: set, tol: float, slide_ftags:
     return fixed, on_face, np.array(sorted(surf_nodes), int), wall
 
 
+def _rigid(face: Face) -> bool:
+    """The face only translates: every loop point has the same velocity."""
+    v = np.concatenate([np.asarray(x, float) for x in face.velocity]) if face.velocity else np.zeros((0, 3))
+    if not len(v):
+        return True
+    return float(np.abs(v - v[0]).max()) <= 1e-9 * max(float(np.abs(v).max()), 1e-300)
+
+
 def velocity_fields(mesh, faces_per_var: dict[str, list[Face]], fixed_ftags: set, tol: float,
                     log=None, slide_ftags: set = frozenset()) -> dict[str, np.ndarray]:
     """Velocity field (3, N) of the mesh nodes for every variable. Nodes on fixed_ftags stay, nodes on
-    slide_ftags (outer boundary) may only move within it."""
+    slide_ftags (outer boundary) may only move within it.
+
+    A face that only translates carries all its nodes. A plane face that changes its shape (a substrate
+    that gets wider) prescribes its boundary; inside, its nodes follow the plane and slide within it, so a
+    sheet lying on the face (a patch on the substrate) keeps its place and only the mesh around it
+    stretches. Every variable gets its own constraints: a face that moves with one variable is a fixed
+    face (nodes slide along it) for the others."""
     import scipy.sparse as sp
-    from scipy.sparse.linalg import spsolve
+    from scipy.sparse.linalg import splu
     nodes = mesh.nodes
     N = nodes.shape[1]
     any_faces = next(iter(faces_per_var.values()))
     fixed0, on_face, _, wall = classify(mesh, any_faces, fixed_ftags, tol, slide_ftags)
-    # Dirichlet values per variable; nodes on a moving face of any variable are fixed for all
-    moving_nodes = np.zeros(N, bool)
-    d0 = {v: np.zeros((N, 3)) for v in faces_per_var}
-    count = {v: np.zeros(N) for v in faces_per_var}
+    # sliding constraints of every face (and the outer walls): nodes inside a face slide in its plane,
+    # nodes on its boundary along the boundary segment (the in-plane normal of the segment is a second
+    # constraint); a curved face fixes its nodes
+    fixed_c = fixed0.copy()
+    normals: dict[int, list] = {i: list(ns) for i, ns in wall.items()}
+    for f in any_faces:
+        nid = on_face.get((f.obj, f.index))
+        if nid is None or not len(nid):
+            continue
+        if not f.planar:
+            fixed_c[nid] = True
+            continue
+        X = nodes[:, nid].T
+        for i in nid:
+            normals.setdefault(int(i), []).append(f.normal)
+        for P in f.loops:
+            Q = np.roll(P, -1, axis=0)
+            for a, b in zip(P, Q):
+                d = b - a
+                L = np.linalg.norm(d)
+                if L < tol:
+                    continue
+                t = d / L
+                s = np.clip((X - a) @ t, 0, L)
+                dist = np.linalg.norm(X - (a + s[:, None] * t), axis=1)
+                on = dist < tol
+                if on.any():
+                    en = np.cross(f.normal, t)
+                    for i in nid[on]:
+                        normals.setdefault(int(i), []).append(en)
+    L = _laplacian(nodes, mesh.tets)
+    K3 = sp.kron(L, sp.identity(3), format="csr")      # node-major: 3*i + k
+    out = {}
+    stats = []
     for var, faces in faces_per_var.items():
         # normals of the moving plane faces at every node: a wall in such a plane moves with the face
         carried: dict[int, list] = {}
@@ -429,6 +473,9 @@ def velocity_fields(mesh, faces_per_var: dict[str, list[Face]], fixed_ftags: set
             if nid is not None and f.moving and f.planar:
                 for i in nid:
                     carried.setdefault(int(i), []).append(f.normal)
+        full = np.zeros((N, 3))         # prescribed velocity (translating faces, corners of the others)
+        nfull = np.zeros(N)
+        part: dict[int, list] = {}      # node -> (direction, velocity along it) on faces that change shape
         for f in faces:
             nid = on_face.get((f.obj, f.index))
             if nid is None or not len(nid) or not f.moving:
@@ -453,77 +500,75 @@ def velocity_fields(mesh, faces_per_var: dict[str, list[Face]], fixed_ftags: set
                        and not any(abs(abs(float(q @ c)) - 1) < 1e-6 for c in carried.get(int(i), ()))
                        for q in wall.get(int(i), ())):
                     raise MorphError(f"variable '{var}' moves '{f.obj}' through the outer boundary or a wave port")
-            d0[var][nid] += vel
-            count[var][nid] += 1
-            moving_nodes[nid] = True
-    for var in d0:
-        c = count[var]
-        d0[var][c > 0] /= c[c > 0][:, None]
-    # sliding constraints from the faces that do not move (same for all variables: union of moving faces)
-    normals: dict[int, list] = {i: list(ns) for i, ns in wall.items()}
-    for f in any_faces:
-        nid = on_face.get((f.obj, f.index))
-        if nid is None or not len(nid):
-            continue
-        if not f.planar:
-            fixed0[nid] = True
-            continue
-        X = nodes[:, nid].T
-        # nodes inside the face slide in its plane, nodes on its boundary along the boundary segment
-        # (the in-plane normal of the segment is a second constraint)
-        for i in nid:
-            normals.setdefault(int(i), []).append(f.normal)
-        for P in f.loops:
-            Q = np.roll(P, -1, axis=0)
-            for a, b in zip(P, Q):
-                d = b - a
-                L = np.linalg.norm(d)
-                if L < tol:
-                    continue
-                t = d / L
-                s = np.clip((X - a) @ t, 0, L)
-                dist = np.linalg.norm(X - (a + s[:, None] * t), axis=1)
-                on = dist < tol
-                if on.any():
+            if not f.planar or _rigid(f):
+                full[nid] += vel
+                nfull[nid] += 1
+                continue
+            # a face that changes shape: its corners are carried; a node on a boundary segment follows the
+            # segment across it and slides along it, a node inside follows the plane and slides in it (an
+            # edge of a port or a line ending on the segment stays where it is)
+            corner = np.zeros(len(nid), bool)
+            for P in f.loops:
+                corner |= (np.linalg.norm(X[:, None, :] - P[None, :, :], axis=2) < tol).any(axis=1)
+            full[nid[corner]] += vel[corner]
+            nfull[nid[corner]] += 1
+            for P in f.loops:
+                for a, b in zip(P, np.roll(P, -1, axis=0)):
+                    d = b - a
+                    Ls = np.linalg.norm(d)
+                    if Ls < tol:
+                        continue
+                    t = d / Ls
+                    s_ = np.clip((X - a) @ t, 0, Ls)
+                    on = (np.linalg.norm(X - (a + s_[:, None] * t), axis=1) < tol) & ~corner
                     en = np.cross(f.normal, t)
-                    for i in nid[on]:
-                        normals.setdefault(int(i), []).append(en)
-    fixed = fixed0 | moving_nodes
-    # free directions per node: three for a node inside the volumes, the null space of its constraint
-    # normals for a node on a face
-    cols_r, cols_c, cols_v = [], [], []
-    inner = np.flatnonzero(~fixed & ~np.isin(np.arange(N), np.fromiter(normals, int, len(normals))))
-    nz = 3 * len(inner)
-    cols_r.append((3 * inner[:, None] + np.arange(3)[None, :]).ravel())
-    cols_c.append(np.arange(nz))
-    cols_v.append(np.ones(nz))
-    for i, ns in normals.items():
-        if fixed[i]:
+                    for k in np.flatnonzero(on):
+                        part.setdefault(int(nid[k]), []).append((en, float(vel[k] @ en)))
+            for k in np.flatnonzero(~corner):
+                part.setdefault(int(nid[k]), []).append((f.normal, float(vel[k] @ f.normal)))
+        isfull = nfull > 0
+        d0 = np.zeros((N, 3))
+        d0[isfull] = full[isfull] / nfull[isfull][:, None]
+        ispart = np.zeros(N, bool)
+        for i, cs in part.items():
+            if isfull[i]:
+                continue
+            C = np.array([c for c, _ in cs])
+            g = np.array([v for _, v in cs])
+            d0[i] = np.linalg.lstsq(C, g, rcond=None)[0]
+            ispart[i] = True
+        fixed = fixed_c | isfull
+        # free directions per node: three for a node inside the volumes, the null space of its constraint
+        # normals for a node on a face (inside a face that changes its shape: the in-plane directions)
+        cols_r, cols_c, cols_v = [], [], []
+        inner = np.flatnonzero(~fixed & ~np.isin(np.arange(N), np.fromiter(normals, int, len(normals))))
+        nz = 3 * len(inner)
+        cols_r.append((3 * inner[:, None] + np.arange(3)[None, :]).ravel())
+        cols_c.append(np.arange(nz))
+        cols_v.append(np.ones(nz))
+        for i, ns in normals.items():
+            if fixed[i]:
+                continue
+            _, sv, vt = np.linalg.svd(np.asarray(ns))
+            for b in vt[int((sv > 1e-6).sum()):]:
+                k = np.flatnonzero(b != 0)
+                cols_r.append(3 * i + k)
+                cols_c.append(np.full(len(k), nz))
+                cols_v.append(b[k])
+                nz += 1
+        stats.append((var, int(fixed.sum()), int(isfull.sum()), int(ispart.sum()), nz))
+        if nz == 0:
+            out[var] = d0.T.copy()
             continue
-        _, sv, vt = np.linalg.svd(np.asarray(ns))
-        for b in vt[int((sv > 1e-6).sum()):]:
-            k = np.flatnonzero(b != 0)
-            cols_r.append(3 * i + k)
-            cols_c.append(np.full(len(k), nz))
-            cols_v.append(b[k])
-            nz += 1
-    cols_r, cols_c, cols_v = (np.concatenate(a) for a in (cols_r, cols_c, cols_v))
-    L = _laplacian(nodes, mesh.tets)
-    K3 = sp.kron(L, sp.identity(3), format="csr")      # node-major: 3*i + k
-    out = {}
-    if nz == 0:
-        return {v: d0[v].T.copy() for v in d0}
-    Q = sp.csr_matrix((cols_v, (cols_r, cols_c)), shape=(3 * N, nz))
-    Kr = (Q.T @ K3 @ Q).tocsc()
-    rhs = np.column_stack([-(Q.T @ (K3 @ d0[v].ravel())) for v in d0])
-    Z = spsolve(Kr, rhs)
-    Z = Z.reshape(nz, -1)
-    for j, v in enumerate(d0):
-        d = d0[v].ravel() + Q @ Z[:, j]
-        out[v] = d.reshape(N, 3).T.copy()
+        cols_r, cols_c, cols_v = (np.concatenate(a) for a in (cols_r, cols_c, cols_v))
+        Q = sp.csr_matrix((cols_v, (cols_r, cols_c)), shape=(3 * N, nz))
+        Kr = (Q.T @ K3 @ Q).tocsc()
+        z = splu(Kr).solve(-(Q.T @ (K3 @ d0.ravel())))
+        out[var] = (d0.ravel() + Q @ z).reshape(N, 3).T.copy()
     if log is not None:
-        log(f"morphing: {int(fixed.sum())} fixed nodes, {int(moving_nodes.sum())} on moving faces, {nz} free "
-            f"directions")
+        for var, nf, nm, ns, nz in stats:
+            log(f"morphing {var}: {nf} fixed nodes, {nm} carried by moving faces, {ns} sliding in faces that "
+                f"change shape, {nz} free directions")
     return out
 
 

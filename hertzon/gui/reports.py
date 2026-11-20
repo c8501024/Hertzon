@@ -9,15 +9,17 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 import json
 
-from PySide6.QtCore import Signal, Qt, QSettings
+from PySide6.QtCore import Signal, Qt, QSettings, QTimer
 from PySide6.QtGui import QCursor, QColor
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QListWidget, QPushButton, QLabel,
                                QTableWidget, QTableWidgetItem, QFileDialog, QSplitter, QFormLayout, QLineEdit,
                                QAbstractItemView, QHeaderView, QMenu, QApplication, QDialog, QDialogButtonBox,
                                QCheckBox, QInputDialog, QColorDialog, QDoubleSpinBox, QPlainTextEdit, QMessageBox,
-                               QListWidgetItem, QScrollArea, QFrame)
+                               QListWidgetItem, QScrollArea, QFrame, QSlider, QToolButton)
 
 from ..model.design import Report
+from ..post.quantities import (NF_FUNCS, MAGNITUDE_FUNCS, quantity_meta, functions_for, phasor_value,  # noqa: F401
+                               migrate_near_report, NF_QUANTITIES, nf_name, QuantityMeta)
 from ..solver.results import ResultStore, results_dir
 from .doc import result_dir
 from ..solver.ffquant import monostatic_rcs, farfield_quantities, antenna_parameters  # noqa: F401
@@ -62,13 +64,13 @@ def ff_trace(tr: str) -> tuple[str, str]:
     return m.groups() if m else ("", tr.strip())
 
 
-NF_QUANTITIES = ["NearETotal", "NearEX", "NearEY", "NearEZ", "NearHTotal", "NearHX", "NearHY", "NearHZ"]
 
 
 # units of the report quantities (linear); dB of them is "dB", of an area "dBsm"
 _QTY_UNITS = {"S": "", "Y": "S", "Z": "Ω", "VSWR": "", "Zo": "Ω", "Gamma": "1/m", "Freq": "Hz", "F": "Hz",
               "RadiatedPower": "W", "AcceptedPower": "W", "IncidentPower": "W", "MaxU": "W/sr",
               "ThetaAtMax": "deg", "PhiAtMax": "deg"}
+_QTY_UNITS.update({q: "V/m" if q.endswith("_E") or q.startswith("E_") else "A/m" for q in NF_QUANTITIES})
 _PREFIX_UNITS = (("rE", "V"), ("NearE", "V/m"), ("NearH", "A/m"), ("BistaticRCS", "m²"), ("MonostaticRCS", "m²"))
 
 
@@ -135,7 +137,8 @@ def trace_unit(doc, trace: str) -> str | None:
                 return "deg"
             if fn in ("ang_rad", "phase", "angle"):
                 return "rad"
-            if fn in ("mag", "abs", "re", "im", "real", "imag", "conj", "x", "y", "z", "rho", "phi", "r", "theta"):
+            if fn in ("mag", "abs", "re", "im", "real", "imag", "conj", "x", "y", "z", "rho", "phi", "r", "theta",
+                      "envelope", "inst"):
                 return inner
         return None
     return unit(tree)
@@ -581,16 +584,110 @@ def near_field_line(doc, solution: str, p1, p2, n: int, freq_index: int = 0, por
         key = f"{w}_{freq_index}_{port}"
         if key not in f:
             continue
-        v = f[key].astype(np.complex128)
+        # the excitation as set in Edit Sources (port powers and phases, plane wave total/scattered),
+        # like the field overlays, so that the phase of the line plot is the phase of the overlay
+        v = np.asarray(F.source_vector(doc, st, f, grid, w, freq_index, port), np.complex128)
         work.point_data["re"] = np.real(v)
         work.point_data["im"] = np.imag(v)
         smp = pv.PolyData(P).sample(work)
         valid = np.asarray(smp.point_data.get("vtkValidPointMask", np.ones(len(P))), bool)
         c = smp.point_data["re"] + 1j * smp.point_data["im"]
         c[~valid] = np.nan
-        out[f"Near{w}X"], out[f"Near{w}Y"], out[f"Near{w}Z"] = c[:, 0], c[:, 1], c[:, 2]
-        out[f"Near{w}Total"] = np.sqrt((np.abs(c) ** 2).sum(axis=1))
+        out[f"{w}_X"], out[f"{w}_Y"], out[f"{w}_Z"] = c[:, 0], c[:, 1], c[:, 2]
+        out[f"ComplexMag_{w}"] = np.sqrt((np.abs(c) ** 2).sum(axis=1))
     return out
+
+
+def near_quantity(nf: dict, name: str, phase_deg: float = 0.0):
+    """The values of a Near Field Line quantity (old names such as NearETotal accepted), None when the line
+    has none. Mag_E is |Re(E e^(jφ))|, the length of the real field vector at the phase φ, as in the field
+    plots."""
+    name = nf_name(name)
+    if name in nf:
+        return nf[name]
+    if name in ("Mag_E", "Mag_H") and f"{name[-1]}_X" in nf:
+        c = np.stack([nf[f"{name[-1]}_{a}"] for a in "XYZ"], axis=1)
+        return np.linalg.norm(np.real(c * np.exp(1j * np.radians(phase_deg))), axis=1)
+    return None
+
+
+def near_values(nf: dict, func: str, name: str, phase_deg: float = 0.0) -> np.ndarray:
+    """Values of a Near Field Line trace func(name), with the names of the field plots.
+
+    Mag_E: |Re(E e^(jφ))|, the instantaneous length of the field vector at the phase φ.
+    ComplexMag_E: sqrt(|Ex|^2+|Ey|^2+|Ez|^2), does not depend on φ; the peak of Mag_E over a period for
+    linear polarisation (circular: sqrt(2) times the peak).
+    E_X, E_Y, E_Z: the complex components; re, im of X e^(jφ), re is the instantaneous value at φ; mag and
+    ang_deg do not depend on φ. Mag_E and ComplexMag_E are magnitudes: mag and dB only."""
+    meta = quantity_meta(name)
+    if meta.is_magnitude and func not in MAGNITUDE_FUNCS:
+        raise ValueError(f"{func}({name}): {name} is a magnitude, only {', '.join(MAGNITUDE_FUNCS)}")
+    v = near_quantity(nf, name, phase_deg)
+    if v is None:
+        raise KeyError(name)
+    if meta.is_magnitude:
+        meta = QuantityMeta(is_magnitude=True)        # Mag_E is already taken at φ
+    return phasor_value(func, v, phase_deg, meta)
+
+
+def near_phase_traces(traces: list[str]) -> list[str]:
+    """The traces of a Near Field Line report whose quantity has a phase reference (the phase slider
+    acts on their re and im)."""
+    out = []
+    for tr in traces:
+        m = re.match(r"(\w+)\((\w+)\)", tr)
+        if m and quantity_meta(m.group(2)).has_phase_reference:
+            out.append(tr)
+    return out
+
+
+def near_phase_dependent(traces: list[str]) -> bool:
+    """Whether a trace of a Near Field Line report changes with the phase φ: re or im of a field component,
+    or Mag_E / Mag_H (the instantaneous magnitude)."""
+    return any(tr.startswith(("re(", "im(")) or quantity_meta(re.match(r"\w+\((\w+)\)", tr).group(1)).is_magnitude
+               for tr in near_phase_traces(traces))
+
+
+def skin_depth_fit(x: np.ndarray, y: np.ndarray, x0: float | None = None, x1: float | None = None) -> dict:
+    """Exponential fit y = A exp(-|x - xs|/delta) of the decay in x0..x1 (the whole curve by default).
+
+    The decay starts at the maximum of the range and runs to the side where the curve falls further, down
+    to 60 dB below the maximum (the numerical floor is not fitted). Returns delta (the 1/e distance, in
+    the units of x), the fitted range, the fitted curve and R^2 of the fit of ln y."""
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+    lo = -np.inf if x0 is None else min(x0, x1)
+    hi = np.inf if x1 is None else max(x0, x1)
+    idx = np.where(np.isfinite(y) & (y > 0) & (x >= lo) & (x <= hi))[0]
+    if len(idx) < 5:
+        raise ValueError("Too few positive points in the range for a fit")
+    i0 = idx[np.argmax(y[idx])]
+    ymax = y[i0]
+    floor = ymax * 1e-3
+    best = None
+    for side in (idx[idx >= i0], idx[idx <= i0][::-1]):
+        if len(side) < 5:
+            continue
+        below = np.where(y[side] < floor)[0]
+        seg = side[:below[0]] if len(below) else side
+        if len(seg) < 5:
+            seg = side[:5]
+        drop = np.log(ymax / y[seg[-1]])
+        if best is None or drop > best[0]:
+            best = (drop, np.sort(seg))
+    if best is None or best[0] <= 0:
+        raise ValueError("The curve does not decay in the range")
+    seg = best[1]
+    xs, ly = x[seg], np.log(y[seg])
+    k, b = np.polyfit(xs, ly, 1)
+    if k == 0 or best[0] < 0.2:
+        raise ValueError("The curve does not decay in the range")
+    fit = k * xs + b
+    ss = float(((ly - ly.mean()) ** 2).sum())
+    r2 = 1.0 - float(((ly - fit) ** 2).sum()) / ss if ss > 0 else 1.0
+    start = xs[0] if k < 0 else xs[-1]
+    return {"delta": 1.0 / abs(k), "x": xs, "y": np.exp(fit), "start": float(start), "drop": float(best[0]),
+            "A": float(np.exp(k * start + b)), "r2": r2, "sign": -1.0 if k < 0 else 1.0}
 
 
 def ff_db(func: str, name: str, v: np.ndarray) -> np.ndarray:
@@ -618,6 +715,7 @@ class ReportWindow(QWidget):
                 + ANTENNA_KINDS and not report.kind.startswith("Monostatic RCS"):
             report.traces[:] = [explicit_magnitude(t) for t in report.traces]
         self.markers: list[float] = [float(x) for x in report.props.get("markers", "").split(",") if x.strip()]
+        self._migrated: list[str] = []          # removed functions of an old report changed on loading
         lay = QHBoxLayout(self)
         split = QSplitter()
         lay.addWidget(split)
@@ -729,8 +827,24 @@ class ReportWindow(QWidget):
             self.func.addItems(["<none>"])
         elif report.kind == "Near Field Line":
             self.cat.addItems(["Near Fields"])
+            # old reports: envelope -> mag, inst -> re (when loaded, or set through the MCP tools)
+            for w in getattr(report, "migration_warnings", []) + migrate_near_report(report):
+                self._migrated.append(w)
+            report.migration_warnings = []
             self.qty.addItems(NF_QUANTITIES)
-            self.func.addItems(["mag", "dB", "re", "im", "ang_deg"])
+            # the names of the field plots (Plot Fields), with the same meaning
+            qtips = {"Mag": "|Re({w} e^(jφ))|: the length of the field vector at the phase φ of the slider "
+                            "(instantaneous), as Mag_{w} of the field plots",
+                     "ComplexMag": "sqrt(|{w}x|²+|{w}y|²+|{w}z|²), independent of the phase, as ComplexMag_{w} of "
+                                   "the field plots; the peak of Mag_{w} over a period for linear polarisation",
+                     "comp": "Complex {a} component of {w}; re/im at the phase φ of the slider"}
+            for i, q in enumerate(NF_QUANTITIES):
+                head, _, tail = q.partition("_")
+                tip = qtips[head] if head in qtips else qtips["comp"]
+                w, a = (tail, "") if head in qtips else (head, tail.lower())
+                self.qty.setItemData(i, tip.format(w=w, a=a), Qt.ToolTipRole)
+            self._nf_fill_funcs()
+            self.qty.currentTextChanged.connect(self._nf_qty_changed)
             self.nf = {}
             for key, label, default in (("start", "Start (x,y,z):", "0,0,0"), ("end", "End (x,y,z):", "10,0,0"),
                                         ("points", "Points:", "101")):
@@ -738,6 +852,39 @@ class ReportWindow(QWidget):
                 e.editingFinished.connect(self._save_nf)
                 form.addRow(label, e)
                 self.nf[key] = e
+            # phase φ of re/im of the field components (re is the instantaneous value): slider, value and a
+            # phase animation; shown only while a quantity with a phase reference is in the report
+            self.nf_phase_row = QWidget()
+            ph = QHBoxLayout(self.nf_phase_row)
+            ph.setContentsMargins(0, 0, 0, 0)
+            self.nf_phase = QSlider(Qt.Horizontal)
+            self.nf_phase.setRange(0, 360)
+            self.nf_phase_val = QDoubleSpinBox()
+            self.nf_phase_val.setRange(0, 360)
+            self.nf_phase_val.setDecimals(1)
+            self.nf_phase_val.setSuffix(" deg")
+            self.nf_phase_val.setWrapping(True)
+            ph0 = float(report.props.get("phase", "0") or 0) % 360
+            self.nf_phase.setValue(round(ph0))
+            self.nf_phase_val.setValue(ph0)
+            self.nf_phase.valueChanged.connect(lambda v: self.nf_phase_val.setValue(float(v)))
+            self.nf_phase_val.valueChanged.connect(self._nf_phase_changed)
+            self.nf_play = QToolButton()
+            self.nf_play.setText("▶")
+            self.nf_play.setCheckable(True)
+            self.nf_play.setToolTip("Animate the phase (re and im of the field components)")
+            self.nf_play.toggled.connect(self._nf_animate)
+            self._nf_timer = QTimer(self)
+            self._nf_timer.setInterval(60)
+            self._nf_timer.timeout.connect(lambda: self.nf_phase_val.setValue((self.nf_phase_val.value() + 5) % 360))
+            ph.addWidget(self.nf_phase, 1)
+            ph.addWidget(self.nf_phase_val)
+            ph.addWidget(self.nf_play)
+            for w in (self.nf_phase, self.nf_phase_val):
+                w.setToolTip("Phase φ of re(E e^(jφ)) (the instantaneous value) and im(E e^(jφ)) of the field "
+                             "components; mag and ang do not depend on it")
+            self.nf_phase_label = QLabel("Phase:")
+            form.addRow(self.nf_phase_label, self.nf_phase_row)
         elif is_fields_report(doc, report):
             # Fields report: the equations computed from the fields, over the frequencies with saved fields
             from .fields import field_solutions
@@ -1060,6 +1207,67 @@ class ReportWindow(QWidget):
             self.report.props[k] = e.text()
         self.changed.emit()
         self.refresh()
+
+    def _nf_phase_changed(self, v: float) -> None:
+        self.nf_phase.blockSignals(True)
+        self.nf_phase.setValue(round(v))
+        self.nf_phase.blockSignals(False)
+        self.report.props["phase"] = f"{v:g}"
+        if not self.nf_play.isChecked():
+            self.changed.emit()
+        if not near_phase_dependent(self.report.traces):
+            return          # nothing on the plot depends on the phase
+        self._nf_reuse = True            # same line and solution: only the phase turns
+        try:
+            self.refresh()
+        finally:
+            self._nf_reuse = False
+
+    def _nf_fill_funcs(self) -> None:
+        """The functions of the selected quantity: mag and dB for a magnitude (Mag_E, ComplexMag_E), else mag,
+        dB, re, im and ang (in degrees)."""
+        want = functions_for(self.qty.currentText())
+        have = [self.func.itemText(i) for i in range(self.func.count())]
+        if have == want:
+            return
+        cur = self.func.currentText()
+        self.func.blockSignals(True)
+        self.func.clear()
+        self.func.addItems(want)
+        tips = {"mag": "Magnitude of the quantity; |X| of a complex component (independent of the phase)",
+                "dB": "20 log10 of the magnitude",
+                "re": "re(X e^(jφ)): the instantaneous value at the phase φ of the slider",
+                "im": "im(X e^(jφ)) at the phase φ of the slider",
+                "ang_deg": "Angle of X in degrees (independent of the phase)"}
+        for i, f in enumerate(want):
+            self.func.setItemData(i, tips.get(f, ""), Qt.ToolTipRole)
+        self.func.setCurrentText(cur if cur in want else want[0])
+        self.func.blockSignals(False)
+
+    def _nf_qty_changed(self, *_) -> None:
+        self._nf_fill_funcs()
+        self._nf_update_phase_row()
+
+    def _nf_phase_visible(self) -> bool:
+        """The phase slider is shown while a trace, or the selected quantity, has a phase reference."""
+        return bool(near_phase_traces(self.report.traces))             or quantity_meta(self.qty.currentText()).has_phase_reference
+
+    def _nf_update_phase_row(self) -> None:
+        if getattr(self, "nf_phase_row", None) is None:
+            return
+        on = self._nf_phase_visible()
+        self.nf_phase_row.setVisible(on)
+        self.nf_phase_label.setVisible(on)
+        if not on and self.nf_play.isChecked():
+            self.nf_play.setChecked(False)
+
+    def _nf_animate(self, on: bool) -> None:
+        self.nf_play.setText("■" if on else "▶")
+        if on:
+            self._nf_timer.start()
+        else:
+            self._nf_timer.stop()
+            self.changed.emit()
 
     def _ff_cat(self, cat: str) -> None:
         qs, fs = FF_CATEGORIES.get(cat, ([], []))
@@ -1650,7 +1858,8 @@ class ReportWindow(QWidget):
 
     def _xy_plot(self) -> bool:
         """Line plot over frequency, passes or angle: markers, axis and trace properties."""
-        return self.report.kind in ("Rectangular", "Monostatic RCS", "Antenna Parameters", "Radiation Pattern")
+        return self.report.kind in ("Rectangular", "Monostatic RCS", "Antenna Parameters", "Radiation Pattern",
+                                    "Near Field Line")
 
     def _polar(self) -> bool:
         """Radiation Pattern on polar axes: markers are angles in deg, the axes work in rad."""
@@ -1687,10 +1896,18 @@ class ReportWindow(QWidget):
             a.toggled.connect(lambda on: self._set_prop("delta", str(on)))
             if self.report.kind == "Radiation Pattern":
                 mk.addAction("Beamwidth / Side Lobes...", self.bandwidth_marker)
+            elif self.report.kind == "Near Field Line":
+                pass                        # no bandwidth over a distance
             else:
                 mk.addAction("Bandwidth...", self.bandwidth_marker)
             mk.addSeparator()
             mk.addAction("Clear All Markers", self._clear_markers)
+        if self.report.kind == "Near Field Line":
+            if ev.xdata is not None:
+                m.addAction("Skin Depth from Here (Exponential Fit)", lambda x=float(ev.xdata): self.skin_depth(x))
+            m.addAction("Skin Depth (Exponential Fit in View)", self.skin_depth)
+            if self.report.props.get("skin"):
+                m.addAction("Clear Skin Depth", self.clear_skin_depth)
         if self._xy_plot() and not self._polar():
             m.addAction("Axis Properties...", self.axis_properties)
             m.addAction("Trace Properties...", self.trace_properties)
@@ -1794,7 +2011,12 @@ class ReportWindow(QWidget):
             return "Mode", [(h, n.astype(float), y) for h, y in cols]
         if kind == "Near Field Line":
             x, xl, cols, _ = self._near_series()
-            return xl, [(with_unit(self.doc, tr), x, y) for tr, y in cols]
+            out = [(with_unit(self.doc, self._near_label(tr)), x, y) for tr, y in cols]
+            skin = self._near_skin(x, cols)
+            if skin is not None and not isinstance(skin[1], str):
+                out.append((f"fit {skin[0]} delta={skin[1]['delta']:.6g} {self.doc.design.units}",
+                            skin[1]["x"], skin[1]["y"]))
+            return xl, out
         _, _, data = self._data()
         xlabel = x_axis(data)[1]
         variations = self._variations()
@@ -1873,6 +2095,12 @@ class ReportWindow(QWidget):
         self.refresh()
 
     def _trace_xy(self, tr: str, root=None):
+        if self.report.kind == "Near Field Line":
+            x, _, cols, _ = self._near_series()
+            y = next((v for t, v in cols if t == tr), None)
+            if y is None:
+                raise RuntimeError(f"No near field trace {tr}")
+            return x, y
         if self.report.kind == "Radiation Pattern":
             ang, y = self._ff_cut(self._ff(root), tr)
             return np.degrees(ang), y
@@ -1965,6 +2193,8 @@ class ReportWindow(QWidget):
         self._tuned_err = ""
         self.traces.clear()
         self.traces.addItems(self.report.traces)
+        if self.report.kind == "Near Field Line":
+            self._nf_update_phase_row()
         try:
             if self.report.kind in ("Radiation Pattern", "3D Polar Plot"):
                 self._draw_ff()
@@ -1982,11 +2212,19 @@ class ReportWindow(QWidget):
                 self._draw_rect()
         except Exception as e:  # noqa: BLE001
             self.info.setText(f"<span style='color:#c0392b'>{e}</span>")
+            self._show_migrated()
             return
         if self._tuned_err:
             self.info.setText(self.info.text() + f"  <span style='color:#b36b00'>No tuned curve: {self._tuned_err}"
                               "</span>")
+        self._show_migrated()
         self._mark_outdated()
+
+    def _show_migrated(self) -> None:
+        """The traces of an old report changed on loading (envelope -> mag, inst -> re)."""
+        if self._migrated:
+            self.info.setText(self.info.text() + "  <span style='color:#b36b00'>" + "; ".join(self._migrated)
+                              + "</span>")
 
     def _mark_outdated(self) -> None:
         from .trees import solution_state
@@ -2380,18 +2618,77 @@ class ReportWindow(QWidget):
         p1 = ev.point(p.get("start", "0,0,0"))
         p2 = ev.point(p.get("end", "10,0,0"))
         n = int(float(p.get("points", "101") or 101))
-        nf = near_field_line(self.doc, self.sol.currentText(), p1, p2, n)
+        key = (self.sol.currentText(), tuple(np.ravel(p1)), tuple(np.ravel(p2)), n)
+        cached = getattr(self, "_nf_cache", None)
+        if getattr(self, "_nf_reuse", False) and cached is not None and cached[0] == key:
+            nf = cached[1]
+        else:
+            nf = near_field_line(self.doc, self.sol.currentText(), p1, p2, n)
+            self._nf_cache = (key, nf)
         from ..model.expr import LENGTH_UNITS
         s = LENGTH_UNITS.get(self.doc.design.units, 1e-3)
+        phase = float(p.get("phase", "0") or 0)
         cols = []
         for tr in self.report.traces:
             m = re.match(r"(\w+)\((\w+)\)", tr)
-            if not m or m.group(2) not in nf:
+            if not m or near_quantity(nf, m.group(2), phase) is None:
                 continue
             func, name = m.groups()
-            v = nf[name]
-            cols.append((tr, apply_func("dB" if func == "dB" else func, v) if func != "mag" else np.abs(v)))
+            cols.append((tr, near_values(nf, func, name, phase)))
         return nf["distance"] / s, f"Distance along line [{self.doc.design.units}]", cols, nf
+
+    def _near_label(self, tr: str) -> str:
+        """Legend and column name: re/im of a field component with its phase."""
+        if near_phase_dependent([tr]):
+            return f"{tr} @ {float(self.report.props.get('phase', '0') or 0):g}°"
+        return tr
+
+    def _near_skin(self, x: np.ndarray, cols: list):
+        """(trace, fit) of the stored skin depth fit (right-click > Skin Depth), None when there is none."""
+        spec = self.report.props.get("skin", "")
+        if not spec:
+            return None
+        tr, _, rng = spec.partition("|")
+        y = next((v for t, v in cols if t == tr), None)
+        if y is None:
+            return None
+        a, _, b = rng.partition(",")
+        try:
+            x0, x1 = (float(a), float(b)) if a and b else (None, None)
+            return tr, skin_depth_fit(x, y, x0, x1)
+        except ValueError as e:
+            return tr, str(e)
+
+    def skin_depth(self, at: float | None = None) -> None:
+        """Skin depth from an exponential fit of the decay of a trace within the visible x range; from the
+        position at (right-click) to the end of the view on the side where the curve decays."""
+        x, _, cols, _ = self._near_series()
+        cand = [t for t, _ in cols if not t.startswith(("dB(", "ang_deg(", "re(", "im("))]
+        if not cand:
+            QMessageBox.information(self, "Skin Depth", "Add a mag trace first.")
+            return
+        it = self.traces.currentItem()
+        tr = it.text() if it is not None else None
+        if tr not in cand:
+            tr = cand[0]
+        ax = self.fig.axes[0] if self.fig is not None and self.fig.axes else None
+        x0, x1 = ax.get_xlim() if ax is not None else (None, None)
+        if at is not None and x0 is not None:
+            # the side of the click where the curve is lower (the field decays into the material)
+            y = dict(cols)[tr]
+            ok = np.isfinite(y) & (y > 0)
+            lo, hi = min(x0, x1), max(x0, x1)
+            right, left = ok & (x >= at) & (x <= hi), ok & (x <= at) & (x >= lo)
+            mean = lambda m: float(np.mean(np.log(y[m]))) if m.sum() >= 5 else np.inf
+            x0, x1 = (at, hi) if mean(right) <= mean(left) else (lo, at)
+        self.report.props["skin"] = f"{tr}|{x0:.9g},{x1:.9g}" if x0 is not None else f"{tr}|"
+        self.changed.emit()
+        self.refresh()
+
+    def clear_skin_depth(self) -> None:
+        self.report.props.pop("skin", None)
+        self.changed.emit()
+        self.refresh()
 
     def _draw_near(self) -> None:
         p = self.report.props
@@ -2399,17 +2696,68 @@ class ReportWindow(QWidget):
         n = len(x)
         self.fig.clear()
         ax = self.fig.add_subplot(111)
+        LS = {"Solid": "-", "Dashed": "--", "Dotted": ":", "Dash-Dot": "-."}
+        SYM = {"None": None, "Circle": "o", "Square": "s", "Triangle": "^", "Cross": "x"}
+        curves = []
         for tr, y in cols:
-            ax.plot(x, y, label=tr)
-        ax.set_xlabel(xl)
+            stl = self._style(tr)
+            kw = dict(label=self._near_label(tr), linestyle=LS.get(stl.get("style", "Solid"), "-"),
+                      linewidth=float(stl.get("width", 1.5)), marker=SYM.get(stl.get("symbol", "None")))
+            if stl.get("color"):
+                kw["color"] = stl["color"]
+            line, = ax.plot(x, y, **kw)
+            curves.append((tr, x, y, ax, line.get_color()))
+        if near_phase_dependent([t for t, _ in cols]):
+            # the scale of the whole period, so that the phase animation does not rescale the axis
+            lo, hi = 0.0, 0.0
+            for tr, y in cols:
+                m = re.match(r"(\w+)\((\w+)\)", tr)
+                if m and m.group(1) in ("re", "im", "mag"):
+                    q = nf_name(m.group(2))
+                    pk = near_values(nf, "mag", "ComplexMag_" + q[-1] if q.startswith("Mag_") else q)
+                    pk = pk[np.isfinite(pk)]
+                    if len(pk):
+                        hi = max(hi, float(pk.max()))
+                        if m.group(1) in ("re", "im"):
+                            lo = min(lo, -float(pk.max()))
+            if hi > 0 and "ymin" not in self.report.props and "ymax" not in self.report.props:
+                ax.set_ylim(lo * 1.05, hi * 1.05)
+        skin = self._near_skin(x, cols)
+        note = ""
+        if skin is not None:
+            tr, fit = skin
+            if isinstance(fit, str):
+                note = f";  skin depth of {tr}: {fit}"
+            else:
+                u = self.doc.design.units
+                d = fit["delta"]
+                ax.plot(fit["x"], fit["y"], "--", color="#c0392b", lw=1.4,
+                        label=f"fit: δ = {d:.4g} {u}")
+                xd = fit["start"] - fit["sign"] * d
+                xlim = ax.get_xlim()
+                ax.axvline(fit["start"], color="#c0392b", lw=0.6, ls=":")
+                inside = min(xlim) <= xd <= max(xlim)
+                if inside:                      # the 1/e point; a delta longer than the line is only written
+                    ax.axvline(xd, color="#c0392b", lw=0.6, ls=":")
+                ax.set_xlim(xlim)
+                at = (xd, fit["A"] / np.e) if inside else (fit["x"][len(fit["x"]) // 2], fit["y"][len(fit["y"]) // 2])
+                ax.annotate(f"δ = {d:.4g} {u}  (1/e)\n{8.685889638 / d:.4g} dB/{u}", at,
+                            textcoords="offset points", xytext=(6, 10), fontsize=8, color="#c0392b",
+                            bbox=dict(boxstyle="round", fc="#ffffff", ec="#c0392b"))
+                note = (f";  skin depth of {tr}: δ = {d:.4g} {u} from {fit['x'][0]:.4g} to {fit['x'][-1]:.4g} {u}"
+                        f", R² = {fit['r2']:.3f}")
+        self._draw_markers(ax, curves, f" {self.doc.design.units}", xl)
+        self._apply_axes(ax, None)
+        ax.set_xlabel(self.report.props.get("xlabel") or xl)
         ax.set_ylabel(self.report.props.get("ylabel") or self._units_label(self.report.traces))
         ax.grid(True, alpha=0.4)
         ax.legend(loc="best", fontsize=8)
         ax.set_title(f"{self.report.name}   ({self.sol.currentText()})", fontsize=10)
         self.canvas.draw_idle()
-        bad = int(np.isnan(nf.get("NearETotal", np.zeros(1))).sum())
+        bad = int(np.isnan(nf.get("ComplexMag_E", np.zeros(1))).sum())
         self.info.setText(f"{n} points from ({p.get('start')}) to ({p.get('end')})" +
-                          (f"; {bad} points outside the solution volume" if bad else ""))
+                          (f"; {bad} points outside the solution volume" if bad else "") + note +
+                          ".  Double-click: marker. Right-click: markers, skin depth, axes, traces.")
 
     def _draw_smith(self) -> None:
         st, sol, data = self._data()

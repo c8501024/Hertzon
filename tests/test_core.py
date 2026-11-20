@@ -413,6 +413,40 @@ def test_circles_in_flat_faces_are_drawn_round(boxes):
         assert len(tess["Cylinder1"].tris) < 400
 
 
+
+def _open_edges(t) -> int:
+    """Triangle edges used by one triangle only: 0 for a closed, gap-free display mesh of a solid."""
+    P = np.round(np.asarray(t.points, float) / 1e-9).astype(np.int64)
+    _, inv = np.unique(P, axis=0, return_inverse=True)
+    T = inv.reshape(-1)[t.tris]
+    E = np.sort(np.vstack([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]]), axis=1)
+    return int((np.unique(E, axis=0, return_counts=True)[1] == 1).sum())
+
+
+def test_end_caps_of_cylinders_meet_the_round_wall():
+    # with many flat faces the planes are meshed in a pass of their own; a circle they share with a cylinder got
+    # only the global size there: the end cap of a coax or a connector barrel was a heptagon inside the round
+    # wall, with dark wedges between them (all 3D connectors)
+    p = Project()
+    d = p.designs[0]
+    d.add_object("CreateBox", name="Body", Position="-5,-5,0", XSize="10", YSize="10", ZSize="4")
+    d.add_object("CreateCylinder", name="Hole", CenterPosition="0,0,0", Axis="Z", Radius="2", Height="4")
+    d.add_object("CreateCylinder", name="Coax", CenterPosition="0,0,0", Axis="Z", Radius="2", Height="4")
+    d.obj("Body").history.append(Command.new("Subtract", Tools="Hole", KeepOriginals="False"))
+    d.obj("Hole").consumed_by = "Body"
+    for i in range(10):         # many flat faces: the two pass display mesh
+        d.add_object("CreateBox", Position=f"{30 + 3 * i},0,0", XSize="1", YSize="1", ZSize="1")
+    K.ensure_gmsh("test_caps")
+    ctx = K.build_design(d, d.evaluator(p))
+    tess = K.tessellate(ctx)
+    assert _open_edges(tess["Body"]) == 0 and _open_edges(tess["Coax"]) == 0
+    t = tess["Coax"]
+    X = np.asarray(t.points, float)
+    for f in [f for f in range(len(t.face_normal)) if abs(t.face_normal[f][2]) > 0.99]:   # the two end caps
+        a, b, c = (X[t.tris[t.tri_face == f][:, k]] for k in range(3))
+        area = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1).sum()
+        assert area == pytest.approx(math.pi * 2e-3 ** 2, rel=0.01)    # a 36-gon, not a heptagon (-13 %)
+
 def test_results_dir_stays_inside_results_folder():
     from hertzon.solver.results import results_dir
     proj = Path("/work/demo/filter.hzn")
@@ -1596,6 +1630,33 @@ def test_straight_wire_is_round(quality):
     n = np.cross(b - a, c - a)
     m = (a + b + c) / 3
     assert np.all(n[:, 0] * m[:, 0] + n[:, 1] * m[:, 1] > 0)
+
+
+@pytest.mark.parametrize("quality", ["coarse", "normal", "fine"])
+def test_coax_pin_united_with_a_tilted_arm_is_round(quality):
+    """#476: the inner conductor of a coax united with a tilted dipole arm. The cut at its top made the pin face
+    no plain cylinder, and it fell back to the coarse sizing of swept pipes (an octagon). A cylinder face between
+    two ends that each go once round it is drawn as one band of triangles: full segments per turn, still few
+    triangles, closed."""
+    from hertzon.kernel import occ as K
+    p = Project()
+    d = p.designs[0]
+    d.units = "mm"
+    d.add_object("CreateCylinder", name="Inner", CenterPosition="0,0,-30", Axis="Z", Radius="0.5", Height="30")
+    d.add_object("CreateCylinder", name="ArmR", CenterPosition="0,0,-0.5", Axis="Z", Radius="1", Height="70")
+    d.obj("ArmR").history.append(Command.new("Rotate", Axis="Y", Angle="45deg"))
+    d.obj("ArmR").consumed_by = "Inner"
+    d.obj("Inner").history.append(Command.new("Unite", Tools="ArmR", KeepOriginals="False"))
+    K.ensure_gmsh("test_core")
+    t = K.tessellate(K.build_design(d, d.evaluator(p)), quality)["Inner"]
+    P = np.asarray(t.points)
+    rim = P[np.isclose(np.hypot(P[:, 0], P[:, 1]), 0.5e-3) & np.isclose(P[:, 2], -30e-3)]
+    assert len(np.unique(np.round(rim, 9), axis=0)) >= {"coarse": 18, "normal": 36, "fine": 64}[quality]
+    assert len(t.tris) < 3000
+    _, inv = np.unique(np.round(P, 7), axis=0, return_inverse=True)   # curve end points: within 0.1 um
+    T = inv.ravel()[t.tris]
+    E = np.sort(np.vstack([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]]), axis=1)
+    assert set(np.unique(E, axis=0, return_counts=True)[1]) == {2}
 
 
 def test_solver_preload(monkeypatch):

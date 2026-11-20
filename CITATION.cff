@@ -5,8 +5,8 @@ title: "Hertzon: an open-source electromagnetic design suite"
 authors:
   - family-names: "Mair"
     given-names: "Dominik"
-version: "0.3.26"
-date-released: "2026-11-14"
+version: "0.3.30"
+date-released: "2026-11-20"
 license: GPL-2.0-or-later
 repository-code: "https://github.com/c8501024/Hertzon"
 url: "https://github.com/c8501024/Hertzon"

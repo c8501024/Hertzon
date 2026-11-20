@@ -21,6 +21,15 @@ from .expr_reference import CursorDelegate, ExpressionReferenceDialog, insert_in
 from .props import PropertyGrid, TabbedPropertyGrid
 
 
+
+def _conductor(doc, obj) -> bool:
+    """The object's material is a conductor the solver treats by its surface: Solve Inside is off and locked."""
+    from ..model.materials import is_conductor
+    try:
+        return is_conductor(doc.project.material(obj.material))
+    except KeyError:
+        return False
+
 class NamedPropsDialog(QDialog):
     """Name field + tabbed property grid."""
 
@@ -388,12 +397,15 @@ class ObjectPropertiesDialog(QDialog):
         self.cmd = PropertyGrid()
         self.cmd.set(schema.GEOMETRY[obj.history[0].kind], self.cmd_values, doc.evaluator())
         tabs.addTab(self.cmd, "Command")
-        self.attr_values = {"Name": obj.name, "Material": obj.material, "SolveInside": str(obj.solve_inside),
+        metal = _conductor(doc, obj)
+        self.attr_values = {"Name": obj.name, "Material": obj.material,
+                            "SolveInside": str(obj.solve_inside and not metal),
                             "Model": str(obj.model), "Color": obj.color, "Transparency": str(obj.transparency),
                             "DisplayWireframe": str(obj.wireframe), "Orientation": obj.orientation}
         self.attr = PropertyGrid(show_evaluated=False)
         self.attr.set(object_attributes(doc, obj.name), self.attr_values, None,
-                      materials=[m.name for m in doc.project.all_materials()])
+                      materials=[m.name for m in doc.project.all_materials()],
+                      readonly=("SolveInside",) if metal else ())
         tabs.addTab(self.attr, "Attribute")
         lay.addWidget(tabs)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -1970,12 +1982,15 @@ class EquationCurveDialog(QDialog):
         self.canvas.setMinimumSize(320, 320)
         row.addWidget(self.canvas, 1)
         tabs.addTab(page, "Curve")
-        self.attr_values = {"Name": obj.name, "Material": obj.material, "SolveInside": str(obj.solve_inside),
+        metal = _conductor(doc, obj)
+        self.attr_values = {"Name": obj.name, "Material": obj.material,
+                            "SolveInside": str(obj.solve_inside and not metal),
                             "Model": str(obj.model), "Color": obj.color, "Transparency": str(obj.transparency),
                             "DisplayWireframe": str(obj.wireframe), "Orientation": obj.orientation}
         self.attr = PropertyGrid(show_evaluated=False)
         self.attr.set(object_attributes(doc, obj.name), self.attr_values, None,
-                      materials=[m.name for m in doc.project.all_materials()])
+                      materials=[m.name for m in doc.project.all_materials()],
+                      readonly=("SolveInside",) if metal else ())
         tabs.addTab(self.attr, "Attribute")
         lay.addWidget(tabs)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)

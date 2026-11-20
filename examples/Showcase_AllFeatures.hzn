@@ -1159,7 +1159,7 @@
      "kind": "Near Field Line",
      "solution": "Setup1 : LastAdaptive",
      "traces": [
-      "mag(NearETotal)"
+      "mag(ComplexMag_E)"
      ],
      "props": {
       "start": "-60,15,20",

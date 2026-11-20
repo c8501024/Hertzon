@@ -300,3 +300,12 @@ def test_two_sided_sheet_matches_a_conductor_solid(tmp_path):
     assert l2 == pytest.approx(ls, rel=0.2)
     assert p2 / (p2 + l2) == pytest.approx(ps / (ps + ls), abs=0.01)
     assert 1.5 < l1 / l2 < 2.2
+
+
+def test_pml_layers_are_not_a_material_loss():
+    # the complex material of a PML absorbs the outgoing wave: that power is radiated, not lost (Auto Open with
+    # PML reported a loss of up to 6 W per 1 W incident and an efficiency of 0.33 instead of 0.9, run G)
+    m = _unit_tet()
+    fld = _Field(1 - 2j, 1e9, {0: ((1.0, 0, 0), (0, 0, 0))}, ur=1 - 2j)
+    assert not power.LossModel(m, fld).empty
+    assert power.LossModel(m, fld, absorbing=np.array([0])).empty
