@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.31 (2026-11-20)
 
 ### Added
 - **Far field over an infinite ground plane.** A far-field surface that is open at one flat outer face of the model
