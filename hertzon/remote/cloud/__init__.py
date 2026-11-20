@@ -146,7 +146,7 @@ class CloudSession:
         self.tunnel = Tunnel(tfolder, self.folder / "id_ed25519", getattr(provider, "ssh_user", "root"))
         self.lock = threading.RLock()
         self.client = socket.gethostname()
-        self.leases = Leases(self.folder, f"{provider.key}-{self.slot}" if self.slot else provider.key)
+        self.leases = Leases(self.folder, self.state_file.stem)      # one set of leases per server state
         self.log = EventLog(self.folder)
         self._price: dict | None = None          # price of the server type (cached, see price())
 
