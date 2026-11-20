@@ -22,6 +22,7 @@ def solver_python() -> str:
 
 TAG = "@@HZN "
 NO_RESULT = -999_999          # end code of a remote analysis that produced no solver exit code
+from ..solver.results import OOM_CODES, exit_reason  # noqa: E402,F401  (plain words for exit codes)
 SERVER_LOST = -999_998        # end code of a cloud analysis whose server disappeared while it ran
 
 
@@ -377,16 +378,14 @@ class SolveManager(QObject):
                 self.message.emit("warning", f"{key}: queued again; the next analysis creates a new cloud server")
         elif not ok and not getattr(self, "_failed", False):
             crashed = (status == QProcess.CrashExit or code < 0 or code > 128) and not self._aborted
-            if code in (-1073741819, 3221225477):       # 0xC0000005: access violation, not memory
-                hint = " The solver process crashed (access violation 0xC0000005)."
-            else:
-                hint = (" The solver process was killed, most likely because it ran out of memory. "
-                        "Lower 'Maximum Refinement' or the number of passes." if crashed else "")
+            why = exit_reason(code, crashed)
+            hint = f" {why}" if why else ""
             self.message.emit("error", f"{key}: the remote analysis did not finish" if code == NO_RESULT else
                               f"{key}: solver process ended with code {code}.{hint}")
             if self.job is not None and not self.job.tuning:
                 try:
-                    (self.job.out / "status.json").write_text(json.dumps({"state": "failed", "error": f"exit {code}"}), encoding="utf-8")
+                    (self.job.out / "status.json").write_text(json.dumps({
+                        "state": "failed", "error": f"exit {code}" + (f": {why}" if why else "")}), encoding="utf-8")
                 except OSError:
                     pass
         self.progress.emit(key, 100 if ok else 0, "Done" if ok else (
