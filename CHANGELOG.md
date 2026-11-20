@@ -72,6 +72,11 @@ the GitHub release notes.
   last run needed more memory than is free.
 
 ### Fixed
+- **The memory guard of the adaptive meshing stopped a pass too early on small machines.** Since it plans with
+  the memory this analysis can use (its own plus the free memory, so other programs and analyses are counted), the
+  old 10 % reserve on top was twice the margin: the hairpin filter on a 16 GB machine stopped a pass before 0.3.30
+  did, although that pass fitted (forecast 13.9 GB, peak 12.0 GB). The guard now plans with 95 % of the usable
+  memory; the hairpin solves as in 0.3.30 again (same mesh and S-parameters).
 - **Real connectors, mode Transition: S21 had the wrong sign.** The line port of the transition design had no
   voltage line, and its mode came out with the opposite polarity to the coax mode, so the transmission phase through
   a connector was off by 180 degrees (with connectors at both ends of a board the two errors cancelled). The line port
