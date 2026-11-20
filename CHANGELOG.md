@@ -3,6 +3,42 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **AI assistants can lay out a board and pick where analyses run.** New MCP tool `board`: the board of a circuit
+  as the 2D board editor shows it (parts, routes with length, width, impedance and insertion phase, connections not
+  yet routed), and its actions Auto Place, moving parts, Connect (lines of one impedance with tapers and bends),
+  Match Phase (equal phase or a set phase offset per route, with meanders) and the bend of a route. New MCP tool
+  `cloud`: where the analyses of a window run, the server types of the cloud provider with cores, memory and price
+  per hour, a choice of target per window, and deleting the window's server. With `own_server` a window gets a
+  cloud server of its own, so the parts of a larger design, each in its own project and window, are solved in
+  parallel on several servers.
+- **Claude plugin skills** for system design: split a system (for example a VNA test set) into parts, design
+  them separately, assemble them on the board with Connect and Match Phase, and estimate time and cost serially
+  and in parallel on cloud servers; every unconverged solve is reported to the user.
+- **MCP tool `report_issue`.** When a tool is missing (a structure the Design Wizard does not have), fails or gives
+  a result that looks wrong, the assistant prepares an issue for the Hertzon developers: title, what happened, an
+  example, a proposal and the versions of Hertzon, EMerge and the system, with a link to the prefilled "New issue"
+  page of the repository. Nothing is sent; the user reads the text and posts it from the link.
+### Changed
+- **Cloud server shared by all windows.** Closing a Hertzon window no longer deletes the cloud server that other
+  windows (also of other Hertzon processes) use: each window holds a lease, and the server is deleted when the
+  last window that uses it closes. If analyses still run or wait there, Hertzon asks first (delete, keep until
+  idle, or cancel).
+- **A lost cloud server is reported, never replaced silently.** An analysis whose server disappears ends as
+  "aborted because the cloud server was lost" with the reason (another window, Delete Cloud Servers, the server's
+  watchdog, which now announces why it deletes a busy server, or outside Hertzon) instead of exit -999999;
+  optionally it is queued again on a new server. `cloud/events.log` in the work folder records what happened to
+  each server.
+- **Costs of the cloud server** in the status bar: price per hour from the provider's API and the costs so far;
+  Check Account lists running time and costs of every server.
+- **Secrets in the key store of the operating system.** API tokens, secret keys and the token of a paired remote
+  computer are kept in Windows Credential Manager, the macOS Keychain or the Secret Service of Linux (new
+  dependency `keyring`), no longer in the registry or settings file; existing values are moved at the next start.
+- Analyses on this computer say so when a cloud is set up but switched off, and warn before they start when their
+  last run needed more memory than is free.
+
 ## 0.3.30 (2026-11-20)
 
 ### Changed

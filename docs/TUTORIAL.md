@@ -577,10 +577,12 @@ The assistant works step by step with the same building blocks you used above, a
 | Parametric and optimization | `set_parametric`, `set_optimization` (Conjugate Gradient, Latin Hypercube + Nelder-Mead, Derivative Trust Region or Space Mapping), run and read with `run_simulation`, `get_status`, `get_results`; `apply_optimization` takes the best result over into the design |
 | Derivative tuning | `compute_tuning` (tuning model of up to 6 variables on the solved mesh), `get_tuning` (S-parameters at other variable values without solving) |
 | Design assistants | `list_structures` and `create_structure` (Tools > Design Wizard), `create_patch_antenna`, `create_hairpin_filter`, `create_hairpin_diplexer` (the designers of the rectangular patch, hairpin filter and hairpin diplexer in the Design Wizard): complete designs with setup, sweep and optimization |
-| Circuits | `create_circuit`, `get_circuit`, `edit_circuit` (parts, wires, 3D design and Touchstone blocks), `run_simulation` / `get_results` / `render_image` on the schematic, `circuit_layout` (3D layout, update, back to the schematic), `import_3d_designs` |
+| Circuits | `create_circuit`, `get_circuit`, `edit_circuit` (parts, wires, 3D design and Touchstone blocks), `run_simulation` / `get_results` / `render_image` on the schematic, `circuit_layout` (3D layout, update, back to the schematic), `import_3d_designs`, `board` (placement, Connect, Match Phase) |
 | Connectors | `list_edge_connectors` (SMA, 2.92 mm, 2.4 mm library), `attach_edge_connector` (a connector with its launch footprint at a lumped port at the board edge), `set_connector_mode` (Ideal, Transition, 3D; flatten, remove, optimize_launch, apply_footprint), `get_connectors` |
 | Files and boards | `export` (Touchstone, STEP, Gerber, EMerge script), `import_pcb` (Gerber, Excellon, job files), `set_stackup`, `manage_design` (copy, delete), `list_examples`, `open_example` |
+| Where analyses run | `cloud` (this computer, the remote computer or a cloud server per window; server types with price per hour) |
 | Scripting | `run_python` for anything else, with the Hertzon model API |
+| Feedback | `report_issue` (the text of an issue for the Hertzon developers and a link to the prefilled "New issue" page; nothing is sent until the user posts it) |
 
 ### 5.4 The Claude plugin (optional)
 
@@ -589,7 +591,7 @@ what to check. It brings four skills, which Claude loads when they fit the reque
 
 | Skill | What it adds |
 |---|---|
-| `hf-design-loop` | the design workflow: goal in a design log, start from a Design Wizard or example, baseline, one idea at a time with sweeps, derivative tuning and optimizers, verification, report with the time per step |
+| `hf-design-loop` | what Hertzon offers for a design: design assistants and tuning for simple structures, broad batched search for demanding ones, systems of many parts assembled on the board (`board`) with a serial and parallel cloud estimate (`cloud`), coarse setups, convergence reported to the user |
 | `circuit-first` | multi-fidelity for planar circuits: design and optimize in the circuit first (Design Wizard or an own schematic, also for structures Hertzon does not know yet), then check and correct in full wave with a few 3D solves; systems of several parts; active circuits |
 | `antenna-design` | open region, feeds, adaptive frequencies for several bands, far-field efficiency instead of S11 alone, typical tuning knobs |
 | `results-check` | mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis |
