@@ -293,16 +293,18 @@ class AiLink(QObject):
 
     def _cloud(self, a: dict) -> dict:
         """MCP cloud: where this window solves, the cloud offers with prices, a server of its own, its deletion."""
+        from ..remote import keystore
         from ..remote.cloud import CloudHost, providers
         w = self.win
         s = w.settings
+        get = keystore.getter(s)
         action = a.get("action", "status")
-        prov = providers.current(s.value)
+        prov = providers.current(get)
         if action == "use":
             target = a.get("target", "cloud")
             if target not in ("local", "remote", "cloud", "settings"):
                 raise RuntimeError("target is local, remote, cloud or settings")
-            if target == "cloud" and not providers.configured(s.value):
+            if target == "cloud" and not providers.configured(get):
                 raise RuntimeError("no cloud provider is set up: the user enters it in Tools > Options > Cloud")
             if target == "remote" and not w._remote_label():
                 raise RuntimeError("no remote computer is set up: Tools > Options > Remote")
@@ -310,7 +312,7 @@ class AiLink(QObject):
                 raise RuntimeError("this window is solving; change the target when its queue is empty")
             w.solve_target = None if target == "settings" else target
             if "own_server" in a:
-                w.cloud_slot = f"w{os.getpid()}" if a.get("own_server") else ""
+                w.cloud_slot = f"w{os.getpid()}-{id(w):x}" if a.get("own_server") else ""
             if "server_type" in a:
                 w.cloud_type = str(a.get("server_type") or "")
             w.apply_hpc_settings()
@@ -321,17 +323,20 @@ class AiLink(QObject):
             cloud = getattr(w, "_cloud", None)
             if w.solver.busy and isinstance(w.solver.remote, CloudHost):
                 raise RuntimeError("this window is solving on the server; wait or abort first")
-            deleted = bool(cloud and cloud[1].delete())
+            if not getattr(w, "cloud_slot", ""):
+                raise RuntimeError("this window uses the server all windows share; it is deleted when the last "
+                                   "window using it is done (or by the user: Delete Cloud Servers)")
+            deleted = bool(cloud and cloud[1].delete("deleted by an AI assistant (MCP cloud stop)"))
             return {"deleted": deleted}
         elif action != "status" and action != "offers":
             raise RuntimeError("action is status, offers, use or stop")
-        stype, loc = providers.placement(s.value, prov)
+        stype, loc = providers.placement(get, prov)
         stype = getattr(w, "cloud_type", "") or stype
         r = w.solver.remote
         out = {"solves_on": "local" if r is None else ("cloud" if isinstance(r, CloudHost) else "remote"),
                "solves_on_label": "this computer" if r is None else r.address,
                "remote_computer": w._remote_label() or None,
-               "cloud": {"provider": providers.SHORT[prov], "configured": providers.configured(s.value),
+               "cloud": {"provider": providers.SHORT[prov], "configured": providers.configured(get),
                          "tested": prov not in providers.UNTESTED, "server_type": stype, "location": loc,
                          "own_server": bool(getattr(w, "cloud_slot", "")),
                          "idle_min": float(s.value("cloud/idle_min", 30))}}
@@ -339,9 +344,9 @@ class AiLink(QObject):
         st = cloud[1].state() if cloud else {}
         out["cloud"]["server"] = {"name": st.get("name"), "running": True} if st else None
         if action == "offers":
-            if not providers.configured(s.value):
+            if not providers.configured(get):
                 raise RuntimeError("no cloud provider is set up: the user enters it in Tools > Options > Cloud")
-            client, _, _ = providers.from_settings(s.value)
+            client, _, _ = providers.from_settings(get)
             types = client.server_types(loc)
             currency = "USD" if prov in ("aws", "azure", "gcp") else "EUR"
             out["offers"] = [{"name": t["name"], "cores": t.get("cores"), "memory_gb": t.get("memory"),

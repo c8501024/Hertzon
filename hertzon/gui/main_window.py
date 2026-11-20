@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -75,6 +76,11 @@ class MainWindow(QMainWindow):
     def __init__(self, project: Project | None = None):
         super().__init__()
         self.settings = QSettings("Hertzon", "Hertzon")
+        from ..remote import keystore
+        try:        # secrets of older versions: from the settings (registry) into the key store of the OS
+            self._moved_secrets = keystore.migrate(self.settings)
+        except Exception:  # noqa: BLE001
+            self._moved_secrets = []
         from .dialogs import apply_kicad_dirs
         apply_kicad_dirs(self.settings)
         self.doc = Document(project)
@@ -158,6 +164,9 @@ class MainWindow(QMainWindow):
         self._update_title()
         self.doc.rebuild()
         self.msgs.add("info", f"Hertzon {__version__} - Electromagnetic Design Suite")
+        if self._moved_secrets:
+            self.msgs.add("info", f"{len(self._moved_secrets)} secret(s) of Tools > Options (API tokens, keys) moved "
+                                  f"from the settings into {keystore.where()}")
         self._first_start_note()
         self._start_update_check()
         from .ai_link import AiLink
@@ -185,6 +194,13 @@ class MainWindow(QMainWindow):
         self.solve_on.activated.connect(self._solve_on_chosen)
         sb.addPermanentWidget(QLabel("Solve on:"))
         sb.addPermanentWidget(self.solve_on)
+        self.cloud_cost = QLabel()             # the cloud server: price per hour and costs so far
+        self.cloud_cost.setVisible(False)
+        sb.addPermanentWidget(self.cloud_cost)
+        self._cloud_timer = QTimer(self)
+        self._cloud_timer.setInterval(60_000)
+        self._cloud_timer.timeout.connect(self._cloud_tick)
+        self._cloud_timer.start()
         self.coord_mode = QComboBox()
         self.coord_mode.addItems(["Absolute", "Relative"])
         self.coord_sys = QComboBox()
@@ -1162,6 +1178,7 @@ class MainWindow(QMainWindow):
         self.solver.passUpdate.connect(self._pass_finished)
         self.solver.passData.connect(self._pass_data)
         self.solver.started.connect(lambda k: self.project_tree.rebuild())
+        self.solver.queueChanged.connect(self._cloud_tick)
         self.progress.abortRequested.connect(self.solver.abort)
         self.progress.set_manager(self.solver)
         from ..solver import farfield_post
@@ -1710,10 +1727,12 @@ class MainWindow(QMainWindow):
         box.addItem("This computer", "local")
         if addr:
             box.addItem(addr, "remote")
+        from ..remote import keystore
         from ..remote.cloud import providers
-        if providers.configured(s.value):
-            prov = providers.current(s.value)
-            stype = getattr(self, "cloud_type", "") or providers.placement(s.value, prov)[0]
+        get = keystore.getter(s)
+        if providers.configured(get):
+            prov = providers.current(get)
+            stype = getattr(self, "cloud_type", "") or providers.placement(get, prov)[0]
             box.addItem(f"{providers.SHORT[prov]} ({stype}{', own server' if getattr(self, 'cloud_slot', '') else ''})",
                         "cloud")
         box.addItem("Remote computer ..." if not addr else "Other remote computer ...", "setup-remote")
@@ -1891,15 +1910,22 @@ class MainWindow(QMainWindow):
             local.write_hpc(self.solver.cores, self.solver.sweep_workers)
         except Exception:  # noqa: BLE001
             pass
+        was_cloud = self._cloud_in_use()
         self.solver.remote = None
         s = self.settings
         addr = self._remote_label()
+        from ..remote import keystore
         from ..remote.cloud import providers
+        get = keystore.getter(s)
+        configured = providers.configured(get)
+        self.solver.requeue_lost = s.value("cloud/requeue_lost", False, type=bool)
+        self.solver.cloud_off_hint = ("A cloud server is set up but switched off: choose it in the status bar "
+                                      "(Solve on) to solve there." if configured else "")
         # where this window solves: its own choice (set by an AI assistant, see ai_link "cloud"), else the setting
         target = getattr(self, "solve_target", None) or (
             "cloud" if s.value("cloud/enabled", False, type=bool) else
             "remote" if s.value("remote/enabled", False, type=bool) else "local")
-        if target == "cloud" and providers.configured(s.value):
+        if target == "cloud" and configured:
             from ..remote.cloud import CloudHost
             self.solver.remote = CloudHost(self.cloud_session())
         elif target == "remote" and addr:
@@ -1911,19 +1937,25 @@ class MainWindow(QMainWindow):
                 except RemoteError as ex:           # an invalid user@host
                     self.msgs.add("error", str(ex))
             else:
-                self.solver.remote = RemoteHost(addr, str(s.value("remote/token", "") or ""))
+                self.solver.remote = RemoteHost(addr, keystore.get(s, "remote/token"))
         self._fill_solve_on()
+        if was_cloud and not self._cloud_in_use():
+            self.msgs.add("warning", "Cloud solving is off: analyses run " + (
+                f"on {self.solver.remote.address}" if self.solver.remote is not None else "on this computer"))
+        self._cloud_tick()
 
     def cloud_session(self):
         """The cloud session of the settings in Tools > Options > Cloud (kept while they do not change, so
         its server and SSH tunnel are reused)."""
+        from ..remote import keystore
         from ..remote.cloud import CloudSession, providers
         s = self.settings
-        prov = providers.current(s.value)
-        stype, loc = providers.placement(s.value, prov)
+        get = keystore.getter(s)
+        prov = providers.current(get)
+        stype, loc = providers.placement(get, prov)
         stype = getattr(self, "cloud_type", "") or stype          # this window's own server type (ai_link "cloud")
         slot = getattr(self, "cloud_slot", "")                    # its own server (ai_link "cloud"), "" shared
-        key = (prov, providers.credentials(s.value, prov), stype, loc,
+        key = (prov, providers.credentials(get, prov), stype, loc,
                float(s.value("cloud/idle_min", 30)), float(s.value("cloud/contact_h", 48)),
                float(s.value("cloud/quiet_h", 2)), slot)
         old = getattr(self, "_cloud", None)
@@ -1931,6 +1963,7 @@ class MainWindow(QMainWindow):
             return old[1]
         if old is not None:
             old[1].tunnel.close()
+            old[1].leases.drop(self._cloud_owner())
         session = CloudSession(providers.make(prov, key[1], key[3]), key[2], key[3], idle_min=key[4],
                                contact_h=key[5], quiet_h=key[6], slot=slot)
         self._cloud = (key, session)
@@ -2387,10 +2420,15 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, ev) -> None:
         if self.maybe_save():
+            cloud = self._cloud_close_decision()
+            if cloud is None:
+                ev.ignore()
+                return
             self._save_window_settings()
+            self._cloud_timer.stop()
             if self.solver.busy:
                 self.solver.abort()
-            self._delete_cloud_server()
+            self._release_cloud(cloud)
             if getattr(self, "_ssh", None) is not None:
                 self._ssh[1].close()            # the SSH tunnel; the service there keeps running
             self._drop_autosave()
@@ -2399,17 +2437,137 @@ class MainWindow(QMainWindow):
         else:
             ev.ignore()
 
-    def _delete_cloud_server(self) -> None:
-        """Hertzon closes: delete the cloud server of this session (its watchdog would do it when idle)."""
+    # ---- the cloud server: lease of this window, costs, closing ---------------------------------------
+    def _cloud_owner(self) -> str:
+        return f"{os.getpid()}-{id(self):x}"
+
+    def _cloud_in_use(self) -> bool:
+        from ..remote.cloud import CloudHost
+        return isinstance(getattr(getattr(self, "solver", None), "remote", None), CloudHost)
+
+    def _cloud_jobs(self) -> int:
+        """Analyses of this window that run or wait for the cloud server."""
+        if not self._cloud_in_use():
+            return 0
+        from PySide6.QtCore import QProcess
+        sv = self.solver
+        running = 1 if (sv.proc is not None and not isinstance(sv.proc, QProcess)) or sv._downloading else 0
+        return running + len(sv.queue)
+
+    def _cloud_tick(self) -> None:
+        """Every minute and when analyses start or end: this window's lease on the cloud server (so another
+        window that closes does not delete it) and the costs in the status bar."""
         cloud = getattr(self, "_cloud", None)
-        if cloud is None or not cloud[1].state():
+        label = getattr(self, "cloud_cost", None)
+        if not self._cloud_in_use() or cloud is None:
+            if cloud is not None:
+                cloud[1].leases.drop(self._cloud_owner())
+            if label is not None:
+                label.setVisible(False)
+            return
+        session = cloud[1]
+        try:
+            session.leases.hold(self._cloud_owner(), self._cloud_jobs(), self.windowTitle()[:80])
+        except OSError:
+            pass
+        if label is None:
+            return
+        st = session.state()
+        if not st:
+            p = session._price if session._price and session._price.get("hourly") else None
+            label.setText("No cloud server running" + (f" ({p['hourly']:.3f} {p.get('currency', 'EUR')}/h when "
+                                                        "created)" if p else ""))
+            label.setToolTip("The first analysis creates the server")
+            label.setVisible(True)
+            if session._price is None:
+                import threading
+                threading.Thread(target=session.price, daemon=True).start()      # shown at the next tick
+            return
+        c = session.cost(st)
+        hours = c.get("hours", 0.0)
+        text = f"{st.get('name')} ({st.get('type')})"
+        if c.get("hourly"):
+            cur = c.get("currency", "EUR")
+            text += f": {c['hourly']:.3f} {cur}/h, so far {c['cost']:.2f} {cur}"
+        else:
+            text += f": running {hours:.1f} h (price: see the provider)"
+        label.setText(text)
+        label.setToolTip(f"Cloud server {st.get('name')}, {st.get('type')} in {st.get('location')}, running for "
+                         f"{hours:.1f} h. Prices from the provider's API at creation (incl. VAT at Hetzner);\n"
+                         "Hetzner bills every started hour, the others by the second or minute. The server is "
+                         "deleted when the last Hertzon window that uses it closes, or when it is idle.")
+        label.setVisible(True)
+
+    def _cloud_close_decision(self):
+        """Before this window closes: what happens to the cloud server. None: do not close; False: nothing to
+        do; "keep": leave it (other windows use it, or the user keeps it); "delete": delete it."""
+        cloud = getattr(self, "_cloud", None)
+        if cloud is None:
+            return False
+        session = cloud[1]
+        st = session.state()
+        if not st:
+            return False
+        try:
+            others = session.leases.others(self._cloud_owner())
+        except OSError:
+            others = []
+        if others:
+            return "keep"                       # another window (also of another Hertzon process) uses it
+        mine = self._cloud_jobs()
+        theirs = 0
+        if session.tunnel.alive():
+            try:
+                from ..remote.client import RemoteHost
+                info = RemoteHost(f"127.0.0.1:{session.tunnel.port}", st["token"], timeout=5).info()
+                theirs = max(0, (1 if info.get("busy") else 0) + int(info.get("queued", 0) or 0) - mine)
+            except Exception:  # noqa: BLE001
+                theirs = 0
+        if not mine and not theirs:
+            return "delete"
+        idle = float(self.settings.value("cloud/idle_min", 30))
+        parts = []
+        if mine:
+            parts.append(f"{mine} analysis(es) of this window (closing the window aborts them)")
+        if theirs:
+            parts.append(f"{theirs} other analysis(es)")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Cloud Server")
+        box.setText(f"The cloud server {st.get('name')} still has " + " and ".join(parts) + ".")
+        box.setInformativeText("Delete the server now (analyses running there are lost), or keep it: it then "
+                               f"deletes itself after {idle:.0f} minutes without work, and costs until then.")
+        delete = box.addButton("Delete Server", QMessageBox.DestructiveRole)
+        keep = box.addButton("Keep Server", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(keep)
+        box.exec()
+        if box.clickedButton() is delete:
+            return "delete"
+        if box.clickedButton() is keep:
+            return "keep"
+        return None
+
+    def _release_cloud(self, decision) -> None:
+        """The window closes: give up its lease; delete the server when DECISION says so (the last user)."""
+        cloud = getattr(self, "_cloud", None)
+        if cloud is None:
+            return
+        session = cloud[1]
+        session.leases.drop(self._cloud_owner())
+        if decision != "delete":
+            if decision == "keep" and session.state():
+                session.tunnel.close()
+                session.log.add("kept", id=session.state().get("id"), name=session.state().get("name"),
+                                reason="a Hertzon window closed; the server stays (used by another window, or "
+                                       "kept by the user)")
             return
         import threading
         done = threading.Event()
 
         def run():
             try:
-                cloud[1].delete()
+                session.delete(reason="the last Hertzon window that used it closed")
             except Exception:  # noqa: BLE001
                 pass                    # the server's watchdog deletes it when idle
             done.set()

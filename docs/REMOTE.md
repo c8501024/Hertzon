@@ -123,16 +123,42 @@ Services ([below](#amazon-web-services-aws)), Google Cloud ([below](#google-clou
    and the cloud at any time.
 
 The first analysis creates the server and waits for it (one to three minutes: the server starts and pulls
-the solver image); the progress window shows the steps. Further analyses use it at once. The server is
+the solver image); the progress window shows the steps. Further analyses use it at once. All Hertzon windows
+of this computer (also those of other Hertzon processes) share the server; each window that uses it holds a
+lease (a file in `cloud/leases-<provider>` of the work folder) with the number of its analyses there. The server is
 deleted
 
-- when Hertzon closes,
+- when the last Hertzon window that uses it closes; if analyses still run or wait there, Hertzon asks first
+  (*Delete Server*, *Keep Server*: it then deletes itself when idle, or *Cancel*). A window that closes while
+  other windows use the server leaves it running,
 - by itself, when no analysis ran for *idle* minutes (30), when the solver showed no progress for some hours
   (2: hung), or when no Hertzon was connected for some hours (48: a crashed or disconnected GUI),
 - with **Delete Cloud Servers** in the Cloud tab (every server Hertzon created in this project).
 
+A server is never replaced behind a running analysis. If it disappears while an analysis runs on it, the
+analysis ends as *aborted because the cloud server was lost* with the reason as far as Hertzon knows it:
+deleted by another Hertzon window or with Delete Cloud Servers, deleted by its watchdog (the watchdog tells
+the reason to the GUIs that follow an analysis and waits 90 s before it deletes a busy server), or deleted
+outside Hertzon. With *Queue an analysis again when its server is lost* (Cloud tab) such an analysis is queued
+once more and gets a new server. When a new analysis finds the server gone, the Message Manager says why
+before a new one is created. `cloud/events.log` in the work folder records every server: created (type,
+location, price), kept, deleted (by whom and why, with the running time and costs) and lost.
+
+The status bar shows the server next to **Solve on**: name, type, price per hour (from the provider's API
+when the server was created, Hetzner incl. VAT) and the costs so far (Hetzner bills every started hour up to
+the monthly price, the other providers by the second or minute). **Check Account** lists the running servers
+with their running time and approximate costs.
+
 For the self-deletion the server gets the API token; that is why a project only for Hertzon is recommended
-(the token can do nothing outside it). Hertzon keeps the token in its settings of this user.
+(the token can do nothing outside it). Hertzon keeps API tokens, secret keys and the token of a paired remote
+computer in the key store of the operating system (Windows Credential Manager, macOS Keychain, Secret Service
+on Linux), not in its settings; older versions kept them in the settings (on Windows the registry), and
+Hertzon moves them into the key store at its next start. Without a key store (a Linux without Secret
+Service) they stay in the settings, and the Cloud tab says so.
+
+When cloud solving is switched off while a cloud is set up, analyses on this computer say so in the Message
+Manager, and an analysis whose last run needed more memory than this computer has free gets a warning
+before it starts.
 
 The connection is an SSH tunnel: Hertzon creates an SSH key for this computer (in the work folder,
 `cloud/id_ed25519`) and a host key for every server, which the server receives at its creation, so the
