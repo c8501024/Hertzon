@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.30 (2026-11-20)
 
 ### Changed
 - **Near Field Line: the quantities have the names of the field plots.** `Mag_E` is |Re(E e^(jφ))|, the length of
