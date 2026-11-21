@@ -15,6 +15,10 @@ the GitHub release notes.
 - **The Properties panel shows only what is selected.** It is empty when nothing is selected, when several objects,
   faces or edges are selected, when a Project Manager item without properties (a group, a report, a field overlay) is
   selected, and when the object or item it showed was deleted or renamed. A click into empty space empties it.
+- **The material list shows the magnetic loss tangent.** "Select Definition" has a column *Magnetic Loss
+  Tangent*; before, a magnetic loss set in View/Edit Material (e.g. an absorber with complex μr) was used in the
+  solve but not shown in the list. For anisotropic materials the permeability and loss tangent columns show the
+  xx,yy,zz tensors, as the permittivity column already did.
 
 ## 0.3.32 (2026-11-20)
 
@@ -116,10 +120,6 @@ the GitHub release notes.
   points of the port face and matched to the modes of the previous pass by their field overlap (order and
   sign), and the sign of a mode is otherwise fixed on its strongest couplings, not on noise. A change of the
   mode order between passes is reported in the Message Manager.
-- **The material list shows the magnetic loss tangent.** "Select Definition" has a column *Magnetic Loss
-  Tangent*; before, a magnetic loss set in View/Edit Material (e.g. an absorber with complex μr) was used in the
-  solve but not shown in the list. For anisotropic materials the permeability and loss tangent columns show the
-  xx,yy,zz tensors, as the permittivity column already did.
 
 ## 0.3.30 (2026-11-20)
 
