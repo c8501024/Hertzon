@@ -54,6 +54,13 @@ broadly and in batches before settling on anything:
 - Compare whole concepts (topologies, not only dimensions) side by side in the first batches; tuning
   dimensions does not rescue a concept that cannot reach the goal.
 - A coarse setup (below) makes each variant of such a batch take minutes instead of tens of minutes.
+- Keep several concepts alive after the first batch, not only the best one. The best first result often
+  comes from a concept that is easy to tune, not from the one that can reach the goal; its later gains get
+  small while the shortfall stays. Split the next batches between the leading family and other families,
+  and drop a family only when a solve shows why it cannot meet the goal.
+- When the weakest band or figure stops improving over a few batches, the concept is probably at its limit
+  (for example one resonance moved to help one edge hurts the other). Name that trade-off and move effort
+  to another family or a different mechanism instead of tuning the same one further.
 - Hertzon keeps the fields of every solve, several GB per design. In a long search check the free disk
   space now and then: a full disk aborts solves.
 
