@@ -32,14 +32,18 @@ NAV = [
     ("Get started", [
         ("docs/TUTORIAL.md", "Tutorial"),
         ("docs/MCP.md", "AI co-design (MCP)"),
+        ("claude-plugin/README.md", "Claude plugin"),
     ]),
     ("User guide", [
         ("docs/CIRCUIT.md", "Circuit designs"),
+        ("docs/WIZARD.md", "Design Wizard"),
+        ("docs/CONNECTORS.md", "Edge-launch connectors"),
         ("docs/TUNING.md", "Derivative tuning"),
         ("docs/LUMPED_ELEMENTS.md", "Lumped elements"),
         ("docs/PCB_IMPORT.md", "PCB import"),
         ("docs/GERBER_EXPORT.md", "Gerber export"),
         ("docs/REMOTE.md", "Remote and cloud solving"),
+        ("docs/CLI.md", "Command line"),
         ("docs/RESULT_FILES.md", "Result files"),
         ("docs/MESHER.md", "Meshing"),
     ]),
@@ -108,7 +112,9 @@ class Page:
 
 
 def page_name(src: str) -> str:
-    return Path(src).stem.lower().replace("_", "-")
+    p = Path(src)
+    stem = p.parent.name if p.stem.upper() == "README" and p.parent.name else p.stem
+    return stem.lower().replace("_", "-")
 
 
 def collect_pages() -> list[Page]:

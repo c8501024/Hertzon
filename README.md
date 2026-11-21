@@ -33,6 +33,11 @@ and back.
 > through **MCP** ([what is MCP?](docs/MCP.md)). The AI picks and combines the methods; the engineer sets the
 > goal, sees every step in the open window and decides.
 
+> 🆕 **New in 0.4:** designing with an AI assistant. The MCP server lets an assistant such as Claude Code build,
+> mesh, solve and evaluate models, and the [Claude plugin](claude-plugin/README.md) that ships with Hertzon adds the
+> design workflow on top (four skills, `/hertzon:design`, `/hertzon:verify` and a pane with Hertzon's pictures).
+> See [AI assistants (MCP)](#ai-assistants-mcp) and the [changelog](CHANGELOG.md).
+
 Hertzon is by **Dominik Mair**. Its FEM solver core, EMerge, is by **Robert Fennis**.
 
 > 📘 **New to Hertzon? Start with the [step-by-step tutorial](docs/TUTORIAL.md):** a waveguide with wave
@@ -328,13 +333,22 @@ the `claude` command; *Remove* takes both away again). Without the `claude` comm
 
 Details: [claude-plugin/README.md](claude-plugin/README.md).
 
+> ⚠️ **Keep an eye on cloud servers.** With the MCP server and the plugin, an assistant can set up and run large
+> projects on its own and use the computing resources efficiently, for example several variants side by side. When
+> a cloud account (Hetzner or another provider) is set up in Hertzon, it can also start analyses on cloud servers.
+> The skills tell it to estimate the cost first and to start servers only when you agree, but it may start them
+> anyway, so always watch the servers, their cost and their running time (status bar, *Check Account*,
+> [docs/REMOTE.md](docs/REMOTE.md)).
+
 The server offers tools to create projects, set variables and design settings, draw and import
 geometry, list faces (index, centre, normal), assign boundaries, ports and mesh operations, define
 setups, sweeps and far-field spheres, validate, run, follow the adaptive passes, read S-parameters,
 gain or RCS, and render a picture of the model. It also reaches the newer features: the patch antenna and
 hairpin filter assistants, all three optimizers with *Apply to Design*, derivative tuning, circuit designs
 (schematic, analysis, 3D layout and back, 3D designs from other projects), exports (Touchstone, STEP, Gerber,
-EMerge script), PCB import and the stackup, and the examples. The full list is in the
+EMerge script), PCB import and the stackup, the board of a circuit (Auto Place, Connect, Match Phase), where
+analyses run (`cloud`), post-processing on the saved fields (`evaluate_fields`, `get_power_budget`, port modes),
+pictures drawn by Hertzon (`show_result`), issue reports for the developers (`report_issue`) and the examples. The full list is in the
 [tutorial](docs/TUTORIAL.md#53-what-the-assistant-can-do).
 
 ## Design principles

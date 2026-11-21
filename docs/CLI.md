@@ -49,7 +49,7 @@ Prints one JSON object on stdout:
 ```json
 {
  "cli_schema": 1,
- "hertzon": "0.3.17",
+ "hertzon": "0.4.0",
  "project": "/path/Microstrip.hzn",
  "file_format": {"format": "hertzon-project", "version": 2},
  "designs": [
@@ -119,7 +119,7 @@ Prints one JSON object on stdout:
 ### Summary (stdout, `--json`)
 
 ```json
-{"cli_schema": 1, "hertzon": "0.3.17", "project": "...", "design": "Microstrip50", "setup": "Setup1",
+{"cli_schema": 1, "hertzon": "0.4.0", "project": "...", "design": "Microstrip50", "setup": "Setup1",
  "solution": "Sweep", "variables": {"w": "2.9mm"}, "cached": false, "results": "...",
  "converged": true, "passes": 6, "tetrahedra": 21544,
  "ports": [{"row": 1, "number": 1, "name": "1", "kind": "Lumped Port", "mode": 1}, ...],

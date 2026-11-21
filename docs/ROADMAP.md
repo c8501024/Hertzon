@@ -2,8 +2,8 @@
 
 Hertzon today is a frequency-domain 3D FEM simulator (FEM solver core: [EMerge](https://github.com/FennisRobert/EMerge)),
 with adaptive meshing (EMerge's AURA by default, Hertzon's local Delaunay mesher hzmesh, re-mesh),
-curved elements, fast and interpolating sweeps, far field and RCS, optimization, parametric sweeps and an
-MCP server. This roadmap describes how it
+curved elements, fast and interpolating sweeps, far field and RCS, optimization, parametric sweeps, circuits and an
+MCP server with a Claude plugin for designing with an AI assistant. This roadmap describes how it
 grows into an open simulation suite: time domain, low frequency, circuits and photonics, built from open
 solvers under one user interface.
 

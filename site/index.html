@@ -37,7 +37,7 @@
   "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}
 }
 </script>
-<style>.hero p strong{color:#fff}</style>
+<style>.hero p strong{color:#fff}.hero .news{margin-top:14px;font-size:.95rem}</style>
 </head>
 <body class="home">
 <!--HEADER-->
@@ -53,6 +53,7 @@ and <strong>adaptive meshing</strong> for high accuracy. Hertzon offers its meth
 <a class="btn ghost tour-open" href="#tour">&#9654; Watch the 90-second tour</a>
 </div>
 <small>Free under the GPL · by Dominik Mair · FEM solver core: EMerge by Robert Fennis</small>
+<p class="news"><strong>New in 0.4:</strong> designing with an AI assistant: the MCP server plus a <a href="docs/claude-plugin.html">Claude plugin</a> with the design workflow. <a href="docs/changelog.html">What changed</a></p>
 </div>
 <a class="tour-thumb tour-open" href="#tour" aria-label="Play the 90-second tour of Hertzon">
 <img src="tour/poster.jpg" alt="Hertzon tour: fields, patterns and S-parameters" width="1280" height="720" loading="lazy">
@@ -88,12 +89,12 @@ and <strong>adaptive meshing</strong> for high accuracy. Hertzon offers its meth
 <div class="g"><h3>3D modelling</h3><p>Draw with variables, booleans and sweeps; import and export STEP, IGES and BREP.</p></div>
 <div class="g"><h3>Full-wave FEM</h3><p>Adaptive meshing, curved elements, fast and interpolating frequency sweeps, eigenmodes.</p></div>
 <div class="g"><h3>Antennas and RCS</h3><p>Gain, efficiency, 3D radiation patterns, plane-wave RCS, symmetry planes.</p></div>
-<div class="g"><h3>Filters, waveguides, lines</h3><p>Wave and lumped ports, multi-mode ports, S-parameters, Smith charts, field plots.</p></div>
+<div class="g"><h3>Filters, waveguides, lines</h3><p>Wave and lumped ports, multi-mode ports with named modes, edge-launch connectors, S-parameters, Smith charts, field and near-field plots.</p></div>
 <div class="g"><h3>Circuits</h3><p>Schematics with lines, lumped parts and Touchstone blocks, turned into a 3D layout and back.</p></div>
 <div class="g"><h3>PCBs</h3><p>Gerber and Excellon import with the stackup, Gerber export of the simulated layout.</p></div>
 <div class="g"><h3>Optimization</h3><p>Three optimizers, parametric sweeps and derivative tuning with mesh morphing.</p></div>
 <div class="g"><h3>Solve anywhere</h3><p>On this computer, another one in the network, or a cloud server.</p></div>
-<div class="g"><h3>AI co-design</h3><p>An MCP server for Claude Code, Codex and VS Code: the AI builds, solves and tunes with you.</p></div>
+<div class="g"><h3>AI co-design</h3><p>An MCP server for Claude Code, Codex and VS Code, and a Claude plugin with the design workflow: the AI builds, solves and tunes with you.</p></div>
 <div class="g"><h3>Results and export</h3><p>Touchstone, field and far-field plots, reports, images and animations exactly as shown.</p></div>
 </div>
 <p class="glance-not"><strong>Not yet:</strong> time-domain solving, low-frequency and electrostatics, photonics. They are on the
@@ -107,7 +108,8 @@ and <strong>adaptive meshing</strong> for high accuracy. Hertzon offers its meth
 <ul>
 <li><strong>Antennas:</strong> patch and dipole antennas with far field, gain, directivity, beamwidth and 3D radiation patterns</li>
 <li><strong>Microwave circuits:</strong> microstrip lines and filters with S-parameters, Smith charts and frequency sweeps</li>
-<li><strong>Waveguides and coaxial lines:</strong> wave ports, modes and field plots</li>
+<li><strong>Waveguides and coaxial lines:</strong> wave ports with several named modes, field plots and near-field lines</li>
+<li><strong>Connectors:</strong> 131 SMA, 2.92 mm and 2.4 mm edge-launch connectors at the board edge, ideal, as a transition or in full 3D</li>
 <li><strong>Radar cross section</strong> with incident plane waves</li>
 <li><strong>Circuits:</strong> schematics of lines, lumped parts and solved 3D designs, turned into a 3D layout</li>
 <li><strong>PCB designs:</strong> import from Gerber files and Gerber export of the simulated layout</li>
@@ -130,6 +132,18 @@ and Ctrl+Z undoes anything the AI did. What it builds is an ordinary Hertzon pro
 <div class="card"><h3>Next: topology optimization</h3><p>From the author's research on pixelated antennas
 (<a href="https://doi.org/10.1038/s41598-024-77695-x">Sci. Rep. 2024</a>): the shape of the metal itself is optimized,
 so the AI can explore designs that no parametric model contains.</p></div>
+</div>
+<h3 class="outlook-h">New in 0.4: the Claude plugin</h3>
+<p class="sub">The MCP server gives the assistant the tools; the plugin that ships with Hertzon tells it how to use them.
+<strong>Register</strong> next to Claude Code in <em>Tools &gt; AI Assistants (MCP)</em> installs both, and the plugin is updated with Hertzon.</p>
+<div class="outlook">
+<div class="card"><h3>Four skills</h3><p><code>hf-design-loop</code> (from the specification to a verified design and a report),
+<code>circuit-first</code> (circuit first, then full wave), <code>antenna-design</code> and <code>results-check</code>.</p></div>
+<div class="card"><h3>Two commands and a pane</h3><p><code>/hertzon:design</code> runs the workflow, <code>/hertzon:verify</code> checks the open design.
+A pane beside the chat shows every picture Hertzon draws for the assistant, as in Hertzon.</p></div>
+<div class="card"><h3>Large projects, watched</h3><p>The assistant can run several variants or the parts of a system side by side, also on cloud servers
+(Hetzner or other providers) when such an account is set up. It is told to ask first, but may not: <strong>always keep an eye on the servers and their cost.</strong>
+<a href="docs/mcp.html#large-projects-and-computing-resources-keep-an-eye-on-them">More</a></p></div>
 </div>
 <h3 class="outlook-h">One sentence to the AI, and Hertzon builds the model</h3>
 <p class="sub">Hertzon's MCP server lets an AI assistant draw the geometry, assign ports and boundaries, start the solver,
@@ -189,6 +203,8 @@ The <a href="docs/circuit.html">user guide</a> and the <a href="docs/feature-mat
 <a href="docs/tutorial-10.html"><img src="docs/tutorial/tuning_panel.png" alt="" loading="lazy"><div><b>Tune a patch antenna</b><span>Sliders with live S11 and gain</span></div></a>
 <a href="docs/tutorial-11.html"><img src="docs/tutorial/circuit_schematic.png" alt="" loading="lazy"><div><b>Stub filter as a circuit</b><span>Schematic, 3D layout, tuned and copied back</span></div></a>
 <a href="docs/tutorial-12.html"><img src="docs/tutorial/pcb_import.png" alt="" loading="lazy"><div><b>Board from Gerber files</b><span>Copper layers, drills and the stackup</span></div></a>
+<a href="docs/tutorial-13.html"><img src="docs/tutorial/lna_board.png" alt="" loading="lazy"><div><b>A 2.4 GHz LNA</b><span>Schematic, bias, stability, footprints, board</span></div></a>
+<a href="docs/tutorial-15.html"><img src="docs/tutorial/vna_board.png" alt="" loading="lazy"><div><b>Subdesigns on one board</b><span>Connect, Match Phase, the whole system</span></div></a>
 </div>
 </div></section>
 <!--FOOTER-->

@@ -573,14 +573,14 @@ The assistant works step by step with the same building blocks you used above, a
 | Geometry | `add_object`, `import_geometry`, `modify_object`, `add_operation` (subtract, unite, ...), `delete`, `get_geometry` (faces with index, centre, normal; edges and vertices for Fillet/Chamfer), `set_coordinate_system` |
 | Boundaries and ports | `assign`, `modify_assignment` (boundaries, wave/lumped ports, plane waves, mesh operations) |
 | Analysis | `set_setup`, `set_sweep`, `set_far_field_sphere`, `validate`, `run_simulation`, `get_status`, `abort_simulation` |
-| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence), `show_result` (a report, a field plot, the 3D view or the convergence table as a picture drawn by Hertzon, as shown in the window), `render_image` (a picture of the model), `set_report` (`open=true` shows it in the window), `set_field_plot`, `set_equation` (Fields Calculator) |
+| Results | `get_results` (S-parameters, impedances, gain, RCS, convergence, the modes of every wave port with label, beta and Zo), `evaluate_fields` (Fields Calculator values on the saved fields: Poynting flux through a sheet, face, cut plane or closed surface, integrals, maxima, point values), `get_power_budget` (per port accepted, reflected, transmitted, radiated and lost power, and the losses per object and material), `show_result` (a report, a field plot, the 3D view or the convergence table as a picture drawn by Hertzon, as shown in the window), `render_image` (a picture of the model), `set_report` (`open=true` shows it in the window), `set_field_plot`, `set_equation` (Fields Calculator) |
 | Parametric and optimization | `set_parametric`, `set_optimization` (Conjugate Gradient, Latin Hypercube + Nelder-Mead, Derivative Trust Region or Space Mapping), run and read with `run_simulation`, `get_status`, `get_results`; `apply_optimization` takes the best result over into the design |
 | Derivative tuning | `compute_tuning` (tuning model of up to 6 variables on the solved mesh), `get_tuning` (S-parameters at other variable values without solving) |
 | Design assistants | `list_structures` and `create_structure` (Tools > Design Wizard), `create_patch_antenna`, `create_hairpin_filter`, `create_hairpin_diplexer` (the designers of the rectangular patch, hairpin filter and hairpin diplexer in the Design Wizard): complete designs with setup, sweep and optimization |
 | Circuits | `create_circuit`, `get_circuit`, `edit_circuit` (parts, wires, 3D design and Touchstone blocks), `run_simulation` / `get_results` / `render_image` on the schematic, `circuit_layout` (3D layout, update, back to the schematic), `import_3d_designs`, `board` (placement, Connect, Match Phase) |
 | Connectors | `list_edge_connectors` (SMA, 2.92 mm, 2.4 mm library), `attach_edge_connector` (a connector with its launch footprint at a lumped port at the board edge), `set_connector_mode` (Ideal, Transition, 3D; flatten, remove, optimize_launch, apply_footprint), `get_connectors` |
 | Files and boards | `export` (Touchstone, STEP, Gerber, EMerge script), `import_pcb` (Gerber, Excellon, job files), `set_stackup`, `manage_design` (copy, delete), `list_examples`, `open_example` |
-| Where analyses run | `cloud` (this computer, the remote computer or a cloud server per window; server types with price per hour) |
+| Where analyses run | `cloud` (this computer, the remote computer or a cloud server per window, also a server of its own per window so that several parts solve in parallel; server types with price per hour) |
 | Scripting | `run_python` for anything else, with the Hertzon model API |
 | Feedback | `report_issue` (the text of an issue for the Hertzon developers and a link to the prefilled "New issue" page; nothing is sent until the user posts it) |
 
@@ -614,6 +614,11 @@ command for that; otherwise it shows the line to type in Claude Code:
 ```
 
 (On Claude Code older than 2.1.275: `/plugin marketplace add c8501024/hertzon`, then `/plugin install hertzon@hertzon`.)
+
+**Keep an eye on cloud servers.** When a cloud account is set up in Hertzon, the assistant can start analyses
+on cloud servers (`cloud`). The skills tell it to estimate the cost first and to start servers only when you agree,
+but it may start them anyway. Watch the servers, their cost and running time in the status bar and with *Check
+Account* ([REMOTE.md](REMOTE.md)). Without a cloud account everything runs on your computer.
 
 Simulation results can be wrong, whether you or an assistant set the model up. Check them as described in
 the README's *No warranty* section.
