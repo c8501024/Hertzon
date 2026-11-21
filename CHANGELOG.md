@@ -3,6 +3,16 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.34 (2026-11-21)
+
+### Changed
+- **Claude plugin: design skills keep several concepts alive.** *hf-design-loop* follows each concept family after
+  the first batch and switches family when one stagnates, instead of refining only the best first candidate.
+- **Claude plugin: extend a design that already meets one band.** *antenna-design* has a new section "One band good,
+  the other not": keep the good band, name the resonance missing in the weak band and add it with a change that
+  leaves the good band alone (e.g. an extra arm or a parasitic element), borrowing the mechanism of other concepts
+  that do well in the weak band.
+
 ## 0.3.33 (2026-11-21)
 
 ### Fixed
