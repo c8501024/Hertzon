@@ -3,6 +3,19 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Objects with Model off no longer change the solve.** The solver built them along with the model: their extent
+  entered the global maximum element size of the initial mesh, and their faces took part in the mesh morphing
+  of Derivative Tuning, which could then fail ("Factor is exactly singular", or a tuning range of 0) although
+  the tuned variable did not touch them. The solver now builds only the model objects.
+- **The port dialog opens on the Modes tab again** after an Integration Line was drawn with New Line.
+- **Shift + left drag pans while an object or sheet is drawn**, as Alt + left drag rotates and the wheel zooms.
+- **The Properties panel shows only what is selected.** It is empty when nothing is selected, when several objects,
+  faces or edges are selected, when a Project Manager item without properties (a group, a report, a field overlay) is
+  selected, and when the object or item it showed was deleted or renamed. A click into empty space empties it.
+
 ## 0.3.32 (2026-11-20)
 
 ### Changed

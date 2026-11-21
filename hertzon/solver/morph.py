@@ -142,7 +142,7 @@ def _plane_of(tag: int, loops: list[np.ndarray]) -> tuple[bool, np.ndarray, np.n
 
 
 def build_faces(design, ev, plans: dict | None = None) -> tuple[dict, dict]:
-    """Faces of every live object, built in a scratch gmsh model (the current model is restored).
+    """Faces of every model object, built in a scratch gmsh model (the current model is restored).
     Returns ({(obj, index): (loops, vertices, planar, origin, normal, bbox)}, plans)."""
     import gmsh
     from ..kernel import occ as K
@@ -151,7 +151,9 @@ def build_faces(design, ev, plans: dict | None = None) -> tuple[dict, dict]:
     cur = gmsh.model.getCurrent()
     gmsh.model.add("hertzon_morph")
     try:
-        ctx = K.build_design(design, ev)
+        # the model objects only: the faces of an object with Model off are not in the mesh and must not
+        # constrain or carry its nodes
+        ctx = K.build_design(design, ev, names=K.model_names(design))
         if ctx.errors:
             n, e = next(iter(ctx.errors.items()))
             raise MorphError(f"object '{n}' cannot be built: {e}")

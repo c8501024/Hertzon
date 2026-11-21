@@ -1031,10 +1031,14 @@ class ModelerView(QWidget):
         if self.draw is None:
             self._navigating.discard("left")
         if self.draw is not None:
-            # Alt + left drag rotates while drawing; a plain click enters a point
+            # Alt + left drag rotates and Shift + left drag pans while drawing (#14); a plain click enters a point
             if _alt_key():
                 self._navigating.add("left")
                 self._rot_last = self._press_pos
+            elif self.plotter.iren.interactor.GetShiftKey():
+                self._navigating.add("left")
+                self._panning = True
+                self.style.OnMiddleButtonDown()
             return
         iren = self.plotter.iren.interactor
         self._rot_last = None
@@ -1075,6 +1079,13 @@ class ModelerView(QWidget):
             if "left" in self._navigating:
                 self._navigating.discard("left")
                 self._rot_last = None
+                if getattr(self, "_panning", False):
+                    self._panning = False
+                    self.style.OnMiddleButtonUp()
+                    p = self._draw_point(pos)
+                    self.draw.current = p
+                    self._show_snap_marker(p, self.snap_kind)
+                    self._update_preview()
                 if moved:
                     return
             if not moved:

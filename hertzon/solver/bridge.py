@@ -510,7 +510,9 @@ class Bridge:
         emit("progress", value=3, text="Building geometry")
         sim_model = gmsh.model.getCurrent()
         gmsh.model.add("hertzon_probe")
-        ctx = K.build_design(self.design, self.ev)
+        # only the model objects: an object with Model off must not change the mesh (its size entered the
+        # global maximum element size) or the face matching
+        ctx = K.build_design(self.design, self.ev, names=K.model_names(self.design))
         if ctx.errors:
             for n, e in ctx.errors.items():
                 warn(f"Object '{n}': {e}")
@@ -588,7 +590,7 @@ class Bridge:
     def build_model(self) -> None:
         from emerge._emerge.geometry import GeoVolume, GeoSurface
         em = self.em
-        ctx = K.build_design(self.design, self.ev)
+        ctx = K.build_design(self.design, self.ev, names=K.model_names(self.design))
         for n, e in ctx.errors.items():
             raise RuntimeError(f"Geometry error in '{n}': {e}")
         vols = []

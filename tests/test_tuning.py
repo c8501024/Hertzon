@@ -410,3 +410,36 @@ def test_a_wider_substrate_leaves_the_patch_and_the_port_in_place(tmp_path):
         far = patch & (np.abs(X[1] - 28.5 / 2) < 1e-6)                # the far edge of the patch
         assert far.sum() > 2 and np.abs(Ls[1, far]).max() < 1e-6
         assert np.allclose(Ls[1, port], -0.5) and np.abs(Ls[[0, 2]][:, port]).max() < 1e-6
+
+
+def test_an_object_with_model_off_changes_neither_the_mesh_nor_the_morphing(tmp_path):
+    """Kwang #12: an object with Model off (a box under the board, sized by variables) entered the geometry
+    the solver built. Its extent raised the global maximum element size of the initial mesh, and its faces
+    took part in the mesh morphing of the tuning, which then failed ("Factor is exactly singular") although
+    the tuned variable did not touch it. The solver builds the model objects only."""
+    em = pytest.importorskip("emerge")
+    from hertzon.model.design import Project
+    from hertzon.solver import bridge as B
+
+    def mesh_and_faces(extra: bool, sub: str):
+        p = Project.load(Path(__file__).resolve().parents[1] / "examples" / "PatchAntenna.hzn")
+        d = p.designs[0]
+        st = d.setups[0]
+        st.props.update(LambdaRefinement="False", CurvedElements="False")
+        if extra:
+            d.variables.update(lb="20mm", wb="10mm")
+            d.add_object("CreateBox", "Housing", Position="-Ws,-Ls,-30mm", XSize="2*Ws", YSize="2*Ls",
+                         ZSize="wb").model = False
+        b = B.Bridge(p, d, st, tmp_path / sub)
+        with em.Simulation(f"model_off_{sub}", save_file=False) as m:
+            b.prepare(m)
+            faces = MO.face_velocities(p, d, "Wp", TU.variable_step(d.variables["Wp"]))
+            fixed, slide = TU.morph_constraints(m)
+            diag = float(np.linalg.norm(np.ptp(m.mesh.nodes, axis=1)))
+            V = MO.velocity_fields(m.mesh, {"Wp": faces}, fixed, 1e-6 * diag, slide_ftags=slide)["Wp"]
+            return m.mesh.n_tets, {f.obj for f in faces}, V
+
+    n0, objs0, V0 = mesh_and_faces(False, "without")
+    n1, objs1, V1 = mesh_and_faces(True, "with")
+    assert "Housing" not in objs1 and objs1 == objs0
+    assert n1 == n0 and np.allclose(V1, V0)
