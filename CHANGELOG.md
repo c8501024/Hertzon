@@ -3,7 +3,20 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## 0.3.34 (2026-11-21)
+## 0.4.0 (2026-11-21)
+
+Hertzon 0.4 marks the step to designing with an AI assistant. Its MCP server lets an assistant such as Claude Code
+build, mesh, solve and evaluate models in Hertzon, and the Claude plugin that ships with Hertzon adds the know-how on
+top: the skills `hf-design-loop`, `circuit-first`, `antenna-design` and `results-check`, the commands
+`/hertzon:design` and `/hertzon:verify`, a pane with every picture Hertzon draws for the assistant and the state of a
+running analysis above the prompt. **Tools > AI Assistants (MCP)... > Register** next to Claude Code installs both; the
+plugin loads from the Hertzon folder and is updated with Hertzon. See the plugin's README and [What is MCP?](docs/MCP.md).
+
+In principle this lets the assistant set up and run large projects on its own and use the computing resources
+efficiently, for example by running several variants side by side. **Keep an eye on it:** the MCP server can also
+start analyses on cloud servers (Hetzner or other providers) when such an account is set up in Hertzon. The skills
+tell the assistant to estimate the cost first and to start servers only when you agree, but it is possible that it
+starts them anyway, so the servers, their cost and their running time should always be watched.
 
 ### Changed
 - **Plugin skills: keep several concepts alive, and extend a design that meets one band.** `hf-design-loop`
