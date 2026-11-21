@@ -684,9 +684,10 @@ class MaterialsDialog(QDialog):
         self.libs.currentTextChanged.connect(self._fill)
         top.addWidget(self.libs)
         lay.addLayout(top)
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["Name", "Location", "Rel. Permittivity", "Rel. Permeability",
-                                              "Bulk Conductivity", "Dielectric Loss Tangent"])
+                                              "Bulk Conductivity", "Dielectric Loss Tangent",
+                                              "Magnetic Loss Tangent"])
         # widths are fitted once per fill: ResizeToContents measured all rows again after every cell set
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -722,9 +723,11 @@ class MaterialsDialog(QDialog):
             er = m.permittivity_tensor if m.anisotropic and m.permittivity_tensor else m.permittivity
             if m.dispersion and m.dispersion != "None":
                 er = f"{er} ({m.dispersion})"
+            ur = m.permeability_tensor if m.anisotropic and m.permeability_tensor else m.permeability
+            tand = m.loss_tangent_tensor if m.anisotropic and m.loss_tangent_tensor else m.loss_tangent
             loc = {"Project": "Project", EMERGE_LIBRARY: "EMerge Library"}.get(m.library, "SysLibrary")
-            for c, v in enumerate([m.name, loc, er,
-                                   m.permeability, "PEC" if m.pec else m.conductivity, m.loss_tangent]):
+            for c, v in enumerate([m.name, loc, er, ur, "PEC" if m.pec else m.conductivity, tand,
+                                   m.magnetic_loss_tangent or "0"]):
                 self.table.setItem(r, c, QTableWidgetItem(str(v)))
             if m.name == self.current:
                 self.table.selectRow(r)

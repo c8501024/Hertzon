@@ -97,3 +97,28 @@ def test_refilling_the_material_list_is_fast():
         assert dlg.doc.project.material("Material1").permittivity == "4.4"
     finally:
         dlg.close()
+
+
+def test_material_list_shows_magnetic_loss_tangent():
+    """Every loss the editor accepts is shown in the list, including the magnetic loss tangent."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from hertzon.gui.dialogs import MaterialsDialog
+    from hertzon.model.design import Project
+    from hertzon.model.materials import Material
+
+    class Doc:
+        project = Project()
+        dirty = False
+
+    dlg = MaterialsDialog(Doc())
+    dlg._store(Material(name="MagAbs", permittivity="10", permeability="5", loss_tangent="0.01",
+                        magnetic_loss_tangent="0.4"))
+    t = dlg.table
+    head = [t.horizontalHeaderItem(c).text() for c in range(t.columnCount())]
+    row = next(r for r in range(t.rowCount()) if t.item(r, 0).text() == "MagAbs")
+    vals = dict(zip(head, (t.item(row, c).text() for c in range(t.columnCount()))))
+    assert vals["Magnetic Loss Tangent"] == "0.4"
+    assert vals["Dielectric Loss Tangent"] == "0.01"
+    assert vals["Rel. Permeability"] == "5"
