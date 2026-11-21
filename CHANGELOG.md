@@ -12,6 +12,9 @@ the GitHub release notes.
   the tuned variable did not touch them. The solver now builds only the model objects.
 - **The port dialog opens on the Modes tab again** after an Integration Line was drawn with New Line.
 - **Shift + left drag pans while an object or sheet is drawn**, as Alt + left drag rotates and the wheel zooms.
+- **The Properties panel shows only what is selected.** It is empty when nothing is selected, when several objects,
+  faces or edges are selected, when a Project Manager item without properties (a group, a report, a field overlay) is
+  selected, and when the object or item it showed was deleted or renamed. A click into empty space empties it.
 
 ## 0.3.32 (2026-11-20)
 

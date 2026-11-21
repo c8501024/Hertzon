@@ -1251,6 +1251,7 @@ class MainWindow(QMainWindow):
 
     def _on_doc_changed(self, what: str) -> None:
         self._sync_design_page()
+        self._props_follow_doc()
         self._update_title()
         self._update_sel_buttons()                 # a sheet may have become a solid (Thicken, Sweep)
         self._sync_overlays()
@@ -1633,11 +1634,15 @@ class MainWindow(QMainWindow):
         sel = self.doc.selection
         mode = self.doc.selection_mode
         self.mode_label.setText(f"  {mode.capitalize()} mode  ")
+        if mode == "object" and len(sel) == 1:
+            self.props.show_object(sel[0].obj)
+        elif sel or self._props_shows_model():
+            # Properties shows only what is selected: several objects, faces or edges have no properties
+            # there, and a deselected object goes out of the panel
+            self.props.clear()
         if not sel:
             self.hint.setText("Ready")
             return
-        if mode == "object" and len(sel) == 1:
-            self.props.show_object(sel[0].obj)
         txt = ", ".join(f"{s.obj}" + ("" if s.index < 0 else f" {mode} {s.index}") for s in sel[:6])
         if len(sel) > 6:
             txt += f" ... ({len(sel)} items)"
@@ -1649,6 +1654,37 @@ class MainWindow(QMainWindow):
                 txt += (f"   area {t.face_area[sel[0].index] / s ** 2:.6g} {self.des.units}²,"
                         f" center ({c[0] / s:.4g}, {c[1] / s:.4g}, {c[2] / s:.4g})")
         self.hint.setText("Selected: " + txt)
+
+    def _props_shows_model(self) -> bool:
+        """Properties shows an object of the model (not a project item: setup, boundary, design...)."""
+        tgt = self.props.target
+        return tgt is None or tgt[0] in ("object", "component")
+
+    def _props_follow_doc(self) -> None:
+        """Properties empty when what it shows no longer exists (deleted, renamed, another design)."""
+        tgt = self.props.target
+        if not tgt:
+            return
+        des = self.des
+        try:
+            if tgt[0] == "object":
+                gone = not des.has_obj(tgt[1])
+            elif tgt[0] in ("boundary", "excitation", "meshop", "mesh"):
+                gone = tgt[1] not in {a.name for a in des.boundaries + des.excitations + des.mesh_ops}
+            elif tgt[0] == "setup":
+                gone = tgt[1] not in {x.name for x in des.setups}
+            elif tgt[0] == "sweep":
+                gone = not any(x.name == tgt[1] and any(w.name == tgt[2] for w in x.sweeps) for x in des.setups)
+            elif tgt[0] == "design":
+                gone = tgt[1] != des.name
+            elif tgt[0] == "component":
+                gone = not any(c.name == tgt[1] for c in des.components)
+            else:
+                gone = False
+        except Exception:  # noqa: BLE001
+            gone = False
+        if gone:
+            self.props.clear()
 
     def _tree_objects(self, names: list, add: bool) -> None:
         self.set_mode("object")
@@ -1698,8 +1734,10 @@ class MainWindow(QMainWindow):
                  and it.data(0, TREE_ROLE)[0] in ("boundary", "excitation", "meshop")]
         if items:
             tree.clearSelection()           # emits None: the highlight of the assignment goes
-            if not picks:
-                self.props.clear()          # it no longer shows the deselected assignment
+        elif not add and tree.selectedItems():
+            tree.clearSelection()           # a setup, sweep or design picked before is no longer the selection
+        if not picks and not add:
+            self.props.clear()              # nothing selected: Properties is empty
         self.doc.select(picks, add)
 
     def _enter(self) -> None:
@@ -6036,6 +6074,12 @@ class MainWindow(QMainWindow):
     # project tree interaction
     # ==========================================================================================
     def _project_selected(self, data) -> None:
+        # Properties follows the Project Manager: several items or an item without properties (a group, a
+        # report, a field overlay, nothing) leave it empty; deselecting the item shown empties it too
+        kind0 = data[0] if isinstance(data, tuple) and data else None
+        if isinstance(data, list) or kind0 not in ("boundary", "excitation", "meshop", "setup", "sweep", "design"):
+            if data is not None or not self._props_shows_model():
+                self.props.clear()
         if isinstance(data, list):
             ass = []
             for d in data:
