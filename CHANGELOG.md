@@ -3,6 +3,16 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.3.34 (2026-11-21)
+
+### Changed
+- **Plugin skills: keep several concepts alive, and extend a design that meets one band.** `hf-design-loop`
+  splits the batches after the first one between the leading concept family and other families, and moves effort
+  to another family or mechanism when the weakest band stops improving over a few batches. `antenna-design` has a
+  section *One band good, the other not*: read which part of the good design carries which resonance, name the
+  resonance the weak band lacks, borrow the mechanism of another concept that does well in that band, and add it
+  without moving the resonances that already work.
+
 ## 0.3.33 (2026-11-21)
 
 ### Fixed
