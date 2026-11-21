@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## 0.3.34 (2026-11-21)
+## 0.4.0 (2026-11-21)
 
 ### Changed
 - **Claude plugin: design skills keep several concepts alive.** *hf-design-loop* follows each concept family after
