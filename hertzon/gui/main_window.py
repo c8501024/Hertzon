@@ -6088,7 +6088,7 @@ class MainWindow(QMainWindow):
         elif data == ("group", "Field Overlays"):
             self.show_overlays(None)
 
-    def _project_activated(self, data) -> None:
+    def _project_activated(self, data, tab: str = "") -> None:
         if not data:
             return
         kind = data[0]
@@ -6096,7 +6096,7 @@ class MainWindow(QMainWindow):
             a = self.des.assignment(data[1])
             fam = {"boundary": "boundary", "excitation": "excitation", "meshop": "mesh"}[kind]
             snapshot = self.doc.project.to_dict()
-            if edit_assignment(self, self.doc, fam, a):
+            if edit_assignment(self, self.doc, fam, a, tab=tab):
                 self.doc.undo_stack.append(snapshot)
                 self.doc.commit("boundaries", geometry=False)
         elif kind == "setup" and not self._is_circuit():      # a circuit setup is only its sweeps
@@ -6656,7 +6656,8 @@ class MainWindow(QMainWindow):
         if reopen:
             from PySide6.QtCore import QTimer
             kind = "boundary" if any(b.name == name for b in self.des.boundaries) else "excitation"
-            QTimer.singleShot(0, lambda: self._project_activated((kind, name)))
+            # back on the Modes tab, where New Line... was chosen (#13)
+            QTimer.singleShot(0, lambda: self._project_activated((kind, name), tab="Modes"))
 
     def auto_integration_line(self, name: str) -> None:
         """Integration line placed again between the conductors that touch the sheet."""

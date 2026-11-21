@@ -164,7 +164,9 @@ class ModesTab(QWidget):
             self.refresh()
 
 
-def edit_assignment(parent, doc, family: str, a: Assignment) -> bool:
+def edit_assignment(parent, doc, family: str, a: Assignment, tab: str = "") -> bool:
+    """Properties dialog of a boundary, excitation or mesh operation; tab: the tab it opens on (the Modes
+    tab when it opens again after New Line...)."""
     props = {"boundary": schema.BOUNDARIES, "excitation": schema.EXCITATIONS, "mesh": schema.MESH_OPS}[family][a.kind]
     sel = ", ".join([f"{f.obj}{'' if f.face < 0 else f' face {f.face}'}" for f in a.faces] + a.objects)
     info = f"<b>{a.kind}</b> on: {sel or '(nothing)'}"
@@ -180,6 +182,11 @@ def edit_assignment(parent, doc, family: str, a: Assignment) -> bool:
         modes = ModesTab(dlg, a, terminal=doc.design.settings.get("SolutionType") == "Terminal")
         dlg.add_tab(modes, "Modes")
         dlg.grid.changed.connect(lambda name, _v: name == "NumberOfModes" and modes.refresh())
+    if tab:
+        for i in range(dlg.grid.count()):
+            if dlg.grid.tabText(i) == tab:
+                dlg.grid.setCurrentIndex(i)
+                break
     view = getattr(parent, "view", None)
     if view is not None and family == "excitation":
         import copy
