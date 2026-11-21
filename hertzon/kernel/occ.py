@@ -1581,6 +1581,12 @@ def model_bbox(built: dict[str, list[tuple[int, int]]], design: Design):
     return _bbox(dts)
 
 
+def model_names(design: Design) -> list[str]:
+    """Names of the live objects that are part of the model (Model switched on). Objects with Model off are
+    drawn only: the solver builds none of them, so they change neither the mesh nor the solution."""
+    return [o.name for o in design.live_objects() if o.model]
+
+
 def build_design(design: Design, ev: Evaluator, names: list[str] | None = None,
                  extra_bbox=None, on_progress: Callable[[str], None] | None = None) -> BuildContext:
     """Build live objects into the current gmsh model. Errors are collected per object."""
@@ -1665,7 +1671,7 @@ def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple
     cur = gmsh.model.getCurrent()
     gmsh.model.add("hertzon_sheets")
     try:
-        ctx = build_design(design, ev)
+        ctx = build_design(design, ev, names=model_names(design))
         occ = _occ()
         live = {o.name: o for o in design.live_objects() if o.model}
         sheets = {n: [d for d in dt if d[0] == 2] for n, dt in ctx.built.items() if n in live

@@ -164,7 +164,9 @@ class ModesTab(QWidget):
             self.refresh()
 
 
-def edit_assignment(parent, doc, family: str, a: Assignment) -> bool:
+def edit_assignment(parent, doc, family: str, a: Assignment, tab: str = "") -> bool:
+    """Properties dialog of a boundary, excitation or mesh operation; tab: the tab it opens on (the Modes
+    tab when it opens again after New Line...)."""
     props = {"boundary": schema.BOUNDARIES, "excitation": schema.EXCITATIONS, "mesh": schema.MESH_OPS}[family][a.kind]
     sel = ", ".join([f"{f.obj}{'' if f.face < 0 else f' face {f.face}'}" for f in a.faces] + a.objects)
     info = f"<b>{a.kind}</b> on: {sel or '(nothing)'}"
@@ -180,6 +182,11 @@ def edit_assignment(parent, doc, family: str, a: Assignment) -> bool:
         modes = ModesTab(dlg, a, terminal=doc.design.settings.get("SolutionType") == "Terminal")
         dlg.add_tab(modes, "Modes")
         dlg.grid.changed.connect(lambda name, _v: name == "NumberOfModes" and modes.refresh())
+    if tab:
+        for i in range(dlg.grid.count()):
+            if dlg.grid.tabText(i) == tab:
+                dlg.grid.setCurrentIndex(i)
+                break
     view = getattr(parent, "view", None)
     if view is not None and family == "excitation":
         import copy
@@ -677,9 +684,10 @@ class MaterialsDialog(QDialog):
         self.libs.currentTextChanged.connect(self._fill)
         top.addWidget(self.libs)
         lay.addLayout(top)
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["Name", "Location", "Rel. Permittivity", "Rel. Permeability",
-                                              "Bulk Conductivity", "Dielectric Loss Tangent"])
+                                              "Bulk Conductivity", "Dielectric Loss Tangent",
+                                              "Magnetic Loss Tangent"])
         # widths are fitted once per fill: ResizeToContents measured all rows again after every cell set
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -715,9 +723,11 @@ class MaterialsDialog(QDialog):
             er = m.permittivity_tensor if m.anisotropic and m.permittivity_tensor else m.permittivity
             if m.dispersion and m.dispersion != "None":
                 er = f"{er} ({m.dispersion})"
+            ur = m.permeability_tensor if m.anisotropic and m.permeability_tensor else m.permeability
+            tand = m.loss_tangent_tensor if m.anisotropic and m.loss_tangent_tensor else m.loss_tangent
             loc = {"Project": "Project", EMERGE_LIBRARY: "EMerge Library"}.get(m.library, "SysLibrary")
-            for c, v in enumerate([m.name, loc, er,
-                                   m.permeability, "PEC" if m.pec else m.conductivity, m.loss_tangent]):
+            for c, v in enumerate([m.name, loc, er, ur, "PEC" if m.pec else m.conductivity, tand,
+                                   m.magnetic_loss_tangent or "0"]):
                 self.table.setItem(r, c, QTableWidgetItem(str(v)))
             if m.name == self.current:
                 self.table.selectRow(r)
