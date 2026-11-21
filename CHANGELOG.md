@@ -5,13 +5,20 @@ the GitHub release notes.
 
 ## 0.4.0 (2026-11-21)
 
+Hertzon 0.4 marks the step to designing with an AI assistant. Its MCP server lets an assistant such as Claude Code
+build, mesh, solve and evaluate models in Hertzon, and the Claude plugin that ships with Hertzon adds the know-how on
+top: the skills `hf-design-loop`, `circuit-first`, `antenna-design` and `results-check`, the commands
+`/hertzon:design` and `/hertzon:verify`, a pane with every picture Hertzon draws for the assistant and the state of a
+running analysis above the prompt. **Tools > AI Assistants (MCP)... > Register** next to Claude Code installs both; the
+plugin loads from the Hertzon folder and is updated with Hertzon. See the plugin's README and [What is MCP?](docs/MCP.md).
+
 ### Changed
-- **Claude plugin: design skills keep several concepts alive.** *hf-design-loop* follows each concept family after
-  the first batch and switches family when one stagnates, instead of refining only the best first candidate.
-- **Claude plugin: extend a design that already meets one band.** *antenna-design* has a new section "One band good,
-  the other not": keep the good band, name the resonance missing in the weak band and add it with a change that
-  leaves the good band alone (e.g. an extra arm or a parasitic element), borrowing the mechanism of other concepts
-  that do well in the weak band.
+- **Plugin skills: keep several concepts alive, and extend a design that meets one band.** `hf-design-loop`
+  splits the batches after the first one between the leading concept family and other families, and moves effort
+  to another family or mechanism when the weakest band stops improving over a few batches. `antenna-design` has a
+  section *One band good, the other not*: read which part of the good design carries which resonance, name the
+  resonance the weak band lacks, borrow the mechanism of another concept that does well in that band, and add it
+  without moving the resonances that already work.
 
 ## 0.3.33 (2026-11-21)
 
