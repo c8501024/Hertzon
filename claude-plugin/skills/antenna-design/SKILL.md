@@ -64,6 +64,20 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
   side by side help: parasitic resonators coupled to the driven element, a second arm or branch of another
   length, a slot, or a feed and short that excite two modes.
 
+## One band good, the other not
+
+When a design meets one band and misses the other, it is often better to keep it and add to it than to shift
+its dimensions:
+
+- Pause and read what the good design does: where its resonances are (S11 or impedance), which part of the
+  structure carries each one (current or field plot) and which band each covers.
+- Name what is missing for the weak band, for example a resonance near its upper edge, or a second one to
+  widen it.
+- Choose a change that creates that resonance and leaves the parts carrying the good band alone: an extra
+  arm or branch, a parasitic element, a slot, a stub. Check afterwards that the good band stayed good.
+- Shifting the existing dimensions moves the resonances that already work; if the weak band improves only as
+  the good one degrades, the structure lacks a resonance, not the right dimensions.
+
 ## Matching networks
 
 A lumped matching network can recover mismatch, not radiation efficiency. Model real parts as lossy (finite Q),
