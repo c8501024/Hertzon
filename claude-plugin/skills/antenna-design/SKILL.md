@@ -73,6 +73,8 @@ its dimensions:
   structure carries each one (current or field plot) and which band each covers.
 - Name what is missing for the weak band, for example a resonance near its upper edge, or a second one to
   widen it.
+- Look at the other concepts you solved: one that does well in the weak band shows a mechanism (an arm, a
+  slot, a parasitic, a feed or short position) that may carry over to the good design.
 - Choose a change that creates that resonance and leaves the parts carrying the good band alone: an extra
   arm or branch, a parasitic element, a slot, a stub. Check afterwards that the good band stayed good.
 - Shifting the existing dimensions moves the resonances that already work; if the weak band improves only as
