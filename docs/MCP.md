@@ -35,6 +35,41 @@ appears in the open Hertzon window at once. You see what the AI does, you can ch
 between, and **Ctrl+Z** undoes any of its changes. The full list of tools is in the
 [tutorial](TUTORIAL.md#53-what-the-assistant-can-do).
 
+## The Claude plugin: how to use the tools
+
+The MCP server gives an assistant the tools; for Claude Code, Hertzon also ships a **plugin** that tells it how
+to use them: in which order to work and what to check before it trusts a result. It is installed together with
+the MCP server (**Register** next to Claude Code), loads from your Hertzon folder and is updated with Hertzon
+([details](../claude-plugin/README.md), [tutorial 5.4](TUTORIAL.md#54-the-claude-plugin-optional)).
+
+| Part | What it adds |
+|---|---|
+| Skill `hf-design-loop` | the design workflow: the goal in a design log, a start from the Design Wizard or an example, a baseline, one idea at a time with sweeps, derivative tuning and optimizers, several concepts kept alive for demanding goals, verification and a report with the time per step |
+| Skill `circuit-first` | multi-fidelity for planar circuits: design and optimize in the circuit, then check and correct in full wave with a few 3D solves; systems of several parts assembled on the board |
+| Skill `antenna-design` | open region, feeds, adaptive frequencies for several bands, far-field efficiency instead of S11 alone, how to extend a design that meets one band but not the other |
+| Skill `results-check` | mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis |
+| Commands | `/hertzon:design <specification>` runs the workflow, `/hertzon:verify` checks the open design without changing it |
+| Hertzon pane | every picture Hertzon draws for the assistant (reports, field plots, the 3D view, convergence), as it looks in Hertzon; the line above the prompt shows the adaptive pass of a running analysis |
+
+The skills also set rules that keep the engineer informed: an adaptive mesh that did not converge is always
+reported, the cost of cloud runs is estimated before they start, and a missing or failing tool becomes a prefilled
+issue for the Hertzon developers (`report_issue`) that the user reads and posts, or not.
+
+## Large projects and computing resources: keep an eye on them
+
+With these tools an assistant can, in principle, set up and run large projects on its own and use the computing
+resources efficiently, for example by solving several variants or the parts of a system side by side. Hertzon
+warns before an analysis starts when its last run needed more memory than is free, and the memory guard of the adaptive meshing stops a pass before it
+runs out of memory.
+
+The MCP tool `cloud` can also choose where the analyses of a window run, including **cloud servers** (Hetzner
+Cloud or another provider) when such an account is set up in Hertzon ([REMOTE.md](REMOTE.md)). Servers cost money
+while they run. The skills tell the assistant to estimate time and cost first and to start servers only when you
+agree, but an assistant can still start them anyway. **Watch the servers, their cost and their running time**
+whenever an assistant works with a cloud account: the status bar shows the costs so far, *Check Account* lists
+every server, and `cloud/events.log` in the work folder records who created and deleted which server. Without a
+cloud account set up, everything runs on your own computer.
+
 ## Methods as tools: why this matters
 
 An AI agent is good at understanding a goal, planning and combining steps. It is not a field solver. In
@@ -50,8 +85,11 @@ iterate by hand, and the fewer tokens and the smaller the models it needs:
   adaptive mesh, so the AI states the goal and Hertzon does the iterations in one call.
 - **Derivative tuning**: sensitivities from mesh morphing tell how S-parameters change with each variable
   without solving again.
-- **Circuits and PCBs**: schematics with lumped parts and lines, their 3D layout, 3D designs as blocks, and
-  boards imported from Gerber files with their stackup.
+- **Circuits and PCBs**: schematics with lumped parts and lines, their 3D layout, 3D designs as blocks, the
+  board with Auto Place, Connect and Match Phase (`board`), and boards imported from Gerber files with their stackup.
+- **Post-processing**: S-parameters, port modes, gain and RCS (`get_results`), Fields Calculator values such as
+  the Poynting flux through a face (`evaluate_fields`), the power budget per port and the losses per object
+  (`get_power_budget`), and pictures drawn by Hertzon itself (`show_result`).
 - **Next: topology optimization.** From the author's research on pixelated antennas
   ([Mair & Baumgarten, Sci. Rep. 14, 26664, 2024](https://doi.org/10.1038/s41598-024-77695-x)): instead of
   tuning a few dimensions, the shape of the metal itself is optimized. As an MCP tool it lets an AI agent
