@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.3.33 (2026-11-21)
 
 ### Fixed
 - **Objects with Model off no longer change the solve.** The solver built them along with the model: their extent
