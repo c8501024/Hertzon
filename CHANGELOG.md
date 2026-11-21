@@ -6,6 +6,116 @@ the GitHub release notes.
 ## Unreleased
 
 ### Fixed
+- **Objects with Model off no longer change the solve.** The solver built them along with the model: their extent
+  entered the global maximum element size of the initial mesh, and their faces took part in the mesh morphing
+  of Derivative Tuning, which could then fail ("Factor is exactly singular", or a tuning range of 0) although
+  the tuned variable did not touch them. The solver now builds only the model objects.
+- **The port dialog opens on the Modes tab again** after an Integration Line was drawn with New Line.
+- **Shift + left drag pans while an object or sheet is drawn**, as Alt + left drag rotates and the wheel zooms.
+- **The Properties panel shows only what is selected.** It is empty when nothing is selected, when several objects,
+  faces or edges are selected, when a Project Manager item without properties (a group, a report, a field overlay) is
+  selected, and when the object or item it showed was deleted or renamed. A click into empty space empties it.
+
+## 0.3.32 (2026-11-20)
+
+### Changed
+- **Full 3D connectors are fed by a wave port with a PEC cap behind it.** The cap closes the coax at the mating
+  plane, so the port lies inside the air region. Full 3D no longer removes the padding of the air region toward
+  the connector and no longer replaces Auto Open by an explicit `ConnectorRegion` that enclosed the whole board.
+  The air region, its boundaries and Auto Open stay as set; projects changed by older versions get them back at
+  the next mode change.
+- **Ideal hides the connector.** In Ideal the connector and its footprint are no longer drawn; Transition still
+  shows them as a transparent preview.
+
+## 0.3.31 (2026-11-20)
+
+### Added
+- **Far field over an infinite ground plane.** A far-field surface that is open at one flat outer face of the model
+  (PML or radiation boundary on the other five sides, the floor a conductor, e.g. a monopole on a ground) is
+  mirrored at that face (image theory), and the far field behind it is zero. Before, the image was missing and the
+  pattern was that of the open surface alone. Symmetry planes and the PML far-field box of Auto Open work as before.
+- **Post-processing for AI assistants.** New tools `evaluate_fields` (Fields Calculator values on the saved fields:
+  Poynting flux through any sheet, face, cut plane or the closed boundary of a solid, volume and surface integrals,
+  maxima, point values) and `get_power_budget` (per port: accepted, reflected, transmitted, radiated and lost
+  power, the balance, and the volume losses per object and material split into dielectric/conduction and
+  magnetic). The Fields Calculator knows the magnetic loss tangent `tandm`; `add_material` takes `tan_delta_m`.
+- **AI assistants can lay out a board and pick where analyses run.** New MCP tool `board`: the board of a circuit
+  as the 2D board editor shows it (parts, routes with length, width, impedance and insertion phase, connections not
+  yet routed), and its actions Auto Place, moving parts, Connect (lines of one impedance with tapers and bends),
+  Match Phase (equal phase or a set phase offset per route, with meanders) and the bend of a route. New MCP tool
+  `cloud`: where the analyses of a window run, the server types of the cloud provider with cores, memory and price
+  per hour, a choice of target per window, and deleting the window's server. With `own_server` a window gets a
+  cloud server of its own, so the parts of a larger design, each in its own project and window, are solved in
+  parallel on several servers.
+- **Claude plugin skills** for system design: split a system (for example a VNA test set) into parts, design
+  them separately, assemble them on the board with Connect and Match Phase, and estimate time and cost serially
+  and in parallel on cloud servers; every unconverged solve is reported to the user.
+- **MCP tool `report_issue`.** When a tool is missing (a structure the Design Wizard does not have), fails or gives
+  a result that looks wrong, the assistant prepares an issue for the Hertzon developers: title, what happened, an
+  example, a proposal and the versions of Hertzon, EMerge and the system, with a link to the prefilled "New issue"
+  page of the repository. Nothing is sent; the user reads the text and posts it from the link.
+- **Port mode labels.** Every mode of a wave port is named after its type, the mode of a rectangular guide it
+  resembles and its propagation constant, for example "P1 M2 (TE10-like, beta 72.3 rad/m)"; a mode that resembles
+  none gives its symmetry instead ("TE, odd in x"). The field plot dialog lists the excitations of the solution
+  with these labels (before it offered 1 ... number of ports, so the second mode of port 1 appeared as "2" and the
+  modes of the last ports could not be chosen), the plot title and Edit Sources show them.
+- **Setup: Delta S of complex S or of |S|.** "Delta S of" (Convergence) chooses whether the passes converge on
+  the change of the complex S-parameters (default, as before) or of their magnitudes only.
+- **MCP: port modes.** `get_results(kind="ports")` lists the modes of every wave port with label, type, beta,
+  alpha, Zo, propagating or not, the symmetry about the two principal axes of the port face (even = magnetic
+  wall, odd = electric wall) and the closest rectangular guide mode, plus the excitations whose fields are stored;
+  `image=true` adds a picture of the transverse E of every mode. `set_field_plot` takes `port` and `mode`.
+
+### Changed
+- **Real connectors: where the trace ends is stated.** Putting a connector at a lumped port now says how far the
+  trace is cut back from the board edge in Full 3D (the footprint length `J1_lf`; the contact then rests on the pad
+  only) and that in Ideal the trace still runs to the edge under the connector, which the Transition model
+  de-embeds. The help of the modes says the same.
+- **Single Points sweeps take ';' or ',' between the frequencies** (`2.4GHz;2.45GHz` or `2.4GHz,2.45GHz`). The schema
+  help of the sweep's Points was the one of polyline points.
+- **Unknown choice values are refused.** A sweep distribution such as "SinglePoints" fell back silently to Linear
+  Step 1-10 GHz; the solver now stops with the valid names, and the AI tools refuse an unknown value of any choice
+  property (any upper or lower case is accepted).
+- **"Touch tangentially" is information, not a warning,** in the Validation Check and the solver log, and coaxial
+  cylinders of the same radius (a coax whose dielectric is the outer cylinder minus the pin) are no longer reported.
+- **Cloud server shared by all windows.** Closing a Hertzon window no longer deletes the cloud server that other
+  windows (also of other Hertzon processes) use: each window holds a lease, and the server is deleted when the
+  last window that uses it closes. If analyses still run or wait there, Hertzon asks first (delete, keep until
+  idle, or cancel).
+- **A lost cloud server is reported, never replaced silently.** An analysis whose server disappears ends as
+  "aborted because the cloud server was lost" with the reason (another window, Delete Cloud Servers, the server's
+  watchdog, which now announces why it deletes a busy server, or outside Hertzon) instead of exit -999999;
+  optionally it is queued again on a new server. `cloud/events.log` in the work folder records what happened to
+  each server.
+- **Costs of the cloud server** in the status bar: price per hour from the provider's API and the costs so far;
+  Check Account lists running time and costs of every server.
+- **Secrets in the key store of the operating system.** API tokens, secret keys and the token of a paired remote
+  computer are kept in Windows Credential Manager, the macOS Keychain or the Secret Service of Linux (new
+  dependency `keyring`), no longer in the registry or settings file; existing values are moved at the next start.
+- Analyses on this computer say so when a cloud is set up but switched off, and warn before they start when their
+  last run needed more memory than is free.
+
+### Fixed
+- **The memory guard of the adaptive meshing stopped a pass too early on small machines.** Since it plans with
+  the memory this analysis can use (its own plus the free memory, so other programs and analyses are counted), the
+  old 10 % reserve on top was twice the margin: the hairpin filter on a 16 GB machine stopped a pass before 0.3.30
+  did, although that pass fitted (forecast 13.9 GB, peak 12.0 GB). The guard now plans with 95 % of the usable
+  memory; the hairpin solves as in 0.3.30 again (same mesh and S-parameters).
+- **Real connectors, mode Transition: S21 had the wrong sign.** The line port of the transition design had no
+  voltage line, and its mode came out with the opposite polarity to the coax mode, so the transmission phase through
+  a connector was off by 180 degrees (with connectors at both ends of a board the two errors cancelled). The line port
+  now has a voltage line from the ground to the trace and mode type TEM (the polarity of the dispersive microstrip
+  mode is then also aligned at the top of the band). Measured on a 20 mm microstrip with a 2.92 mm connector,
+  1–20 GHz: the cascade against Full 3D from max |ΔS21| 1.99 to 0.038, same mesh, time and memory. Existing
+  transition designs are marked stale; set the mode again and solve them once.
+- **Wave ports with several modes: Delta S no longer jumps on a sign flip of a mode.** Between adaptive passes the
+  sign of every port mode was matched on the S-parameters of port 1 only. A mode that does not couple to port 1
+  (the second mode of a symmetric guide, an odd slot mode) was flipped on numerical noise, and Delta S jumped to
+  about 2 with every |S| and phase unchanged (a two-mode guide: pass 6 Delta S 1.99 instead of 0.02), so the
+  complex Delta S could not be used and the passes ran on. Now the modes of every pass are sampled at fixed
+  points of the port face and matched to the modes of the previous pass by their field overlap (order and
+  sign), and the sign of a mode is otherwise fixed on its strongest couplings, not on noise. A change of the
+  mode order between passes is reported in the Message Manager.
 - **The material list shows the magnetic loss tangent.** "Select Definition" has a column *Magnetic Loss
   Tangent*; before, a magnetic loss set in View/Edit Material (e.g. an absorber with complex μr) was used in the
   solve but not shown in the list. For anisotropic materials the permeability and loss tangent columns show the

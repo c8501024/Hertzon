@@ -1581,6 +1581,12 @@ def model_bbox(built: dict[str, list[tuple[int, int]]], design: Design):
     return _bbox(dts)
 
 
+def model_names(design: Design) -> list[str]:
+    """Names of the live objects that are part of the model (Model switched on). Objects with Model off are
+    drawn only: the solver builds none of them, so they change neither the mesh nor the solution."""
+    return [o.name for o in design.live_objects() if o.model]
+
+
 def build_design(design: Design, ev: Evaluator, names: list[str] | None = None,
                  extra_bbox=None, on_progress: Callable[[str], None] | None = None) -> BuildContext:
     """Build live objects into the current gmsh model. Errors are collected per object."""
@@ -1665,7 +1671,7 @@ def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple
     cur = gmsh.model.getCurrent()
     gmsh.model.add("hertzon_sheets")
     try:
-        ctx = build_design(design, ev)
+        ctx = build_design(design, ev, names=model_names(design))
         occ = _occ()
         live = {o.name: o for o in design.live_objects() if o.model}
         sheets = {n: [d for d in dt if d[0] == 2] for n, dt in ctx.built.items() if n in live
@@ -1876,6 +1882,17 @@ def near_contacts(built: dict, tol: float | None = None) -> list[tuple[str, str,
                 if d < min(half_thickness(na, nrm), half_thickness(nb, nrm)):
                     add(na, nb, "gap", d)
 
+    def coaxial(name, c, a, r) -> bool:
+        """name has a cylinder on the same axis with the same radius: coincident round faces (a coax whose
+        dielectric is the outer conductor minus the inner one) are conformal, the straight seam edge of that
+        face lies on the other cylinder by construction and is no tangential touch."""
+        for n2, c2, a2, r2, _ in cyls:
+            if n2 == name and abs(r2 - r) <= lo_tol and abs(abs(float(a2 @ a)) - 1) < 1e-9:
+                dv = (c2 - c) - a * float((c2 - c) @ a)
+                if float(np.linalg.norm(dv)) <= lo_tol:
+                    return True
+        return False
+
     # cylinders against straight edges and plane faces of other objects
     for nc, c, a, r, (t0, t1) in cyls:
         span = (t1 - t0) * 1e-6
@@ -1892,7 +1909,7 @@ def near_contacts(built: dict, tol: float | None = None) -> list[tuple[str, str,
                 dv = (p0 - c) - a * float((p0 - c) @ a)
                 d = float(np.linalg.norm(dv))
                 s0, s1 = sorted((float((p0 - c) @ a), float((p1 - c) @ a)))
-                if abs(d - r) < tol and s0 < t1 - span and s1 > t0 + span:
+                if abs(d - r) < tol and s0 < t1 - span and s1 > t0 + span and not coaxial(ns, c, a, r):
                     add(nc, ns, "tangent", abs(d - r))
                 continue
             # closest points of the axis line c + s a and the edge line p0 + t u

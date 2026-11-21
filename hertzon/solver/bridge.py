@@ -27,6 +27,7 @@ from ..model import schema
 from ..kernel import occ as K
 from . import facematch
 from . import sparta_setup
+from . import port_modes as PM
 from .results import ResultStore, port_entries, deembed_renormalize, running_status
 from .sweeps import sweep_frequencies  # noqa: F401  (re-exported: bridge.sweep_frequencies)
 from .emerge_compat import amr as _amr
@@ -41,7 +42,7 @@ TAG = "@@HZN "
 _EMIT_LOCK = threading.Lock()       # sweep progress is also reported from the solver threads
 
 
-_PROGRESS = {"file": None, "phase": None, "since": 0.0, "written": 0.0}
+_PROGRESS = {"file": None, "phase": None, "since": 0.0, "written": 0.0, "text": ""}
 
 
 def emit(kind: str, **data) -> None:
@@ -50,6 +51,7 @@ def emit(kind: str, **data) -> None:
         sys.stdout.write(line)
         sys.stdout.flush()
         if kind == "progress":
+            _PROGRESS["text"] = str(data.get("text", ""))      # the step a failure is reported in
             _note_progress(str(data.get("text", "")), data.get("value"))
 
 
@@ -345,6 +347,9 @@ class Bridge:
             m.generate_mesh()
         remesh_degenerate(m)
         info(f"Initial mesh: {m.mesh.n_tets} tetrahedra")
+        bad = mesh_defects(m)
+        if bad:
+            warn(f"The initial mesh has defects ({bad}); the first solve may fail or give NaN")
         from .port_lines import spread_lumped_port_lines
         spread_lumped_port_lines(m)       # port voltage averaged over the width, not taken at a corner
         self.step("Initial meshing", t)
@@ -353,9 +358,12 @@ class Bridge:
         try:
             self._solve()
         except Exception as exc:
+            # a port message only replaces the error when the port's own mode analysis confirms it; any other
+            # failure (mesh refinement, solver, memory) keeps its own message
             missing = self.missing_port_modes() or self.ports_below_cutoff()
             if missing:
-                raise RuntimeError("; ".join(missing)) from exc
+                raise RuntimeError("; ".join(missing) + f" (the solver reported: {type(exc).__name__}: "
+                                   f"{str(exc)[:300]})") from exc
             raise
 
     def missing_port_modes(self) -> list[str]:
@@ -412,7 +420,15 @@ class Bridge:
         except Exception:  # noqa: BLE001
             return out
         for q, bc in ports:
+            has = self.port_has_modes(bc, min(fa))
+            if has:
+                # the port does have a mode at the adaptive frequency: its modes were only cleared when the
+                # failure happened (e.g. a crash of the mesh refinement), so the original error is reported
+                continue
             fc = self.probe_cutoff(bc, min(fa))
+            if has is None and not fc:
+                # its mode analysis fails at every frequency: no sign of a cutoff, the original error stands
+                continue
             where = (f"its first mode propagates above {fc / 1e9:.4g} GHz" if fc
                      else "the port face carries no propagating mode below "
                           f"{min(fa) * CUTOFF_PROBE_STEP ** CUTOFF_PROBES / 1e9:.4g} GHz")
@@ -420,6 +436,23 @@ class Bridge:
                        f"{min(fa) / 1e9:.4g} GHz, {where}. Set the solution frequency above the cutoff; a sweep "
                        f"may still start below it (the port mode then decays)")
         return out
+
+    def port_has_modes(self, bc, f: float) -> bool | None:
+        """Does wave port bc carry a propagating mode at f on the current mesh? None when its mode analysis
+        fails (then nothing can be said about the cutoff)."""
+        TEM = getattr(bc, "forced_modetype", None) == "TEM"
+        n = max(1, int(getattr(bc, "_desired_number_of_modes", 1) or 1))
+        try:
+            bc.clear_modes()
+            self.m.mw.modal_analysis(bc, n, direct=False, freq=f, TEM=TEM)
+            return bool(bc.available_modes)
+        except Exception:  # noqa: BLE001
+            return None
+        finally:
+            try:
+                bc.clear_modes()
+            except Exception:  # noqa: BLE001
+                pass
 
     def probe_cutoff(self, bc, f: float) -> float | None:
         """Cutoff frequency of the first mode of wave port bc, from mode analyses at frequencies above f
@@ -477,7 +510,9 @@ class Bridge:
         emit("progress", value=3, text="Building geometry")
         sim_model = gmsh.model.getCurrent()
         gmsh.model.add("hertzon_probe")
-        ctx = K.build_design(self.design, self.ev)
+        # only the model objects: an object with Model off must not change the mesh (its size entered the
+        # global maximum element size) or the face matching
+        ctx = K.build_design(self.design, self.ev, names=K.model_names(self.design))
         if ctx.errors:
             for n, e in ctx.errors.items():
                 warn(f"Object '{n}': {e}")
@@ -555,7 +590,7 @@ class Bridge:
     def build_model(self) -> None:
         from emerge._emerge.geometry import GeoVolume, GeoSurface
         em = self.em
-        ctx = K.build_design(self.design, self.ev)
+        ctx = K.build_design(self.design, self.ev, names=K.model_names(self.design))
         for n, e in ctx.errors.items():
             raise RuntimeError(f"Geometry error in '{n}': {e}")
         vols = []
@@ -597,16 +632,17 @@ class Bridge:
         fails (they are the usual cause of an inconsistent mesh). Run only then: it builds the whole model again
         in a scratch model and intersects every sheet with every solid, which made every start slower. The
         Validation Check shows the same warnings before a run."""
-        from ..model.validate import contact_messages, sheet_messages
+        from ..model.validate import contact_notes, sheet_messages
         try:
             cond = lambda n: is_conductor(self.project.material(self.design.obj(n).material))  # noqa: E731
             pl = K.sheet_placement(self.design, self.ev, cond)
-            self.sheet_hints = contact_messages(pl) + sheet_messages(self.design, pl)
+            notes = contact_notes(pl) + [("warning", m) for m in sheet_messages(self.design, pl)]
         except Exception as e:  # noqa: BLE001
-            self.sheet_hints = []
+            notes = []
             info(f"Sheet placement check skipped: {e}")
-        for h in self.sheet_hints:
-            warn(h)
+        self.sheet_hints = [m for _, m in notes]
+        for lv, h in notes:
+            (info if lv == "info" else warn)(h)
 
     def check_overlaps(self) -> None:
         """Partial overlaps the reference tool rejects are errors: two dielectrics or two conductors of
@@ -1920,21 +1956,58 @@ class Bridge:
                 out[f"nodes_{n}"] = xyz.T.astype(np.float64)
                 out[f"tris_{n}"] = inv.reshape(tris.shape).T.astype(np.int32)
                 rows = []
+                fr = PM.face_frame(mesh.nodes, tris)
                 for k, f in enumerate(np.atleast_1d(freqs)):
                     k0 = 2 * np.pi * float(f) / C0
                     modes = bc.get_modes(k0)
                     for i, md in enumerate(modes[:len(bc.port_modes)]):
                         out[f"E_{n}_{i + 1}_{k}"] = np.asarray(md.E_function(*xyz), complex).T.astype(np.complex64)
                         out[f"H_{n}_{i + 1}_{k}"] = np.asarray(md.H_function(*xyz), complex).T.astype(np.complex64)
-                        rows.append({"freq_index": k, "mode": i + 1, "type": str(md.modetype),
-                                     "gamma": [float(np.real(1j * md.beta)), float(np.imag(1j * md.beta))],
-                                     "zo": float(np.real(md.Z0))})
-                meta.append({"name": q["name"], "number": n, "modes": rows})
+                        row = {"freq_index": k, "mode": i + 1, "type": str(md.modetype),
+                               "gamma": [float(np.real(1j * md.beta)), float(np.imag(1j * md.beta))],
+                               "zo": float(np.real(_mode_z0(bc, i + 1, md)))}
+                        try:
+                            d = PM.describe_mode(md.E_function, fr, str(md.modetype), md.beta)
+                            row.update(short=d["short"], symmetry=d["symmetry"], rect_match=d["rect_match"],
+                                       label=PM.excitation_label(n, i + 1, d))
+                        except Exception as e:  # noqa: BLE001
+                            row["label"] = PM.excitation_label(n, i + 1, None)
+                            info(f"Port {n} mode {i + 1}: no mode label ({e})")
+                        rows.append(row)
+                meta.append({"name": q["name"], "number": n, "modes": rows,
+                             "axes": {"u": PM.axis_name(fr["u"]), "v": PM.axis_name(fr["v"]),
+                                      "normal": PM.axis_name(fr["normal"])}})
             out["meta"] = np.array(json.dumps(meta))
             if meta:
                 self.store.save_npz(f"portfields_{label}.npz", **out)
+                if label == "LastAdaptive":
+                    self.label_field_sources(meta)
         except Exception as e:  # noqa: BLE001
             warn(f"Port fields not saved: {e}")
+
+    def label_field_sources(self, meta: list) -> None:
+        """Mode labels (mode type, "TE10-like", beta) of the stored excitations in field_sources.json and
+        ports.json: field plots, Edit Sources and the MCP show "P1 M2 (TE10-like, beta 72.3 rad/m)"."""
+        first = {(q["number"], r["mode"]): r for q in meta for r in q["modes"] if r.get("freq_index", 0) == 0}
+        for fname in ("field_sources.json", "ports.json"):
+            rows = self.store.read_json(fname, None)
+            if not rows:
+                continue
+            changed = False
+            for q in rows:
+                if "port" in q and "mode" in q:            # field_sources.json: one row per port mode
+                    r = first.get((int(q["port"]), int(q["mode"])))
+                    if r and r.get("label"):
+                        q["label"] = r["label"]
+                        changed = True
+                elif q.get("kind") == "Wave Port":          # ports.json: the labels of all modes of the port
+                    labels = [first[(int(q["number"]), k)].get("label", "")
+                              for k in range(1, int(q.get("modes") or 1) + 1) if (int(q["number"]), k) in first]
+                    if labels:
+                        q["mode_labels"] = labels
+                        changed = True
+            if changed:
+                self.store.write_json(fname, rows)
 
     def run_ports_only(self) -> None:
         """Solve only the port modes: propagation constant, port impedance and port fields at the adaptive
@@ -2201,7 +2274,57 @@ class Bridge:
             out["sym_kind"] = np.array([p[0] for p in planes])
             out["sym_axis"] = np.array([p[1] for p in planes], np.int64)
             out["sym_pos"] = np.array([p[2] for p in planes], np.float64)
+        if getattr(self, "ff_bounds", None) is None:
+            gnd = self.ground_plane(vis, wns, planes)
+            if gnd is not None:
+                out["gnd_kind"], out["gnd_axis"] = np.array([gnd[0]]), np.array([gnd[1]], np.int64)
+                out["gnd_pos"], out["gnd_dir"] = np.array([gnd[2]], np.float64), np.array([gnd[3]], np.int64)
         return out
+
+    def ground_plane(self, vis: np.ndarray, wns: np.ndarray, planes: list) -> tuple | None:
+        """An infinite ground plane under an open far-field surface: the open faces (PML or radiation) cover all
+        sides of their bounding box but one, and that side is a flat outer boundary of the model (a Perfect E
+        floor, or the default conducting boundary, e.g. a monopole on a ground with a PML on the other five
+        sides). The far field then mirrors the surface fields at that plane (image theory) and is zero behind
+        it: (E or H, axis, position, +1/-1 for the side the model is on). None if no side or more than one
+        side is open, or the open side is a symmetry plane (mirrored as such) or not flat."""
+        try:
+            nodes = np.asarray(self.m.mesh.nodes, float)
+        except Exception:  # noqa: BLE001
+            return None
+        lo, hi = vis.min(axis=1), vis.max(axis=1)
+        size = float(np.max(hi - lo)) or 1.0
+        tol = 1e-6 * size
+        nrm = wns / np.maximum(np.linalg.norm(wns, axis=0), 1e-300)
+        missing = []
+        for ax in range(3):
+            for side, pos in ((-1, lo[ax]), (1, hi[ax])):
+                on = (np.abs(vis[ax] - pos) < tol) & (np.abs(nrm[ax]) > 0.99)
+                if not on.any():
+                    missing.append((ax, side, float(pos)))
+        sym = {(ax, round(p / tol)) for _, ax, p in planes}
+        missing = [m for m in missing if (m[0], round(m[2] / tol)) not in sym]
+        if len(missing) != 1:
+            return None
+        ax, side, pos = missing[0]
+        # the meshed domain ends at that plane: the open surface stops at an outer boundary, not in the air
+        dom = nodes[ax].min() if side < 0 else nodes[ax].max()
+        if abs(dom - pos) > tol:
+            return None
+        kind = "E"
+        for b in self.design.boundaries:
+            if b.enabled and (b.kind == "Perfect H" or (b.kind == "Symmetry" and b.props.get("Type") == "Perfect H")):
+                try:
+                    _, tags = self.selection_for(b)
+                    tri = np.asarray(self.m.mesh.get_triangles(tags), np.int64)
+                    pts = nodes[:, np.unique(np.asarray(self.m.mesh.tris)[:, tri])]
+                    if pts.size and np.all(np.abs(pts[ax] - pos) < tol):
+                        kind = "H"
+                except Exception:  # noqa: BLE001
+                    continue
+        info(f"Far field: infinite {'conducting' if kind == 'E' else 'magnetic'} ground plane at "
+             f"{'xyz'[ax]} = {pos * 1e3:.4g} mm (the far-field surface is mirrored there, no field behind it)")
+        return kind, ax, pos, -side
 
     def save_huygens(self, fields: list, label: str) -> bool:
         """E/H on the open boundary for post-processed far fields (infinite spheres can be
@@ -2682,20 +2805,20 @@ def _solver_stats(row: dict, step: int) -> None:
              f"{FACTOR['bytes'] / 2 ** 30:.2f} GB, peak memory {mem / 1024:.2f} GB")
 
 
-def aligned_delta(S_old: np.ndarray, S_new: np.ndarray) -> tuple[float, float, float]:
-    """Max |dS|, max d|S| and max dphase between passes, insensitive to port mode polarity flips."""
-    n = S_new.shape[0]
-    sgn = np.ones(n)
-    for j in range(1, n):
-        ref = S_new[0, j] * np.conj(S_old[0, j])
-        if abs(S_old[0, j]) > 1e-6 and ref.real < 0:
-            sgn[j] = -1.0
-    S_al = S_old * np.outer(sgn, sgn)
-    d = float(np.max(np.abs(S_new - S_al)))
-    dm = float(np.max(np.abs(np.abs(S_new) - np.abs(S_al))))
+def aligned_delta(S_old: np.ndarray, S_new: np.ndarray, track=None) -> tuple[float, float, float]:
+    """Max |dS|, max d|S| and max dphase between passes, insensitive to the sign (phase) and order of port
+    modes: S_new is compared in the gauge closest to S_old (port_modes.gauge_aligned; track = the match of the
+    port mode fields with the previous pass)."""
+    from .port_modes import gauge_aligned
+    S_old, S_new = np.asarray(S_old, complex), np.asarray(S_new, complex)
+    if S_old.shape != S_new.shape:
+        return float("inf"), float("inf"), 180.0
+    S_al = gauge_aligned(S_old, S_new, track)
+    d = float(np.max(np.abs(S_al - S_old)))
+    dm = float(np.max(np.abs(np.abs(S_al) - np.abs(S_old))))
     with np.errstate(all="ignore"):
-        ph = np.angle(S_new / np.where(np.abs(S_al) > 1e-12, S_al, 1)) * 180 / np.pi
-    ph[np.abs(S_new) < 1e-6] = 0
+        ph = np.angle(S_al / np.where(np.abs(S_old) > 1e-12, S_old, 1)) * 180 / np.pi
+    ph[(np.abs(S_al) < 1e-6) | (np.abs(S_old) < 1e-6)] = 0
     return d, dm, float(np.max(np.abs(ph)))
 
 
@@ -2721,6 +2844,8 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     # reached its own Max Delta S
     broadband = p.get("SolutionFrequencyMode") == "Broadband" and len(fa) > 1
     use_mat = p.get("UseMatrixConvergence") == "True"
+    # Delta S of the complex S-parameters (default) or of their magnitudes only
+    on_mag = p.get("DeltaSQuantity", "Complex S") == "Magnitude |S|"
     max_dm = float(p.get("MaxDeltaMag", "0.02")) if use_mat else float("inf")
     max_dp = float(p.get("MaxDeltaPhase", "2")) if use_mat else float("inf")
     use_pow = power is not None and p.get("UsePowerBalance") == "True"
@@ -2773,13 +2898,17 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         info(f"Continuing the adaptive analysis from pass {first} ({m.mesh.n_tets} tetrahedra)")
     t_pass = time.time()
     last = None
+    from .port_modes import ModeTracker
+    tracker = ModeTracker()       # the port modes of every pass, matched to those of the previous pass
     for step in range(first, maxp + 1):
         if (out / "ABORT").exists():
             warn("Adaptive meshing aborted by user")
             break
         emit("progress", value=12 + 40 * (step - 1) / maxp, text=f"Adaptive pass {step} of max {maxp}")
+        warn_memory_before_solve(f"Pass {step}", m.mesh.n_tets, passes[-1]["tets"] if passes else 0)
         m.data.sim.new(iter_step=step)
         fields, Ss = [], []
+        samples = None
         solve_ids = None
         z0 = np.array([50.0])
         for sf in fa:
@@ -2793,6 +2922,11 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
             except Exception:  # noqa: BLE001
                 pass
             _record_port_data(data.scalar[-1], sf, m)
+            if sf == fa[0] and TERMINALS is None:
+                try:
+                    samples = tracker.sample(m, sf)
+                except Exception:  # noqa: BLE001
+                    samples = None
             if TERMINALS is not None:
                 # convergence and results on the terminal S-parameters (unique for degenerate port modes)
                 Ss[-1] = TERMINALS.transform([sf], Ss[-1][None], list(data.scalar[-1]._portnumbers), DEEMBED)[0]
@@ -2820,8 +2954,13 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
                 prev = passes[-1].get("eff") if passes else None
                 if prev is not None and len(prev) == len(pw["eff"]):
                     row["delta_eff"] = max(abs(a - b) for a, b in zip(prev, pw["eff"]))
+        track = tracker.match(samples) if samples is not None else None
+        if track is not None and track[1]:
+            info(f"Pass {step}, port modes matched by their fields: " + "; ".join(track[1]))
         if S_prev is not None:
-            ds = [aligned_delta(a, b) for a, b in zip(S_prev, Ss)]
+            ds = [aligned_delta(a, b, track if len(fa) == 1 or k == 0 else None) for k, (a, b) in enumerate(zip(S_prev, Ss))]
+            if on_mag:
+                ds = [(d[1], d[1], d[2]) for d in ds]
             row["delta_s"] = max(d[0] for d in ds)
             row["delta_mag"] = max(d[1] for d in ds)
             row["delta_phase"] = max(d[2] for d in ds)
@@ -2856,9 +2995,11 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         need, avail = memory_forecast(m.mesh.n_tets * (1 + pct / 100.0), m.mesh.n_tets)
         # the frequency sweep on the final mesh needs more than its adaptive pass (measured: peak of the
         # whole solve 1.23x the peak of the last pass), so the next pass must leave room for it. The
-        # forecast itself errs on the safe side (n^(4/3)), hence 90 % of the memory instead of 85 %.
+        # forecast itself errs on the safe side (n^(4/3)), and the usable memory already leaves out what other
+        # programs hold, hence 95 % of it (90 % of it stopped the hairpin filter on a 16 GB machine a pass
+        # before 0.3.30, whose pass fitted with room to spare: forecast 13.9 GB, peak 12.0 GB of 15.7 GB).
         need *= SWEEP_MEMORY_FACTOR
-        if avail and need > 0.9 * avail:
+        if avail and need > GUARD_FRACTION * avail:
             warn(f"Stopping refinement: the next pass and the frequency sweep on its mesh would need about "
                  f"{need / 2**30:.1f} GB of memory, {avail / 2**30:.1f} GB available. "
                  f"Reduce Maximum Refinement or use coarser settings.")
@@ -2901,6 +3042,16 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         if grow is None and method.startswith(AURA_METHODS):
             grow = _refine_aura(m, error, pct, step)
         if grow is not None:
+            bad = mesh_defects(m)
+            if bad:
+                # a local refinement that left a mesh the solver cannot use (thin slots, folded channels):
+                # this pass is re-meshed instead, the following ones refine locally again
+                warn(f"Pass {step}: the locally refined mesh is not usable ({bad}); re-meshing the model "
+                     "with the current element sizes instead")
+                m._local_mesh = None
+                m._aura_mesh = None
+                grow = None
+        if grow is not None:
             pass
         elif method.startswith("Remesh (stable") or method.startswith("Local") or method.startswith(AURA_METHODS):
             grow = _refine_stable(m, error, lengths, pct, growth, step, snap)
@@ -2933,6 +3084,9 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
                 grow = (m.mesh.n_tets / last_n - 1) * 100
         info(f"Pass {step + 1}: mesh refined to {m.mesh.n_tets} tetrahedra (+{grow:.1f}%) "
              f"in {time.time() - t_ref:.2f} s")
+        bad = mesh_defects(m)
+        if bad:
+            warn(f"Pass {step + 1}: the refined mesh has defects ({bad}); its solve may fail or give NaN")
         last_n = m.mesh.n_tets
     if not converged and passes and passes[-1].get("power_balance", 0) > max_pb:
         warn(f"Power balance {100 * passes[-1]['power_balance']:.2g} % of the incident power after the last pass "
@@ -3430,6 +3584,40 @@ def remesh_degenerate(m, tries: int = 5) -> None:
         gmsh.model.mesh.generate = generate
 
 
+def mesh_defects(m) -> str:
+    """What is wrong with the current mesh of m for a solve, "" when nothing: tetrahedra without volume (their
+    element matrices hold NaN, the solve is void and the error estimate fails) and wave port faces whose nodes
+    left the port plane or whose triangles are missing (the port mode is solved on that face mesh)."""
+    from .bisect import mesh_quality
+    out = []
+    try:
+        q = mesh_quality(m)
+        bad = np.flatnonzero(~(q >= DEGENERATE_QUALITY))
+        if len(bad):
+            out.append(f"{len(bad)} tetrahedra without volume (e.g. tet {int(bad[0])}, quality {float(q[bad[0]]):.1e})")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from emerge._emerge.physics.microwave.bcs.port_bcs import ModalPort
+        X = np.asarray(m.mesh.nodes)
+        scale = float(np.ptp(X, axis=1).max()) or 1.0
+        for bc in m.mw.bc.oftype(ModalPort):
+            tags = list(bc.selection.tags)
+            ids = [i for t in tags for i in m.mesh.ftag_to_tri.get(t, [])]
+            if not ids or any(i is None for i in ids):
+                out.append(f"wave port {bc.port_number}: face triangles missing")
+                continue
+            P = X[:, np.unique(m.mesh.get_nodes(tags))].T
+            c = P.mean(axis=0)
+            nrm = np.linalg.svd(P - c, full_matrices=False)[2][-1]
+            off = float(np.abs((P - c) @ nrm).max())
+            if off > 1e-6 * scale:
+                out.append(f"wave port {bc.port_number}: face nodes up to {off * 1e3:.3g} mm off the port plane")
+    except Exception:  # noqa: BLE001
+        pass
+    return "; ".join(out)
+
+
 def keep_global_max_size(m) -> None:
     """Keep gmsh's global maximum element size (Mesh.MeshSizeMax, a quarter of the model diagonal from the
     geometry build) for the solver mesh. EMerge 2.8.9 left the option alone, so it limited the initial mesh
@@ -3573,9 +3761,64 @@ def available_memory() -> float:
     return total
 
 
+def usable_memory() -> float:
+    """Memory this process can grow into (bytes): its own resident memory plus what the system has free, at
+    most the physical memory (or the container limit). Other programs, another Hertzon window or a second
+    analysis on the same machine or cloud server take their share; available_memory() alone counted the
+    whole memory for every process, so two analyses on one 32 GB server both planned with 32 GB and the
+    operating system killed one. 0 when unknown."""
+    total = available_memory()
+    own = _current_rss()
+    free = _system_free_memory()
+    if free <= 0:
+        return total
+    try:
+        # in a container the system figure is the host's: what the processes of the container hold
+        # (anonymous memory; the page cache is given back on demand) counts against its limit
+        for line in Path("/sys/fs/cgroup/memory.stat").read_text(encoding="utf-8").splitlines():
+            if line.startswith("anon ") and total > 0:
+                free = min(free, max(0.0, total - float(line.split()[1])))
+                break
+    except (OSError, ValueError):
+        pass
+    usable = own + free
+    return min(total, usable) if total > 0 else usable
+
+
+def _system_free_memory() -> float:
+    """Memory the system can hand out now (bytes; Linux MemAvailable, Windows ullAvailPhys), 0 if unknown."""
+    try:
+        import psutil
+        return float(psutil.virtual_memory().available)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("MemAvailable:"):
+                    return float(line.split()[1]) * 1024
+    except OSError:
+        pass
+    try:
+        import ctypes
+
+        class MS(ctypes.Structure):
+            _fields_ = [("l", ctypes.c_ulong), ("load", ctypes.c_ulong), ("total", ctypes.c_ulonglong),
+                        ("avail", ctypes.c_ulonglong), ("a", ctypes.c_ulonglong), ("b", ctypes.c_ulonglong),
+                        ("c", ctypes.c_ulonglong), ("d", ctypes.c_ulonglong), ("e", ctypes.c_ulonglong)]
+        ms = MS()
+        ms.l = ctypes.sizeof(MS)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms))  # type: ignore[attr-defined]
+        return float(ms.avail)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 # peak memory of the frequency sweep on the final mesh relative to the peak of its adaptive pass (Patch
 # 245 MHz, 30k tetrahedra: 6.25 GB vs 5.08 GB; Hairpin, 66k: a 12.0 GB pass, sweep out of memory at 15.7 GB)
 SWEEP_MEMORY_FACTOR = 1.25
+# share of the usable memory (own process + free) the next adaptive pass and the sweep may plan with
+GUARD_FRACTION = 0.95
 
 
 def memory_forecast(next_tets: float, cur_tets: int) -> tuple[float, float]:
@@ -3589,7 +3832,23 @@ def memory_forecast(next_tets: float, cur_tets: int) -> tuple[float, float]:
         per_tet = max(per_tet * 0.5, peak / cur_tets)
         if next_tets > cur_tets:
             per_tet *= (next_tets / cur_tets) ** (1.0 / 3.0)
-    return next_tets * per_tet, available_memory()
+    return next_tets * per_tet, usable_memory()
+
+
+def warn_memory_before_solve(what: str, n_tets: int, solved_tets: int = 0) -> bool:
+    """Warn before a solve whose memory forecast exceeds the free memory (the operating system would end the
+    solver without a message). solved_tets: the mesh of the last solve, whose peak the forecast learns from.
+    True when it warned."""
+    try:
+        need, avail = memory_forecast(n_tets, solved_tets or n_tets)
+    except Exception:  # noqa: BLE001
+        return False
+    if not avail or need <= 0.95 * avail:
+        return False
+    warn(f"{what}: solving {n_tets} tetrahedra needs about {need / 2 ** 30:.1f} GB of memory, "
+         f"{avail / 2 ** 30:.1f} GB are free. The operating system may end the solver for lack of memory; "
+         f"lower 'Maximum Refinement', use a coarser initial mesh or close other programs.")
+    return True
 
 
 def tet_statistics(nodes: np.ndarray, tets: np.ndarray) -> dict:
@@ -4275,12 +4534,26 @@ def run(project_path: str, design: str, setup: str, out_dir: str) -> int:
                 pass
         return 130
     except Exception as ex:  # noqa: BLE001
-        emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")
-        emit("traceback", text=traceback.format_exc())
+        msg, tb = failure_message(ex), traceback.format_exc()
+        emit("log", level="error", msg=f"{type(ex).__name__}: {msg}")
+        emit("traceback", text=tb)
         if not os.environ.get("HERTZON_TUNING"):
             try:
-                ResultStore(Path(out_dir)).write_json("status.json", {"state": "failed", "error": str(ex)})
+                ResultStore(Path(out_dir)).write_json("status.json", {
+                    "state": "failed", "error": msg, "step": _PROGRESS.get("text") or "",
+                    "traceback": tb[-6000:]})
             except Exception:  # noqa: BLE001
                 pass
-        emit("failed", error=str(ex))
+        emit("failed", error=msg)
         return 1
+
+
+def failure_message(ex: BaseException) -> str:
+    """The message of a failed analysis: the error itself and the step it happened in (the last progress
+    text, e.g. "Pass 3: refining the mesh"), so a crash of the mesh refinement does not read like a problem
+    of the ports or the solver."""
+    msg = str(ex) or type(ex).__name__
+    step = (_PROGRESS.get("text") or "").strip()
+    if step and step not in msg:
+        msg = f"{msg} (in step '{step}')"
+    return msg
