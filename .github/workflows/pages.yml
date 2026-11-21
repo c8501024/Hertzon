@@ -9,7 +9,7 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ["site/**", "docs/**", "CHANGELOG.md", "hertzon/gui/splash.jpg", ".github/workflows/pages.yml"]
+    paths: ["site/**", "docs/**", "claude-plugin/README.md", "CHANGELOG.md", "hertzon/gui/splash.jpg", ".github/workflows/pages.yml"]
   workflow_dispatch:
   schedule:
     - cron: "17 * * * *"   # hourly, catches what no event reports (e.g. check results on pull requests)

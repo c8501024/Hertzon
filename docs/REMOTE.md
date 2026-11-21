@@ -166,6 +166,16 @@ connection is encrypted and checked from the first packet. The remote service li
 Hertzon uses the `ssh` and `ssh-keygen` programs of the operating system (Windows 10 and later: *OpenSSH
 Client*, normally installed; Linux: `openssh-client`).
 
+### AI assistants and cloud servers
+
+Through the MCP tool `cloud` an AI assistant can see where the analyses of a window run, pick this computer, the
+remote computer or the cloud, give a window a server of its own (`own_server`, so the parts of a larger design
+solve in parallel on several servers) and delete the window's server. It uses the same account, leases and
+`cloud/events.log` as the windows. The Claude plugin's skills tell the assistant to estimate time and cost first
+and to start servers only when you agree, but it may start them anyway: **while an assistant works with a cloud
+account set up, keep an eye on the servers, their cost and their running time** (status bar, *Check Account*,
+`cloud/events.log`). Without a cloud account, an assistant cannot create servers.
+
 ### Amazon Web Services (AWS)
 
 *Untested with a real account; see the note above.*

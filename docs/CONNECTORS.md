@@ -117,7 +117,7 @@ IEC 61169. The support bead has the necked centre conductor that keeps it at 50 
 neck; 2.4 mm: 0.546 mm). Body, clamp block and bead positions are typical values, because the vendors publish them
 only as drawings; only the faces that touch the field matter. The launch pin and launch dielectric of clamp
 connectors come from the data sheets (Southwest Microwave: 0.010/0.0635 in, 0.007/0.039 in, 0.005/0.029 in).
-Exact vendor models (STEP, encrypted HFSS models) can be imported as geometry instead.
+Exact vendor models (STEP files) can be imported as geometry instead.
 
 ## Scripting and MCP
 

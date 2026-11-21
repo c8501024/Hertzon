@@ -43,7 +43,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Selection modes Object (O), Face (F), Edge (E), Vertex (V), select by name, Ctrl+A | ✔ | ✔ | |
 | Box selection (left drag, Ctrl + drag adds) | 3D view | ✔ | Selects what lies completely inside; a group only when all members are inside |
 | Units, grid, measure, fit all / fit selection, views, ortho/perspective | View / Modeler | ✔ | Grid and axis triad stay at the origin of the working CS |
-| Material library (Edit Materials, add/clone) | Tools > Edit Materials | ✔ | εr, μr, σ, tan δ, magnetic tan δ; frequency-dependent materials ✖ |
+| Material library (Edit Materials, add/clone) | Tools > Edit Materials | ✔ | εr, μr, σ, tan δ, magnetic tan δ (all as columns of Select Definition, tensors for anisotropic materials); frequency-dependent materials ✖ |
 | User coordinate systems (Relative CS, Face CS, Object CS) | Modeler > Coordinate System | ✔ | Working CS for drawing, grid and Split |
 
 ## Boundaries
@@ -69,6 +69,8 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Wave Port (modes, Zpi/Zpv/Zvi, renormalize, de-embed) | Wave Port | ✔ | De-embedding uses the solved port propagation constant; with several modes every mode is absorbed with its own propagation constant (Gamma and Zo per mode); more modes than the port face carries stop with a message naming the port; an Integration Line per mode (Modes tab of the port dialog, New Line... in the 3D view) sets the voltage line and Zo of that mode (with more than two conductors on the port face and no line, Hertzon takes the narrowest to the largest one) |
 | Lumped Port (impedance, integration line) | Lumped Port | ✔ | Integration line placed automatically between the touching conductors, or drawn in the 3D view; it moves, rotates, mirrors and scales with its sheet |
 | Floquet Port | Floquet Port | ◐ | TE00 and TM00 of the periodic cell, port normal to z, in air or vacuum. Higher Floquet modes ✖; at oblique incidence TM00 is absorbed with the TE00 propagation constant (only TE00 exact) |
+| Port mode labels | Wave Port | ✔ | Every mode named after its type, the rectangular guide mode it resembles and beta, e.g. "P1 M2 (TE10-like, beta 72.3 rad/m)", in field plots, Edit Sources and the plot titles |
+| Edge-launch connectors (SMA, 2.92 mm, 2.4 mm; 131 parts) | Connectors > Real Connector at a lumped port | ✔ | Ideal, Transition (connector solved once and cascaded) or Full 3D (wave port with a PEC cap at the mating plane) ([CONNECTORS.md](CONNECTORS.md)) |
 | Incident Plane Wave | Incident Plane Wave | ✔ | Scattered-field formulation with a radiation boundary, RCS (monostatic and bistatic); one plane wave per design, ignored while ports are present |
 
 ## Mesh operations
@@ -87,7 +89,8 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 |---|---|---|
 | Solution frequency: Single / Multi-Frequencies / Broadband | ✔ |
 | Maximum Number of Passes | ✔ |
-| Maximum Delta S | ✔ (port-mode sign aligned) |
+| Maximum Delta S | ✔ of the complex S-parameters (default) or of |S| only (*Delta S of*); port modes matched between passes by their field overlap |
+| Memory guard | ✔ the adaptive meshing stops before a pass that would not fit into 95 % of the usable memory (incl. the frequency sweep); a warning before an analysis whose last run needed more memory than is free |
 | Use Matrix Convergence (ΔMag, ΔPhase) | ✔ |
 | Minimum Number of Passes, Minimum Converged Passes | ✔ |
 | Percent Refinement per pass | ✔ (enforced, adaptive error-driven refinement) |
@@ -139,8 +142,10 @@ Details in [CIRCUIT.md](CIRCUIT.md).
 | Expressions `dB(S(1,1))`, `VSWR`, `GroupDelay`, `Z`, `Y`, `Zo`, `Gamma`, mixed-mode `S(Diff1,Comm1)`, `ang_deg`, `re`, `im` | ✔ (also as named equations, e.g. `RL = -dB(S(1,1))`, category Equations) |
 | Units on report axes, data tables, CSV export and colour bars | ✔ |
 | Radiation: Infinite Sphere, 2D pattern cuts, 3D polar plot, Gain / Directivity / Realized gain, Eθ/Eφ, markers, beamwidth and side lobes | ✔ (half and quarter models with Symmetry boundaries are mirrored); *Families* of a parametric setup in pattern, antenna parameter and 3D polar reports |
+| Far field over an infinite ground plane | ✔ a far-field surface open at one flat outer face with a conducting floor is mirrored there (image theory); zero field behind it |
 | Loss power, radiation efficiency Prad / (Prad + Ploss), power balance | ✔ Antenna Parameters, report quantities `LossPower`, `PowerBalance`; optional power balance convergence in the setup |
 | Field overlays on faces, objects and cut planes: Mag, Complex Mag and Vector of E, H, Jsurf and J (volume current sigma E), phase animation | ✔ (with nothing selected, the faces or objects are picked in the 3D view) |
+| Near Field Line: E and H along a line (`Mag_E`, `ComplexMag_E`, `E_X` ... `H_Z`; mag, dB, re, im, ang) | ✔ Results > Create Near Fields Report > Line; field names as in Plot Fields, phase slider and animation for the components, markers, right-click > *Skin Depth* (exponential fit of the decay) |
 | Volume field plots (scalar field through a solid as coloured dots) | ✔ Plot on "(selection, inside solids)" |
 | Export Touchstone, CSV, images | ✔ (CSV and Copy Data hold the curves as drawn, in the units of the axes) |
 | Export Gerber X2 (copper layers, profile) and Excellon (PTH / NPTH), File > Export > Gerber ([details](GERBER_EXPORT.md)) | ✔ |
@@ -162,6 +167,10 @@ Details in [CIRCUIT.md](CIRCUIT.md).
 | Solve on another computer / in the cloud | ◐ experimental: computer in the local network (remote service, pairing code) or a cloud server created per session (Hetzner Cloud; Amazon Web Services, Google Cloud, Microsoft Azure untested); **Solve on** in the status bar ([REMOTE.md](REMOTE.md)) |
 
 ## Extras
+
+* **AI assistants (MCP):** an MCP server with 62 tools for Claude Code, the Claude desktop app, Codex and VS Code
+  (modelling, solving, results, Fields Calculator values, power budget, optimizers, tuning, circuits, board, cloud
+  targets), plus a **Claude plugin** with four skills, two commands and a results pane ([MCP.md](MCP.md)).
 
 * **File > Export > EMerge Python Script**: writes a stand-alone script that rebuilds the same EMerge model
   and runs the setup (or stops after meshing for custom scripting).

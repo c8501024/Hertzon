@@ -65,9 +65,6 @@ jobs:
           {
             echo
             echo 'Windows installer (`Hertzon-Setup-*.exe`) and Linux package (`Hertzon-*-linux.tar.gz`).'
-            echo
-            echo 'The FEM solver core of Hertzon is [EMerge](https://github.com/FennisRobert/EMerge), the open-source'
-            echo 'FEM solver by Robert Fennis.'
           } >> notes.md
           cat notes.md
       - name: Publish release
