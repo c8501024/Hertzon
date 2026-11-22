@@ -29,7 +29,7 @@ from . import facematch
 from . import sparta_setup
 from . import port_modes as PM
 from .results import ResultStore, port_entries, deembed_renormalize, running_status
-from .sweeps import sweep_frequencies  # noqa: F401  (re-exported: bridge.sweep_frequencies)
+from .sweeps import single_point_warning, sweep_frequencies  # noqa: F401  (re-exported: bridge.sweep_frequencies)
 from .emerge_compat import amr as _amr
 
 C0 = 299792458.0
@@ -2524,6 +2524,9 @@ class Bridge:
                 mt_pardiso = None
             p = sw.props
             fr = sweep_frequencies(p, ev)
+            one = single_point_warning(p, fr)
+            if one:
+                warn(f"Sweep '{sw.name}' {one}")
             for nm, z in self.touchstone_elements:
                 if len(fr) and (fr.min() < z.f[0] * (1 - 1e-9) or fr.max() > z.f[-1] * (1 + 1e-9)):
                     warn(f"{nm}: sweep '{sw.name}' goes beyond the Touchstone data ({z.f[0] / 1e9:g} to "

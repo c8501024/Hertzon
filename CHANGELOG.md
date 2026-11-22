@@ -3,6 +3,15 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+- **A sweep's Count is no longer ignored.** An assistant that set `SweepType` Discrete, Start, Stop and `Count` 9
+  without `Distribution` kept the default "Linear Step" with Step 0.1GHz: over 2.4 to 2.485 GHz that solved one
+  frequency, silently. `set_sweep`/`set_setup` now pick the distribution that uses Count, Step, SamplesPerDecade or
+  Points, refuse a property the given distribution does not use, show only the properties that apply and report
+  the number of frequencies. A sweep over a range that solves one frequency is warned about in Validate, by the
+  MCP tools and in the Message Manager when it runs.
+
 ## 0.4.0 (2026-11-21)
 
 Hertzon 0.4 marks the step to designing with an AI assistant. Its MCP server lets an assistant such as Claude Code
