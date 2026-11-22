@@ -38,13 +38,14 @@ between, and **Ctrl+Z** undoes any of its changes. The full list of tools is in 
 ## The Claude plugin: how to use the tools
 
 The MCP server gives an assistant the tools; for Claude Code, Hertzon also ships a **plugin** that tells it how
-to use them: in which order to work and what to check before it trusts a result. It is installed together with
+to use them: what Hertzon offers, how to read its results and what to check before it trusts them; the approach
+stays the assistant's own. It is installed together with
 the MCP server (**Register** next to Claude Code), loads from your Hertzon folder and is updated with Hertzon
 ([details](../claude-plugin/README.md), [tutorial 5.4](TUTORIAL.md#54-the-claude-plugin-optional)).
 
 | Part | What it adds |
 |---|---|
-| Skill `hf-design-loop` | the design workflow: the goal in a design log, a start from the Design Wizard or an example, a baseline, one idea at a time with sweeps, derivative tuning and optimizers, several concepts kept alive for demanding goals, verification and a report with the time per step |
+| Skill `hf-design-loop` | what Hertzon offers for a design: design assistants and tuning for simple structures, broad batched search for demanding ones, systems of many parts assembled on the board (`board`) with a serial and parallel cloud estimate (`cloud`), coarse setups, convergence reported to the user |
 | Skill `circuit-first` | multi-fidelity for planar circuits: design and optimize in the circuit, then check and correct in full wave with a few 3D solves; systems of several parts assembled on the board |
 | Skill `antenna-design` | open region, feeds, adaptive frequencies for several bands, far-field efficiency instead of S11 alone, how to extend a design that meets one band but not the other |
 | Skill `results-check` | mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis |

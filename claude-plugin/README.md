@@ -2,15 +2,16 @@
 
 [Hertzon](https://github.com/c8501024/hertzon) is an open electromagnetic design suite (3D full-wave FEM with
 adaptive meshing, circuits, PCBs). Its MCP server lets an AI assistant build and solve models. This plugin adds
-the know-how on top: in which order to work and what to check before trusting a result.
+the know-how on top: what Hertzon offers, how to read its results and what to check before trusting them. The
+approach stays the assistant's own; the skills set no fixed order of steps.
 
 | Part | Name | What it does |
 |---|---|---|
-| Skill | `hf-design-loop` | Design workflow: goal in a design log, start from a Design Wizard or example, baseline, one idea at a time with sweeps, derivative tuning and optimizers, verification, report with time per step |
+| Skill | `hf-design-loop` | What Hertzon offers for a design: design assistants and tuning for simple structures, broad batched search for demanding ones, systems of many parts assembled on the board (`board`) with a serial and parallel cloud estimate (`cloud`), coarse setups, convergence reported to the user |
 | Skill | `circuit-first` | Multi-fidelity for planar circuits: design and optimize in the circuit (Design Wizard or a schematic of your own), then check and correct in full wave with a few 3D solves; systems of several parts; active circuits |
 | Skill | `antenna-design` | Open region, feeds, adaptive frequencies for several bands, far-field efficiency, typical tuning knobs |
 | Skill | `results-check` | Mesh convergence, ports, power balance, efficiency split, counter tests, confirmed cause versus hypothesis |
-| Command | `/hertzon:design <spec>` | Runs the workflow for a specification |
+| Command | `/hertzon:design <spec>` | Designs a structure from a specification, verified and with a report |
 | Command | `/hertzon:verify` | Checks the open design without changing it |
 | Pane | Hertzon | Every picture Hertzon draws for the assistant (`show_result`, `render_image`): reports, field plots, 3D view, convergence, as shown in Hertzon; `/hertzon-results` opens it |
 | Status | above the prompt | Adaptive pass, tetrahedra and Delta S of a running analysis |
