@@ -341,6 +341,10 @@ the `claude` command; *Remove* takes both away again). Without the `claude` comm
 
 Details: [claude-plugin/README.md](claude-plugin/README.md).
 
+> 🧪 **Experimental.** The plugin and its skills are still experimental: how well a design turns out depends on
+> the assistant, its model and the task, and an assistant can still miss a goal or stop early. Research into
+> better results is ongoing, and the skills change with it.
+
 > ⚠️ **Keep an eye on cloud servers.** With the MCP server and the plugin, an assistant can set up and run large
 > projects on its own and use the computing resources efficiently, for example several variants side by side. When
 > a cloud account (Hetzner or another provider) is set up in Hertzon, it can also start analyses on cloud servers.
