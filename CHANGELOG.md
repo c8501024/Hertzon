@@ -17,6 +17,12 @@ the GitHub release notes.
   Points, refuse a property the given distribution does not use, show only the properties that apply and report
   the number of frequencies. A sweep over a range that solves one frequency is warned about in Validate, by the
   MCP tools and in the Message Manager when it runs.
+- **`get_tuning` no longer says "not computed" for a tuning model that failed.** With Hertzon open, a model asked
+  for by `compute_tuning` that ended without a result (for example a variable the mesh cannot follow) was reported
+  as "not computed", without the error, and `wait_seconds` did not wait; an assistant took that as "the tuning does
+  not work" and switched to a parametric sweep. The solver now writes the state of each tuning model next to it;
+  `get_tuning` reports "failed" with the error and the step, keeps waiting while the window is busy, and an older
+  model no longer reads as the new one while it is being computed.
 
 ## 0.4.0 (2026-11-21)
 

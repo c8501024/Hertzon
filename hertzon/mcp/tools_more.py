@@ -414,8 +414,19 @@ def t_compute_tuning(args):
         raise ToolError(f"Analyze {setup} first (with the current design): the derivatives are computed on its "
                         "adaptive mesh")
     tune = json.dumps({"sweep": sweep, "variables": variables, "points": points})
+    from ..solver.tuning import write_tuning_status
     if ctx.gui is not None:
-        r = ctx.gui.call("tuning", design=d.name, setup=setup, tuning=tune)
+        p = path.parent
+        try:
+            path.unlink(missing_ok=True)    # an older model would read as the new one while this one is computed
+        except OSError:
+            pass
+        write_tuning_status(p, sweep, "queued", variables=variables)
+        try:
+            r = ctx.gui.call("tuning", design=d.name, setup=setup, tuning=tune)
+        except Exception:
+            write_tuning_status(p, sweep, "not computed")
+            raise
         return {"started": True, "in_window": True, **(r or {}),
                 "next": "get_tuning with wait_seconds until the model is there, then get_tuning(values=...)"}
     p = S.procs.get(str(path))
@@ -423,6 +434,7 @@ def t_compute_tuning(args):
         raise ToolError("This tuning model is being computed already")
     path.unlink(missing_ok=True)
     out = path.parent
+    write_tuning_status(out, sweep, "queued", variables=variables)
     env = dict(os.environ)
     env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     env.update(PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8", PYTHONUTF8="1", HERTZON_TUNING=tune,
@@ -440,23 +452,54 @@ def t_compute_tuning(args):
             "next": "get_tuning with wait_seconds until the model is there, then get_tuning(values=...)"}
 
 
-def _tuning_state(ctx: Ctx, setup: str, sweep: str, path: Path) -> str:
+def _alive(pid) -> bool:
+    try:
+        import psutil
+        pr = psutil.Process(int(pid))
+        return pr.status() != "zombie" and "hertzon.solver.run" in " ".join(pr.cmdline())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _tuning_state(ctx: Ctx, setup: str, sweep: str, path: Path) -> tuple[str, dict]:
+    """(state, details) of the tuning model of a sweep: running, queued, done, failed or not computed.
+    A job of the window that ended without a model is "failed" (with its error when the solver wrote one),
+    not "not computed": that reads as if the model had never been asked for."""
+    from ..solver.tuning import read_tuning_status
+    st = read_tuning_status(path.parent, sweep)
     p = S.procs.get(str(path))
     if p is not None and p.poll() is None:
-        return "running"
+        return "running", {}
     if ctx.gui is not None:
         try:
             q = ctx.gui.call("queue", timeout=10)
         except live.LinkError:
+            q = None
+        if q is None:
+            # the window does not answer (busy): a requested model is still on its way
+            if st.get("state") in ("queued", "running") and not path.exists():
+                return "running", {"note": "the Hertzon window did not answer; the model is still being computed"}
             q = {}
         key = f"{Path(ctx.proj.path).stem} - {ctx.des.name} - {setup} : tuning {sweep}"
         if q.get("running") == key:
-            return "running"
+            return "running", {}
         if key in (q.get("queued") or []):
-            return "queued"
+            return "queued", {}
+    if st.get("state") == "failed":
+        det = {"error": st.get("error") or "the tuning model failed"}
+        if st.get("step"):
+            det["failed_in"] = st["step"]
+        if st.get("traceback"):
+            det["traceback_tail"] = st["traceback"][-1500:]
+        return "failed", det
     if path.exists():
-        return "done"
-    return "failed" if p is not None else "not computed"
+        return "done", {}
+    if st.get("state") == "running" and _alive(st.get("pid")):
+        return "running", {}        # e.g. started by an earlier MCP server
+    if p is not None or st.get("state") in ("queued", "running"):
+        return "failed", {"error": "the tuning job ended without a model (aborted, or the solver stopped); see the "
+                                   "Message Manager of the Hertzon window or tuning.log"}
+    return "not computed", {}
 
 
 def t_get_tuning(args):
@@ -468,13 +511,13 @@ def t_get_tuning(args):
     wait = max_wait(args.get("wait_seconds"))
     t0 = time.time()
     while True:
-        state = _tuning_state(ctx, setup, sweep, path)
+        state, details = _tuning_state(ctx, setup, sweep, path)
         if state not in ("running", "queued") or time.time() - t0 >= wait:
             break
         if not pause(min(3.0, max(0.2, wait - (time.time() - t0)))):
             break
     if state != "done":
-        res = {"setup": setup, "sweep": sweep, "state": state}
+        res = {"setup": setup, "sweep": sweep, "state": state, **details}
         logf = path.parent / "tuning.log"
         if state == "failed" and logf.exists():
             res["log"] = logf.read_text(encoding="utf-8", errors="replace").splitlines()[-12:]
