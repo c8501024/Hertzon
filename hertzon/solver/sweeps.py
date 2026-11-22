@@ -36,3 +36,13 @@ def sweep_frequencies(props: dict[str, str], ev: Evaluator) -> np.ndarray:
         raise ValueError("Sweep step must be positive")
     n = int(math.floor((f2 - f1) / step + 1e-9)) + 1
     return f1 + step * np.arange(n)
+
+
+def single_point_warning(props: dict[str, str], freqs) -> str:
+    """Text when a sweep over a range (Start < Stop) solves only one frequency, else "". Linear Step with a step
+    wider than the range does that (the default Step 0.1GHz over 2.4-2.485GHz)."""
+    if (props.get("Distribution") or "Linear Step") == "Single Points" or len(freqs) != 1:
+        return ""
+    return (f"solves only one frequency ({freqs[0] / 1e9:.6g} GHz) although Start and Stop span a range: Step "
+            f"{props.get('Step', '')} is wider than Stop - Start. Use Distribution 'Linear Count' with Count, or a "
+            f"smaller Step")
