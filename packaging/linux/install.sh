@@ -28,8 +28,12 @@ echo "Python: $PY ($("$PY" --version 2>&1))"
 
 # ---- program files (an update replaces them; .venv stays) -------------------------------------------
 mkdir -p "$DEST"
-rm -rf "$DEST/hertzon" "$DEST/examples" "$DEST/docs"
+rm -rf "$DEST/hertzon" "$DEST/examples" "$DEST/docs" "$DEST/claude-plugin" "$DEST/.claude-plugin"
 cp -r "$SRC/hertzon" "$SRC/examples" "$SRC/docs" "$SRC/pyproject.toml" "$SRC/README.md" "$SRC/LICENSE" "$SRC/uninstall.sh" "$SRC/syscheck.sh" "$DEST/"
+# the Claude plugin, which Tools > AI Assistants (MCP) registers from this folder
+for d in claude-plugin .claude-plugin; do
+    if [ -d "$SRC/$d" ]; then cp -r "$SRC/$d" "$DEST/"; fi
+done
 
 # ---- Python environment -----------------------------------------------------------------------------
 if [ ! -x "$DEST/.venv/bin/python" ]; then

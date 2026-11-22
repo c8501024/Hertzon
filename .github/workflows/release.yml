@@ -64,7 +64,7 @@ jobs:
             on && !/^## / { print }' CHANGELOG.md > notes.md
           {
             echo
-            echo 'Windows installer (`Hertzon-Setup-*.exe`) and Linux package (`Hertzon-*-linux.tar.gz`).'
+            echo 'Windows installer (`Hertzon-Setup-*.exe`), Linux package (`Hertzon-*-linux.tar.gz`) and macOS package for Apple Silicon (`Hertzon-*-macos-arm64.tar.gz`).'
           } >> notes.md
           cat notes.md
       - name: Publish release
@@ -77,3 +77,4 @@ jobs:
           files: |
             dist/Hertzon-Setup-*.exe
             dist/Hertzon-*-linux.tar.gz
+            dist/Hertzon-*-macos-arm64.tar.gz

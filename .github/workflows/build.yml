@@ -1,9 +1,11 @@
-# Builds the Windows installer and the Linux package and installs the Windows one on a clean Windows
-# machine with Python 3.13 (the full setup a user gets, packages included). Used by release.yml and
-# dev.yml; both files end up in one Actions artifact.
+# Builds the Windows installer, the Linux package and the macOS package (Apple Silicon), installs the Windows
+# one on a clean Windows machine and the macOS one on an Apple Silicon Mac, each with Python 3.13 (the full
+# setup a user gets, packages included). Used by release.yml and dev.yml; all files end up in one Actions
+# artifact. workflow_dispatch builds and checks them for a branch without publishing anything.
 name: Build
 
 on:
+  workflow_dispatch:
   workflow_call:
     inputs:
       artifact:
@@ -33,11 +35,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         id: upload
         with:
-          name: ${{ inputs.artifact }}
-          retention-days: ${{ inputs.retention-days }}
+          name: ${{ inputs.artifact || 'dist' }}
+          retention-days: ${{ inputs.retention-days || 0 }}
           path: |
             dist/Hertzon-Setup-*.exe
             dist/Hertzon-*-linux.tar.gz
+            dist/Hertzon-*-macos-arm64.tar.gz
 
   install-windows:
     needs: build
@@ -48,7 +51,7 @@ jobs:
           python-version: "3.13"
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.artifact }}
+          name: ${{ inputs.artifact || 'dist' }}
           path: dist
       - name: Run the installer silently (it runs setup.ps1 like on a user's machine)
         timeout-minutes: 40
@@ -204,3 +207,74 @@ jobs:
           $py = "$env:RUNNER_TEMP\Hertzon\.venv\Scripts\python.exe"
           & $py -c "import hertzon, hertzon.gui.main_window, hertzon.solver.run, emerge, hfsynpy; print('Hertzon', hertzon.__version__, 'imports ok')"
           if ($LASTEXITCODE -ne 0) { throw 'import check failed' }
+
+  install-macos:
+    needs: build
+    runs-on: macos-15            # Apple Silicon
+    timeout-minutes: 45
+    env:
+      HERTZON_NO_UPDATE_CHECK: "1"
+      HERTZON_NO_PRELOAD: "1"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact || 'dist' }}
+          path: dist
+      - name: Unpack the package (with the quarantine flag a browser download gets) and run install.sh
+        run: |
+          mkdir -p "$RUNNER_TEMP/pkg"
+          tar -C "$RUNNER_TEMP/pkg" -xzf dist/Hertzon-*-macos-arm64.tar.gz
+          cd "$RUNNER_TEMP"/pkg/Hertzon-*
+          find . -type f -exec xattr -w com.apple.quarantine "0081;00000000;Safari;" {} +
+          ./install.sh </dev/null
+      - name: Check Hertzon.app, the command and the .hzn file type
+        run: |
+          DEST="$HOME/Library/Application Support/Hertzon"
+          APP="$HOME/Applications/Hertzon.app"
+          plutil -lint "$APP/Contents/Info.plist"
+          test -x "$APP/Contents/MacOS/Hertzon"
+          test -s "$APP/Contents/Resources/hertzon.icns" || { echo "::error::no app icon"; exit 1; }
+          test -x "$HOME/.local/bin/hertzon"
+          test -f "$DEST/.claude-plugin/marketplace.json"
+          if xattr -r "$DEST/hertzon" | grep -q com.apple.quarantine; then
+            echo "::error::installed files still carry the quarantine flag"; exit 1
+          fi
+          mdls -name kMDItemContentType "$DEST/examples/Microstrip.hzn" || true
+          cat "$APP/Contents/Info.plist"
+      - name: Start check (imports, the mesher library, the main window offscreen)
+        run: |
+          DEST="$HOME/Library/Application Support/Hertzon"
+          cd "$RUNNER_TEMP"
+          "$DEST/.venv/bin/python" - <<'PY'
+          import hertzon, hertzon.gui.main_window, hertzon.solver.run, emerge, hfsynpy
+          from hertzon.mesher import core
+          print("Hertzon", hertzon.__version__, "imports ok, mesher library:", core.lib())
+          from PySide6.QtWidgets import QApplication
+          app = QApplication([])
+          from hertzon.gui.main_window import MainWindow
+          win = MainWindow()
+          win.show(); app.processEvents(); win.close()
+          print("main window ok")
+          PY
+      - name: Mesh and solve a small model from the command line
+        timeout-minutes: 20
+        run: |
+          DEST="$HOME/Library/Application Support/Hertzon"
+          "$DEST/.venv/bin/hertzon-cli" solve "$DEST/examples/Microstrip.hzn" --design Microstrip50 2>&1 | tee solve.log
+          if grep -q "RuntimeWarning" solve.log; then echo "::error::RuntimeWarning in the solve"; exit 1; fi
+      - name: Update over the installation (install.sh again keeps the Python environment)
+        run: |
+          DEST="$HOME/Library/Application Support/Hertzon"
+          before=$(stat -f %i "$DEST/.venv/bin/python")
+          cd "$RUNNER_TEMP"/pkg/Hertzon-* && ./install.sh </dev/null
+          test "$before" = "$(stat -f %i "$DEST/.venv/bin/python")" || { echo "::error::the update made a new environment"; exit 1; }
+      - name: Uninstall
+        run: |
+          "$HOME/Library/Application Support/Hertzon/uninstall.sh"
+          test ! -e "$HOME/Applications/Hertzon.app"
+          test ! -e "$HOME/Library/Application Support/Hertzon"
+          test ! -e "$HOME/.local/bin/hertzon"
