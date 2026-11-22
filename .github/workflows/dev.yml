@@ -1,5 +1,5 @@
 # Test installers for every push to the dev branch. They are not published as a release: the
-# Windows installer and the Linux package are an Actions artifact of the run (Actions tab > the run >
+# Windows installer, the Linux and the macOS package are an Actions artifact of the run (Actions tab > the run >
 # Artifacts, needs a GitHub login), kept for 30 days. A newer push cancels a build still running.
 name: Dev build
 
@@ -31,7 +31,7 @@ jobs:
           {
             echo "### Test installer ${{ github.run_number }}"
             echo
-            echo "Commit \`${GITHUB_SHA::7}\` on dev, Windows installation checked."
+            echo "Commit \`${GITHUB_SHA::7}\` on dev, Windows and macOS installation checked."
             echo
             echo "[Download Hertzon-test-${{ github.run_number }}.zip](${{ needs.build.outputs.artifact-url }})"
           } >> "$GITHUB_STEP_SUMMARY"

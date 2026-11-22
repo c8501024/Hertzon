@@ -95,7 +95,15 @@ into `~/.local/share/hertzon`, adds Hertzon to the application menu, the command
 offers to install missing ones with your package manager (apt, dnf, pacman or zypper). Run `install.sh` of a newer package to update, `~/.local/share/hertzon/uninstall.sh`
 to remove it.
 
-Both are built with `packaging/build_installer.sh` (needs NSIS for the Windows installer); GitHub Actions
+**macOS (Apple Silicon):** unpack `Hertzon-<version>-macos-arm64.tar.gz` (double-click it in Finder) and run
+`./install.sh` in Terminal from the unpacked folder. It needs Python 3.10 to 3.13, for example 3.13 from
+[python.org](https://www.python.org/downloads/macos/) or `brew install python@3.13`. It installs for your user
+into `~/Library/Application Support/Hertzon`, creates `Hertzon.app` in `~/Applications` (Launchpad, Spotlight,
+Dock), the command `hertzon` in `~/.local/bin` and opens `.hzn` projects with Hertzon. The app is made by the
+script on your Mac, so Gatekeeper does not block it. Run `install.sh` of a newer package to update,
+`~/Library/Application\ Support/Hertzon/uninstall.sh` to remove it. On an Intel Mac use the manual route below.
+
+All three are built with `packaging/build_installer.sh` (needs NSIS for the Windows installer); GitHub Actions
 builds them and publishes a release for every version (`.github/workflows/release.yml`).
 
 **Windows, without installing:** unzip and double-click **`Hertzon.exe`**. On the first start it installs
@@ -116,8 +124,8 @@ EMerge comes from a pinned commit (see docs/EMERGE_CHANGES.md): prebuilt wheels 
 x86_64 and macOS on Apple Silicon (arm64); on other platforms pip builds it from source, which needs a Rust
 compiler.
 
-**macOS:** there is no installer yet; use the manual route above with Python 3.13 (e.g. from python.org or
-Homebrew). It runs on Apple Silicon, and the mesher library `libhzmesh.dylib` is included. On an
+**macOS, manually:** the package above is the easy way on Apple Silicon; the manual route works there too
+with Python 3.13 (e.g. from python.org or Homebrew), and the mesher library `libhzmesh.dylib` is included. On an
 Intel Mac, pip builds EMerge from source, so install Rust first (`curl https://sh.rustup.rs -sSf | sh`). NumPy
 on macOS uses Apple's Accelerate, so EMerge picks its Accelerate solver; reports from Mac users are welcome.
 
@@ -387,7 +395,7 @@ installed EMerge is not the pinned commit. The tests run on every pull request a
 ## Branches and releases
 
 - Work goes to the `dev` branch (pull requests target `dev`). Every push to `dev` builds test installers
-  for Windows and Linux, checks the Windows installation and keeps both as an artifact of the run
+  for Windows, Linux and macOS, checks the Windows and the macOS installation and keeps them as an artifact of the run
   (Actions tab > Dev build > the run > Artifacts) for 30 days. They are not published as a release.
 - For a release, raise the version on `dev` (`pyproject.toml`, `hertzon/__init__.py`,
   `hertzon/mcp/__main__.py`, `CITATION.cff`) and name the section in `CHANGELOG.md`, then merge `dev`

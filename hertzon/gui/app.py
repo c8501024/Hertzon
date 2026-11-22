@@ -149,6 +149,34 @@ def _web_engine_setup() -> None:
         pass
 
 
+def _finder_files(app):
+    """macOS: a .hzn opened in Finder (double click, Open With, dropped on the Dock icon) reaches Hertzon as an
+    open-file event, not as a command-line argument. Until the main window exists the paths are kept; later
+    ones open in the window."""
+    from PySide6.QtCore import QEvent, QObject, QTimer
+
+    class FinderFiles(QObject):
+        def __init__(self):
+            super().__init__(app)
+            self.pending: list[str] = []
+            self.win = None
+
+        def eventFilter(self, obj, ev):  # noqa: N802
+            if ev.type() != QEvent.FileOpen:
+                return False
+            path = ev.file()
+            if path.lower().endswith(".hzn"):
+                if self.win is None:
+                    self.pending.append(path)
+                else:
+                    QTimer.singleShot(0, lambda: self.win.file_open(path))
+            return True
+
+    f = FinderFiles()
+    app.installEventFilter(f)
+    return f
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     _keep = _crash_log()  # noqa: F841
@@ -166,9 +194,11 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName("Hertzon")
     app.setOrganizationName("Hertzon")
     app.setStyle("Fusion")
+    finder = _finder_files(app) if sys.platform == "darwin" else None
     from .theme import apply as _theme
     _theme(app)
-    ico = Path(__file__).with_name("hertzon.ico")
+    # the Dock on macOS shows the window icon; the PNG is sharper there than the Windows icon file
+    ico = Path(__file__).with_name("hertzon.png" if sys.platform == "darwin" else "hertzon.ico")
     if ico.exists():
         app.setWindowIcon(QIcon(str(ico)))
     sp = _splash(app)
@@ -189,6 +219,10 @@ def main(argv: list[str] | None = None) -> int:
     _preload_solver()
     if sp is not None:
         sp.finish(win)
+    if finder is not None:
+        app.processEvents()
+        files += [f for f in finder.pending if f not in files]
+        finder.win = win
     if files:
         # opened in the visible window (own progress dialog): a question while opening (e.g. a newer
         # autosave) appears in front instead of waiting unseen behind the loading screen
