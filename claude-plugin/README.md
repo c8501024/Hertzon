@@ -5,6 +5,10 @@ adaptive meshing, circuits, PCBs). Its MCP server lets an AI assistant build and
 the know-how on top: what Hertzon offers, how to read its results and what to check before trusting them. The
 approach stays the assistant's own; the skills set no fixed order of steps.
 
+> 🧪 **Experimental.** The plugin and its skills are still experimental: how well a design turns out depends on
+> the assistant, its model and the task, and an assistant can still miss a goal or stop early. Research into
+> better results is ongoing, and the skills change with it.
+
 | Part | Name | What it does |
 |---|---|---|
 | Skill | `hf-design-loop` | What Hertzon offers for a design: design assistants and tuning for simple structures, broad batched search for demanding ones, systems of many parts assembled on the board (`board`) with a serial and parallel cloud estimate (`cloud`), coarse setups, convergence reported to the user |

@@ -5,6 +5,8 @@ the GitHub release notes.
 
 ## Unreleased
 
+- The Claude plugin is marked as **experimental** in its README, the README, the MCP guide, the tutorial and on the
+  website: results depend on the assistant, its model and the task, and research into better results is ongoing.
 - **macOS package for Apple Silicon.** Releases now include `Hertzon-<version>-macos-arm64.tar.gz`. Its
   `install.sh` sets up Hertzon's own Python environment, creates `Hertzon.app` in `~/Applications` with the Hertzon
   icon, the command `hertzon` and the `.hzn` file type (projects open from Finder), and adds `uninstall.sh`. The app
