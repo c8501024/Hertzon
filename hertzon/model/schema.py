@@ -28,9 +28,10 @@ class Prop:
 
 
 AXES = ("X", "Y", "Z")
-# matrix solvers of a setup; the SPARTA ones need the optional sparta-solver package (solver/sparta_setup.py)
+# matrix solvers of a setup; the SPARTA ones need the optional sparta-solver package (solver/sparta_setup.py),
+# PARDISO an x86-64 processor (Intel MKL), Apple Accelerate a Mac; solver/solver_choice.py says which can run here
 SOLVERS = ("Auto", "PARDISO", "SPARTA (GPU)", "SPARTA (CPU)", "PARDISO + SPARTA sweep (CPU)",
-           "PARDISO + SPARTA sweep (GPU)", "MUMPS", "UMFPACK", "SuperLU")
+           "PARDISO + SPARTA sweep (GPU)", "Apple Accelerate", "MUMPS", "UMFPACK", "SuperLU")
 
 
 def P(name, type_, default="", label="", choices=(), tab="General", help="", visible_if=None, enabled_if=None):

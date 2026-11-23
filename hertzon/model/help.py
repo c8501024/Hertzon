@@ -173,7 +173,8 @@ HELP: dict[str, str] = {
               "(Tools > Options > Install SPARTA). 'PARDISO + SPARTA sweep' solves the adaptive passes with PARDISO "
               "(every pass is a new mesh, where SPARTA's analysis is slow) and the sweeps with SPARTA. Without a usable GPU, SPARTA (GPU) factorizes on the CPU. "
               "With SPARTA the frequencies of a sweep are solved one after another, and the Fast sweep keeps "
-              "PARDISO.",
+              "PARDISO. PARDISO needs an x86-64 processor (Intel MKL) and is not offered on Apple silicon; there "
+              "Apple Accelerate (Apple's sparse direct solver, installed with Hertzon on macOS) takes its place.",
     "ErrorInclusion": "Share of the estimated error that selects elements for refinement (%).",
     "RefinementRatio": "Size reduction of refined elements.",
     "GrowthRate": "Mesh grading away from refined regions.",

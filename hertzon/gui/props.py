@@ -85,7 +85,12 @@ def _old_component(old: str, new: str, name: str) -> str:
 
 
 # prop name -> callable giving the current choices (e.g. coordinate system names)
-DYNAMIC_CHOICES: dict = {}
+def _solvers() -> list[str]:
+    from ..solver import solver_choice      # the matrix solvers this platform can run (no PARDISO on a Mac)
+    return solver_choice.offered()
+
+
+DYNAMIC_CHOICES: dict = {"Solver": _solvers}
 
 
 class PropertyGrid(QWidget):

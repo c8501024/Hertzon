@@ -10,6 +10,14 @@ the GitHub release notes.
   whether to use administrator rights and falls back to `~/Applications` if not. Running `install.sh` over a 0.4.1
   installation moves the app from `~/Applications` instead of keeping two, and `uninstall.sh` removes it from either
   folder. The Python environment stays in `~/Library/Application Support/Hertzon`.
+- **Apple Accelerate as a matrix solver on the Mac.** EMerge's sparse direct solver on Apple's Accelerate
+  framework (installed with Hertzon on macOS) can be selected as "Apple Accelerate" in a setup's Options and compared
+  in the Solver Benchmark, where it replaces PARDISO in the default selection on a Mac.
+- **Only the solvers that can run are offered.** PARDISO needs Intel MKL, which exists for x86-64 only, so it and
+  "PARDISO + SPARTA sweep" are no longer offered on Apple silicon, nor Apple Accelerate outside macOS. In the Solver
+  Benchmark a solver that needs a package that is not installed (SPARTA, MUMPS, UMFPACK) is greyed out with the
+  reason; before, such a run fell back to the automatic choice and was listed under the name of the solver it did
+  not use (#527). A project that names a solver this computer cannot run uses the automatic choice, with a warning.
 
 ## 0.4.1 (2026-11-23)
 

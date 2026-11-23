@@ -189,6 +189,9 @@ def test_solver_comparison_with_parallel_frequencies_on_one_mesh(tmp_path, monke
     from hertzon.solver import benchmark as B, bridge
     from hertzon.solver.results import ResultStore
     monkeypatch.setattr(bridge, "_first_run", lambda: False)
+    # the solves are faked: SPARTA need not be installed (otherwise the benchmark leaves it out)
+    from hertzon.solver import solver_choice
+    monkeypatch.setattr(solver_choice, "unavailable", lambda name: None)
     calls = []
 
     def fake_solve(self, path, folder, env, label, k, n):
