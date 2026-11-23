@@ -1600,12 +1600,17 @@ class Bridge:
                 name = "SuperLU"
         if name == "Auto":
             return
+        from .solver_choice import impossible, unavailable
+        if impossible(name):     # e.g. PARDISO of a project from a Windows PC opened on a Mac
+            warn(f"Solver {name}: {unavailable(name)}; using automatic choice")
+            return
         if sparta_setup.is_sparta(name):
             self.set_sparta(name)
             return
         try:
             self.m.set_solver({"PARDISO": em.solvers.Pardiso, "MUMPS": em.solvers.MUMPS,
-                               "UMFPACK": em.solvers.UMFPACK, "SuperLU": em.solvers.SuperLU}[name])
+                               "UMFPACK": em.solvers.UMFPACK, "SuperLU": em.solvers.SuperLU,
+                               "Apple Accelerate": em.solvers.AASDS}[name])
         except Exception as ex:  # noqa: BLE001
             warn(f"Solver {name} not available ({ex}); using automatic choice")
 

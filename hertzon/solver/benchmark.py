@@ -166,6 +166,7 @@ class Benchmark:
         self.cores = sorted({max(1, int(c)) for c in cores})
         self.workers = sorted({max(1, int(w)) for w in workers})
         self.solvers = list(dict.fromkeys(solvers or []))      # [] : the setup's own solver
+        self.asked_solvers = bool(self.solvers)
         self.t0 = time.time()
         self.result = {"project": str(project), "design": design, "setup": setup, "machine": machine(),
                        "started": time.time(), "runs": []}
@@ -233,6 +234,14 @@ class Benchmark:
             log("Compiling the solver kernels first, so that no run includes it")
             from .warmup import run as warmup
             warmup(lambda s: None)
+        from .solver_choice import unavailable
+        for sv in [sv for sv in self.solvers if unavailable(sv)]:
+            # it would run EMerge's automatic choice under its name: left out, with the reason
+            log(f"{sv} is left out: {unavailable(sv)}")
+            self.solvers.remove(sv)
+        if not self.solvers and self.asked_solvers:
+            log("None of the asked solvers can run on this computer")
+            return False
         solvers = self.solvers or [""]
         par = [w for w in self.workers if w > 1] if self.solvers else []
         n = len(self.cores) * len(solvers) + (len(solvers) if len(solvers) > 1 and self.sweeps else 0) \
