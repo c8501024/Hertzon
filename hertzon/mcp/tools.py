@@ -23,6 +23,7 @@ from ..model import schema
 from ..model.design import (Project, Design, Command, Assignment, FaceRef, Setup, Sweep, InfiniteSphere, CoordSys,
                             Report, FieldPlot, FieldExpression, Optimization, ParametricSetup, project_from_dict)
 from ..model.expr import LENGTH_UNITS
+from ..solver import sweeps as sweeps_mod
 from ..model.materials import parse_color
 from . import live
 from .protocol import Tool, ToolError, Image, max_wait, pause
@@ -1124,20 +1125,84 @@ def t_set_setup(args):
         d.setups.append(s)
     plist = schema.EIGEN_SETUP if s.eigen else schema.SETUP
     s.props = _props_in("Setup", plist + [schema.P("_BasisNames", "text")], args.get("props"), s.props)
+    notes = {}
     for sw in args.get("sweeps") or []:
-        _set_sweep(s, sw.get("name") or "Sweep", sw.get("props"))
+        w, notes[sw.get("name") or "Sweep"] = _set_sweep(s, sw.get("name") or "Sweep", sw.get("props"))
     commit(ctx, f"setup {name}")
     return {"setup": name, "created": created, "props": s.props,
-            "sweeps": [{"name": w.name, "props": w.props} for w in s.sweeps]}
+            "sweeps": [_sweep_report(ctx, w, notes.get(w.name, "")) for w in s.sweeps]}
 
 
-def _set_sweep(s: Setup, name: str, props: dict | None) -> Sweep:
+# the property that sets the frequencies of each sweep distribution
+_SWEEP_DIST_OF = {"Count": "Linear Count", "Step": "Linear Step", "SamplesPerDecade": "Log Scale",
+                  "Points": "Single Points"}
+
+
+def _sweep_distribution(props: dict | None, current: str) -> tuple[dict, str]:
+    """Distribution implied by the given sweep properties. Count, Step, SamplesPerDecade or Points without a
+    Distribution switch to the distribution that uses them (a Count under the default 'Linear Step' was ignored
+    silently: Start 2.4GHz, Stop 2.485GHz with the default Step 0.1GHz left one frequency). A property the given or
+    current Distribution does not use is refused instead of being ignored. Returns the props and a note."""
+    props = dict(props or {})
+    given = [k for k in _SWEEP_DIST_OF if k in props]
+    if not given:
+        return props, ""
+    if "Distribution" in props:
+        dist = next((d for d in sweeps_mod.DISTRIBUTIONS if str(props["Distribution"]).strip().lower() == d.lower()),
+                    None)
+        if dist is None:            # an unknown Distribution is refused with its choices by _props_in
+            return props, ""
+        wrong = [k for k in given if _SWEEP_DIST_OF[k] != dist]
+        if wrong:
+            raise ToolError(f"Sweep Distribution '{dist}' does not use {', '.join(wrong)} (it would be ignored). "
+                            f"{'; '.join(f'{k} belongs to {_SWEEP_DIST_OF[k]!r}' for k in wrong)}")
+        return props, ""
+    dists = {_SWEEP_DIST_OF[k] for k in given}
+    if len(dists) > 1:
+        raise ToolError(f"Sweep properties {', '.join(given)} belong to different distributions "
+                        f"({', '.join(sorted(dists))}): give one of them and Distribution")
+    dist = dists.pop()
+    if dist == current:
+        return props, ""
+    props["Distribution"] = dist
+    return props, f"Distribution set to '{dist}' because {given[0]} was given (it was '{current}')"
+
+
+def _sweep_view(props: dict) -> dict:
+    """The sweep properties that apply to its SweepType and Distribution (hidden ones only confuse a reader)."""
+    return {p.name: props.get(p.name, p.default) for p in schema.SWEEP if schema.is_visible(p, props)}
+
+
+def _set_sweep(s: Setup, name: str, props: dict | None) -> tuple[Sweep, str]:
     w = next((x for x in s.sweeps if x.name == name), None)
+    base = w.props if w is not None else schema.defaults(schema.SWEEP)
+    props, note = _sweep_distribution(props, base.get("Distribution") or "Linear Step")
+    new = _props_in("Sweep", schema.SWEEP, props, base)
     if w is None:
         w = Sweep(name)
         s.sweeps.append(w)
-    w.props = _props_in("Sweep", schema.SWEEP, props, w.props)
-    return w
+    w.props = new
+    return w, note
+
+
+def _sweep_report(ctx: Ctx, w: Sweep, note: str = "") -> dict:
+    """Name, applying properties and the frequencies a sweep solves; a sweep that collapses to one frequency over
+    a range says so."""
+    out = {"name": w.name, "props": _sweep_view(w.props)}
+    if note:
+        out["note"] = note
+    try:
+        f = sweeps_mod.sweep_frequencies(w.props, ctx.des.evaluator(ctx.proj))
+    except Exception as e:  # noqa: BLE001
+        out["warnings"] = [f"Sweep {w.name}: {e}"]
+        return out
+    out["frequencies"] = len(f)
+    if len(f):
+        out["range_ghz"] = [_r(f[0] / 1e9), _r(f[-1] / 1e9)]
+    msg = sweeps_mod.single_point_warning(w.props, f)
+    if msg:
+        out["warnings"] = [f"Sweep {w.name}: {msg}"]
+    return out
 
 
 def t_set_sweep(args):
@@ -1147,20 +1212,26 @@ def t_set_sweep(args):
     except KeyError:
         raise ToolError(f"Setup '{args.get('setup')}' not found") from None
     f_before = _open_region_f(ctx, s)
-    w = _set_sweep(s, args.get("name") or "Sweep", args.get("props"))
+    w, note = _set_sweep(s, args.get("name") or "Sweep", args.get("props"))
     commit(ctx, f"sweep {w.name}")
-    out = {"setup": s.name, "sweep": w.name, "props": w.props}
+    rep = _sweep_report(ctx, w, note)
+    out = {"setup": s.name, "sweep": w.name, "props": rep["props"], "frequencies": rep.get("frequencies")}
+    for k in ("range_ghz", "note"):
+        if k in rep:
+            out[k] = rep[k]
     from ..model.validate import sweep_coverage
-    warnings = sweep_coverage(ctx.proj, ctx.des, s)
+    warnings = rep.get("warnings", []) + [x for x in sweep_coverage(ctx.proj, ctx.des, s)
+                                          if not x.startswith(f"Sweep {s.name}:{w.name} ")]
     if warnings:
         out["warnings"] = warnings
     f_after = _open_region_f(ctx, s)
     if f_after != f_before:
         where = f"the lowest sweep frequency, {f_after / 1e9:.4g} GHz" if f_after else "the solution frequency"
-        out["note"] = (f"The automatic air box of {s.name} is now sized for {where}: the model changed, so the next "
-                       f"analysis (also run_simulation(sweep=...)) adapts a new mesh instead of reusing the stored "
-                       f"one. A fixed padding (set_design settings AutoOpenPadding) keeps the air box and the mesh "
-                       f"when sweeps are switched on or off.")
+        box = (f"The automatic air box of {s.name} is now sized for {where}: the model changed, so the next "
+               f"analysis (also run_simulation(sweep=...)) adapts a new mesh instead of reusing the stored "
+               f"one. A fixed padding (set_design settings AutoOpenPadding) keeps the air box and the mesh "
+               f"when sweeps are switched on or off.")
+        out["note"] = f"{out['note']}. {box}" if out.get("note") else box
     return out
 
 
@@ -2750,8 +2821,11 @@ TOOLS = [
          _schema({"name": {"type": "string"}, "props": OBJ, "eigen": {"type": "boolean"},
                   "sweeps": {"type": "array", "items": {"type": "object", "properties": {
                       "name": {"type": "string"}, "props": OBJ}}}}), t_set_setup),
-    Tool("set_sweep", "Create or change one frequency sweep of a setup (SweepType, Distribution, Start, Stop, "
-         "Step/Count ...).",
+    Tool("set_sweep", "Create or change one frequency sweep of a setup. props: SweepType (Discrete, Interpolating, "
+         "Fast), Distribution with its own property: 'Linear Count' + Count (number of points incl. Start and "
+         "Stop), 'Linear Step' + Step (default 0.1GHz), 'Log Scale' + SamplesPerDecade, 'Single Points' + Points "
+         "('2.4GHz;2.45GHz'); Start, Stop ('2.4GHz'). Count/Step/SamplesPerDecade/Points without Distribution "
+         "select it. The result lists the number of frequencies and warns when a range gives only one.",
          _schema({"setup": {"type": "string"}, "name": {"type": "string"}, "props": OBJ}), t_set_sweep),
     Tool("set_far_field_sphere", "Create or change an infinite sphere for far fields (gain, RCS).",
          _schema({"name": {"type": "string"}, "props": OBJ}), t_set_far_field_sphere),

@@ -586,6 +586,10 @@ The assistant works step by step with the same building blocks you used above, a
 
 ### 5.4 The Claude plugin (optional)
 
+> 🧪 **Experimental.** The plugin and its skills are still experimental: how well a design turns out depends on
+> the assistant, its model and the task, and an assistant can still miss a goal or stop early. Research into
+> better results is ongoing, and the skills change with it.
+
 The tools above let an assistant do every step; the Hertzon plugin for Claude Code tells it what Hertzon
 offers and what to check; the approach stays the assistant's own. It brings four skills, which Claude loads
 when they fit the request:

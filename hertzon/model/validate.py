@@ -384,7 +384,7 @@ def sweep_coverage(project: Project, design: Design, setup) -> list[str]:
         return []
     try:
         from ..solver.bridge import adaptive_frequencies
-        from ..solver.sweeps import sweep_frequencies
+        from ..solver.sweeps import single_point_warning, sweep_frequencies
         ev = design.evaluator(project)
         fa = adaptive_frequencies(setup, ev)
         lows, out = list(fa), []
@@ -394,6 +394,9 @@ def sweep_coverage(project: Project, design: Design, setup) -> list[str]:
             f = sweep_frequencies(sw.props, ev)
             if not len(f):
                 continue
+            one = single_point_warning(sw.props, f)
+            if one:
+                out.append(f"Sweep {setup.name}:{sw.name} {one}")
             lows.append(float(min(f)))
             f_max = float(max(f))
             if f_max > SWEEP_ABOVE_ADAPTIVE * max(fa):

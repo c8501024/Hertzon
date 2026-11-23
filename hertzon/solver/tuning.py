@@ -33,6 +33,7 @@ gives the S-parameters for slider positions (no solver needed, used by the GUI).
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -1208,6 +1209,32 @@ def memory_message(n: int, short: dict) -> str:
 def tuning_path(out: Path, sweep: str) -> Path:
     from .results import _safe
     return Path(out) / f"tuning_{_safe(sweep)}.npz"
+
+
+def tuning_status_path(out: Path, sweep: str) -> Path:
+    """State of the last requested tuning model of a sweep (queued, running, failed with its error); the
+    model file alone cannot tell a model that failed from one that was never asked for."""
+    from .results import _safe
+    return Path(out) / f"tuning_{_safe(sweep)}.status.json"
+
+
+def write_tuning_status(out: Path, sweep: str, state: str, **extra) -> None:
+    p = tuning_status_path(out, sweep)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps({"state": state, "time": time.time(), **extra}), encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError:
+        pass
+
+
+def read_tuning_status(out: Path, sweep: str) -> dict:
+    try:
+        r = json.loads(tuning_status_path(out, sweep).read_text(encoding="utf-8"))
+        return r if isinstance(r, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def tuning_frequencies(props: dict, ev, points: int) -> np.ndarray:

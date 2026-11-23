@@ -3,6 +3,34 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.4.1 (2026-11-23)
+
+### Added
+- **macOS package for Apple Silicon.** Releases now include `Hertzon-<version>-macos-arm64.tar.gz`. Its
+  `install.sh` sets up Hertzon's own Python environment, creates `Hertzon.app` in `~/Applications` with the Hertzon
+  icon, the command `hertzon` and the `.hzn` file type (projects open from Finder), and adds `uninstall.sh`. The app
+  is created on the Mac by the script, so Gatekeeper does not block it. Every build installs the package on an Apple
+  Silicon runner and solves a small model with it. Intel Macs keep the manual route.
+- The Linux package now installs the Claude plugin as well, so **Tools > AI Assistants (MCP)... > Register** finds it.
+
+### Changed
+- The Claude plugin is marked as **experimental** in its README, the README, the MCP guide, the tutorial and on the
+  website: results depend on the assistant, its model and the task, and research into better results is ongoing.
+
+### Fixed
+- **A sweep's Count is no longer ignored.** An assistant that set `SweepType` Discrete, Start, Stop and `Count` 9
+  without `Distribution` kept the default "Linear Step" with Step 0.1GHz: over 2.4 to 2.485 GHz that solved one
+  frequency, silently. `set_sweep`/`set_setup` now pick the distribution that uses Count, Step, SamplesPerDecade or
+  Points, refuse a property the given distribution does not use, show only the properties that apply and report
+  the number of frequencies. A sweep over a range that solves one frequency is warned about in Validate, by the
+  MCP tools and in the Message Manager when it runs.
+- **`get_tuning` no longer says "not computed" for a tuning model that failed.** With Hertzon open, a model asked
+  for by `compute_tuning` that ended without a result (for example a variable the mesh cannot follow) was reported
+  as "not computed", without the error, and `wait_seconds` did not wait; an assistant took that as "the tuning does
+  not work" and switched to a parametric sweep. The solver now writes the state of each tuning model next to it;
+  `get_tuning` reports "failed" with the error and the step, keeps waiting while the window is busy, and an older
+  model no longer reads as the new one while it is being computed.
+
 ## 0.4.0 (2026-11-21)
 
 Hertzon 0.4 marks the step to designing with an AI assistant. Its MCP server lets an assistant such as Claude Code
