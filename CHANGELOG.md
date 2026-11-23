@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+- **macOS: Hertzon.app goes to /Applications**, so it shows up in Finder's Applications folder and not only in
+  Launchpad (suggested in #527). On an administrator account no password is needed; otherwise `install.sh` asks
+  whether to use administrator rights and falls back to `~/Applications` if not. Running `install.sh` over a 0.4.1
+  installation moves the app from `~/Applications` instead of keeping two, and `uninstall.sh` removes it from either
+  folder. The Python environment stays in `~/Library/Application Support/Hertzon`.
+
 ## 0.4.1 (2026-11-23)
 
 ### Added

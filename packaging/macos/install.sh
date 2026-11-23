@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Hertzon for macOS on Apple Silicon: installs for the current user (no administrator rights) into
-# ~/Library/Application Support/Hertzon, creates Hertzon.app in ~/Applications (Launchpad, Spotlight, Dock),
+# ~/Library/Application Support/Hertzon, creates Hertzon.app in /Applications (Finder's Applications folder,
+# Launchpad, Spotlight, Dock; for an administrator no password is needed, otherwise it asks for one or falls
+# back to ~/Applications),
 # the command "hertzon" in ~/.local/bin and opens .hzn projects with Hertzon. The app is made here on this
 # Mac, so Gatekeeper does not block it although it carries no Apple developer signature.
 # Run it again from a newer package to update; the Python environment is kept.
@@ -8,8 +10,10 @@ set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
 DEST="${HERTZON_HOME:-$HOME/Library/Application Support/Hertzon}"
-APPS="${HERTZON_APPS:-$HOME/Applications}"
-APP="$APPS/Hertzon.app"
+# Hertzon.app goes to /Applications; ~/Applications (where 0.4.1 put it) only if that is not possible.
+# HERTZON_APPS forces a folder; HERTZON_SYSTEM_APPS replaces /Applications (used by the CI test).
+SYSAPPS="${HERTZON_SYSTEM_APPS:-/Applications}"
+USERAPPS="$HOME/Applications"
 BIN="$HOME/.local/bin"
 VER="$(sed -n 's/^version = "\(.*\)"/\1/p' "$SRC/pyproject.toml")"
 
@@ -83,8 +87,9 @@ EOS
 chmod +x "$BIN/hertzon"
 
 # ---- Hertzon.app ------------------------------------------------------------------------------------
-mkdir -p "$APPS"
-rm -rf "$APP"
+# made in a temporary folder first and then copied to its place (with sudo if that folder needs it)
+STAGE="$(mktemp -d)"
+APP="$STAGE/Hertzon.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cat > "$APP/Contents/MacOS/Hertzon" <<EOS
 #!/bin/sh
@@ -154,12 +159,54 @@ cat > "$APP/Contents/Info.plist" <<EOS
 </dict>
 </plist>
 EOS
-# tell Launch Services about the app (Spotlight, Launchpad, .hzn files); it would also notice on its own
+
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+SUDO=""
+if [ -n "${HERTZON_APPS:-}" ]; then
+    APPS="$HERTZON_APPS"
+    mkdir -p "$APPS"
+elif [ -d "$SYSAPPS" ] && [ -w "$SYSAPPS" ] && { [ ! -e "$SYSAPPS/Hertzon.app" ] || [ -w "$SYSAPPS/Hertzon.app" ]; }; then
+    APPS="$SYSAPPS"                 # an administrator account can write here without a password
+else
+    APPS="$USERAPPS"
+    if [ -d "$SYSAPPS" ] && [ -t 0 ]; then
+        echo
+        echo "Your account cannot write to $SYSAPPS without an administrator password."
+        printf "Put Hertzon.app into %s with administrator rights (sudo)? [Y/n] " "$SYSAPPS"
+        read -r answer || answer=n
+        case "$answer" in
+            ""|[Yy]*) if sudo -v; then APPS="$SYSAPPS"; SUDO="sudo"; fi ;;
+        esac
+    fi
+    if [ "$APPS" = "$USERAPPS" ]; then
+        echo "Hertzon.app goes to $USERAPPS instead (Launchpad and Spotlight find it there, Finder lists it"
+        echo "under your home folder > Applications). Run install.sh again as an administrator to move it."
+        mkdir -p "$USERAPPS"
+    fi
+fi
+$SUDO rm -rf "$APPS/Hertzon.app"
+$SUDO ditto "$APP" "$APPS/Hertzon.app"
+rm -rf "$STAGE"
+APP="$APPS/Hertzon.app"
+# tell Launch Services about the app (Spotlight, Launchpad, .hzn files); it would also notice on its own
 if [ -x "$LSREG" ]; then "$LSREG" -f "$APP" >/dev/null 2>&1 || true; fi
-touch "$APP"
+$SUDO touch "$APP"
+
+# an app of an earlier installation in the other folder would show up twice: remove it
+for old in "$USERAPPS/Hertzon.app" "$SYSAPPS/Hertzon.app"; do
+    if [ "$old" = "$APP" ] || [ ! -e "$old" ]; then continue; fi
+    # only Hertzon's own app (made by this script) is removed
+    if [ "$(defaults read "$old/Contents/Info" CFBundleIdentifier 2>/dev/null)" != "org.hertzon.Hertzon" ]; then continue; fi
+    if [ -x "$LSREG" ]; then "$LSREG" -u "$old" >/dev/null 2>&1 || true; fi
+    if rm -rf "$old" 2>/dev/null; then
+        echo "Removed the app of the earlier installation: $old"
+    else
+        echo "The app of an earlier installation could not be removed: $old (delete it in Finder)."
+    fi
+done
 
 echo
-echo "Hertzon is installed: open it from Launchpad, Spotlight or $APP, or with the command: hertzon"
+echo "Hertzon is installed: open it from the Applications folder, Launchpad or Spotlight ($APP),"
+echo "or with the command: hertzon"
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "($BIN is not in PATH; start it with $BIN/hertzon)";; esac
 echo "Uninstall: \"$DEST/uninstall.sh\""
