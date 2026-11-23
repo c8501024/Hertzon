@@ -274,8 +274,10 @@ jobs:
           "$DEST/.venv/bin/python" -c "from hertzon.solver import solver_choice as s; print('offered:', s.offered()); assert s.available(s.ACCELERATE), s.unavailable(s.ACCELERATE); assert 'PARDISO' not in s.offered()"
           for sv in "Apple Accelerate" "SuperLU"; do
             start=$(date +%s)
-            HERTZON_SOLVER="$sv" "$DEST/.venv/bin/hertzon-cli" solve "$DEST/examples/Microstrip.hzn" --design Microstrip50 > "solve_$sv.log" 2>&1 || { cat "solve_$sv.log"; exit 1; }
+            HERTZON_SOLVER="$sv" "$DEST/.venv/bin/hertzon-cli" solve "$DEST/examples/Microstrip.hzn" --design Microstrip50 --force > "solve_$sv.log" 2>&1 || { cat "solve_$sv.log"; exit 1; }
             echo "$sv: $(( $(date +%s) - start )) s"
+            grep -iE "solver|accelerate|aasds|superlu|tetrahedra|done:" "solve_$sv.log" | tail -n 12 || true
+            if grep -q "cached=True" "solve_$sv.log"; then echo "::error::$sv: the solution came from the cache"; exit 1; fi
             if grep -q "not available" "solve_$sv.log"; then cat "solve_$sv.log"; echo "::error::$sv was not used"; exit 1; fi
           done
       - name: Update over a 0.4.1 installation (app in ~/Applications; install.sh keeps the Python environment)
