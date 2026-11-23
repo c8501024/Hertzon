@@ -19,6 +19,7 @@ RequestExecutionLevel user
 !include "x64.nsh"
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
+!include "Sections.nsh"
 
 !define APP "Hertzon"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Hertzon"
@@ -72,6 +73,12 @@ LangString EnvRunning ${LANG_GERMAN} "Python-Umgebung wird eingerichtet (eigenes
 LangString EnvRunning ${LANG_ENGLISH} "Setting up the Python environment (separate window, a few minutes) ..."
 LangString EnvFailed ${LANG_GERMAN} "Die Python-Umgebung konnte nicht eingerichtet werden. Hertzon versucht es beim ersten Start erneut.$\r$\n$\r$\nProtokoll: $INSTDIR\setup.log"
 LangString EnvFailed ${LANG_ENGLISH} "The Python environment could not be set up. Hertzon tries again at its first start.$\r$\n$\r$\nLog: $INSTDIR\setup.log"
+LangString SecSparta ${LANG_GERMAN} "SPARTA: optionaler GPU/CPU-Matrixlöser (eigenes Programm, AGPL-3.0)"
+LangString SecSparta ${LANG_ENGLISH} "SPARTA: optional GPU/CPU matrix solver (a separate program, AGPL-3.0)"
+LangString SpartaRunning ${LANG_GERMAN} "SPARTA wird installiert ..."
+LangString SpartaRunning ${LANG_ENGLISH} "Installing SPARTA ..."
+LangString SpartaFailed ${LANG_GERMAN} "SPARTA konnte nicht installiert werden. In Hertzon geht das jederzeit mit Tools > Options > Install SPARTA."
+LangString SpartaFailed ${LANG_ENGLISH} "SPARTA could not be installed. In Hertzon you can install it any time with Tools > Options > Install SPARTA."
 LangString Running ${LANG_GERMAN} "Hertzon läuft noch. Bitte schließe Hertzon und klicke dann auf OK."
 LangString Running ${LANG_ENGLISH} "Hertzon is still running. Please close it, then click OK."
 
@@ -156,6 +163,7 @@ FunctionEnd
 
 Function .onInit
     Call WaitForHertzon
+    Call PresetSparta
     !insertmacro MUI_LANGDLL_DISPLAY
 FunctionEnd
 
@@ -258,6 +266,34 @@ Section "$(SecEnv)" SEC_ENV
     IfFileExists "$INSTDIR\.venv\hertzon_installed.txt" +2 0
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(EnvFailed)" /SD IDOK
 SectionEnd
+
+; SPARTA (https://github.com/FennisRobert/SPARTA), the GPU/CPU sparse direct solver of EMerge's author, is
+; AGPL-3.0 and so not part of Hertzon (GPL-2.0-or-later): installed only when this component is checked. It
+; is unchecked on a new installation and checked when SPARTA is installed already (PresetSparta), so an update,
+; also a silent one from Hertzon, updates it to the tested version or leaves it out as before.
+Section /o "$(SecSparta)" SEC_SPARTA
+    ${If} ${FileExists} "$INSTDIR\.venv\Scripts\python.exe"
+        DetailPrint "$(SpartaRunning)"
+        nsExec::ExecToLog '"$INSTDIR\.venv\Scripts\python.exe" -m hertzon.solver.sparta_setup install'
+        Pop $0
+        !insertmacro UpdateLog "SPARTA install ended (exit code $0)"
+        ${If} $0 != 0
+            MessageBox MB_OK|MB_ICONEXCLAMATION "$(SpartaFailed)" /SD IDOK
+        ${EndIf}
+    ${Else}
+        ; no Python environment yet (component above unchecked): Tools > Options > Install SPARTA later
+        !insertmacro UpdateLog "SPARTA not installed: no Python environment"
+        MessageBox MB_OK|MB_ICONEXCLAMATION "$(SpartaFailed)" /SD IDOK
+    ${EndIf}
+SectionEnd
+
+Function PresetSparta
+    FindFirst $0 $1 "$INSTDIR\.venv\Lib\site-packages\sparta_solver-*.dist-info"
+    FindClose $0
+    ${If} $1 != ""
+        !insertmacro SelectSection ${SEC_SPARTA}
+    ${EndIf}
+FunctionEnd
 
 Section "Uninstall"
     !insertmacro WaitClosed

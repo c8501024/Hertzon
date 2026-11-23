@@ -1252,8 +1252,18 @@ class OptionsDialog(QDialog):
         def done(code, _status):
             text = b"".join(out).decode("utf-8", "replace").strip()
             if code == 0:
+                # no restart: the solver processes are new for every run, and the open windows that list
+                # the solvers (Solver Benchmark) ask again which of them can run now
+                import importlib
+                importlib.invalidate_caches()
+                bench = getattr(self.win, "_benchmark", None)
+                if bench is not None:
+                    try:
+                        bench.refresh_solvers()
+                    except RuntimeError:      # its window is gone
+                        pass
                 self.win.msgs.add("info", f"SPARTA {sparta_setup.installed_version() or ''} installed; "
-                                          "select it as the matrix solver of a setup")
+                                          "select it as the matrix solver of a setup (no restart needed)")
             else:
                 self.win.msgs.add("error", f"Installing SPARTA failed: {text[-2000:]}")
             try:

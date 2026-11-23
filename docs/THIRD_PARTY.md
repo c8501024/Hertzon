@@ -26,7 +26,7 @@ Versions are those of a current installation; `pyproject.toml` lists the require
 | [Shapely](https://github.com/shapely/shapely) (with GEOS, LGPL-2.1) | 2.2.0 | BSD-3-Clause | 2D polygons of the PCB import (Gerber apertures, lines, regions, polarity) |
 | [hfsynpy](https://github.com/GenerativeAntennaDesign/hfsynpy) | 0.1.3 | GPL-2.0-or-later | Microstrip synthesis in the filter and antenna design tools |
 | [pytest](https://pytest.org) (tests only) | | MIT | Test suite |
-| [SPARTA](https://github.com/FennisRobert/SPARTA) (optional, `sparta-solver`) | 0.3.2 | AGPL-3.0 | GPU/CPU sparse direct solver; installed only on request (Tools > Options > Install SPARTA), not by the setup |
+| [SPARTA](https://github.com/FennisRobert/SPARTA) (optional, `sparta-solver`) | 0.3.2 | AGPL-3.0 | GPU/CPU sparse direct solver; installed only on request: the installers ask (opt-in), Tools > Options > Install SPARTA |
 
 ## Pulled in by the packages above
 
@@ -72,7 +72,9 @@ of them is linked into Hertzon or shipped with it. See [CIRCUIT.md](CIRCUIT.md#n
 
 * Hertzon is GPL-2.0-or-later, which matches EMerge, gmsh and hfsynpy. Anyone who passes Hertzon on
   must pass on its source code as well; the GitHub repository is that source.
-* SPARTA (AGPL-3.0) is not a dependency of Hertzon: the setup does not install it, and Hertzon works
-  without it. Tools > Options downloads its release wheel from GitHub only when the user asks for it.
+* SPARTA (AGPL-3.0) is not a dependency of Hertzon, and Hertzon works without it. Its release wheel is
+  downloaded from GitHub only when the user asks for it: the installers offer it as an option (the Windows
+  setup as an unchecked component, `install.sh` on Linux with "no" and on macOS with "yes" preselected, as it
+  is the only GPU solver there), and Tools > Options > Install SPARTA adds it any time.
 * Intel MKL and its companions are not open source. They are installed by pip as a dependency of
   EMerge and are not part of the Hertzon installers.

@@ -5,9 +5,10 @@ Apple silicon, Vulkan on AMD and NVIDIA under Windows and Linux) in single preci
 double precision. EMerge has it as em.solvers.Sparta with the modes 'GPU', 'CPU' and 'HYBRID'
 (SolverSparta.set_options); Hertzon offers 'GPU' and 'CPU' as "SPARTA (GPU)" and "SPARTA (CPU)".
 
-It is not one of Hertzon's own packages: Tools > Options installs it on request from the wheels of a
-SPARTA release (install_args). The solver process imports it through EMerge, the GUI only asks pip's
-metadata (installed_version), so that the GUI never loads a GPU driver.
+It is not one of Hertzon's own packages (AGPL-3.0, Hertzon is GPL-2.0-or-later): the installers offer it
+(main) and Tools > Options installs it on request, both from the wheels of a SPARTA release (install_args).
+The solver process imports it through EMerge, the GUI only asks pip's metadata (installed_version), so that
+the GUI never loads a GPU driver.
 """
 from __future__ import annotations
 
@@ -137,3 +138,31 @@ def describe() -> str:
         return f"SPARTA {sparta.__version__}, GPU available: {gpu}, BLAS: {blas}"
     except Exception as ex:  # noqa: BLE001
         return f"SPARTA not available ({ex})"
+
+
+def main(argv: list[str] | None = None) -> int:
+    """python -m hertzon.solver.sparta_setup install | update | version
+
+    For the installers (packaging/): `install` installs or updates SPARTA to VERSION, `update` does that only
+    when SPARTA is installed already (an update of Hertzon keeps the user's choice), `version` prints the
+    installed version (empty when it is not installed; exit code 1)."""
+    import subprocess
+    cmd = (argv if argv is not None else sys.argv[1:]) or ["version"]
+    v = installed_version()
+    if cmd[0] == "version":
+        print(v or "")
+        return 0 if v else 1
+    if cmd[0] not in ("install", "update"):
+        print(f"unknown command {cmd[0]!r}: install, update or version", file=sys.stderr)
+        return 2
+    if cmd[0] == "update" and not v:
+        return 0
+    if v == VERSION:
+        print(f"SPARTA {v} is installed")
+        return 0
+    print(f"{'Updating' if v else 'Installing'} SPARTA {VERSION} (AGPL-3.0, https://github.com/FennisRobert/SPARTA)")
+    return subprocess.call(install_args())
+
+
+if __name__ == "__main__":
+    sys.exit(main())

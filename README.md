@@ -103,6 +103,12 @@ Spotlight, Dock; without administrator rights it asks for the password or uses `
 script on your Mac, so Gatekeeper does not block it. Run `install.sh` of a newer package to update,
 `~/Library/Application\ Support/Hertzon/uninstall.sh` to remove it. On an Intel Mac use the manual route below.
 
+**SPARTA (optional):** all three installers offer [SPARTA](https://github.com/FennisRobert/SPARTA), the GPU/CPU
+sparse direct solver of EMerge's author. It is a separate program under the AGPL-3.0, so it is installed only when
+you say so: the Windows setup lists it as an unchecked component, `install.sh` asks once (on macOS with "yes"
+preselected, as it is the only solver there that runs on the GPU). `HERTZON_SPARTA=1` or `0` answers without
+asking. An update keeps your choice, and **Tools > Options > Install SPARTA** adds it at any time, without a restart.
+
 All three are built with `packaging/build_installer.sh` (needs NSIS for the Windows installer); GitHub Actions
 builds them and publishes a release for every version (`.github/workflows/release.yml`).
 
