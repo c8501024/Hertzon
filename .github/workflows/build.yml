@@ -234,7 +234,8 @@ jobs:
       - name: Check Hertzon.app, the command and the .hzn file type
         run: |
           DEST="$HOME/Library/Application Support/Hertzon"
-          APP="$HOME/Applications/Hertzon.app"
+          APP="/Applications/Hertzon.app"   # the runner account is an administrator: no password needed
+          test ! -e "$HOME/Applications/Hertzon.app" || { echo "::error::app also in ~/Applications"; exit 1; }
           plutil -lint "$APP/Contents/Info.plist"
           test -x "$APP/Contents/MacOS/Hertzon"
           test -s "$APP/Contents/Resources/hertzon.icns" || { echo "::error::no app icon"; exit 1; }
@@ -266,15 +267,30 @@ jobs:
           DEST="$HOME/Library/Application Support/Hertzon"
           "$DEST/.venv/bin/hertzon-cli" solve "$DEST/examples/Microstrip.hzn" --design Microstrip50 2>&1 | tee solve.log
           if grep -q "RuntimeWarning" solve.log; then echo "::error::RuntimeWarning in the solve"; exit 1; fi
-      - name: Update over the installation (install.sh again keeps the Python environment)
+      - name: Update over a 0.4.1 installation (app in ~/Applications; install.sh keeps the Python environment)
         run: |
           DEST="$HOME/Library/Application Support/Hertzon"
           before=$(stat -f %i "$DEST/.venv/bin/python")
+          # 0.4.1 put the app into ~/Applications: the update must move it to /Applications, not keep two
+          mkdir -p "$HOME/Applications"
+          mv /Applications/Hertzon.app "$HOME/Applications/Hertzon.app"
           cd "$RUNNER_TEMP"/pkg/Hertzon-* && ./install.sh </dev/null
           test "$before" = "$(stat -f %i "$DEST/.venv/bin/python")" || { echo "::error::the update made a new environment"; exit 1; }
+          test -x /Applications/Hertzon.app/Contents/MacOS/Hertzon || { echo "::error::app not in /Applications"; exit 1; }
+          test ! -e "$HOME/Applications/Hertzon.app" || { echo "::error::old app in ~/Applications kept"; exit 1; }
+      - name: Fallback to ~/Applications without write access to the applications folder
+        run: |
+          # a stand-in for /Applications the account cannot write to; without a terminal there is no sudo prompt
+          RO="$RUNNER_TEMP/ro-apps"; mkdir -p "$RO"; chmod 555 "$RO"
+          cd "$RUNNER_TEMP"/pkg/Hertzon-* && HERTZON_SYSTEM_APPS="$RO" ./install.sh </dev/null
+          test -x "$HOME/Applications/Hertzon.app/Contents/MacOS/Hertzon" || { echo "::error::no fallback app"; exit 1; }
+          test ! -e "$RO/Hertzon.app"
+          # the app of the earlier installation in /Applications is cleaned up only when the script's
+          # applications folder is /Applications itself; here both exist until the uninstall below
       - name: Uninstall
         run: |
           "$HOME/Library/Application Support/Hertzon/uninstall.sh"
+          test ! -e /Applications/Hertzon.app
           test ! -e "$HOME/Applications/Hertzon.app"
           test ! -e "$HOME/Library/Application Support/Hertzon"
           test ! -e "$HOME/.local/bin/hertzon"

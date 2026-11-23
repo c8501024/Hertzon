@@ -98,8 +98,8 @@ to remove it.
 **macOS (Apple Silicon):** unpack `Hertzon-<version>-macos-arm64.tar.gz` (double-click it in Finder) and run
 `./install.sh` in Terminal from the unpacked folder. It needs Python 3.10 to 3.13, for example 3.13 from
 [python.org](https://www.python.org/downloads/macos/) or `brew install python@3.13`. It installs for your user
-into `~/Library/Application Support/Hertzon`, creates `Hertzon.app` in `~/Applications` (Launchpad, Spotlight,
-Dock), the command `hertzon` in `~/.local/bin` and opens `.hzn` projects with Hertzon. The app is made by the
+into `~/Library/Application Support/Hertzon`, creates `Hertzon.app` in `/Applications` (Finder, Launchpad,
+Spotlight, Dock; without administrator rights it asks for the password or uses `~/Applications`), the command `hertzon` in `~/.local/bin` and opens `.hzn` projects with Hertzon. The app is made by the
 script on your Mac, so Gatekeeper does not block it. Run `install.sh` of a newer package to update,
 `~/Library/Application\ Support/Hertzon/uninstall.sh` to remove it. On an Intel Mac use the manual route below.
 
