@@ -254,8 +254,12 @@ class Bridge:
             (self.out / "ABORT").unlink(missing_ok=True)     # left over from an aborted earlier run
         except OSError:
             pass
-        if not os.environ.get("HERTZON_TUNING"):    # a tuning run leaves the solution of the setup as it is
+        tune = os.environ.get("HERTZON_TUNING")
+        if not tune:    # a tuning run leaves the solution of the setup as it is
             self.store.write_json("status.json", running_status())
+        else:
+            from . import tuning as _tuning
+            _tuning.write_tuning_status(self.out, json.loads(tune).get("sweep", ""), "running", pid=os.getpid())
         if _first_run():
             note = "First start detected: compiling the solver kernels (once, a few minutes)"
             info(note)
@@ -1911,6 +1915,7 @@ class Bridge:
         tmp = tuning.tuning_path(self.out, name).with_suffix(".tmp.npz")
         meta = tuning.build(self, variables, freqs, tmp, log=info, progress=progress, grid=grid)
         os.replace(tmp, tuning.tuning_path(self.out, name))
+        tuning.write_tuning_status(self.out, name, "done")
         for v, (lo, hi), u in zip(meta["variables"], meta["ranges"], meta["units"]):
             info(f"Tuning range of {v}: {lo:+.4g} to {hi:+.4g} {u}")
         emit("progress", value=100, text=f"Tuning '{name}' complete")
@@ -4540,11 +4545,20 @@ def run(project_path: str, design: str, setup: str, out_dir: str) -> int:
         msg, tb = failure_message(ex), traceback.format_exc()
         emit("log", level="error", msg=f"{type(ex).__name__}: {msg}")
         emit("traceback", text=tb)
-        if not os.environ.get("HERTZON_TUNING"):
+        tune = os.environ.get("HERTZON_TUNING")
+        if not tune:
             try:
                 ResultStore(Path(out_dir)).write_json("status.json", {
                     "state": "failed", "error": msg, "step": _PROGRESS.get("text") or "",
                     "traceback": tb[-6000:]})
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            # the setup keeps its solution; the failure goes to the state of the tuning model (MCP get_tuning)
+            try:
+                from . import tuning as _tuning
+                _tuning.write_tuning_status(Path(out_dir), json.loads(tune).get("sweep", ""), "failed", error=msg,
+                                            step=_PROGRESS.get("text") or "", traceback=tb[-3000:])
             except Exception:  # noqa: BLE001
                 pass
         emit("failed", error=msg)

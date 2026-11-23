@@ -394,3 +394,83 @@ def test_report_issue_long_text_and_bad_input(server):
     assert len(link_body) <= 6000 and "full text is in the tool result" in link_body
     assert "title is required" in error(server, "report_issue", title=" ")
     assert "Unknown kind" in error(server, "report_issue", title="t", kind="wish")
+
+
+def test_tuning_state_of_a_window_job(server, tmp_path, monkeypatch):
+    """compute_tuning in a Hertzon window: get_tuning must not answer "not computed" for a model that was asked
+    for. A job that ended without a model is "failed" with the error the solver wrote; a window that does not
+    answer at once (busy) leaves a requested model "running" (Meta run O2: "not computed" right after
+    compute_tuning, the agent gave up on the tuning)."""
+    from hertzon.mcp import live, tools_more
+    from hertzon.solver import tuning as T
+    path = str(tmp_path / "t.hzn")
+    call(server, "create_project", path=path)
+    call(server, "create_patch_antenna", frequency_ghz=5.8)
+
+    class FakeWindow:
+        def __init__(self):
+            self.queue = {"running": None, "queued": []}
+            self.down = False
+            self.calls = []
+
+        def call(self, cmd, timeout=None, **a):
+            self.calls.append(cmd)
+            if cmd == "queue":
+                if self.down:
+                    raise live.LinkError("timeout")
+                return self.queue
+            if cmd == "tuning":
+                key = f"t - {a['design']} - {a['setup']} : tuning {json.loads(a['tuning'])['sweep']}"
+                self.queue = {"running": key, "queued": []}
+                return {"key": key}
+            raise AssertionError(cmd)
+
+    win = FakeWindow()
+    real_load = tools_more.load
+    monkeypatch.setattr(tools_more, "load", lambda args, **kw: tools_more.Ctx(real_load(args, **kw).proj,
+                                                                             real_load(args, **kw).des, win))
+    import hertzon.solver.results as R
+    monkeypatch.setattr(R, "run_status", lambda out: {"state": "done"})
+    out = R.results_dir(path, "Patch_5.8GHz", "Setup1")
+    model = T.tuning_path(out, "LastAdaptive")
+    out.mkdir(parents=True, exist_ok=True)
+    model.write_bytes(b"old model")
+    assert "could not be read" in error(server, "get_tuning")     # state done: it reads the (fake) model
+
+    r = call(server, "compute_tuning", variables=["Lp"])
+    assert r["in_window"] and "tuning" in win.calls
+    assert not model.exists()           # the older model does not read as the new one
+    assert call(server, "get_tuning")["state"] == "running"
+    win.down = True                     # the window is busy and does not answer the queue question
+    assert call(server, "get_tuning")["state"] == "running"
+    win.down = False
+    # the solver failed: its error reaches the assistant
+    win.queue = {"running": None, "queued": []}
+    T.write_tuning_status(out, "LastAdaptive", "failed", error="MorphError: 'xr' moves a port", step="Morphing")
+    g = call(server, "get_tuning")
+    assert g["state"] == "failed" and "MorphError" in g["error"] and g["failed_in"] == "Morphing"
+    # the job ended without a word (aborted, killed): failed, not "not computed"
+    T.write_tuning_status(out, "LastAdaptive", "running", pid=0)
+    g = call(server, "get_tuning")
+    assert g["state"] == "failed" and "without a model" in g["error"]
+    # never asked for: not computed
+    T.tuning_status_path(out, "LastAdaptive").unlink()
+    assert call(server, "get_tuning")["state"] == "not computed"
+
+
+def test_failed_tuning_run_writes_its_state(tmp_path, monkeypatch):
+    """A tuning run that fails leaves status.json of the setup alone and writes the error to the state of the
+    tuning model, where get_tuning reads it."""
+    from hertzon.model.design import Project
+    from hertzon.solver import bridge
+    from hertzon.solver import tuning as T
+    path = str(tmp_path / "f.hzn")
+    Project().save(path)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "status.json").write_text('{"state": "done"}')
+    monkeypatch.setenv("HERTZON_TUNING", json.dumps({"sweep": "Sweep", "variables": ["a"], "points": 3}))
+    assert bridge.run(path, "NoSuchDesign", "Setup1", str(out)) == 1
+    assert json.loads((out / "status.json").read_text())["state"] == "done"
+    st = T.read_tuning_status(out, "Sweep")
+    assert st["state"] == "failed" and st["error"] and "Traceback" in st["traceback"]
