@@ -3,16 +3,21 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.4.1 (2026-11-23)
 
-- The Claude plugin is marked as **experimental** in its README, the README, the MCP guide, the tutorial and on the
-  website: results depend on the assistant, its model and the task, and research into better results is ongoing.
+### Added
 - **macOS package for Apple Silicon.** Releases now include `Hertzon-<version>-macos-arm64.tar.gz`. Its
   `install.sh` sets up Hertzon's own Python environment, creates `Hertzon.app` in `~/Applications` with the Hertzon
   icon, the command `hertzon` and the `.hzn` file type (projects open from Finder), and adds `uninstall.sh`. The app
   is created on the Mac by the script, so Gatekeeper does not block it. Every build installs the package on an Apple
   Silicon runner and solves a small model with it. Intel Macs keep the manual route.
 - The Linux package now installs the Claude plugin as well, so **Tools > AI Assistants (MCP)... > Register** finds it.
+
+### Changed
+- The Claude plugin is marked as **experimental** in its README, the README, the MCP guide, the tutorial and on the
+  website: results depend on the assistant, its model and the task, and research into better results is ongoing.
+
+### Fixed
 - **A sweep's Count is no longer ignored.** An assistant that set `SweepType` Discrete, Start, Stop and `Count` 9
   without `Distribution` kept the default "Linear Step" with Step 0.1GHz: over 2.4 to 2.485 GHz that solved one
   frequency, silently. `set_sweep`/`set_setup` now pick the distribution that uses Count, Step, SamplesPerDecade or
