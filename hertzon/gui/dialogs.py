@@ -1022,7 +1022,8 @@ class OptionsDialog(QDialog):
         self.workers.setRange(1, max(1, ncpu))
         self.workers.setValue(int(s.value("hpc/sweep_workers", 2)))
         self.solver = QComboBox()
-        self.solver.addItems(list(schema.SOLVERS))
+        from ..solver import solver_choice
+        self.solver.addItems(solver_choice.offered())     # without the solvers this platform cannot run
         self.solver.setCurrentText(s.value("hpc/default_solver", "Auto"))
         self.hpc_remote = QLabel()
         self.hpc_remote.setWordWrap(True)

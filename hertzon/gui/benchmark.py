@@ -11,8 +11,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, Q
                                QPushButton, QLabel, QProgressBar, QTableWidget, QTableWidgetItem, QSplitter,
                                QAbstractItemView, QMessageBox, QFileDialog, QTabWidget, QWidget, QGridLayout)
 
-from ..model import schema
-from ..solver import sparta_setup
+from ..solver import solver_choice
 from ..solver.benchmark import CASES, CASES_DIR, default_cores, machine
 from ..solver.results import _safe
 from .solve import solver_python
@@ -24,9 +23,10 @@ SOLVER_COLUMNS = ["Solver", "Cores", "Parallel frequencies", "Total (s)", "Solve
                   "Adaptive passes (s)", "Sweep (s)", "Sweep solves", "Passes", "Tetrahedra", "Peak memory (MB)",
                   "Without start vs. first",
                   "Sweep on same mesh (s)", "Solves on same mesh", "Largest |dS|", "Note"]
-# the solvers the comparison offers ("Auto" is one of them, chosen per problem), and the ones it starts with
-COMPARE = [s for s in schema.SOLVERS if s != "Auto"]
-COMPARE_DEFAULT = ("PARDISO", "SPARTA (CPU)", "SPARTA (GPU)")
+# the solvers the comparison offers ("Auto" is one of them, chosen per problem; the ones this platform cannot
+# run are left out), and the ones it starts with (on a Mac Apple Accelerate instead of PARDISO)
+COMPARE = [s for s in solver_choice.offered() if s != "Auto"]
+COMPARE_DEFAULT = ("PARDISO", solver_choice.ACCELERATE, "SPARTA (CPU)", "SPARTA (GPU)")
 
 
 def benchmark_root() -> Path:
@@ -237,14 +237,14 @@ class BenchmarkDialog(QDialog):
         f = QFormLayout()
         grid = QGridLayout()
         self.solver_boxes: dict[str, QCheckBox] = {}
-        sparta = sparta_setup.installed_version()
         for i, name in enumerate(COMPARE):
             cb = QCheckBox(name)
             cb.setChecked(name in COMPARE_DEFAULT)
-            if "SPARTA" in name and not sparta:
+            why = solver_choice.unavailable(name)
+            if why:          # e.g. SPARTA not installed: greyed out, so no run falls back to another solver
                 cb.setChecked(False)
                 cb.setEnabled(False)
-                cb.setToolTip("SPARTA is not installed (Tools > Options > Install SPARTA)")
+                cb.setToolTip(why)
             self.solver_boxes[name] = cb
             grid.addWidget(cb, i // 3, i % 3)
         f.addRow("Solvers:", grid)
