@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pyvista as pv
-import vtk
+from . import vtk_classes as vtk
 from pyvistaqt import QtInteractor
 from PySide6.QtCore import Qt, Signal, QPoint
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout

@@ -25,7 +25,7 @@ ENV PYTHONPATH=/opt/hertzon \
 COPY hertzon ./hertzon
 COPY examples/PatchAntenna.hzn examples/NATO-Sphere.hzn examples/Coax.hzn ./examples/
 # compile the numba kernels now (disk cache in the image), so the first job starts at full speed
-RUN python -m hertzon.solver.warmup && rm -rf /tmp/*
+RUN python -m hertzon.solver.warmup --no-ui && rm -rf /tmp/*
 
 ENV HERTZON_HOME=/work
 VOLUME /work
