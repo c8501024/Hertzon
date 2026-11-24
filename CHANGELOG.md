@@ -3,6 +3,14 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **macOS: the Fields Calculator no longer crashes Hertzon** (#547). Hertzon watched for .hzn files opened in
+  Finder with an event filter on the whole application; written in Python, it was called for every object, also
+  for one that Qt WebEngine was still constructing when the formula editor loaded its page, and PySide crashed
+  (segmentation fault). The open-file events are now taken by the application object itself.
+
 ## 0.4.4 (2026-11-24)
 
 ### Added
