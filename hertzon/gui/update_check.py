@@ -99,21 +99,38 @@ def dialog_due(last_shown: str, today: date, days: int = PAUSE_DAYS) -> bool:
         return True
 
 
-def installer_asset(release: dict) -> dict | None:
-    """The Windows installer (Hertzon-Setup-<version>.exe) among the release's files."""
-    for a in release.get("assets") or []:
-        if re.fullmatch(r"Hertzon-Setup-[\d.]+\.exe", a.get("name", "")):
+# the release file that updates this platform: the Windows setup, or the package with install.sh
+_ASSETS = {"win32": r"Hertzon-Setup-[\d.]+\.exe", "darwin": r"Hertzon-[\d.]+-macos-arm64\.tar\.gz",
+           "linux": r"Hertzon-[\d.]+-linux\.tar\.gz"}
+
+
+def installer_asset(release: dict, platform: str | None = None) -> dict | None:
+    """The file of the release that updates this platform (`platform` like sys.platform): the Windows
+    installer Hertzon-Setup-<version>.exe, on macOS Hertzon-<version>-macos-arm64.tar.gz, on Linux
+    Hertzon-<version>-linux.tar.gz."""
+    plat = sys.platform if platform is None else platform
+    pat = _ASSETS.get("linux" if plat.startswith("linux") else plat)
+    for a in release.get("assets") or [] if pat else []:
+        if re.fullmatch(pat, a.get("name", "")):
             return a
     return None
 
 
-def installed_copy() -> Path | None:
-    """Folder of the installed Hertzon (Windows installer: Hertzon.exe and Uninstall.exe next to the
-    package), None for a pip installation, a source checkout or Linux, where Install opens the release page."""
-    if sys.platform != "win32":
-        return None
-    root = Path(__file__).resolve().parents[2]
-    return root if (root / "Hertzon.exe").is_file() and (root / "Uninstall.exe").is_file() else None
+def installed_copy(root: Path | None = None) -> Path | None:
+    """Folder of the installed Hertzon, None for a pip installation or a source checkout, where Install opens
+    the release page. Windows installer: Hertzon.exe and Uninstall.exe next to the package. macOS and Linux
+    (install.sh): uninstall.sh and the Python environment .venv next to the package, which was copied there
+    (a source checkout has its .git folder)."""
+    root = Path(__file__).resolve().parents[2] if root is None else Path(root)
+    if sys.platform == "win32":
+        return root if (root / "Hertzon.exe").is_file() and (root / "Uninstall.exe").is_file() else None
+    if sys.platform == "darwin" or sys.platform.startswith("linux"):
+        ok = ((root / "uninstall.sh").is_file() and (root / ".venv" / "bin" / "python").exists()
+              and not (root / ".git").exists())
+        if sys.platform.startswith("linux"):   # install.sh installs to $XDG_DATA_HOME/hertzon
+            ok = ok and root.name == "hertzon"
+        return root if ok else None
+    return None
 
 
 def download(url: str, dest: Path, digest: str = "", progress=None, cancelled=lambda: False,
@@ -234,6 +251,124 @@ def start_installer_after_exit(installer: Path, pid: int | None = None, extra: t
     return "shell"
 
 
+# ---- macOS and Linux: the package with install.sh ------------------------------------------------------
+
+PKG_WAIT_S = 120     # how long the update waits for Hertzon to exit at most
+
+
+def extract_package(archive: Path, folder: Path) -> Path:
+    """Unpack the downloaded Hertzon-<version>-<platform>.tar.gz into `folder` (emptied first) and return the
+    package folder with install.sh. Only plain files and folders inside `folder` are taken."""
+    import shutil
+    import tarfile
+    folder = Path(folder)
+    if folder.exists():
+        shutil.rmtree(folder)
+    folder.mkdir(parents=True)
+    base = folder.resolve()
+    with tarfile.open(archive, "r:gz") as tf:
+        members = []
+        for m in tf.getmembers():
+            target = (base / m.name).resolve()
+            if not (m.isfile() or m.isdir()) or (target != base and base not in target.parents):
+                continue    # links, devices and paths outside the folder are left out
+            members.append(m)
+        try:
+            tf.extractall(base, members=members, filter="data")
+        except TypeError:   # Python without extraction filters (before 3.10.12 / 3.11.4)
+            tf.extractall(base, members=members)
+    found = sorted(base.glob("*/install.sh")) or sorted(base.glob("install.sh"))
+    if not found:
+        raise FileNotFoundError(2, "The downloaded package has no install.sh", str(archive))
+    return found[0].parent
+
+
+def _sh(text: str) -> str:
+    """A value quoted for the shell."""
+    import shlex
+    return shlex.quote(str(text))
+
+
+def update_script(package: Path, root: Path, pid: int, platform: str | None = None,
+                  restart: bool = True) -> str:
+    """The shell script that updates an install.sh installation once Hertzon has exited: it waits until the
+    process `pid` has ended (at most PKG_WAIT_S seconds), runs the new package's install.sh for the installed
+    folder `root` (which updates in place: the program files are replaced, the Python environment, SPARTA when
+    it is installed, the settings and the projects are kept; nothing is uninstalled), writes everything to
+    update.log next to the package and starts Hertzon again. A failed update says so in a message with the
+    log and starts the installed Hertzon anyway."""
+    plat = sys.platform if platform is None else platform
+    mac = plat == "darwin"
+    root, package = Path(root), Path(package)
+    log = package.parent / "update.log"
+    if mac:
+        where = f"HERTZON_HOME={_sh(root)}"
+    else:   # install.sh installs to $XDG_DATA_HOME/hertzon
+        where = f"XDG_DATA_HOME={_sh(root.parent)}"
+    if mac:
+        start = (f"open -b org.hertzon.Hertzon >/dev/null 2>&1 || "
+                 f"(cd {_sh(root)} && nohup {_sh(root / '.venv/bin/python')} -m hertzon "
+                 f">{_sh(root / 'hertzon.log')} 2>&1 &)")
+        tell = ('osascript -e "display alert \\"Hertzon update failed\\" message \\"The details are in '
+                '$LOG\\" as warning" >/dev/null 2>&1 || true')
+    else:
+        start = (f"if [ -x \"$HOME/.local/bin/hertzon\" ]; then nohup \"$HOME/.local/bin/hertzon\" "
+                 f">/dev/null 2>&1 & else (cd {_sh(root)} && nohup {_sh(root / '.venv/bin/python')} -m hertzon "
+                 f">{_sh(root / 'hertzon.log')} 2>&1 &); fi")
+        tell = ('{ command -v zenity >/dev/null && zenity --warning --text="Hertzon update failed. The details '
+                'are in $LOG"; } >/dev/null 2>&1 || { command -v notify-send >/dev/null && notify-send '
+                '"Hertzon update failed" "The details are in $LOG"; } >/dev/null 2>&1 || true')
+    lines = [
+        "#!/bin/sh",
+        "# Hertzon update (written by Hertzon): waits until Hertzon has exited, runs the new install.sh,",
+        "# starts Hertzon again. Everything goes to update.log.",
+        f"LOG={_sh(log)}",
+        'say() { echo "$(date +%Y-%m-%dT%H:%M:%S) update: $*" >>"$LOG"; }',
+        f"say \"waiting for Hertzon (process {int(pid)}) to exit\"",
+        "i=0",
+        f"while kill -0 {int(pid)} 2>/dev/null; do",
+        f"  i=$((i + 1)); if [ $i -gt {PKG_WAIT_S * 10} ]; then say \"Hertzon is still running, updating anyway\"; break; fi",
+        "  sleep 0.1",
+        "done",
+        f"say running {_sh(package / 'install.sh')} for {_sh(root)}",
+        f"cd {_sh(package)} || exit 1",
+        f"if {where} ./install.sh </dev/null >>\"$LOG\" 2>&1; then",
+        '  say "done"',
+        "else",
+        '  say "install.sh failed (exit code $?)"',
+        f"  {tell}",
+        "fi",
+    ]
+    if restart:
+        lines += ['say "starting Hertzon"', start]
+    return "\n".join(lines) + "\n"
+
+
+def start_package_update_after_exit(archive: Path, root: Path, pid: int | None = None,
+                                    restart: bool = True) -> Path:
+    """macOS and Linux: unpack the downloaded package next to it, write update.sh and start it as a process of
+    its own (its own session, so it keeps running when Hertzon exits). Returns the script. Raises OSError when
+    it cannot be started, so that Hertzon stays open and says so."""
+    archive = Path(archive)
+    if not archive.is_file():
+        raise FileNotFoundError(2, "The downloaded package is no longer there", str(archive))
+    pid = os.getpid() if pid is None else int(pid)
+    folder = archive.parent / archive.name.removesuffix(".tar.gz")
+    package = extract_package(archive, folder)
+    script = folder / "update.sh"
+    script.write_text(update_script(package, root, pid, restart=restart), encoding="utf-8")
+    script.chmod(0o755)
+    (folder / "update.log").unlink(missing_ok=True)
+    p = subprocess.Popen(["/bin/sh", str(script)], cwd=str(folder), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                         close_fds=True)
+    try:
+        code = p.wait(timeout=0.5)
+    except subprocess.TimeoutExpired:
+        return script
+    raise OSError(f"The update script ended right away (exit code {code}); see {folder / 'update.log'}")
+
+
 def download_dir() -> Path:
     """Where the installer is downloaded to: %LOCALAPPDATA%\\Hertzon\\Updates on Windows (cleaning tools and
     Storage Sense empty the temporary folder), otherwise the temporary folder."""
@@ -312,8 +447,10 @@ class UpdateDialog(QDialog):
         notes.setOpenExternalLinks(True)
         notes.setMarkdown(release.get("notes") or "No release notes.")
         lay.addWidget(notes, 1)
-        how = ("Install downloads the installer, asks to save open changes, closes Hertzon and starts the "
-               "installer. Your settings and the Python environment are kept."
+        how = (("Install downloads the installer, asks to save open changes, closes Hertzon and starts the "
+                "installer." if sys.platform == "win32" else
+                "Install downloads the new package, asks to save open changes, closes Hertzon, updates it and "
+                "starts it again.") + " Your settings and the Python environment are kept."
                if can_install else
                "Download opens the release page with the installers; install the new version from there.")
         foot = QLabel(f"{how}<br><a href='{release['url']}'>Release page</a> · The check at start can be "

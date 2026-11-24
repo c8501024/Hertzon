@@ -4519,12 +4519,17 @@ class MainWindow(QMainWindow):
         """Download the installer (with progress, cancelable, checksum checked), ask to save open changes,
         start the installer and close Hertzon. The installer waits until this process has exited before it
         opens, so that no file of the program or of .venv is still in use when it replaces them; when it
-        cannot be started, Hertzon stays open and says so."""
+        cannot be started, Hertzon stays open and says so. On macOS and Linux the package with install.sh is
+        downloaded instead; a script of its own waits for Hertzon to exit, runs install.sh (an update in place)
+        and starts Hertzon again (#546)."""
+        import sys
         import threading
         from PySide6.QtCore import QObject, Signal
         from PySide6.QtWidgets import QApplication, QProgressDialog
-        from .update_check import download, download_dir, installer_asset, start_installer_after_exit, still_there
+        from .update_check import (download, download_dir, installed_copy, installer_asset,
+                                   start_installer_after_exit, start_package_update_after_exit, still_there)
         a = installer_asset(release)
+        windows = sys.platform == "win32"       # macOS, Linux: the package with install.sh
         if self.solver.busy and QMessageBox.question(
                 self, "Install Update", "A solve is running. Installing the update stops it. Continue?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
@@ -4570,7 +4575,7 @@ class MainWindow(QMainWindow):
         pd.close()
         path, err = result
         if err:
-            QMessageBox.warning(self, "Install Update", f"The installer could not be downloaded:\n{err}\n\n"
+            QMessageBox.warning(self, "Install Update", f"The update could not be downloaded:\n{err}\n\n"
                                 f"It is also on the release page:\n{release['url']}")
             return
         if path is None:  # cancelled
@@ -4584,14 +4589,19 @@ class MainWindow(QMainWindow):
             self._update_installer_gone(path, release)
             return
         try:
-            start_installer_after_exit(path)
+            if windows:
+                start_installer_after_exit(path)
+            else:
+                start_package_update_after_exit(path, installed_copy())
         except OSError as e:
-            self.msgs.add("error", f"Update: the installer {path} could not be started: {e}")
+            what = "installer" if windows else "update"
+            self.msgs.add("error", f"Update: the {what} {path} could not be started: {e}")
+            how = ("Start the installer from that folder yourself" if windows else
+                   "Unpack it and run install.sh in a terminal")
             if QMessageBox.warning(
                     self, "Install Update",
-                    f"The installer could not be started:\n{e}\n\n{path}\n\nHertzon stays open. Start the "
-                    f"installer from that folder yourself, or download it from the release page.\n\n"
-                    f"Open the release page?",
+                    f"The {what} could not be started:\n{e}\n\n{path}\n\nHertzon stays open. {how}, or "
+                    f"download it from the release page.\n\nOpen the release page?",
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
                 from PySide6.QtCore import QUrl
                 from PySide6.QtGui import QDesktopServices
@@ -4599,7 +4609,9 @@ class MainWindow(QMainWindow):
             return
         # the installer waits (without a window) until this process has ended, then opens
         self.doc.dirty = False  # answered above; closing must not ask again
-        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes, then the installer opens.")
+        self.msgs.add("info", f"Installing Hertzon {release['version']}: Hertzon closes, then the installer opens."
+                      if windows else f"Updating to Hertzon {release['version']}: Hertzon closes, updates and starts "
+                      f"again (about a minute).")
         self.close()
         QApplication.quit()
 
