@@ -5,6 +5,15 @@ the GitHub release notes.
 
 ## 0.4.4 (2026-11-24)
 
+### Added
+- **Install updates from Hertzon on macOS and Linux** (#546). Install in the update dialog (or Help > Check for
+  Updates) downloads the new package (checksum checked), asks to save open changes, closes Hertzon, runs the new
+  package's `install.sh` and starts Hertzon again, as the Windows setup already did. It is an update in place:
+  nothing is uninstalled, the Python environment, an installed SPARTA, the settings and the projects are kept.
+  The steps are written to `update.log` next to the downloaded package; a failed update says so in a message.
+  On a Mac, an update without an administrator password keeps Hertzon.app in /Applications (it only starts the
+  updated program) instead of making a second one in ~/Applications.
+
 ### Changed
 - **Table columns can be resized** (#545). The columns of the Properties, the Progress window, Solution Data and
   the data and marker tables of reports fit their content when the table is filled and can then be dragged wider
