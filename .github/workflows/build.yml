@@ -265,6 +265,12 @@ jobs:
           win.show(); app.processEvents(); win.close()
           print("main window ok")
           PY
+      - name: Open the Fields Calculator in the macOS window system (#547)
+        timeout-minutes: 15
+        run: |
+          DEST="$HOME/Library/Application Support/Hertzon"
+          cd "$RUNNER_TEMP"
+          "$DEST/.venv/bin/python" -m hertzon.gui.webengine_check
       - name: Mesh and solve a small model from the command line
         timeout-minutes: 20
         run: |
