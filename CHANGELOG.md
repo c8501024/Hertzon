@@ -3,7 +3,16 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.4.5 (2026-11-24)
+
+### Changed
+- **Faster and explained first start after an installation or update** (#474). The first start loaded the Qt and
+  VTK libraries of the main window for the first time, and the virus scanner (Windows) or the system's code check
+  (macOS) read each of them behind a loading screen that seemed to hang (up to 20 minutes on some machines). Hertzon
+  now loads only the VTK modules it uses (about 110 instead of 370 libraries, at every start), the setup loads the
+  user interface libraries once at every installation and update, and the loading screen names the current step,
+  the seconds it has taken and, after 20 s, why a first start can take a few minutes. `Hertzon_crash.log` gets one
+  line per start with the times.
 
 ### Fixed
 - **macOS: the Fields Calculator no longer crashes Hertzon** (#547). Hertzon watched for .hzn files opened in
