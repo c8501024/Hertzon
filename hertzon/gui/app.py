@@ -149,31 +149,57 @@ def _web_engine_setup() -> None:
         pass
 
 
+def _application(argv):
+    """The QApplication. On macOS a subclass that takes Finder's open-file events in its own event() (see
+    _finder_files)."""
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app is not None:
+        return app
+    if sys.platform != "darwin":
+        return QApplication(argv)
+    from PySide6.QtCore import QEvent
+
+    class HertzonApplication(QApplication):
+        """Finder's open-file events arrive at the application object itself. They are taken here and not
+        with an event filter on the application: such a filter written in Python sees every event of every
+        object, also the ChildAdded event of a Qt WebEngine object that is still being constructed, and
+        PySide crashed (segmentation fault) when it wrapped that object for Python. That happened on macOS
+        only, where the filter was installed, as soon as the formula editor of the Fields Calculator
+        loaded its page (#547)."""
+        open_file = None            # callback(path) for a FileOpen event
+
+        def event(self, ev):  # noqa: D102
+            if ev.type() == QEvent.FileOpen and self.open_file is not None:
+                self.open_file(ev.file())
+                return True
+            return super().event(ev)
+
+    return HertzonApplication(argv)
+
+
 def _finder_files(app):
     """macOS: a .hzn opened in Finder (double click, Open With, dropped on the Dock icon) reaches Hertzon as an
     open-file event, not as a command-line argument. Until the main window exists the paths are kept; later
-    ones open in the window."""
-    from PySide6.QtCore import QEvent, QObject, QTimer
+    ones open in the window. Never an event filter on the whole application (#547): see _application."""
+    from PySide6.QtCore import QTimer
 
-    class FinderFiles(QObject):
+    class FinderFiles:
         def __init__(self):
-            super().__init__(app)
             self.pending: list[str] = []
             self.win = None
 
-        def eventFilter(self, obj, ev):  # noqa: N802
-            if ev.type() != QEvent.FileOpen:
-                return False
-            path = ev.file()
-            if path.lower().endswith(".hzn"):
-                if self.win is None:
-                    self.pending.append(path)
-                else:
-                    QTimer.singleShot(0, lambda: self.win.file_open(path))
-            return True
+        def __call__(self, path: str) -> None:
+            if not path.lower().endswith(".hzn"):
+                return
+            if self.win is None:
+                self.pending.append(path)
+            else:
+                QTimer.singleShot(0, lambda: self.win.file_open(path))
 
     f = FinderFiles()
-    app.installEventFilter(f)
+    if hasattr(app, "open_file"):
+        app.open_file = f
     return f
 
 
@@ -224,7 +250,6 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     _keep = _crash_log()  # noqa: F841
     from pathlib import Path
-    from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QIcon
     if sys.platform == "win32":   # own taskbar icon instead of the Python one
         try:
@@ -234,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             pass
     _mac_app_name()           # before Qt starts the Cocoa application, which reads the name for its menu
     _web_engine_setup()
-    app = QApplication.instance() or QApplication(argv)
+    app = _application(argv)
     app.setApplicationName("Hertzon")
     app.setOrganizationName("Hertzon")
     app.setStyle("Fusion")

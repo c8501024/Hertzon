@@ -4,12 +4,16 @@ process survives (#547). Run with the Python of an installed Hertzon:
     python -m hertzon.gui.webengine_check            # every variant in its own process, a table at the end
     python -m hertzon.gui.webengine_check VARIANT    # one variant in this process
 
-Variants differ in how Qt WebEngine is set up before the application exists:
-  app        as Hertzon starts (hertzon.gui.app._web_engine_setup)
-  no-opengl  without forcing OpenGL for Qt Quick / WebEngine
-  no-flag    without --disable-gpu
-  plain      neither (only the shared OpenGL contexts)
-The exit code of each variant process is 0 when the calculator opened and the window kept running."""
+Variants:
+  app         as Hertzon starts (the application object, the Finder open-file handling and the Qt WebEngine
+              setup of hertzon.gui.app)
+  app-filter  as Hertzon 0.4.3 started on macOS: an event filter written in Python on the whole application,
+              which crashed when the formula editor loaded (#547); shown for comparison, it may crash
+  no-opengl   without forcing OpenGL for Qt Quick / WebEngine
+  no-flag     without --disable-gpu
+  plain       neither (only the shared OpenGL contexts)
+The exit code of each variant process is 0 when the calculator opened and the window kept running; the check
+fails when the "app" variant does not."""
 from __future__ import annotations
 
 import faulthandler
@@ -18,12 +22,12 @@ import subprocess
 import sys
 import time
 
-VARIANTS = ("app", "no-opengl", "no-flag", "plain")
+VARIANTS = ("app", "app-filter", "no-opengl", "no-flag", "plain")
 
 
 def setup(variant: str) -> None:
     from PySide6.QtCore import QCoreApplication, Qt
-    if variant == "app":
+    if variant in ("app", "app-filter"):
         from hertzon.gui.app import _web_engine_setup
         _web_engine_setup()
         return
@@ -41,7 +45,20 @@ def run_one(variant: str, seconds: float = 12.0) -> int:
     faulthandler.enable(all_threads=True)
     setup(variant)
     from PySide6.QtWidgets import QApplication
-    app = QApplication.instance() or QApplication([])
+    if variant == "app":
+        from hertzon.gui.app import _application, _finder_files
+        app = _application([])
+        _keep = _finder_files(app) if sys.platform == "darwin" else None  # noqa: F841
+    else:
+        app = QApplication.instance() or QApplication([])
+    if variant == "app-filter":
+        from PySide6.QtCore import QEvent, QObject
+
+        class Filter(QObject):
+            def eventFilter(self, obj, ev):  # noqa: N802
+                return ev.type() == QEvent.FileOpen
+        _filter = Filter(app)
+        app.installEventFilter(_filter)
     print(f"[{variant}] platform: {app.platformName()}", flush=True)
     from hertzon.gui.main_window import MainWindow
     win = MainWindow()
