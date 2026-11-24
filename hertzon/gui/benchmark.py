@@ -240,13 +240,9 @@ class BenchmarkDialog(QDialog):
         for i, name in enumerate(COMPARE):
             cb = QCheckBox(name)
             cb.setChecked(name in COMPARE_DEFAULT)
-            why = solver_choice.unavailable(name)
-            if why:          # e.g. SPARTA not installed: greyed out, so no run falls back to another solver
-                cb.setChecked(False)
-                cb.setEnabled(False)
-                cb.setToolTip(why)
             self.solver_boxes[name] = cb
             grid.addWidget(cb, i // 3, i % 3)
+        self.refresh_solvers()
         f.addRow("Solvers:", grid)
         self.solver_cores = QLineEdit(str(ncpu))
         f.addRow("Cores:", self.solver_cores)
@@ -325,6 +321,25 @@ class BenchmarkDialog(QDialog):
         table.verticalHeader().setVisible(False)
         split.addWidget(table)
         return fig, canvas, table, split
+
+    def refresh_solvers(self) -> None:
+        """Grey out the solvers that cannot run (e.g. SPARTA not installed) with the reason. Runs again each
+        time the dialog is shown and after Tools > Options installed SPARTA, so a solver installed while
+        Hertzon runs can be checked without restarting it."""
+        for name, cb in self.solver_boxes.items():
+            why = solver_choice.unavailable(name)
+            if why:          # greyed out, so no run falls back to another solver under its name
+                cb.setChecked(False)
+                cb.setEnabled(False)
+                cb.setToolTip(why)
+            elif not cb.isEnabled():     # just installed: as if it had been there when the dialog opened
+                cb.setEnabled(True)
+                cb.setToolTip("")
+                cb.setChecked(name in COMPARE_DEFAULT)
+
+    def showEvent(self, ev) -> None:
+        self.refresh_solvers()
+        super().showEvent(ev)
 
     def _comparing(self) -> bool:
         return self.tabs.currentIndex() == 1

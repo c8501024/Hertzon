@@ -77,6 +77,39 @@ echo "Preparing the solver (once, a few minutes) ..."
 (cd "$DEST" && "$DEST/.venv/bin/python" -m hertzon.solver.warmup) ||
     echo "The solver kernels will be compiled at the first simulation instead."
 
+# ---- SPARTA (optional) ------------------------------------------------------------------------------
+# SPARTA, the GPU/CPU sparse direct solver of EMerge's author, is AGPL-3.0 and so not part of Hertzon
+# (GPL-2.0-or-later): it is installed only when the user says so. Asked once per Python environment (the
+# answer is kept in .venv/hertzon_sparta_asked); later updates update it when it is installed and leave it
+# out otherwise (Tools > Options > Install SPARTA adds it any time). HERTZON_SPARTA=1 or 0 answers without
+# asking (scripts, CI); without a terminal it is left out and asked at the next run in a terminal.
+# On a Mac it is the only solver that factorizes on the GPU (Metal), so "yes" is preselected here.
+SPARTA="${HERTZON_SPARTA:-}"
+if [ -z "$SPARTA" ]; then
+    if "$DEST/.venv/bin/python" -m hertzon.solver.sparta_setup version >/dev/null 2>&1; then
+        SPARTA=update
+    elif [ ! -e "$DEST/.venv/hertzon_sparta_asked" ] && [ -t 0 ]; then
+        echo
+        echo "SPARTA is an optional sparse direct solver that factorizes on the GPU (Metal) or the CPU."
+        echo "It is a separate program under the AGPL-3.0 licence: https://github.com/FennisRobert/SPARTA"
+        printf "Install SPARTA? [Y/n] "
+        read -r answer || answer=n
+        case "$answer" in ""|[Yy]*) SPARTA=1;; *) SPARTA=0;; esac
+        echo "$SPARTA" > "$DEST/.venv/hertzon_sparta_asked"
+    else
+        SPARTA=0
+    fi
+fi
+case "$SPARTA" in
+    1|[Yy]*) SPARTA_CMD=install ;;
+    update) SPARTA_CMD=update ;;
+    *) SPARTA_CMD="" ;;
+esac
+if [ -n "$SPARTA_CMD" ]; then
+    "$DEST/.venv/bin/python" -m hertzon.solver.sparta_setup "$SPARTA_CMD" ||
+        echo "SPARTA could not be installed; install it later in Hertzon: Tools > Options > Install SPARTA."
+fi
+
 # ---- command ----------------------------------------------------------------------------------------
 mkdir -p "$BIN"
 cat > "$BIN/hertzon" <<EOS

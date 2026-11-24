@@ -3,6 +3,19 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **The installers offer SPARTA** (#536). SPARTA is AGPL-3.0 and so stays optional, but it no longer has to be
+  installed afterwards: the Windows setup has it as an unchecked component, `install.sh` asks once (on macOS with
+  "yes" preselected, since it is the only solver there that factorizes on the GPU; on Linux with "no").
+  `HERTZON_SPARTA=1` or `0` answers without asking. An update updates SPARTA when it is installed.
+
+### Fixed
+- **No restart after Tools > Options > Install SPARTA** (#536). The Solver Benchmark, when it had been open before,
+  kept SPARTA greyed out until Hertzon was restarted; it now asks again each time it is shown and right after the
+  installation.
+
 ## 0.4.2 (2026-11-23)
 
 ### Added
