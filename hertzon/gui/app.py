@@ -177,6 +177,49 @@ def _finder_files(app):
     return f
 
 
+def _mac_app_name(name: str = "Hertzon") -> bool:
+    """macOS: the application menu shows the name of the running program's bundle, which is the Python that
+    Hertzon.app starts ("Python", "About Python", "Quit Python", issue #543). Setting CFBundleName in the
+    main bundle's info dictionary before Qt creates the application makes it show `name`. Uses the
+    Objective-C runtime through ctypes (no extra package). Returns True when the name is set."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        ctypes.cdll.LoadLibrary(ctypes.util.find_library("Foundation"))
+        vp, cp = ctypes.c_void_p, ctypes.c_char_p
+        objc.objc_getClass.restype, objc.objc_getClass.argtypes = vp, [cp]
+        objc.sel_registerName.restype, objc.sel_registerName.argtypes = vp, [cp]
+        addr = ctypes.cast(objc.objc_msgSend, vp).value
+
+        def send(obj, sel: bytes, *args, argtypes=(), restype=vp):
+            # objc_msgSend must be called with the exact prototype (arm64 passes variadic arguments differently)
+            fn = ctypes.CFUNCTYPE(restype, vp, vp, *argtypes)(addr)
+            return fn(obj, objc.sel_registerName(sel), *args)
+
+        def nsstring(s: str):
+            return send(objc.objc_getClass(b"NSString"), b"stringWithUTF8String:", s.encode(), argtypes=(cp,))
+
+        bundle = send(objc.objc_getClass(b"NSBundle"), b"mainBundle")
+        done = False
+        for getter in (b"localizedInfoDictionary", b"infoDictionary"):
+            info = send(bundle, getter) if bundle else None
+            # only a mutable dictionary takes the name; calling setObject:forKey: on another one would raise
+            # an Objective-C exception and end the process
+            if not info or not send(info, b"respondsToSelector:", objc.sel_registerName(b"setObject:forKey:"),
+                                    argtypes=(vp,), restype=ctypes.c_bool):
+                continue
+            send(info, b"setObject:forKey:", nsstring(name), nsstring("CFBundleName"), argtypes=(vp, vp))
+            got = send(info, b"objectForKey:", nsstring("CFBundleName"), argtypes=(vp,))
+            text = send(got, b"UTF8String", restype=cp) if got else None
+            done = done or text == name.encode()
+        return done
+    except Exception:  # noqa: BLE001     (the name is cosmetic: Hertzon starts in any case)
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     _keep = _crash_log()  # noqa: F841
@@ -189,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Hertzon.Hertzon")
         except Exception:  # noqa: BLE001
             pass
+    _mac_app_name()           # before Qt starts the Cocoa application, which reads the name for its menu
     _web_engine_setup()
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("Hertzon")

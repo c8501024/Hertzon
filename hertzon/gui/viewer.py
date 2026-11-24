@@ -473,6 +473,18 @@ class ScaleBar:
             r = 1.0
         return r if r > 0 and math.isfinite(r) else 1.0
 
+    def _font_size(self, r: float) -> int:
+        """Font size of the labels for 12 logical pixels. VTK scales text by the render window's DPI / 72,
+        and the Qt widget sets that DPI to 72 x the device pixel ratio: the size is given without that
+        factor, or the labels came out twice as large on a Retina display and ran into the bar (#544)."""
+        try:
+            dpi = float(self.ren.GetRenderWindow().GetDPI())
+        except Exception:  # noqa: BLE001
+            dpi = 72.0
+        if not (dpi > 0 and math.isfinite(dpi)):
+            dpi = 72.0
+        return max(1, round(12 * r * 72.0 / dpi))
+
     def update(self) -> None:
         if not self.visible:
             return
@@ -518,15 +530,16 @@ class ScaleBar:
         self.poly.Modified()
         fmt = lambda v: f"{v:g}"
         ty = int(y0 - 17 * r)
+        fs = self._font_size(r)
         # every number centred on its tick (0, half, end); the unit follows the end number
         for t, (x, txt) in zip(self.labels, ((x0, "0"), (x0 + L / 2, fmt(length / 2)), (x0 + L, fmt(length)))):
             t.SetInput(txt)
-            t.GetTextProperty().SetFontSize(max(1, round(12 * r)))
+            t.GetTextProperty().SetFontSize(fs)
             t.GetTextProperty().SetJustificationToCentered()
             t.SetDisplayPosition(int(round(x)), ty)
         u = self.labels[3]
         u.SetInput(f"({'µm' if unit == 'um' else unit})")
-        u.GetTextProperty().SetFontSize(max(1, round(12 * r)))
+        u.GetTextProperty().SetFontSize(fs)
         u.GetTextProperty().SetJustificationToLeft()
         u.SetDisplayPosition(int(round(x0 + L + self._half_width(self.labels[2], r) + 4 * r)), ty)
         self.end_x = x0 + L

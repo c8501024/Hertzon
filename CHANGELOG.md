@@ -5,7 +5,17 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- **Table columns can be resized** (#545). The columns of the Properties, the Progress window, Solution Data and
+  the data and marker tables of reports fit their content when the table is filled and can then be dragged wider
+  or narrower in the header; a dragged column keeps its width while the table is refreshed. The Analysis column of
+  the Progress window fits the name up to 200 pixels (the full name is in its tooltip), so a long project name no
+  longer pushes the progress bar aside.
+
 ### Fixed
+- **macOS: the menu bar says "Hertzon"** instead of "Python" ("About Hertzon", "Quit Hertzon"; #543).
+- **Scale bar on a Retina display** (#544): its numbers were drawn twice too large and ran into the bar. They now
+  have the same size on every display.
 - **Zoom into details behind a transparent air box.** The mouse-wheel zoom closed in on the first surface under
   the cursor, which was often the face of the transparent air box or region above the board; the board then
   stopped growing once the camera reached that face, and small details (antenna traces, vias) stayed out of reach.
