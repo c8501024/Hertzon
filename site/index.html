@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hertzon – open-source electromagnetic design suite (3D full-wave FEM, circuits, PCBs, AI via MCP)</title>
-<meta name="description" content="Hertzon is a free, open-source electromagnetic design suite for engineers and AI agents (MCP): 3D full-wave electromagnetic simulation for antennas, filters, waveguides and RCS: finite-element solver with adaptive meshing, circuit simulator, S-parameters, fields and radiation patterns. Windows and Linux.">
+<meta name="description" content="Hertzon is a free, open-source electromagnetic design suite for engineers and AI agents (MCP): 3D full-wave electromagnetic simulation for antennas, filters, waveguides and RCS: finite-element solver with adaptive meshing, circuit simulator, S-parameters, fields and radiation patterns. Windows, macOS and Linux.">
 <meta name="keywords" content="open-source electromagnetic simulator, FEM, finite element method, full-wave, adaptive meshing, antenna simulation, microwave, RF, S-parameters, radiation pattern, RCS, EMerge">
 <link rel="canonical" href="https://c8501024.github.io/Hertzon/">
 <!-- Google Search Console: replace the content value with your verification token, then uncomment. -->
@@ -28,7 +28,7 @@
   "name": "Hertzon",
   "applicationCategory": "EngineeringApplication",
   "applicationSubCategory": "Electromagnetic simulation",
-  "operatingSystem": "Windows, Linux",
+  "operatingSystem": "Windows, macOS, Linux",
   "description": "Open-source electromagnetic design suite for co-design by engineers and AI agents: 3D full-wave FEM, circuits, PCBs and optimization.",
   "url": "https://c8501024.github.io/Hertzon/",
   "downloadUrl": "https://github.com/c8501024/Hertzon/releases/latest",
@@ -37,7 +37,8 @@
   "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}
 }
 </script>
-<style>.hero p strong{color:#fff}.hero .news{margin-top:14px;font-size:.95rem}</style>
+<style>.hero p strong{color:#fff}.hero .news{margin-top:14px;font-size:.95rem}
+#install code{font:.88em var(--mono);background:var(--code);padding:.12em .38em;border-radius:4px}</style>
 </head>
 <body class="home">
 <!--HEADER-->
@@ -47,7 +48,7 @@
 and <strong>adaptive meshing</strong> for high accuracy. Hertzon offers its methods as tools that an AI agent uses through
 <strong>MCP</strong> (<a href="docs/mcp.html">what is MCP?</a>), so every design can be a <a href="#ai">co-design</a> of engineer and AI.</p>
 <div class="btns">
-<a class="btn primary" href="https://github.com/c8501024/Hertzon/releases/latest">Download for Windows / Linux</a>
+<a class="btn primary" href="https://github.com/c8501024/Hertzon/releases/latest">Download for Windows / macOS / Linux</a>
 <a class="btn ghost" href="docs/tutorial.html">Start the tutorial</a>
 <a class="btn ghost" href="https://github.com/c8501024/Hertzon">Source on GitHub</a>
 <a class="btn ghost tour-open" href="#tour">&#9654; Watch the 90-second tour</a>
@@ -167,7 +168,7 @@ The aim is that small models running on your own computer can drive Hertzon as w
 <section class="band alt"><div class="wrap">
 <p class="eyebrow">Why Hertzon</p>
 <h2>A classic engineering workflow, open all the way down</h2>
-<p class="sub">A desktop application (Qt + VTK) that stays responsive with large models, for Windows and Linux.</p>
+<p class="sub">A desktop application (Qt + VTK) that stays responsive with large models, for Windows, macOS (Apple Silicon) and Linux. <a href="#install">How to install</a></p>
 <div class="cards">
 <div class="card"><div class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 16 9 5 9-5"/><path d="m3 12 9 5 9-5"/></svg></div><h3>Adaptive meshing</h3><p>The FEM frequency-domain solver refines the mesh until the S-parameters converge. EMerge's AURA refinement, extended with hzAURA and curved elements, or Hertzon's own Delaunay mesher.</p></div>
 <div class="card"><div class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div><h3>Sweeps and optimization</h3><p>Fast and interpolating frequency sweeps, parallel sweep points, parametric sweeps and an optimizer for design variables.</p></div>
@@ -189,6 +190,26 @@ The aim is that small models running on your own computer can drive Hertzon as w
 <figure class="shot"><img src="screenshots/patch_pattern.png" alt="Radiation pattern in Hertzon" loading="lazy"><figcaption>Radiation pattern</figcaption></figure>
 <figure class="shot"><img src="screenshots/xy_plot.png" alt="S-parameters over frequency in Hertzon" loading="lazy"><figcaption>S-parameters over frequency</figcaption></figure>
 </div>
+</div></section>
+
+<section class="band" id="install"><div class="wrap">
+<p class="eyebrow">Install</p>
+<h2>Windows, macOS and Linux</h2>
+<p class="sub">Download the package for your system from the <a href="https://github.com/c8501024/Hertzon/releases/latest">latest release</a>.
+Each one installs for your user, opens <code>.hzn</code> projects with Hertzon and sets up its own Python environment
+(about 1 GB download). The <a href="https://github.com/c8501024/Hertzon#install">README</a> has the details and the manual route.</p>
+<div class="cards">
+<div class="card"><h3>Windows</h3><p>Run <code>Hertzon-Setup-&lt;version&gt;.exe</code>. No administrator rights needed; Hertzon goes to the
+start menu and the desktop and is removed in Settings &gt; Apps.</p></div>
+<div class="card"><h3>macOS (Apple Silicon)</h3><p>Unpack <code>Hertzon-&lt;version&gt;-macos-arm64.tar.gz</code> (double-click it in Finder)
+and run <code>./install.sh</code> in Terminal from the unpacked folder. It needs Python 3.10 to 3.13, for example from
+<a href="https://www.python.org/downloads/macos/">python.org</a> or <code>brew install python@3.13</code>.
+<code>Hertzon.app</code> lands in <code>/Applications</code>, and Hertzon solves with Apple's Accelerate framework.
+On an Intel Mac use the manual route.</p></div>
+<div class="card"><h3>Linux</h3><p>Unpack <code>Hertzon-&lt;version&gt;-linux.tar.gz</code> and run <code>./install.sh</code>. It adds Hertzon to the
+application menu and the command <code>hertzon</code>, and offers to install missing system libraries with your package manager.</p></div>
+</div>
+<p class="sub" style="margin-top:20px">Hertzon tells you when a new version is out. To update, run the installer or <code>install.sh</code> of the newer package; on Windows, <strong>Install</strong> in that dialog does it for you.</p>
 </div></section>
 
 <section class="band alt"><div class="wrap">
