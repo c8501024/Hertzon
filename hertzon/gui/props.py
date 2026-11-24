@@ -7,7 +7,7 @@ import re
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QBrush
-from PySide6.QtWidgets import (QWidget, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QCheckBox,
+from PySide6.QtWidgets import (QWidget, QTableWidget, QTableWidgetItem, QComboBox, QCheckBox,
                                QVBoxLayout, QTabWidget, QLineEdit, QColorDialog, QPushButton, QHBoxLayout,
                                QAbstractItemView)
 
@@ -103,10 +103,9 @@ class PropertyGrid(QWidget):
         self.table = QTableWidget(0, 3 if show_evaluated else 2, self)
         self.table.setHorizontalHeaderLabels(["Name", "Value", "Evaluated Value"][: self.table.columnCount()])
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        if show_evaluated:
-            self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        # Name and Evaluated Value fit their content and can be dragged wider or narrower; Value takes the rest
+        from .columns import FitColumns
+        self._columns = FitColumns(self.table, fit=(0, 2), stretch=1)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setEditTriggers(QAbstractItemView.AllEditTriggers)
         self.table.itemChanged.connect(self._item_changed)

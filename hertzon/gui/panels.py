@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar,
                                QPushButton, QTabWidget, QDialog, QTableWidget, QTableWidgetItem, QComboBox,
-                               QHeaderView, QDialogButtonBox, QFormLayout, QAbstractItemView)
+                               QDialogButtonBox, QFormLayout, QAbstractItemView)
 
 from ..model import schema
 from ..model.materials import normalize_color
@@ -367,10 +367,10 @@ class ProgressPanel(QWidget):
         lay.setContentsMargins(4, 2, 4, 2)
         self.table = QTableWidget(0, len(self.COLS))
         self.table.setHorizontalHeaderLabels(self.COLS)
-        hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(1, QHeaderView.Fixed)
-        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        # every column can be dragged; Analysis fits its name up to 200 px (the full name is in its tooltip),
+        # so that a long project name does not push the progress bar out of sight (#545)
+        from .columns import FitColumns
+        self._columns = FitColumns(self.table, fit=(0, 3), stretch=2, max_width={0: 200})
         self.table.setColumnWidth(1, 220)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -505,6 +505,7 @@ class ProgressPanel(QWidget):
             kind = job_kind(j)
             value, text = self._progress.get(j.key, (0.0, "")) if state == "Running" else (None, "")
             self._set(r, 0, j.key)
+            self.table.item(r, 0).setToolTip(j.key)
             self._set(r, 2, (f"{kind}: {text}" if text else f"{state} ({kind})"))
             self.table.item(r, 2).setToolTip(self.table.item(r, 2).text())
             self._set(r, 3, self.estimate(j))
@@ -515,6 +516,7 @@ class ProgressPanel(QWidget):
             name = h.get("label") or f"{h.get('project', '')} - {h.get('design', '')} - {h.get('name', '')}"
             self._hosted_rows[r] = h.get("id", "")
             self._set(r, 0, f"{name} (from {who})")
+            self.table.item(r, 0).setToolTip(self.table.item(r, 0).text())
             if h.get("state") == "running":
                 self._set(r, 2, f"Solving for {who}" + (f": {h['text']}" if h.get("text") else ""))
                 self._bar(r, float(h.get("progress", 0.0)))
@@ -696,8 +698,8 @@ class SolutionDataDialog(QDialog):
     def _table(self, headers, rows) -> QTableWidget:
         t = QTableWidget(len(rows), len(headers))
         t.setHorizontalHeaderLabels(headers)
-        t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        t.horizontalHeader().setStretchLastSection(True)
+        from .columns import FitColumns
+        t._columns = FitColumns(t, stretch_last=True)      # fitted to the values, the user can drag them
         t.setEditTriggers(QTableWidget.NoEditTriggers)
         for r, row in enumerate(rows):
             for c, v in enumerate(row):

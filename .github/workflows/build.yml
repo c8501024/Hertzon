@@ -258,6 +258,12 @@ jobs:
           import hertzon, hertzon.gui.main_window, hertzon.solver.run, emerge, hfsynpy
           from hertzon.mesher import core
           print("Hertzon", hertzon.__version__, "imports ok, mesher library:", core.lib())
+          from hertzon.gui.app import _mac_app_name
+          # the application menu shows "Hertzon", not "Python" (#543); cosmetic, so a warning only
+          if _mac_app_name():
+              print("application menu name: Hertzon")
+          else:
+              print("::warning::the application menu name could not be set to Hertzon")
           from PySide6.QtWidgets import QApplication
           app = QApplication([])
           from hertzon.gui.main_window import MainWindow

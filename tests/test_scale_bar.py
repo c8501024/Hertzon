@@ -135,3 +135,26 @@ def test_nice_length_1_2_5():
     for x in np.geomspace(1e-7, 1e4, 97):
         m = nice_length(x) / 10 ** math.floor(math.log10(nice_length(x)))
         assert round(m, 9) in (1, 2, 5)
+
+
+@pytest.mark.parametrize("dpr", [1.0, 2.0])
+def test_labels_stay_above_the_bar_on_a_retina_display(dpr):
+    """#544: the Qt widget sets the render window's DPI to 72 x the device pixel ratio, and VTK scales text by
+    DPI / 72. The labels are sized without that factor: on a Retina display (ratio 2) they were twice too large
+    and ran into the bar. The labels keep the same size in logical pixels and end below the bar's top edge."""
+    ren, rw, cam, sb = _scene(size=(int(1400 * dpr), int(800 * dpr)), dpr=dpr)
+    rw.SetDPI(round(72 * dpr))          # as pyvistaqt / QVTKRenderWindowInteractor do
+    rw.Render()
+    y_bar = 28.0 * dpr                  # lower edge of the bar
+    for t in sb.labels:
+        assert t.GetTextProperty().GetFontSize() == 12
+        bb = [0.0] * 4
+        t.GetBoundingBox(ren, bb)
+        assert bb[3] > bb[2]
+        assert bb[3] <= y_bar + 1, (t.GetInput(), bb, y_bar)       # the text ends below the bar
+        assert bb[3] - bb[2] < 20 * dpr                            # about 12 logical pixels high, not 24
+
+
+def test_font_without_a_dpi_from_the_widget_scales_with_the_display():
+    ren, rw, cam, sb = _scene(dpr=1.5)          # DPI left at VTK's 72
+    assert sb.labels[0].GetTextProperty().GetFontSize() == 18
