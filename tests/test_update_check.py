@@ -108,15 +108,114 @@ def test_dialog_pause():
 
 def test_installer_asset():
     r = {"assets": [{"name": "Hertzon-0.2.3-linux.tar.gz"}, {"name": "Hertzon-Setup-0.2.3.exe", "x": 1}]}
-    assert U.installer_asset(r)["x"] == 1
-    assert U.installer_asset({"assets": [{"name": "emerge-3.0-win_amd64.whl"}]}) is None
+    assert U.installer_asset(r, "win32")["x"] == 1
+    assert U.installer_asset({"assets": [{"name": "emerge-3.0-win_amd64.whl"}]}, "win32") is None
 
 
-def test_installed_copy_only_on_windows(monkeypatch):
+def test_installed_copy_not_a_source_checkout(monkeypatch):
     monkeypatch.setattr(U.sys, "platform", "linux")
-    assert U.installed_copy() is None
+    assert U.installed_copy() is None   # no uninstall.sh and .venv next to the package
     monkeypatch.setattr(U.sys, "platform", "win32")
     assert U.installed_copy() is None   # a source checkout has no Uninstall.exe next to the package
+
+
+def test_update_file_for_each_platform():
+    r = {"assets": [{"name": n} for n in ("Hertzon-Setup-0.4.4.exe", "Hertzon-0.4.4-linux.tar.gz",
+                                           "Hertzon-0.4.4-macos-arm64.tar.gz", "emerge-3.0-macosx_arm64.whl")]}
+    assert U.installer_asset(r, "win32")["name"] == "Hertzon-Setup-0.4.4.exe"
+    assert U.installer_asset(r, "darwin")["name"] == "Hertzon-0.4.4-macos-arm64.tar.gz"
+    assert U.installer_asset(r, "linux")["name"] == "Hertzon-0.4.4-linux.tar.gz"
+    assert U.installer_asset(r, "freebsd14") is None
+    assert U.installer_asset({"assets": [{"name": "Hertzon-0.4.4-linux.tar.gz"}]}, "darwin") is None
+
+
+def _installation(root):
+    (root / ".venv" / "bin").mkdir(parents=True)
+    (root / ".venv" / "bin" / "python").write_text("")
+    (root / "uninstall.sh").write_text("")
+    return root
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_installed_copy_of_install_sh(monkeypatch, tmp_path, platform):
+    monkeypatch.setattr(U.sys, "platform", platform)
+    root = _installation(tmp_path / "share" / "hertzon")
+    assert U.installed_copy(root) == root
+    (root / ".git").mkdir()                          # a checkout with an environment is not an installation
+    assert U.installed_copy(root) is None
+    other = _installation(tmp_path / "Hertzon")
+    assert (U.installed_copy(other) == other) == (platform == "darwin")   # Linux: always <data>/hertzon
+
+
+def _package(tmp_path, script, extra=()):
+    import io
+    import tarfile
+    archive = tmp_path / "dl" / "Hertzon-9.9.9-linux.tar.gz"
+    archive.parent.mkdir()
+    with tarfile.open(archive, "w:gz") as tf:
+        for name, text, mode in (("Hertzon-9.9.9/install.sh", script, 0o755),
+                                 ("Hertzon-9.9.9/pyproject.toml", 'version = "9.9.9"\n', 0o644), *extra):
+            data = text.encode()
+            info = tarfile.TarInfo(name)
+            info.size, info.mode = len(data), mode
+            tf.addfile(info, io.BytesIO(data))
+    return archive
+
+
+def test_extract_package_keeps_files_inside(tmp_path):
+    archive = _package(tmp_path, "#!/bin/sh\n", extra=[("../evil.txt", "x", 0o644)])
+    pkg = U.extract_package(archive, tmp_path / "out")
+    assert (pkg / "install.sh").is_file() and pkg.name == "Hertzon-9.9.9"
+    assert not (tmp_path / "evil.txt").exists()
+
+
+def test_package_without_install_sh(tmp_path):
+    import tarfile
+    archive = tmp_path / "x.tar.gz"
+    with tarfile.open(archive, "w:gz"):
+        pass
+    with pytest.raises(FileNotFoundError):
+        U.extract_package(archive, tmp_path / "out")
+
+
+@pytest.mark.skipif(U.sys.platform == "win32", reason="install.sh packages are for macOS and Linux")
+def test_package_update_waits_for_hertzon_then_runs_install_sh(monkeypatch, tmp_path):
+    """The script waits until the Hertzon process has exited, runs the new install.sh for the installed folder
+    without a terminal and logs it; an update in place, nothing is uninstalled first."""
+    import subprocess
+    import time
+    monkeypatch.setattr(U.sys, "platform", "linux")
+    marker = tmp_path / "ran.txt"
+    archive = _package(tmp_path, f'#!/bin/sh\necho "data=$XDG_DATA_HOME tty=$([ -t 0 ] && echo yes || echo no)" '
+                                 f'> "{marker}"\necho installed\n')
+    root = _installation(tmp_path / "share" / "hertzon")
+    hertzon = subprocess.Popen(["sleep", "30"])                # stands in for the running Hertzon
+    try:
+        script = U.start_package_update_after_exit(archive, root, pid=hertzon.pid, restart=False)
+        time.sleep(0.5)
+        assert not marker.exists()                            # still waiting for Hertzon
+    finally:
+        hertzon.kill()
+        hertzon.wait()
+    log = script.parent / "update.log"
+    for _ in range(100):
+        if log.exists() and "done" in log.read_text():
+            break
+        time.sleep(0.1)
+    text = log.read_text()
+    assert "waiting for Hertzon" in text and "installed" in text and text.rstrip().endswith("done")
+    assert marker.read_text().strip() == f"data={tmp_path / 'share'} tty=no"
+    assert "starting Hertzon" not in text
+
+
+def test_failed_update_says_so_and_starts_hertzon():
+    s = U.update_script(U.Path("/t/Hertzon-1.0.0"), U.Path("/u/Library/Application Support/Hertzon"), 7, "darwin")
+    assert "HERTZON_HOME='/u/Library/Application Support/Hertzon' ./install.sh </dev/null" in s
+    assert "install.sh failed" in s and "osascript" in s
+    assert s.rstrip().splitlines()[-1].startswith("open -b org.hertzon.Hertzon")
+    s = U.update_script(U.Path("/t/Hertzon-1.0.0"), U.Path("/h/.local/share/hertzon"), 7, "linux")
+    assert "XDG_DATA_HOME=/h/.local/share ./install.sh" in s and "notify-send" in s
+    assert ".local/bin/hertzon" in s.rstrip().splitlines()[-1]
 
 
 def test_download_checks_digest(tmp_path):

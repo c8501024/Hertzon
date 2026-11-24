@@ -271,6 +271,33 @@ jobs:
           win.show(); app.processEvents(); win.close()
           print("main window ok")
           PY
+      - name: Update from Hertzon (Help > Check for Updates > Install, #546)
+        timeout-minutes: 15
+        run: |
+          DEST="$HOME/Library/Application Support/Hertzon"
+          before=$(stat -f %i "$DEST/.venv/bin/python")
+          mkdir -p "$RUNNER_TEMP/upd" && cp dist/Hertzon-*-macos-arm64.tar.gz "$RUNNER_TEMP/upd/"
+          sleep 600 & HZ=$!                     # stands in for the Hertzon window that closes
+          cd "$RUNNER_TEMP"
+          "$DEST/.venv/bin/python" - "$HZ" <<'PY'
+          import sys
+          from pathlib import Path
+          from hertzon.gui.update_check import installed_copy, start_package_update_after_exit
+          root = installed_copy()
+          assert root is not None, "the installed Hertzon is not recognised as an installation"
+          pkg = next(Path("upd").glob("Hertzon-*-macos-arm64.tar.gz")).resolve()
+          script = start_package_update_after_exit(pkg, root, pid=int(sys.argv[1]), restart=False)
+          print("update script:", script)
+          PY
+          sleep 3
+          LOG=$(ls "$RUNNER_TEMP"/upd/Hertzon-*-macos-arm64/update.log)
+          if grep -q "running" "$LOG"; then echo "::error::the update did not wait for Hertzon"; cat "$LOG"; exit 1; fi
+          kill $HZ
+          for i in $(seq 1 600); do grep -qE "update: (done|install.sh failed)" "$LOG" && break; sleep 1; done
+          cat "$LOG"
+          grep -q "update: done" "$LOG" || { echo "::error::the update from Hertzon failed"; exit 1; }
+          test "$before" = "$(stat -f %i "$DEST/.venv/bin/python")" || { echo "::error::the update made a new environment"; exit 1; }
+          test -x /Applications/Hertzon.app/Contents/MacOS/Hertzon || { echo "::error::Hertzon.app missing after the update"; exit 1; }
       - name: Mesh and solve a small model from the command line
         timeout-minutes: 20
         run: |
