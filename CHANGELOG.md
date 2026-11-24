@@ -3,6 +3,20 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Changed
+- **Table columns can be resized** (#545). The columns of the Properties, the Progress window, Solution Data and
+  the data and marker tables of reports fit their content when the table is filled and can then be dragged wider
+  or narrower in the header; a dragged column keeps its width while the table is refreshed. The Analysis column of
+  the Progress window fits the name up to 200 pixels (the full name is in its tooltip), so a long project name no
+  longer pushes the progress bar aside.
+
+### Fixed
+- **macOS: the menu bar says "Hertzon"** instead of "Python" ("About Hertzon", "Quit Hertzon"; #543).
+- **Scale bar on a Retina display** (#544): its numbers were drawn twice too large and ran into the bar. They now
+  have the same size on every display.
+
 ## 0.4.3 (2026-11-24)
 
 ### Changed
