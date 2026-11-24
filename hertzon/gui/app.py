@@ -28,6 +28,17 @@ def _crash_log():
     return f
 
 
+def _log_start(f, libraries: float, window: float) -> None:
+    """One line per start in Hertzon_crash.log: how long the libraries and the main window took, so a slow
+    start can be told apart from a hanging one."""
+    if f is None:
+        return
+    try:
+        f.write(f"start: libraries {libraries:.1f} s, main window {window:.1f} s\n")
+    except (OSError, ValueError):
+        pass
+
+
 def _splash(app):
     """Loading screen while the 3D viewer and the solver interface are imported."""
     from pathlib import Path
@@ -66,11 +77,29 @@ def _status(sp, app, text: str) -> None:
         app.processEvents()
 
 
-def _load_in_background(app, work):
+# shown on the loading screen once loading takes this long: the first start after an installation or update
+# waits while the virus scanner (Windows) or the system's code check (macOS) reads every new library (#474)
+SLOW_START_S = 20.0
+SLOW_START_HINT = ("The first start after an installation or update can take a few minutes:\n"
+                   "the system checks the new program libraries once.")
+
+
+def loading_text(stage: str, elapsed: float) -> str:
+    """Text of the loading screen: the step, the seconds it has taken so far and, when that is long, why."""
+    text = stage if elapsed < 3 else f"{stage}  {elapsed:.0f} s"
+    if elapsed >= SLOW_START_S:
+        text = SLOW_START_HINT + "\n" + text
+    return text
+
+
+def _load_in_background(app, work, sp=None, stage: dict | None = None):
     """Run the slow imports in a thread while the window system keeps getting answers, so Windows never
-    marks the starting Hertzon as not responding (clicks on the loading screen then made it hang)."""
+    marks the starting Hertzon as not responding (clicks on the loading screen then made it hang). The
+    loading screen shows the step work is at (stage["text"]) and the time it has taken."""
     import threading
+    import time
     box: dict = {}
+    stage = {} if stage is None else stage
 
     def run():
         try:
@@ -78,20 +107,33 @@ def _load_in_background(app, work):
         except BaseException as e:  # noqa: BLE001
             box["error"] = e
     t = threading.Thread(target=run, name="hertzon-startup", daemon=True)
+    t0 = time.monotonic()
+    shown = None
     t.start()
     while t.is_alive():
         app.processEvents()
         t.join(0.02)
+        if sp is not None and stage.get("text"):
+            text = loading_text(stage["text"], time.monotonic() - t0)
+            if text != shown:
+                shown = text
+                _status(sp, app, text)
     if "error" in box:
         raise box["error"]
     return box.get("value")
 
 
-def _heavy_imports():
+def _heavy_imports(stage: dict | None = None):
+    """The libraries of the main window, in steps the loading screen names (stage["text"])."""
+    stage = {} if stage is None else stage
+    stage["text"] = "Loading numerics ..."
     from ..blas_threads import load_with_few_threads
     load_with_few_threads()   # before numpy, scipy and gmsh load: about 1 GB less committed memory on 16 cores
+    stage["text"] = "Loading the 3D viewer (VTK) ..."
     import pyvista as pv
+    import pyvista.plotting  # noqa: F401
     pv.global_theme.allow_empty_mesh = True
+    stage["text"] = "Loading the modeler and the solver interface ..."
     from . import main_window  # noqa: F401   (VTK, solver interface, dialogs)
 
 
@@ -149,31 +191,57 @@ def _web_engine_setup() -> None:
         pass
 
 
+def _application(argv):
+    """The QApplication. On macOS a subclass that takes Finder's open-file events in its own event() (see
+    _finder_files)."""
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app is not None:
+        return app
+    if sys.platform != "darwin":
+        return QApplication(argv)
+    from PySide6.QtCore import QEvent
+
+    class HertzonApplication(QApplication):
+        """Finder's open-file events arrive at the application object itself. They are taken here and not
+        with an event filter on the application: such a filter written in Python sees every event of every
+        object, also the ChildAdded event of a Qt WebEngine object that is still being constructed, and
+        PySide crashed (segmentation fault) when it wrapped that object for Python. That happened on macOS
+        only, where the filter was installed, as soon as the formula editor of the Fields Calculator
+        loaded its page (#547)."""
+        open_file = None            # callback(path) for a FileOpen event
+
+        def event(self, ev):  # noqa: D102
+            if ev.type() == QEvent.FileOpen and self.open_file is not None:
+                self.open_file(ev.file())
+                return True
+            return super().event(ev)
+
+    return HertzonApplication(argv)
+
+
 def _finder_files(app):
     """macOS: a .hzn opened in Finder (double click, Open With, dropped on the Dock icon) reaches Hertzon as an
     open-file event, not as a command-line argument. Until the main window exists the paths are kept; later
-    ones open in the window."""
-    from PySide6.QtCore import QEvent, QObject, QTimer
+    ones open in the window. Never an event filter on the whole application (#547): see _application."""
+    from PySide6.QtCore import QTimer
 
-    class FinderFiles(QObject):
+    class FinderFiles:
         def __init__(self):
-            super().__init__(app)
             self.pending: list[str] = []
             self.win = None
 
-        def eventFilter(self, obj, ev):  # noqa: N802
-            if ev.type() != QEvent.FileOpen:
-                return False
-            path = ev.file()
-            if path.lower().endswith(".hzn"):
-                if self.win is None:
-                    self.pending.append(path)
-                else:
-                    QTimer.singleShot(0, lambda: self.win.file_open(path))
-            return True
+        def __call__(self, path: str) -> None:
+            if not path.lower().endswith(".hzn"):
+                return
+            if self.win is None:
+                self.pending.append(path)
+            else:
+                QTimer.singleShot(0, lambda: self.win.file_open(path))
 
     f = FinderFiles()
-    app.installEventFilter(f)
+    if hasattr(app, "open_file"):
+        app.open_file = f
     return f
 
 
@@ -224,7 +292,6 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     _keep = _crash_log()  # noqa: F841
     from pathlib import Path
-    from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QIcon
     if sys.platform == "win32":   # own taskbar icon instead of the Python one
         try:
@@ -234,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
             pass
     _mac_app_name()           # before Qt starts the Cocoa application, which reads the name for its menu
     _web_engine_setup()
-    app = QApplication.instance() or QApplication(argv)
+    app = _application(argv)
     app.setApplicationName("Hertzon")
     app.setOrganizationName("Hertzon")
     app.setStyle("Fusion")
@@ -246,8 +313,12 @@ def main(argv: list[str] | None = None) -> int:
     if ico.exists():
         app.setWindowIcon(QIcon(str(ico)))
     sp = _splash(app)
-    _status(sp, app, "Loading 3D viewer, modeler and solver interface ...")
-    _load_in_background(app, _heavy_imports)
+    import time
+    t0 = time.monotonic()
+    stage: dict = {"text": "Loading 3D viewer, modeler and solver interface ..."}
+    _status(sp, app, stage["text"])
+    _load_in_background(app, lambda: _heavy_imports(stage), sp, stage)
+    t1 = time.monotonic()
     _status(sp, app, "Opening the main window ...")
     from .main_window import MainWindow
     win = MainWindow()
@@ -263,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
     _preload_solver()
     if sp is not None:
         sp.finish(win)
+    _log_start(_keep, t1 - t0, time.monotonic() - t1)
     if finder is not None:
         app.processEvents()
         files += [f for f in finder.pending if f not in files]

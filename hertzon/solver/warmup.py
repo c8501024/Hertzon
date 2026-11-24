@@ -6,6 +6,9 @@ solves run the kernels real solves need, so the first solve of a user starts at 
 elements, plane wave) and a coax (wave ports, first-order elements, interpolating sweep).
 Run by setup.ps1 at the end of the installation; Hertzon.exe runs it before the first start of an
 installation made without it (marker .venv/hertzon_kernels.txt).
+
+It also loads the libraries of the main window once (ui_libraries), at every installation and update, so the
+virus scanner or the system's code check reads them here and not behind the loading screen of the first start.
 """
 from __future__ import annotations
 
@@ -133,12 +136,40 @@ def _solve(make, name: str, log, timeout: float, background: bool, t0: float) ->
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def ui_libraries(log=print, timeout: float = 1800) -> bool:
+    """Load the libraries of the main window in a separate process (python -m hertzon.gui.preload_libs).
+    New libraries are read by the virus scanner (Windows) or the system's code check (macOS) on their first
+    load, which made the first start of Hertzon take up to 20 minutes on some machines (issue #474)."""
+    log("Loading the user interface libraries once (the system checks new libraries; can take a few minutes) ...")
+    t0 = time.time()
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", QT_QPA_PLATFORM="offscreen")
+    try:
+        r = subprocess.run([sys.executable, "-m", "hertzon.gui.preload_libs"], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                           errors="replace", env=env, cwd=str(Path(__file__).resolve().parents[2]), timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log(f"  not loaded: {e}")
+        return False
+    lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    if r.returncode != 0:
+        log(f"  not loaded (exit code {r.returncode}); the first start loads them instead. Last output:")
+        for ln in lines[-10:]:
+            log(f"    {ln}")
+        return False
+    log(f"  done after {time.time() - t0:.0f} s")
+    return True
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:  # noqa: BLE001
             pass
+    if "--no-ui" not in sys.argv:
+        # at every installation and update (also when the kernels are still current): an update brings new
+        # Qt or VTK libraries without new kernels
+        ui_libraries()
     from .bridge import _first_run
     if "--force" not in sys.argv and not _first_run():
         print("Solver kernels are already compiled.")

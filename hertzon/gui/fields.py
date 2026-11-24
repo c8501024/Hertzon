@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pyvista as pv
-import vtk
+from . import vtk_classes as vtk
 
 from ..solver.results import ResultStore, results_dir
 from .doc import result_dir
