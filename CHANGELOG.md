@@ -3,6 +3,34 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.4.4 (2026-11-24)
+
+### Added
+- **Install updates from Hertzon on macOS and Linux** (#546). Install in the update dialog (or Help > Check for
+  Updates) downloads the new package (checksum checked), asks to save open changes, closes Hertzon, runs the new
+  package's `install.sh` and starts Hertzon again, as the Windows setup already did. It is an update in place:
+  nothing is uninstalled, the Python environment, an installed SPARTA, the settings and the projects are kept.
+  The steps are written to `update.log` next to the downloaded package; a failed update says so in a message.
+  On a Mac, an update without an administrator password keeps Hertzon.app in /Applications (it only starts the
+  updated program) instead of making a second one in ~/Applications.
+
+### Changed
+- **Table columns can be resized** (#545). The columns of the Properties, the Progress window, Solution Data and
+  the data and marker tables of reports fit their content when the table is filled and can then be dragged wider
+  or narrower in the header; a dragged column keeps its width while the table is refreshed. The Analysis column of
+  the Progress window fits the name up to 200 pixels (the full name is in its tooltip), so a long project name no
+  longer pushes the progress bar aside.
+
+### Fixed
+- **macOS: the menu bar says "Hertzon"** instead of "Python" ("About Hertzon", "Quit Hertzon"; #543).
+- **Scale bar on a Retina display** (#544): its numbers were drawn twice too large and ran into the bar. They now
+  have the same size on every display.
+- **Zoom into details behind a transparent air box** (#542). The mouse-wheel zoom closed in on the first surface under
+  the cursor, which was often the face of the transparent air box or region above the board; the board then
+  stopped growing once the camera reached that face, and small details (antenna traces, vias) stayed out of reach.
+  The zoom now looks through transparent surfaces to the first opaque one under the cursor and takes a transparent
+  surface only where nothing opaque lies behind it.
+
 ## 0.4.3 (2026-11-24)
 
 ### Changed

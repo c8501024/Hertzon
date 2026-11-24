@@ -13,7 +13,7 @@ from PySide6.QtCore import Signal, Qt, QSettings, QTimer
 from PySide6.QtGui import QCursor, QColor
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QListWidget, QPushButton, QLabel,
                                QTableWidget, QTableWidgetItem, QFileDialog, QSplitter, QFormLayout, QLineEdit,
-                               QAbstractItemView, QHeaderView, QMenu, QApplication, QDialog, QDialogButtonBox,
+                               QAbstractItemView, QMenu, QApplication, QDialog, QDialogButtonBox,
                                QCheckBox, QInputDialog, QColorDialog, QDoubleSpinBox, QPlainTextEdit, QMessageBox,
                                QListWidgetItem, QScrollArea, QFrame, QSlider, QToolButton)
 
@@ -993,7 +993,8 @@ class ReportWindow(QWidget):
         rl = QVBoxLayout(right)
         if report.kind in ("Data Table", "Monostatic RCS Table", "Antenna Parameters Table", EIGEN_KIND):
             self.table = QTableWidget()
-            self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+            from .columns import FitColumns
+            self._columns = FitColumns(self.table)          # fitted to the values, the user can drag them
             rl.addWidget(self.table)
             self.fig = None
         elif report.kind == "3D Polar Plot":
@@ -1016,7 +1017,8 @@ class ReportWindow(QWidget):
             self.canvas.setFocusPolicy(Qt.ClickFocus)
             # marker table under the plot
             self.mtable = QTableWidget()
-            self.mtable.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+            from .columns import FitColumns
+            self._mcolumns = FitColumns(self.mtable)
             self.mtable.setMaximumHeight(150)
             self.mtable.setVisible(False)
             rl.addWidget(self.mtable)

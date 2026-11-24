@@ -195,11 +195,18 @@ EOS
 
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 SUDO=""
+KEEP_APP=""
 if [ -n "${HERTZON_APPS:-}" ]; then
     APPS="$HERTZON_APPS"
     mkdir -p "$APPS"
 elif [ -d "$SYSAPPS" ] && [ -w "$SYSAPPS" ] && { [ ! -e "$SYSAPPS/Hertzon.app" ] || [ -w "$SYSAPPS/Hertzon.app" ]; }; then
     APPS="$SYSAPPS"                 # an administrator account can write here without a password
+elif [ ! -t 0 ] && [ -d "$SYSAPPS/Hertzon.app" ] &&
+     [ "$(defaults read "$SYSAPPS/Hertzon.app/Contents/Info" CFBundleIdentifier 2>/dev/null)" = "org.hertzon.Hertzon" ]; then
+    # an update from Hertzon (no terminal, no password prompt): the app in /Applications only starts the
+    # program in $DEST, which was updated above, so it is kept instead of making a second one in ~/Applications
+    APPS="$SYSAPPS"
+    KEEP_APP=1
 else
     APPS="$USERAPPS"
     if [ -d "$SYSAPPS" ] && [ -t 0 ]; then
@@ -217,13 +224,18 @@ else
         mkdir -p "$USERAPPS"
     fi
 fi
-$SUDO rm -rf "$APPS/Hertzon.app"
-$SUDO ditto "$APP" "$APPS/Hertzon.app"
+if [ -n "${KEEP_APP:-}" ]; then
+    echo "Hertzon.app in $APPS is kept (it cannot be replaced without an administrator password; it starts"
+    echo "the updated program all the same)."
+else
+    $SUDO rm -rf "$APPS/Hertzon.app"
+    $SUDO ditto "$APP" "$APPS/Hertzon.app"
+fi
 rm -rf "$STAGE"
 APP="$APPS/Hertzon.app"
 # tell Launch Services about the app (Spotlight, Launchpad, .hzn files); it would also notice on its own
 if [ -x "$LSREG" ]; then "$LSREG" -f "$APP" >/dev/null 2>&1 || true; fi
-$SUDO touch "$APP"
+if [ -z "${KEEP_APP:-}" ]; then $SUDO touch "$APP"; fi
 
 # an app of an earlier installation in the other folder would show up twice: remove it
 for old in "$USERAPPS/Hertzon.app" "$SYSAPPS/Hertzon.app"; do

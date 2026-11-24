@@ -473,6 +473,18 @@ class ScaleBar:
             r = 1.0
         return r if r > 0 and math.isfinite(r) else 1.0
 
+    def _font_size(self, r: float) -> int:
+        """Font size of the labels for 12 logical pixels. VTK scales text by the render window's DPI / 72,
+        and the Qt widget sets that DPI to 72 x the device pixel ratio: the size is given without that
+        factor, or the labels came out twice as large on a Retina display and ran into the bar (#544)."""
+        try:
+            dpi = float(self.ren.GetRenderWindow().GetDPI())
+        except Exception:  # noqa: BLE001
+            dpi = 72.0
+        if not (dpi > 0 and math.isfinite(dpi)):
+            dpi = 72.0
+        return max(1, round(12 * r * 72.0 / dpi))
+
     def update(self) -> None:
         if not self.visible:
             return
@@ -518,15 +530,16 @@ class ScaleBar:
         self.poly.Modified()
         fmt = lambda v: f"{v:g}"
         ty = int(y0 - 17 * r)
+        fs = self._font_size(r)
         # every number centred on its tick (0, half, end); the unit follows the end number
         for t, (x, txt) in zip(self.labels, ((x0, "0"), (x0 + L / 2, fmt(length / 2)), (x0 + L, fmt(length)))):
             t.SetInput(txt)
-            t.GetTextProperty().SetFontSize(max(1, round(12 * r)))
+            t.GetTextProperty().SetFontSize(fs)
             t.GetTextProperty().SetJustificationToCentered()
             t.SetDisplayPosition(int(round(x)), ty)
         u = self.labels[3]
         u.SetInput(f"({'µm' if unit == 'um' else unit})")
-        u.GetTextProperty().SetFontSize(max(1, round(12 * r)))
+        u.GetTextProperty().SetFontSize(fs)
         u.GetTextProperty().SetJustificationToLeft()
         u.SetDisplayPosition(int(round(x0 + L + self._half_width(self.labels[2], r) + 4 * r)), ty)
         self.end_x = x0 + L
@@ -972,7 +985,7 @@ class ModelerView(QWidget):
             cam.SetPosition(*(cp + shift))
         else:
             dop = np.array(cam.GetDirectionOfProjection())
-            S = self._surface_point(pos)
+            S = self._surface_point(pos, see_through=True)
             depth = float(np.dot(S - cp, dop)) if S is not None else 0.0
             if S is not None and depth > 0:
                 fp = cp + dop * depth           # focal plane through the surface point: same view
@@ -2347,23 +2360,36 @@ class ModelerView(QWidget):
             return None, ""
         return X[i].copy(), kinds[i]
 
-    def _surface_point(self, pos) -> np.ndarray | None:
-        """3D movement mode: the point on the visible object surface under the cursor."""
+    # surfaces drawn with less opacity count as see-through for zooming
+    SEE_THROUGH_OPACITY = 0.99
+
+    def _surface_point(self, pos, see_through: bool = False) -> np.ndarray | None:
+        """3D movement mode: the point on the visible object surface under the cursor.
+
+        see_through: look through transparent surfaces (an air box, a region, a transparent substrate) to
+        the first opaque one under the cursor, and take a transparent one only where nothing opaque lies
+        behind it. The wheel zoom uses this: it closed in on the face of the transparent air box above the
+        board, so the board itself stopped growing long before its details could be seen."""
         ren = self.plotter.renderer
         pk = getattr(self, "_surf_picker", None)
         if pk is None:
             pk = self._surf_picker = vtk.vtkCellPicker()
             pk.SetTolerance(0.0005)
             pk.PickFromListOn()
-        pk.InitializePickList()
-        n = 0
-        for a in self.actors.values():
-            if a.surface is not None and a.surface.GetVisibility() and a.surface.GetPickable():
-                pk.AddPickList(a.surface)
-                n += 1
-        if not n or not pk.Pick(pos[0], pos[1], 0, ren) or pk.GetActor() is None:
-            return None
-        return np.array(pk.GetPickPosition(), float)
+        acts = [a.surface for a in self.actors.values()
+                if a.surface is not None and a.surface.GetVisibility() and a.surface.GetPickable()]
+        groups = [acts]
+        if see_through:
+            opaque = [s for s in acts if s.GetProperty().GetOpacity() >= self.SEE_THROUGH_OPACITY]
+            if opaque and len(opaque) < len(acts):
+                groups = [opaque, acts]
+        for group in groups:
+            pk.InitializePickList()
+            for s in group:
+                pk.AddPickList(s)
+            if group and pk.Pick(pos[0], pos[1], 0, ren) and pk.GetActor() is not None:
+                return np.array(pk.GetPickPosition(), float)
+        return None
 
     def _show_dimensions(self, p, pos) -> None:
         """dx / dy / dz / length next to the cursor while drawing."""
