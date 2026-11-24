@@ -16,6 +16,11 @@ the GitHub release notes.
 - **macOS: the menu bar says "Hertzon"** instead of "Python" ("About Hertzon", "Quit Hertzon"; #543).
 - **Scale bar on a Retina display** (#544): its numbers were drawn twice too large and ran into the bar. They now
   have the same size on every display.
+- **Zoom into details behind a transparent air box.** The mouse-wheel zoom closed in on the first surface under
+  the cursor, which was often the face of the transparent air box or region above the board; the board then
+  stopped growing once the camera reached that face, and small details (antenna traces, vias) stayed out of reach.
+  The zoom now looks through transparent surfaces to the first opaque one under the cursor and takes a transparent
+  surface only where nothing opaque lies behind it.
 
 ## 0.4.3 (2026-11-24)
 

@@ -32,7 +32,7 @@ def _scene():
     ren.AddObserver("ResetCameraClippingRangeEvent", lambda *a: keep_focal_plane_in_view(ren))
     rw.Render()
 
-    def surface(pos):
+    def surface(pos, see_through=False):
         pk = vtk.vtkCellPicker()
         pk.SetTolerance(0.0005)
         return np.array(pk.GetPickPosition()) if pk.Pick(pos[0], pos[1], 0, ren) and pk.GetActor() else None
@@ -97,3 +97,54 @@ def test_focal_plane_point_matches_vtk():
             ref = np.array(ren.GetWorldPoint()[:3])
             got = focal_plane_point(cam, ren.GetSize(), ren.GetOrigin(), fp, pos)
             assert np.allclose(got, ref, atol=1e-12)
+
+
+def test_wheel_zoom_looks_through_a_transparent_air_box():
+    """A board under a transparent air box: the zoom closes in on the board, not on the face of the box (the
+    board then stopped growing at the distance of the box face, details stayed out of reach)."""
+    from hertzon.gui.viewer import ModelerView, keep_focal_plane_in_view
+    ren = vtk.vtkRenderer()
+    rw = vtk.vtkRenderWindow()
+    rw.SetOffScreenRendering(1)
+    rw.AddRenderer(ren)
+    rw.SetSize(800, 600)
+    actors = {}
+    for name, bounds, opacity in (("board", (-0.02, 0.02, -0.04, 0.04, -0.0016, 0.0), 1.0),
+                                  ("Airbox", (-0.05, 0.05, -0.07, 0.07, -0.03, 0.03), 0.2)):
+        src = vtk.vtkCubeSource()
+        src.SetBounds(*bounds)
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(src.GetOutputPort())
+        act = vtk.vtkActor()
+        act.SetMapper(mapper)
+        act.GetProperty().SetOpacity(opacity)
+        ren.AddActor(act)
+        actors[name] = types.SimpleNamespace(surface=act)
+    cam = ren.GetActiveCamera()
+    cam.SetPosition(0, 0, 0.3)
+    cam.SetFocalPoint(0, 0, 0)
+    ren.ResetCameraClippingRange()
+    ren.AddObserver("ResetCameraClippingRangeEvent", lambda *a: keep_focal_plane_in_view(ren))
+    rw.Render()
+    v = types.SimpleNamespace(plotter=types.SimpleNamespace(renderer=ren), draw=None, request_render=lambda: None,
+                              actors=actors, view_bbox=lambda: (-0.05, -0.07, -0.03, 0.05, 0.07, 0.03),
+                              MIN_ZOOM_DISTANCE=ModelerView.MIN_ZOOM_DISTANCE,
+                              MAX_ZOOM_DISTANCE=ModelerView.MAX_ZOOM_DISTANCE, _limit_zoom=ModelerView._limit_zoom,
+                              SEE_THROUGH_OPACITY=ModelerView.SEE_THROUGH_OPACITY)
+    for name in ("_focal_plane_point", "_zoom_limits", "_surface_point"):
+        setattr(v, name, getattr(ModelerView, name).__get__(v))
+    pos = (430, 330)
+    # a plain pick hits the air box, the see-through pick the board
+    assert v._surface_point(pos)[2] == pytest.approx(0.03)
+    target = v._surface_point(pos, see_through=True)
+    assert target[2] == pytest.approx(0.0, abs=1e-9)
+    # off the board only the air box lies under the cursor: it is taken
+    assert v._surface_point((560, 300), see_through=True)[2] == pytest.approx(0.03)
+    for _ in range(300):
+        ModelerView.zoom_at_cursor(v, 1.2, pos)
+    rw.Render()
+    gap = cam.GetPosition()[2] - target[2]
+    size = np.linalg.norm([0.1, 0.14, 0.06])
+    assert gap == pytest.approx(1e-4 * size, rel=1e-3)
+    near, far = cam.GetClippingRange()
+    assert near < gap < far
