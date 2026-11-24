@@ -246,3 +246,22 @@ def test_solver_comparison_with_parallel_frequencies_on_one_mesh(tmp_path, monke
     text, _ = solver_recommendation(res)
     assert "Fastest sweep: <b>PARDISO</b> with <b>2 parallel frequencies</b>, 9 s (14 s one at a time)" in text
     assert "PARDISO 12, SPARTA (GPU) 30" in text and "Note column" in text
+
+
+def test_installer_command_keeps_the_users_choice(monkeypatch, capsys):
+    """python -m hertzon.solver.sparta_setup: `update` (an update of Hertzon) installs nothing where SPARTA is not
+    installed, `install` runs pip only when the tested version is missing (#536)."""
+    import subprocess
+    from hertzon.solver import sparta_setup
+    calls = []
+    monkeypatch.setattr(subprocess, "call", lambda args: calls.append(args) or 0)
+    monkeypatch.setattr(sparta_setup, "installed_version", lambda: None)
+    assert sparta_setup.main(["version"]) == 1
+    assert sparta_setup.main(["update"]) == 0 and calls == []
+    assert sparta_setup.main(["install"]) == 0 and calls == [sparta_setup.install_args()]
+    monkeypatch.setattr(sparta_setup, "installed_version", lambda: "0.0.1")
+    assert sparta_setup.main(["update"]) == 0 and len(calls) == 2
+    monkeypatch.setattr(sparta_setup, "installed_version", lambda: sparta_setup.VERSION)
+    assert sparta_setup.main(["install"]) == 0 and sparta_setup.main(["update"]) == 0 and len(calls) == 2
+    assert sparta_setup.main(["version"]) == 0 and sparta_setup.VERSION in capsys.readouterr().out
+    assert sparta_setup.main(["remove"]) == 2

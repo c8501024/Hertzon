@@ -85,6 +85,9 @@ jobs:
           # until that process has ended, then updates. A Python of the installation stands in for Hertzon: it
           # starts the installer with the same function and exits only 15 seconds later.
           $dir = "$env:RUNNER_TEMP\Hertzon"
+          # SPARTA installed as by Tools > Options: the update checks its component and keeps it (#536)
+          & "$dir\.venv\Scripts\python.exe" -m hertzon.solver.sparta_setup install
+          if ($LASTEXITCODE -ne 0) { throw 'SPARTA could not be installed' }
           $dl = "$env:RUNNER_TEMP\HertzonUpdates"
           New-Item -ItemType Directory -Force $dl | Out-Null
           Copy-Item (Get-ChildItem dist\Hertzon-Setup-*.exe).FullName $dl
@@ -122,6 +125,7 @@ jobs:
               ('Hertzon \(process ' + $hz + '\): stand-in for Hertzon exits now$'),
               ('installer [\d.]+: Hertzon \(process ' + $hz + '\) has closed$'),
               'installer [\d.]+: setup\.ps1 ended \(exit code 0\)$',
+              'installer [\d.]+: SPARTA install ended \(exit code 0\)$',
               'installer [\d.]+: installed$')
           $at = -1
           foreach ($p in $order) {
@@ -280,6 +284,31 @@ jobs:
             if grep -q "cached=True" "solve_$sv.log"; then echo "::error::$sv: the solution came from the cache"; exit 1; fi
             if grep -q "not available" "solve_$sv.log"; then cat "solve_$sv.log"; echo "::error::$sv was not used"; exit 1; fi
           done
+      - name: SPARTA from install.sh (left out without a terminal; asked once with one, Enter = yes on a Mac)
+        timeout-minutes: 25
+        run: |
+          DEST="$HOME/Library/Application Support/Hertzon"
+          PYV="$DEST/.venv/bin/python"
+          if "$PYV" -m hertzon.solver.sparta_setup version; then echo "::error::SPARTA installed without asking"; exit 1; fi
+          cd "$RUNNER_TEMP"/pkg/Hertzon-*
+          expect -f - <<'EXP'
+          set timeout 1200
+          spawn ./install.sh
+          expect {
+            -exact "Install SPARTA? \[Y/n\] " { send "\r" }
+            timeout { puts "::error::install.sh did not ask for SPARTA"; exit 1 }
+            eof { puts "::error::install.sh did not ask for SPARTA"; exit 1 }
+          }
+          expect eof
+          lassign [wait] pid spawnid os_error status
+          exit $status
+          EXP
+          "$PYV" -m hertzon.solver.sparta_setup version || { echo "::error::SPARTA not installed after Enter"; exit 1; }
+          test -f "$DEST/.venv/hertzon_sparta_asked"
+          "$PYV" -c "from hertzon.solver import solver_choice as s; assert s.available('SPARTA (CPU)'), s.unavailable('SPARTA (CPU)')"
+          HERTZON_SOLVER="SPARTA (CPU)" "$DEST/.venv/bin/hertzon-cli" solve "$DEST/examples/Microstrip.hzn" --design Microstrip50 --force > solve_sparta.log 2>&1 || { cat solve_sparta.log; exit 1; }
+          grep -iE "sparta|tetrahedra|done:" solve_sparta.log | tail -n 8 || true
+          if grep -q "not available\|not installed" solve_sparta.log; then cat solve_sparta.log; echo "::error::SPARTA was not used"; exit 1; fi
       - name: Update over a 0.4.1 installation (app in ~/Applications; install.sh keeps the Python environment)
         run: |
           DEST="$HOME/Library/Application Support/Hertzon"
@@ -291,6 +320,7 @@ jobs:
           test "$before" = "$(stat -f %i "$DEST/.venv/bin/python")" || { echo "::error::the update made a new environment"; exit 1; }
           test -x /Applications/Hertzon.app/Contents/MacOS/Hertzon || { echo "::error::app not in /Applications"; exit 1; }
           test ! -e "$HOME/Applications/Hertzon.app" || { echo "::error::old app in ~/Applications kept"; exit 1; }
+          "$DEST/.venv/bin/python" -m hertzon.solver.sparta_setup version || { echo "::error::the update lost SPARTA"; exit 1; }
       - name: Fallback to ~/Applications without write access to the applications folder
         run: |
           # a stand-in for /Applications the account cannot write to; without a terminal there is no sudo prompt
