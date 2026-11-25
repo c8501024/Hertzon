@@ -67,6 +67,8 @@ MEMORY_MARGIN = 1.15     # a large test runs when the usable memory is this much
 # reference time (s) of every test = score 1000, measured on the reference computer (REFERENCE_SYSTEM)
 # with Hertzon 0.4.6; and the reference result each run is checked against
 REFERENCE_SYSTEM = "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hertzon 0.4.6"
+# the large tests need more memory than that server has: their 1000 is this computer
+REFERENCE_SYSTEM_LARGE = "AMD Ryzen Threadripper 3970X (32 cores, 64 threads used, 256 GB), Windows, Hertzon 0.4.6"
 REFERENCE_FILE = SUITE_DIR / "reference.json"
 DS_LIMIT = 0.05          # largest |S - S_ref| over the reference frequencies
 RCS_LIMIT_DB = 0.5       # largest RCS error against the Mie solution
@@ -437,7 +439,8 @@ def site_spec() -> dict:
                       "tets": [int(tets / 3), int(tets * 3)] if tets else [100, 10_000_000]})
     return {SUITE: {"tests": tests, "scaling_test": SCALING_TEST, "single_core": ref.get("single_core") or {},
                     "titles": {t[0]: t[1] for t in ALL_TESTS},
-                    "about": {t[0]: t[5] for t in ALL_TESTS}, "reference": REFERENCE_SYSTEM}}
+                    "about": {t[0]: t[5] for t in ALL_TESTS}, "reference": REFERENCE_SYSTEM,
+                    "reference_large": REFERENCE_SYSTEM_LARGE}}
 
 
 def main() -> int:

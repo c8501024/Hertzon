@@ -33,7 +33,8 @@ slow for these models.
 **Large test.** *Drone RCS* (the imported surface of a delta-wing drone, PEC, monostatic RCS) needs much more
 memory. It runs only when the computer has enough usable memory for it, else it is listed as not run with the
 reason, and it has its own score outside the overall score, so that the overall score stays comparable for
-computers with 16 GB.
+computers with 16 GB. It needs about 36 GB (183k tetrahedra, 5 passes); its score 1000 is a 32-core
+AMD Ryzen Threadripper 3970X (256 GB, Windows, all 64 threads) with Hertzon 0.4.6, which needs 282 s.
 
 **Core scaling.** Optionally (on by default) the hairpin filter is solved again with 1, 2, 4, ... cores: speedup
 and parallel efficiency, and the *single-core score* from the 1-core time (reference 207 s), which the site ranks

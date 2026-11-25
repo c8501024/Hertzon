@@ -287,7 +287,7 @@ function viewAbout() {
   <p>A test counts only when it converged with the chosen matrix solver and a correct result. A test stopped by the memory
   guard, ended for lack of memory, solved by another solver than chosen (e.g. no usable GPU) or not converged is left out
   and marked with the reason; the run is then marked incomplete and the ranking shows only complete runs unless you ask for
-  the others. Large tests run only on computers with enough memory and have their own score. The core scaling solves the
+  the others. Large tests run only on computers with enough memory and have their own score (1000 = ${esc(spec.reference_large || "")}). The core scaling solves the
   ${esc(spec.titles[spec.scaling_test] || "")} with 1, 2, 4, ... cores; its 1-core time gives the single-core score.</p>
   <p>Several submissions of the same computer are welcome; the ranking shows their median. The memory bandwidth is measured
   by Hertzon (copying a 256 MB array on one core), because a sparse direct solver depends on it.</p>

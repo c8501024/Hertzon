@@ -80,10 +80,10 @@ export const SUITES = {
     "hashes": [
      "eea3f4994da3d8de"
     ],
-    "time": null,
+    "time": 281.78,
     "tets": [
-     100,
-     10000000
+     61157,
+     550413
     ]
    }
   ],
@@ -109,6 +109,7 @@ export const SUITES = {
    "sphere_rcs": "Incident plane wave, monostatic RCS of a PEC sphere (checked against the exact Mie solution)",
    "drone_rcs": "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"
   },
-  "reference": "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hertzon 0.4.6"
+  "reference": "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hertzon 0.4.6",
+  "reference_large": "AMD Ryzen Threadripper 3970X (32 cores, 64 threads used, 256 GB), Windows, Hertzon 0.4.6"
  }
 };

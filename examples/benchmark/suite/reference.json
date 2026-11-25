@@ -7,7 +7,8 @@
   "patch": 208.05,
   "patch_thin": 135.69,
   "waveguide": 56.71,
-  "sphere_rcs": 26.38
+  "sphere_rcs": 26.38,
+  "drone_rcs": 281.78
  },
  "tets": {
   "microstrip": 14306,
@@ -15,7 +16,8 @@
   "patch": 40264,
   "patch_thin": 31387,
   "waveguide": 13029,
-  "sphere_rcs": 16013
+  "sphere_rcs": 16013,
+  "drone_rcs": 183471
  },
  "sparams": {
   "microstrip": {
@@ -996,5 +998,12 @@
  },
  "single_core": {
   "hairpin": 207.0
- }
+ },
+ "memory_mb": {
+  "drone_rcs": 37077
+ },
+ "rcs_dbsm": {
+  "drone_rcs": -7.513
+ },
+ "large_system": "AMD Ryzen Threadripper 3970X, 32 cores / 64 threads, 256 GB DDR4, Windows 10, 64 cores used, Hertzon 0.4.6"
 }
