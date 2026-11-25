@@ -6,6 +6,10 @@ the GitHub release notes.
 ## Unreleased
 
 ### Changed
+- **Solved frequencies of an interpolating sweep marked in the plot.** A rectangular report over frequency marks
+  the frequencies the sweep solved directly (its support points) as open circles on each curve, in the trace
+  colour; the rest of the curve is interpolated. Axis Properties > "Mark the solved frequencies of interpolating
+  sweeps" switches them off. Discrete sweeps, where every point is solved, get no extra marks.
 - **The Message Manager lists the frequencies of an interpolating sweep as they are solved** (Kwang Choi, #5).
   When the sweep chooses its next frequencies it writes one line per solve, in the order they are solved, not
   ascending: one frequency per line, or the frequencies solved at the same time (Parallel) together on one line.
