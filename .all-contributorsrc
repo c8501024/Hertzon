@@ -14,12 +14,14 @@
   "contributors": [
     {
       "login": "c8501024",
-      "name": "c8501024",
+      "name": "Dominik Mair",
       "avatar_url": "https://avatars.githubusercontent.com/u/29594166?v=4",
       "profile": "https://github.com/c8501024",
       "contributions": [
         "code",
-        "maintenance"
+        "maintenance",
+        "doc",
+        "example"
       ]
     },
     {
@@ -29,6 +31,92 @@
       "profile": "https://github.com/FeruzTopalov",
       "contributions": [
         "bug",
+        "ideas",
+        "userTesting"
+      ]
+    },
+    {
+      "login": "Diupth",
+      "name": "Diupth",
+      "avatar_url": "https://avatars.githubusercontent.com/u/221640370?v=4",
+      "profile": "https://github.com/Diupth",
+      "contributions": [
+        "bug",
+        "ideas",
+        "userTesting"
+      ]
+    },
+    {
+      "login": "simon46fsg",
+      "name": "simon46fsg",
+      "avatar_url": "https://avatars.githubusercontent.com/u/112723632?v=4",
+      "profile": "https://github.com/simon46fsg",
+      "contributions": [
+        "bug",
+        "ideas"
+      ]
+    },
+    {
+      "login": "FennisRobert",
+      "name": "Robert Fennis",
+      "avatar_url": "https://avatars.githubusercontent.com/u/118069005?v=4",
+      "profile": "https://github.com/FennisRobert",
+      "contributions": [
+        "ideas"
+      ]
+    },
+    {
+      "login": "potatobeanradio",
+      "name": "potatobeanradio",
+      "avatar_url": "https://avatars.githubusercontent.com/u/95653156?v=4",
+      "profile": "https://github.com/potatobeanradio",
+      "contributions": [
+        "bug",
+        "userTesting"
+      ]
+    },
+    {
+      "login": "FranzForstmayr",
+      "name": "FranzForstmayr",
+      "avatar_url": "https://avatars.githubusercontent.com/u/9936788?v=4",
+      "profile": "https://github.com/FranzForstmayr",
+      "contributions": [
+        "ideas"
+      ]
+    },
+    {
+      "login": "anw-lab",
+      "name": "anw-lab",
+      "avatar_url": "https://avatars.githubusercontent.com/u/116881529?v=4",
+      "profile": "https://github.com/anw-lab",
+      "contributions": [
+        "ideas"
+      ]
+    },
+    {
+      "login": "ljarvela",
+      "name": "ljarvela",
+      "avatar_url": "https://avatars.githubusercontent.com/u/168073883?v=4",
+      "profile": "https://github.com/ljarvela",
+      "contributions": [
+        "bug"
+      ]
+    },
+    {
+      "login": "gveng",
+      "name": "gveng",
+      "avatar_url": "https://avatars.githubusercontent.com/u/4115635?v=4",
+      "profile": "https://github.com/gveng",
+      "contributions": [
+        "bug"
+      ]
+    },
+    {
+      "login": "kapil-iitk",
+      "name": "kapil-iitk",
+      "avatar_url": "https://avatars.githubusercontent.com/u/18379648?v=4",
+      "profile": "https://github.com/kapil-iitk",
+      "contributions": [
         "ideas"
       ]
     }
