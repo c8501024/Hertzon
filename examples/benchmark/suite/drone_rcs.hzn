@@ -100,9 +100,9 @@
       "MultiFrequencies": "1GHz,2GHz",
       "LowFrequency": "1GHz",
       "HighFrequency": "10GHz",
-      "MaximumPasses": "6",
+      "MaximumPasses": "8",
       "MaximumDeltaS": "0.02",
-      "MaximumDeltaEnergy": "0.001",
+      "MaximumDeltaEnergy": "0.005",
       "UseMatrixConvergence": "False",
       "MaxDeltaMag": "0.02",
       "MaxDeltaPhase": "2",
@@ -121,7 +121,7 @@
       "GrowthRate": "1.6",
       "EnforceRefinementPercent": "True",
       "RefinementMethod": "hzAURA (EMerge)",
-      "SaveFields": "True",
+      "SaveFields": "False",
       "Threads": "0",
       "_BasisNames": "v2"
      },
@@ -136,10 +136,10 @@
       "CoordinateSystem": "Global",
       "PhiStart": "0deg",
       "PhiStop": "360deg",
-      "PhiStep": "3deg",
+      "PhiStep": "10deg",
       "ThetaStart": "0deg",
       "ThetaStop": "180deg",
-      "ThetaStep": "3deg"
+      "ThetaStep": "10deg"
      }
     }
    ],

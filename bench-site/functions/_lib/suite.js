@@ -78,7 +78,7 @@ export const SUITES = {
     "id": "drone_rcs",
     "large": true,
     "hashes": [
-     "274a4cb8215262e9"
+     "eea3f4994da3d8de"
     ],
     "time": null,
     "tets": [

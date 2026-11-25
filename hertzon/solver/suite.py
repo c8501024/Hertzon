@@ -181,6 +181,16 @@ def overall(scores: list[int | None]) -> int | None:
     return int(round(math.exp(sum(math.log(s) for s in scores) / len(scores))))
 
 
+def _this_system(cores: int) -> str:
+    """The computer of a reference run, for reference.json."""
+    try:
+        from .sysinfo import collect, summary
+        info = collect(measure=False)
+        return f"{summary(info)}, {cores} cores used, Hertzon {info['software']['hertzon']}"
+    except Exception:  # noqa: BLE001
+        return f"{cores} cores used"
+
+
 class Suite:
     def __init__(self, out: Path, solver: str = "", cores: int = 0, only: list[str] | None = None,
                  make_reference: bool = False, scaling: bool = True):
@@ -211,7 +221,7 @@ class Suite:
         log(f"{SUITE}: {len(self.tests)} tests with {self.cores} cores"
             + (f", solver {self.solver}" if self.solver else ""))
         n = len(self.tests)
-        new_ref = {"suite": SUITE, "system": REFERENCE_SYSTEM, "times": {}, "tets": {}, "sparams": {}} \
+        new_ref = {"suite": SUITE, "system": _this_system(self.cores), "times": {}, "tets": {}, "sparams": {}} \
             if self.make_reference else None
         for k, (tid, title, file, design, setup, _what) in enumerate(self.tests, start=1):
             src = SUITE_DIR / file
@@ -239,6 +249,7 @@ class Suite:
                 log(f"{title}: not counted, {row['reason']}", "warning")
                 continue
             s = run_summary(folder, b.sweeps)
+            sweep = b.sweeps[0] if b.sweeps else ""
             row = {"id": tid, "file_hash": file_hash(src),
                    **{key: s[key] for key in ("total", "start", "mesh", "adaptive", "sweep", "passes", "tets",
                                               "memory_mb", "converged", "notes")}}
@@ -250,27 +261,30 @@ class Suite:
             elif tid == "drone_rcs":
                 try:
                     rcs = rcs_dbsm(folder, path, design)
-                    if new_ref is not None:
-                        new_ref.setdefault("rcs_dbsm", {})[tid] = round(rcs, 3)
                     ref_rcs = (self.ref.get("rcs_dbsm") or {}).get(tid)
                     err = rcs - ref_rcs if ref_rcs is not None else None
                     row["check"] = {"kind": "rcs_ref_db", "value": None if err is None else round(err, 3),
-                                    "limit": RCS_REF_LIMIT_DB, "ok": err is None or abs(err) <= RCS_REF_LIMIT_DB}
+                                    "limit": RCS_REF_LIMIT_DB, "ok": err is None or abs(err) <= RCS_REF_LIMIT_DB,
+                                    **({"note": "no reference"} if err is None else {}), "rcs_dbsm": round(rcs, 3)}
                 except Exception as ex:  # noqa: BLE001
                     row["check"] = {"kind": "rcs_ref_db", "value": None, "ok": False, "note": str(ex)[:200]}
             else:
-                sweep = b.sweeps[0] if b.sweeps else ""
-                if new_ref is not None and sweep:
-                    new_ref["sparams"][tid] = sparams_points(folder, sweep)
                 row["check"] = check_sparams(folder, sweep, (self.ref.get("sparams") or {}).get(tid))
-            if new_ref is not None:
-                new_ref["times"][tid] = round(s["total"], 2)
-                new_ref["tets"][tid] = s["tets"]
-                new_ref.setdefault("memory_mb", {})[tid] = round(s["memory_mb"])
             reason = not_counted_reason(folder, s, row["check"])
             row["counted"] = not reason
             if reason:
                 row["reason"] = reason
+            if new_ref is not None and reason:
+                log(f"{title}: no reference written, {reason}", "warning")
+            elif new_ref is not None:
+                # a reference only from a run that counts (converged, as asked, no memory guard)
+                new_ref["times"][tid] = round(s["total"], 2)
+                new_ref["tets"][tid] = s["tets"]
+                new_ref.setdefault("memory_mb", {})[tid] = round(s["memory_mb"])
+                if "rcs_dbsm" in row["check"]:
+                    new_ref.setdefault("rcs_dbsm", {})[tid] = row["check"]["rcs_dbsm"]
+                if tid not in ("sphere_rcs", "drone_rcs") and sweep:
+                    new_ref["sparams"][tid] = sparams_points(folder, sweep)
             ref_t = (self.ref.get("times") or {}).get(tid)
             row["score"] = score(ref_t, s["total"]) if row["counted"] else None
             self.result["tests"].append(row)
