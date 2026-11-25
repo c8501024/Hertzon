@@ -174,13 +174,13 @@ def uses_antenna(calc: str, outvars=None, _depth: int = 0) -> bool:
 def antenna_data(st, design, solution: str, ev) -> dict:
     """Antenna parameters over the frequencies of a solution ({"freq", "solved", "antenna"}), for goals on
     PeakRealizedGain, RadiationEfficiency etc. They exist where the far fields were saved: at the solution
-    frequency (LastAdaptive), and over a sweep only with Save fields on; the first far field setup gives the
+    frequency (LastAdaptive), and over a sweep only with Save fields or Save far fields on; the first far field setup gives the
     directions of the peak values. Raises with the reason otherwise."""
     from .ffquant import antenna_series
     if not design.spheres:
         raise ValueError("antenna parameters need a far field setup (Radiation > Insert Far Field Setup)")
     if not (st.folder / f"huygens_{solution}.npz").exists():
-        raise ValueError(f"antenna parameters need the fields of '{solution}': turn on Save fields in the sweep "
+        raise ValueError(f"antenna parameters need the far fields of '{solution}': turn on Save far fields in the sweep "
                          "(the design needs a radiation or PML boundary)")
     f, vals = antenna_series(st, design, design.spheres[0].name, solution, ev)
     return {"freq": f, "solved": f, "antenna": vals}
@@ -198,10 +198,11 @@ def check_antenna_goals(design, setup: str, solution: str) -> None:
         return
     if sw.props.get("SweepType") == "Interpolating":
         raise ValueError(f"Goals on antenna parameters need the fields at every frequency: '{solution}' is an "
-                         "interpolating sweep; use a discrete sweep with Save fields, or LastAdaptive")
-    if str(sw.props.get("SaveFields", "False")).lower() not in ("true", "1", "yes"):
-        raise ValueError(f"Goals on antenna parameters need the fields of '{solution}': turn on Save fields "
-                         "(all frequencies) in the sweep")
+                         "interpolating sweep; use a discrete sweep with Save far fields, or LastAdaptive")
+    from ..model.schema import sweep_saves_far_fields
+    if not sweep_saves_far_fields(sw.props):
+        raise ValueError(f"Goals on antenna parameters need the far fields of '{solution}': turn on Save far "
+                         "fields (all frequencies) in the sweep")
 
 
 def _goal_input(g: dict, data: dict, antenna, outvars):

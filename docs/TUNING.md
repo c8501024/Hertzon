@@ -50,7 +50,7 @@ detail, then the method, its accuracy and its limits.
 
 Patterns and antenna parameters need the fields on the far field surface. The design needs a radiation
 or PML boundary and a far field setup. They are tuned at the frequencies of the model that also have a
-solved far field. Over a sweep, that means a discrete sweep with **Save fields**. A pattern report on
+solved far field. Over a sweep, that means a discrete sweep with **Save far fields** (or **Save fields**). A pattern report on
 another solution of the tuned setup also follows the sliders where the frequencies match, for example
 LastAdaptive while a sweep is tuned. When a report cannot show a tuned curve, its info line says why.
 

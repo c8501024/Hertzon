@@ -2559,17 +2559,16 @@ class Bridge:
                 f, S, z0, data = fast_sweep(m, fr, tol=tol, log=lambda s, n=sw.name: info(f"Fast sweep '{n}': {s}"),
                                             on_solved=prog.solved)
                 self.save_s(sw.name, f, S, z0, solved=f)
-                if p.get("SaveFields") == "True":
-                    self.save_fields(list(data.field)[-len(f):], sw.name)
-                    self.save_farfields(list(data.field)[-len(f):], sw.name)     # antenna parameters over f
+                self.save_sweep_fields(sw, list(data.field)[-len(f):])
             elif p.get("SweepType", "Interpolating") == "Discrete":
                 f, S, z0, data = solve_at(m, fr, parallel=par, n_workers=nw, on_solved=prog.solved)
                 self.save_s(sw.name, f, S, z0, solved=f)
-                if p.get("SaveFields") == "True":
-                    self.save_fields(list(data.field)[-len(f):], sw.name)
-                    self.save_farfields(list(data.field)[-len(f):], sw.name)     # antenna parameters over f
+                self.save_sweep_fields(sw, list(data.field)[-len(f):])
             else:
                 self.interpolating_sweep(sw.name, fr, p, par, nw, prog)
+                if self.design.spheres:
+                    info(f"Sweep '{sw.name}': an interpolating sweep stores S-parameters only; far fields over "
+                         "frequency need a Discrete or Fast sweep with 'Save far fields'")
             if prog.done:
                 with prog._lock:
                     prog.planned, prog.estimate = prog.done, False
@@ -2579,6 +2578,19 @@ class Bridge:
             if mt_pardiso is not None and mt_pardiso.TIMES["solve"] > 0:
                 info(f"Sweep '{sw.name}': matrix assembly {mt_pardiso.TIMES['assembly']:.1f} s, PARDISO "
                      f"{mt_pardiso.TIMES['solve']:.1f} s (summed over the parallel frequencies)")
+
+    def save_sweep_fields(self, sw, fields: list) -> None:
+        """Volume fields (Save fields) and far field data (Save fields or Save far fields) of a Discrete or
+        Fast sweep: the far field data alone are the fields on the radiation boundary, small next to the
+        volume fields."""
+        p = sw.props
+        if p.get("SaveFields") == "True":
+            self.save_fields(fields, sw.name)
+        if schema.sweep_saves_far_fields(p):
+            self.save_farfields(fields, sw.name)     # antenna parameters over f
+        elif self.design.spheres:
+            info(f"Sweep '{sw.name}': no far field data stored (turn on 'Save far fields' in the sweep for "
+                 "patterns and antenna parameters over frequency)")
 
     def factor_memory(self) -> None:
         """PARDISO factor size of the final mesh: saved after the adaptive passes, read back by a run that

@@ -36,8 +36,8 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
   A sweep never refines the mesh: it is solved on the mesh adapted at these frequencies.
 - The adaptive meshing refines where it is needed. A tighter Delta S makes every solve, tuning model and
   optimizer step slower and much larger; a looser one (0.03, few passes) is a cheap way to compare concepts.
-- Use an interpolating sweep over a range wider than the bands for S11, and a discrete sweep with fields saved
-  at a few in-band frequencies for far fields. Give the points as Distribution "Linear Count" with Count, or
+- Use an interpolating sweep over a range wider than the bands for S11, and a discrete sweep with `SaveFarFields`
+  "True" at a few in-band frequencies for far fields (`SaveFields` also keeps the volume fields, much larger). Give the points as Distribution "Linear Count" with Count, or
   "Single Points" with Points; check the number of frequencies `set_sweep()` reports.
 
 ## Figure of merit
