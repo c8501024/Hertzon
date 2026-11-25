@@ -63,6 +63,7 @@ td.wrap{white-space:normal;min-width:220px}
 .bar .sub{position:relative;margin-left:6px}
 .tag{display:inline-block;font-size:.72rem;border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--muted);margin-left:6px}
 .sub{font-size:.8rem;color:var(--muted)}
+.tag.warn{color:var(--bad);border-color:var(--bad)}
 
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}

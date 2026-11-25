@@ -1,7 +1,7 @@
 """Hertzon Bench: a fixed suite of models that measures how fast this computer solves typical problems, as
 one overall score and a score per test, comparable between computers and Hertzon versions.
 
-python -m hertzon.solver.suite OUTDIR [--solver NAME] [--cores N] [--only id1,id2]
+python -m hertzon.solver.suite OUTDIR [--solver NAME] [--cores N] [--only id1,id2] [--no-scaling]
 
 Every test solves its whole setup (initial mesh, adaptive passes, sweep or far field) once, in a fresh solver
 process, with all cores (or --cores) and the setup's matrix solver (or --solver). Each result is checked
@@ -18,6 +18,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import sys
 import time
@@ -25,7 +26,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from .benchmark import Benchmark, emit, log, run_summary
+from .benchmark import Benchmark, _log_messages, default_cores, emit, log, run_summary
 from .results import ResultStore, running_status
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -48,7 +49,20 @@ TESTS = [
     ("sphere_rcs", "Sphere RCS", "sphere_rcs.hzn", "PECSphere", "Setup1",
      "Incident plane wave, monostatic RCS of a PEC sphere (checked against the exact Mie solution)"),
 ]
-TEST_IDS = [t[0] for t in TESTS]
+# optional large tests: run only when the computer has the memory for them, with their own score, not in the
+# overall score (so that it stays comparable for computers with 16 GB)
+LARGE_TESTS = [
+    ("drone_rcs", "Drone RCS (large)", "drone_rcs.hzn", "Design1", "Setup1",
+     "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"),
+]
+TEST_IDS = [t[0] for t in TESTS]                       # the tests of the overall score
+LARGE_IDS = [t[0] for t in LARGE_TESTS]
+ALL_TESTS = TESTS + LARGE_TESTS
+# matrix solvers the suite does not offer: far too slow for models of this size (SuperLU, the last fallback)
+EXCLUDED_SOLVERS = ("SuperLU",)
+# core scaling: this test is solved again with 1, 2, 4, ... cores; its 1-core time gives the single-core score
+SCALING_TEST = "hairpin"
+MEMORY_MARGIN = 1.15     # a large test runs when the usable memory is this much above its reference peak
 
 # reference time (s) of every test = score 1000, measured on the reference computer (REFERENCE_SYSTEM)
 # with Hertzon 0.4.6; and the reference result each run is checked against
@@ -56,11 +70,20 @@ REFERENCE_SYSTEM = "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hert
 REFERENCE_FILE = SUITE_DIR / "reference.json"
 DS_LIMIT = 0.05          # largest |S - S_ref| over the reference frequencies
 RCS_LIMIT_DB = 0.5       # largest RCS error against the Mie solution
+RCS_REF_LIMIT_DB = 1.0   # largest RCS difference of the drone to the reference run
 
 
 def file_hash(path: Path) -> str:
-    """Hash of a model file, the same with Windows and Unix line ends (git may check out either)."""
-    return hashlib.sha256(Path(path).read_bytes().replace(b"\r\n", b"\n")).hexdigest()[:16]
+    """Hash of a model file and the files it imports (e.g. an STL), the same with Windows and Unix line ends
+    (git may check out either)."""
+    path = Path(path)
+    text = path.read_bytes().replace(b"\r\n", b"\n")
+    h = hashlib.sha256(text)
+    for f in sorted(set(re.findall(r'"File":\s*"([^"]+)"', text.decode("utf-8", "replace")))):
+        p = path.parent / f
+        if p.is_file():
+            h.update(p.read_bytes().replace(b"\r\n", b"\n"))
+    return h.hexdigest()[:16]
 
 
 def reference() -> dict:
@@ -98,6 +121,15 @@ def check_rcs(folder: Path, project: Path, design: str) -> dict:
     f, s = float(r["freq"][0]), float(r["MonostaticRCSTotal"][0])
     err = 10 * math.log10(s / mie_rcs(radius, f)) if s > 0 else float("inf")
     return {"kind": "rcs_db", "value": round(err, 4), "limit": RCS_LIMIT_DB, "ok": abs(err) <= RCS_LIMIT_DB}
+
+
+def rcs_dbsm(folder: Path, project: Path, design: str) -> float:
+    """Monostatic RCS (dBsm) at the adaptive frequency."""
+    from ..model.design import Project
+    from .ffquant import monostatic_rcs
+    d = Project.load(str(project)).design(design)
+    r = monostatic_rcs(ResultStore(folder), "LastAdaptive", d.spheres[0].name)
+    return 10 * math.log10(float(r["MonostaticRCSTotal"][0]))
 
 
 def sparams_points(folder: Path, sweep: str, n: int = 11) -> dict | None:
@@ -151,12 +183,13 @@ def overall(scores: list[int | None]) -> int | None:
 
 class Suite:
     def __init__(self, out: Path, solver: str = "", cores: int = 0, only: list[str] | None = None,
-                 make_reference: bool = False):
+                 make_reference: bool = False, scaling: bool = True):
         self.out = out
         self.solver = solver
         self.cores = cores or os.cpu_count() or 1
-        self.tests = [t for t in TESTS if not only or t[0] in only]
+        self.tests = [t for t in ALL_TESTS if not only or t[0] in only]
         self.make_reference = make_reference
+        self.scaling = scaling and (not only or SCALING_TEST in only)
         self.ref = reference()
         self.t0 = time.time()
         self.result = {"schema": SCHEMA, "suite": SUITE, "run_id": uuid.uuid4().hex, "cores": self.cores,
@@ -182,6 +215,13 @@ class Suite:
             if self.make_reference else None
         for k, (tid, title, file, design, setup, _what) in enumerate(self.tests, start=1):
             src = SUITE_DIR / file
+            if tid in LARGE_IDS and not self.make_reference:
+                why = too_large(tid, self.ref)
+                if why:
+                    self.result["tests"].append({"id": tid, "file_hash": file_hash(src), "skipped": why})
+                    self._write()
+                    log(f"{title}: not run, {why}")
+                    continue
             b = Benchmark(str(src), design, setup, self.out, [self.cores], [], [self.solver] if self.solver else [])
             b.aborted = self.aborted
             path = b._project(f"test_{tid}", solver=self.solver)
@@ -192,10 +232,11 @@ class Suite:
                 if not b._solve(path, folder, b._env(self.cores, 1), title, k, n):
                     return self._stop()
             except RuntimeError as ex:
-                row = {"id": tid, "file_hash": file_hash(src), "failed": str(ex)[:300]}
+                row = {"id": tid, "file_hash": file_hash(src), "counted": False,
+                       "reason": failure_reason(folder, str(ex))}
                 self.result["tests"].append(row)
                 self._write()
-                log(f"{title}: failed ({ex})", "error")
+                log(f"{title}: not counted, {row['reason']}", "warning")
                 continue
             s = run_summary(folder, b.sweeps)
             row = {"id": tid, "file_hash": file_hash(src),
@@ -206,6 +247,17 @@ class Suite:
                     row["check"] = check_rcs(folder, path, design)
                 except Exception as ex:  # noqa: BLE001
                     row["check"] = {"kind": "rcs_db", "value": None, "ok": False, "note": str(ex)[:200]}
+            elif tid == "drone_rcs":
+                try:
+                    rcs = rcs_dbsm(folder, path, design)
+                    if new_ref is not None:
+                        new_ref.setdefault("rcs_dbsm", {})[tid] = round(rcs, 3)
+                    ref_rcs = (self.ref.get("rcs_dbsm") or {}).get(tid)
+                    err = rcs - ref_rcs if ref_rcs is not None else None
+                    row["check"] = {"kind": "rcs_ref_db", "value": None if err is None else round(err, 3),
+                                    "limit": RCS_REF_LIMIT_DB, "ok": err is None or abs(err) <= RCS_REF_LIMIT_DB}
+                except Exception as ex:  # noqa: BLE001
+                    row["check"] = {"kind": "rcs_ref_db", "value": None, "ok": False, "note": str(ex)[:200]}
             else:
                 sweep = b.sweeps[0] if b.sweeps else ""
                 if new_ref is not None and sweep:
@@ -214,16 +266,21 @@ class Suite:
             if new_ref is not None:
                 new_ref["times"][tid] = round(s["total"], 2)
                 new_ref["tets"][tid] = s["tets"]
+                new_ref.setdefault("memory_mb", {})[tid] = round(s["memory_mb"])
+            reason = not_counted_reason(folder, s, row["check"])
+            row["counted"] = not reason
+            if reason:
+                row["reason"] = reason
             ref_t = (self.ref.get("times") or {}).get(tid)
-            row["score"] = score(ref_t, s["total"]) if row["check"]["ok"] else None
+            row["score"] = score(ref_t, s["total"]) if row["counted"] else None
             self.result["tests"].append(row)
             self._write()
             log(f"{title}: {s['total']:.1f} s, {s['passes']} passes, {s['tets']} tetrahedra, "
                 f"{s['memory_mb'] / 1024:.1f} GB" + (f", score {row['score']}" if row["score"] else "")
-                + ("" if row["check"]["ok"] else f"; result check failed ({row['check']})"))
-        self.result["score"] = overall([t.get("score") for t in self.result["tests"]]) \
-            if len(self.tests) == len(TESTS) else None
-        self.result["complete"] = len(self.tests) == len(TESTS) and all(t.get("score") for t in self.result["tests"])
+                + (f"; not counted: {reason}" if reason else ""), "warning" if reason else "info")
+        if self.scaling and not self._scaling(new_ref):
+            return self._stop()
+        summarize(self.result)
         self.result["finished"] = time.time()
         self._write()
         if new_ref is not None:
@@ -235,11 +292,122 @@ class Suite:
         emit("done", elapsed=time.time() - self.t0)
         return True
 
+    def _scaling(self, new_ref: dict | None) -> bool:
+        """The scaling test once more with 1, 2, 4, ... cores below the cores of the suite (that run is taken
+        from the suite): speedup and parallel efficiency, and the single-core score from the 1-core time."""
+        tid, title, file, design, setup, _ = next(t for t in TESTS if t[0] == SCALING_TEST)
+        full = next((t for t in self.result["tests"] if t["id"] == tid and "total" in t), None)
+        if full is None:
+            return True
+        cores = [c for c in default_cores(self.cores) if c < self.cores]
+        src = SUITE_DIR / file
+        b = Benchmark(str(src), design, setup, self.out, [self.cores], [], [self.solver] if self.solver else [])
+        b.aborted = self.aborted
+        path = b._project(f"test_{tid}", solver=self.solver)
+        runs = []
+        for k, c in enumerate(cores, start=1):
+            folder = self.out / "runs" / f"{tid}_cores_{c}"
+            shutil.rmtree(folder, ignore_errors=True)
+            folder.mkdir(parents=True)
+            try:
+                if not b._solve(path, folder, b._env(c, 1), f"Core scaling: {title}, {c} core(s)", k, len(cores)):
+                    return False
+            except RuntimeError as ex:
+                log(f"Core scaling with {c} core(s) failed: {ex}", "warning")
+                continue
+            s = run_summary(folder, b.sweeps)
+            runs.append({"cores": c, **{key: round(s[key], 2) for key in ("total", "adaptive", "sweep")},
+                         "passes": s["passes"], "tets": s["tets"]})
+            log(f"Core scaling: {c} core(s) {s['total']:.1f} s")
+        runs.append({"cores": self.cores, **{key: round(full[key], 2) for key in ("total", "adaptive", "sweep")},
+                     "passes": full["passes"], "tets": full["tets"]})
+        one = next((r for r in runs if r["cores"] == 1), None)
+        for r in runs:
+            if one:
+                r["speedup"] = round(one["total"] / r["total"], 2)
+                r["efficiency"] = round(one["total"] / r["total"] / r["cores"], 3)
+        sc = {"test": tid, "runs": runs}
+        ref1 = (self.ref.get("single_core") or {}).get(tid)
+        if one and full.get("counted"):
+            sc["single_core_score"] = score(ref1, one["total"])
+        if new_ref is not None and one:
+            new_ref["single_core"] = {tid: one["total"]}
+        self.result["scaling"] = sc
+        self._write()
+        if one:
+            log(f"Core scaling: {self.cores} cores {one['total'] / full['total']:.1f}x faster than 1 core"
+                + (f", single-core score {sc['single_core_score']}" if sc.get("single_core_score") else ""))
+        return True
+
     def _stop(self) -> bool:
         self._write()
         ResultStore(self.out).write_json("status.json", {"state": "aborted"})
         log("Benchmark aborted", "warning")
         return False
+
+
+def summarize(result: dict) -> None:
+    """Overall score and completeness of a suite result: the geometric mean of the counted tests of the overall
+    score; complete when every one of them ran and counts. A test that does not count (memory guard, another
+    solver than asked, not converged, wrong result) is left out and marked with its reason."""
+    core = [t for t in result.get("tests", []) if t.get("id") in TEST_IDS]
+    counted = [t for t in core if t.get("score")]
+    result["counted"] = len(counted)
+    result["complete"] = len(core) == len(TEST_IDS) and len(counted) == len(TEST_IDS)
+    result["score"] = overall([t["score"] for t in counted]) if counted else None
+
+
+def too_large(tid: str, ref: dict) -> str:
+    """Why a large test cannot run here ('' when it can): its reference peak memory against the usable memory."""
+    from .bridge import usable_memory
+    if not (ref.get("times") or {}).get(tid):
+        return "no reference for this test yet"
+    need = ((ref.get("memory_mb") or {}).get(tid) or 0) * 2 ** 20 * MEMORY_MARGIN
+    try:
+        have = usable_memory()
+    except Exception:  # noqa: BLE001
+        return ""
+    if need and have and have < need:
+        return f"needs about {need / 2 ** 30:.0f} GB of memory, {have / 2 ** 30:.1f} GB usable on this computer"
+    return ""
+
+
+GUARD_TEXT = "Stopping refinement: the next pass"
+OOM_TEXT = "may end the solver for lack of memory"
+
+
+def not_counted_reason(folder: Path, s: dict, check: dict) -> str:
+    """Why a finished test does not count ('' when it does): the memory guard stopped the refinement, it did
+    not converge, the matrix solver fell back to another one (e.g. no usable GPU), or the result is wrong."""
+    warnings = [str(m.get("msg", "")) for m in _log_messages(folder)
+                if m.get("type") == "log" and m.get("level") == "warning"]
+    guard = next((w for w in warnings if w.startswith(GUARD_TEXT)), "")
+    if guard:
+        need = guard.split("would need about ", 1)[-1].split(". Reduce")[0]
+        return f"too little memory: the memory guard stopped the refinement (needs about {need})"
+    if not s.get("converged"):
+        maxt = next((w for w in warnings if w.startswith("Maximum number of tetrahedra")), "")
+        return "did not converge: " + (maxt or f"stopped after {s.get('passes')} passes")
+    if s.get("notes"):
+        return "the solver did not run as asked: " + "; ".join(s["notes"])[:300]
+    if not check.get("ok"):
+        if check.get("kind") == "rcs_ref_db" and check.get("value") is not None:
+            return f"wrong result: RCS {check['value']:+.2f} dB from the reference (limit {check['limit']} dB)"
+        if check.get("kind") == "rcs_db" and check.get("value") is not None:
+            return f"wrong result: RCS {check['value']:+.2f} dB from the Mie solution (limit {check['limit']} dB)"
+        if check.get("value") is not None:
+            return f"wrong result: |dS| {check['value']:.3f} from the reference (limit {check['limit']})"
+        return "wrong result: " + str(check.get("note", "no result"))
+    return ""
+
+
+def failure_reason(folder: Path, error: str) -> str:
+    """Why a test ended without a result: the operating system ended it (usually for lack of memory) or the
+    solver failed."""
+    warnings = [str(m.get("msg", "")) for m in _log_messages(folder) if m.get("type") == "log"]
+    if any(OOM_TEXT in w for w in warnings) or "code -9" in error or "code 137" in error or "MemoryError" in error:
+        return "too little memory: the solver ended for lack of memory"
+    return "the solver failed: " + error.split(" (see ")[0][:250]
 
 
 def site_spec() -> dict:
@@ -248,12 +416,14 @@ def site_spec() -> dict:
     to three times the reference, for other versions and solvers)."""
     ref = reference()
     tests = []
-    for tid, _title, file, *_ in TESTS:
+    for tid, _title, file, *_ in ALL_TESTS:
         tets = (ref.get("tets") or {}).get(tid) or 0
-        tests.append({"id": tid, "hashes": [file_hash(SUITE_DIR / file)], "time": (ref.get("times") or {}).get(tid),
+        tests.append({"id": tid, "large": tid in LARGE_IDS, "hashes": [file_hash(SUITE_DIR / file)],
+                      "time": (ref.get("times") or {}).get(tid),
                       "tets": [int(tets / 3), int(tets * 3)] if tets else [100, 10_000_000]})
-    return {SUITE: {"tests": tests, "titles": {t[0]: t[1] for t in TESTS},
-                    "about": {t[0]: t[5] for t in TESTS}, "reference": REFERENCE_SYSTEM}}
+    return {SUITE: {"tests": tests, "scaling_test": SCALING_TEST, "single_core": ref.get("single_core") or {},
+                    "titles": {t[0]: t[1] for t in ALL_TESTS},
+                    "about": {t[0]: t[5] for t in ALL_TESTS}, "reference": REFERENCE_SYSTEM}}
 
 
 def main() -> int:
@@ -269,6 +439,9 @@ def main() -> int:
             i = args.index(key)
             opts[key] = args[i + 1]
             del args[i:i + 2]
+    scaling = "--no-scaling" not in args
+    if not scaling:
+        args.remove("--no-scaling")
     make_ref = "--make-reference" in args
     if make_ref:
         args.remove("--make-reference")
@@ -280,7 +453,10 @@ def main() -> int:
     try:
         ResultStore(out).write_json("status.json", running_status())
         only = [x.strip() for x in opts.get("--only", "").split(",") if x.strip()]
-        ok = Suite(out, opts.get("--solver", ""), int(opts.get("--cores", 0) or 0), only, make_ref).run()
+        if opts.get("--solver") in EXCLUDED_SOLVERS:
+            print(f"{opts['--solver']} is not offered by {SUITE}: far too slow for these models", file=sys.stderr)
+            return 2
+        ok = Suite(out, opts.get("--solver", ""), int(opts.get("--cores", 0) or 0), only, make_ref, scaling).run()
         return 0 if ok else 3
     except Exception as ex:  # noqa: BLE001
         emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")

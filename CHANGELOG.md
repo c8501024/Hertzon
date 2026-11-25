@@ -17,6 +17,10 @@ the GitHub release notes.
   size, type and speed, GPU, operating system, library versions, power source, a measured memory bandwidth); no
   user or computer name, paths or projects. The site's code is in `bench-site/` (Cloudflare Pages with a D1
   database). `python -m hertzon.solver.suite OUTDIR` runs the suite without the window.
+  A test stopped by the memory guard, ended for lack of memory, solved by another solver than chosen (e.g. no
+  usable GPU) or not converged does not count: it is marked with the reason and the run is marked incomplete.
+  An optional large test (Drone RCS) runs only with enough memory and has its own score. The core scaling of the
+  hairpin filter (1, 2, 4, ... cores) gives a separate single-core score. SuperLU is not offered in the suite.
 
 ## 0.4.6 (2026-11-25)
 

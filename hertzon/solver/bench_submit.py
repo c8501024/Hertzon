@@ -11,12 +11,12 @@ import os
 import urllib.error
 import urllib.request
 
-from .suite import SCHEMA, SUITE, TEST_IDS
+from .suite import LARGE_IDS, SCHEMA, SUITE, TEST_IDS
 
 BENCH_URL = os.environ.get("HERTZON_BENCH_URL", "https://hertzon-bench.pages.dev")
 MAX_NAME = 40
 TEST_KEYS = ("id", "file_hash", "total", "start", "mesh", "adaptive", "sweep", "passes", "tets", "memory_mb",
-             "converged", "check", "score", "failed")
+             "converged", "check", "score", "counted", "reason", "skipped")
 
 
 def payload(result: dict, system: dict, name: str = "", comment: str = "") -> dict:
@@ -30,7 +30,9 @@ def payload(result: dict, system: dict, name: str = "", comment: str = "") -> di
         tests.append(row)
     return {"schema": SCHEMA, "suite": result.get("suite", SUITE), "run_id": result.get("run_id", ""),
             "measured": int(result.get("finished") or 0), "cores": result.get("cores"),
-            "solver": result.get("solver", "Auto"), "score": result.get("score"), "tests": tests,
+            "solver": result.get("solver", "Auto"), "score": result.get("score"),
+            "complete": bool(result.get("complete")), "tests": tests,
+            **({"scaling": result["scaling"]} if result.get("scaling") else {}),
             "system": system, "name": (name or "").strip()[:MAX_NAME], "comment": (comment or "").strip()[:200]}
 
 
@@ -38,11 +40,11 @@ def can_submit(result: dict) -> str:
     """'' when the result can be submitted, else why not."""
     if result.get("suite") != SUITE:
         return "This result is from another suite version."
-    ids = [t.get("id") for t in result.get("tests", [])]
+    ids = [t.get("id") for t in result.get("tests", []) if t.get("id") not in LARGE_IDS]
     if sorted(ids) != sorted(TEST_IDS):
         return "Only a run of the whole suite can be submitted."
-    if not result.get("complete"):
-        return "Not every test finished with a correct result."
+    if not result.get("score"):
+        return "No test counts, so there is no score to submit."
     return ""
 
 

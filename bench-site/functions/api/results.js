@@ -7,17 +7,20 @@ export async function onRequestGet({ request, env }) {
   const suite = url.searchParams.get("suite");
   const q = suite
     ? env.DB.prepare(`SELECT id, created, suite, hertzon, platform, arch, cpu, gpu, memory_gb, bandwidth, cores,
-        solver, score, hw_key, system_key, name, json_extract(data, '$.tests') AS tests,
+        solver, score, complete, hw_key, system_key, name, json_extract(data, '$.tests') AS tests,
         json_extract(data, '$.system.device') AS device, json_extract(data, '$.system.device_type') AS device_type,
-        json_extract(data, '$.system.os') AS os FROM results WHERE hidden = 0 AND suite = ? ORDER BY created DESC`).bind(suite)
+        json_extract(data, '$.system.os') AS os, json_extract(data, '$.scaling.single_core_score') AS single_core
+        FROM results WHERE hidden = 0 AND suite = ? ORDER BY created DESC`).bind(suite)
     : env.DB.prepare(`SELECT id, created, suite, hertzon, platform, arch, cpu, gpu, memory_gb, bandwidth, cores,
-        solver, score, hw_key, system_key, name, json_extract(data, '$.tests') AS tests,
+        solver, score, complete, hw_key, system_key, name, json_extract(data, '$.tests') AS tests,
         json_extract(data, '$.system.device') AS device, json_extract(data, '$.system.device_type') AS device_type,
-        json_extract(data, '$.system.os') AS os FROM results WHERE hidden = 0 ORDER BY created DESC`);
+        json_extract(data, '$.system.os') AS os, json_extract(data, '$.scaling.single_core_score') AS single_core
+        FROM results WHERE hidden = 0 ORDER BY created DESC`);
   const { results } = await q.all();
   for (const r of results) {
     // per test only the id and score: enough for the ranking per test
-    try { r.tests = JSON.parse(r.tests).map((t) => ({ id: t.id, score: t.score, total: t.total })); } catch { r.tests = []; }
+    try { r.tests = JSON.parse(r.tests).map((t) => ({ id: t.id, score: t.score, total: t.total,
+      ...(t.counted === false ? { reason: t.reason } : {}), ...(t.skipped ? { skipped: t.skipped } : {}) })); } catch { r.tests = []; }
   }
   return json({ results }, 200, { "Cache-Control": "public, max-age=60" });
 }

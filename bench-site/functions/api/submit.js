@@ -36,11 +36,11 @@ export async function onRequestPost({ request, env }) {
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO results (id, created, run_id, suite, hertzon, platform, arch, cpu, gpu, memory_gb, bandwidth,
-        cores, solver, score, hw_key, system_key, name, data, delete_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        cores, solver, score, complete, hw_key, system_key, name, data, delete_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(id, now, d.run_id, d.suite, v.version, sys.platform, String(sys.arch || "").slice(0, 20),
       String(sys.cpu).slice(0, 120), gpu, sys.memory_gb || null, sys.memory_bandwidth_gbs || null,
-      d.cores, String(d.solver || "Auto").slice(0, 40), v.score, hwKey, systemKey, d.name,
+      d.cores, String(d.solver || "Auto").slice(0, 40), v.score, v.complete ? 1 : 0, hwKey, systemKey, d.name,
       JSON.stringify(d), await sha256(deleteKey)),
     env.DB.prepare("INSERT INTO rate (ip_hash, ts) VALUES (?, ?)").bind(ipHash, now),
   ]);

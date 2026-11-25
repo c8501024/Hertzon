@@ -171,6 +171,18 @@ def solver_recommendation(result: dict) -> tuple[str, str | None]:
     return "<br>".join(lines), best["solver"]
 
 
+def scaling_text(sc: dict | None) -> str:
+    """The core scaling of a suite result as one line below the score."""
+    if not sc or not sc.get("runs"):
+        return ""
+    runs = sorted(sc["runs"], key=lambda r: r["cores"])
+    parts = [f"{r['cores']}: {r['total']:.0f} s" + (f" ({r['speedup']:.1f}x)" if r.get("speedup") and r["cores"] > 1 else "")
+             for r in runs]
+    title = dict((t[0], t[1]) for t in suite.TESTS).get(sc.get("test"), sc.get("test"))
+    return (f"<br>Core scaling ({title}): " + ", ".join(parts)
+            + (f"; <b>single-core score {sc['single_core_score']}</b>" if sc.get("single_core_score") else ""))
+
+
 class BenchmarkDialog(QDialog):
     def __init__(self, win):
         super().__init__(win)
@@ -211,7 +223,10 @@ class BenchmarkDialog(QDialog):
         pl = QVBoxLayout(page)
         hint = QLabel(f"<b>{suite.SUITE}</b>: {len(suite.TESTS)} fixed models ("
                       + ", ".join(t[1] for t in suite.TESTS) + "), each solved once with all cores and "
-                      "checked against a reference. Score per test = reference time / your time x 1000 "
+                      "checked against a reference, plus a large test (Drone RCS) when there is enough memory for "
+                      "it; it has its own score. A test counts only when it converged with the asked solver and "
+                      "a correct result: a stop by the memory guard or a fallback to another solver is marked "
+                      "with its reason and left out of the score. Score per test = reference time / your time x 1000 "
                       f"(reference: {suite.REFERENCE_SYSTEM}); the overall score is their geometric mean. "
                       "Takes about 5 to 15 minutes and up to 9 GB of memory (16 GB recommended). Close other programs meanwhile. "
                       "Submit the result to compare it with other computers and Hertzon versions.")
@@ -219,9 +234,19 @@ class BenchmarkDialog(QDialog):
         pl.addWidget(hint)
         f = QFormLayout()
         self.suite_solver = QComboBox()
-        self.suite_solver.addItems(["Auto"] + COMPARE)
+        self.suite_solver.addItems(["Auto"] + [n for n in COMPARE if n not in suite.EXCLUDED_SOLVERS])
+        for i in range(self.suite_solver.count()):          # greyed out with the reason when it cannot run here
+            why = solver_choice.unavailable(self.suite_solver.itemText(i))
+            if why:
+                item = self.suite_solver.model().item(i)
+                item.setEnabled(False)
+                item.setToolTip(why)
         self.suite_solver.setToolTip("Matrix solver of every test; Auto chooses per problem")
         f.addRow("Matrix solver:", self.suite_solver)
+        self.suite_scaling = QCheckBox(f"Also measure the core scaling (the {dict((t[0], t[1]) for t in suite.TESTS)[suite.SCALING_TEST].lower()} "
+                                       "with 1, 2, 4, ... cores; gives the single-core score; a few minutes more)")
+        self.suite_scaling.setChecked(True)
+        f.addRow("", self.suite_scaling)
         pl.addLayout(f)
         self.suite_score = QLabel("")
         self.suite_score.setTextFormat(Qt.RichText)
@@ -441,30 +466,38 @@ class BenchmarkDialog(QDialog):
 
     def show_suite(self) -> None:
         res = self.suite_result
-        titles = {t[0]: t[1] for t in suite.TESTS}
+        titles = {t[0]: t[1] for t in suite.ALL_TESTS}
         rows = []
         for t in res.get("tests", []):
             chk = t.get("check") or {}
-            if t.get("failed"):
-                ctext = "failed"
-            elif chk.get("value") is None:
+            name = titles.get(t["id"], t["id"])
+            if t.get("skipped"):
+                rows.append(([name] + [""] * 7 + [f"not run: {t['skipped']}", ""], True))
+                continue
+            if "total" not in t:                       # ended without a result
+                rows.append(([name] + [""] * 7 + [f"NOT COUNTED: {t.get('reason', 'failed')}", ""], True))
+                continue
+            if chk.get("value") is None:
                 ctext = "ok" if chk.get("ok") else chk.get("note", "failed")
             elif chk.get("kind") == "rcs_db":
                 ctext = f"{'ok' if chk['ok'] else 'WRONG'}: {chk['value']:+.2f} dB vs. Mie"
+            elif chk.get("kind") == "rcs_ref_db":
+                ctext = f"{'ok' if chk['ok'] else 'WRONG'}: {chk['value']:+.2f} dB vs. reference"
             else:
                 ctext = f"{'ok' if chk['ok'] else 'WRONG'}: |dS| {chk['value']:.1e}"
-            if t.get("failed"):
-                rows.append([titles.get(t["id"], t["id"])] + [""] * 7 + [ctext, ""])
-                continue
-            rows.append([titles.get(t["id"], t["id"]), f"{t['total']:.1f}", f"{t['mesh']:.1f}",
-                         f"{t['adaptive']:.1f}", f"{t['sweep']:.1f}", str(t["passes"]), str(t["tets"]),
-                         f"{t['memory_mb'] / 1024:.1f}", ctext, str(t.get("score") or "")])
+            bad = t.get("counted") is False
+            if bad:
+                ctext = f"NOT COUNTED: {t.get('reason', '')}"
+            score = str(t.get("score") or "") + (" (not in overall)" if t["id"] in suite.LARGE_IDS and t.get("score") else "")
+            rows.append(([name, f"{t['total']:.1f}", f"{t['mesh']:.1f}", f"{t['adaptive']:.1f}", f"{t['sweep']:.1f}",
+                          str(t["passes"]), str(t["tets"]), f"{t['memory_mb'] / 1024:.1f}", ctext, score], bad))
         self.suite_table.setRowCount(len(rows))
-        for i, row in enumerate(rows):
+        for i, (row, bad) in enumerate(rows):
             for c, v in enumerate(row):
                 it = QTableWidgetItem(v)
-                if c == 8 and ("WRONG" in v or v == "failed"):
-                    it.setForeground(Qt.red)
+                if c == 8 and (bad or "WRONG" in v):
+                    it.setForeground(Qt.red if bad or "WRONG" in v else Qt.gray)
+                    it.setToolTip(v)
                 self.suite_table.setItem(i, c, it)
         self.suite_table.resizeColumnsToContents()
         if res.get("score"):
@@ -473,6 +506,10 @@ class BenchmarkDialog(QDialog):
             self.suite_score.setText(f"<span style='font-size:20pt'><b>{res['score']}</b></span>&nbsp;&nbsp;"
                                      f"{res.get('suite', '')} score, {res.get('cores')} cores, solver "
                                      f"{res.get('solver')}, measured {when}"
+                                     + ("" if res.get("complete") else
+                                        f" &nbsp;<span style='color:#c0392b'>incomplete: {res.get('counted', 0)} of "
+                                        f"{len(suite.TEST_IDS)} tests count (see Result check)</span>")
+                                     + scaling_text(res.get("scaling"))
                                      + (" &nbsp;<i>(submitted)</i>" if (self.suite_folder() / "submitted.json").exists()
                                         and json.loads((self.suite_folder() / "submitted.json").read_text(
                                             encoding="utf-8")).get("run_id") == res.get("run_id") else ""))
@@ -722,6 +759,8 @@ class BenchmarkDialog(QDialog):
         sv = self.suite_solver.currentText()
         if sv != "Auto":
             args += ["--solver", sv]
+        if not self.suite_scaling.isChecked():
+            args.append("--no-scaling")
         p = self._process()
         self.suite_result = {}
         self.show_suite()

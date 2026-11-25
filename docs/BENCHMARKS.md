@@ -23,6 +23,22 @@ The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench*, a fixed suit
 Every result is checked: the S-parameters against the reference run (largest |ΔS| at most 0.05), the RCS of the
 sphere against the exact Mie solution (at most 0.5 dB). A test with a wrong result gets no score. The score of a
 test is the reference time divided by your time, times 1000; the overall score is the geometric mean of the six.
+A test counts only when it converged with the matrix solver that was asked for and its result is correct. When
+the memory guard stopped its refinement, the operating system ended the solver for lack of memory, the solver fell
+back to another one (e.g. no usable GPU for SPARTA) or it did not converge, the test is left out of the score and
+marked with the reason; the overall score is then the geometric mean of the tests that count, and the run is
+marked incomplete (the site lists complete runs unless asked otherwise). SuperLU is not offered: it is far too
+slow for these models.
+
+**Large test.** *Drone RCS* (the imported surface of a delta-wing drone, PEC, monostatic RCS) needs much more
+memory. It runs only when the computer has enough usable memory for it, else it is listed as not run with the
+reason, and it has its own score outside the overall score, so that the overall score stays comparable for
+computers with 16 GB.
+
+**Core scaling.** Optionally (on by default) the hairpin filter is solved again with 1, 2, 4, ... cores: speedup
+and parallel efficiency, and the *single-core score* from the 1-core time (reference 207 s), which the site ranks
+separately, like single- and multi-core scores of other benchmarks.
+
 The reference computer (score 1000) is a 4-core cloud server (Intel Xeon 2.1 GHz, 16 GB, Linux) with Hertzon
 0.4.6. The suite takes about 5 to 15 minutes and up to 9 GB of memory (16 GB recommended).
 
