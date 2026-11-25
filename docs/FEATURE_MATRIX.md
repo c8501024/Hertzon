@@ -113,6 +113,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Fast (ALPS) | ✔ (one centre factorization, LDLᵀ, reduced basis with residual control per point) |
 | Linear Step / Linear Count / Log Scale / Single Points | ✔ |
 | Save fields (all frequencies) | ✔ Discrete and Fast: field plots, far fields, gain patterns and antenna parameters at every sweep frequency; Interpolating stores S-parameters only |
+| Save far fields (all frequencies) | ✔ Discrete and Fast: only the far field data at every sweep frequency (radiation patterns, gain, antenna parameters), without the volume fields; included in Save fields |
 
 ## Circuit designs
 
@@ -155,7 +156,7 @@ Details in [CIRCUIT.md](CIRCUIT.md).
 | Optimization > Apply to Design | ✔ takes the applied evaluation over as the setup's solution without solving again (S-parameters, reports, passes, Derivative Tuning); the best evaluation also keeps mesh and fields at the adaptive frequency |
 | Parametric sweep | ✔ Optimization > Add Parametric; solved variations can be shown again without solving |
 | Derivative tuning: sliders for design variables, S-parameters follow live (morphed mesh, matrix derivatives, reduced model) | ✔ Results > Tuning; plane faces may change shape, curved faces may move, ports stay ([TUNING.md](TUNING.md)) |
-| Tuned radiation patterns (2D, 3D) and antenna parameters in the reports | ✔ needs fields on the far field surface (Save fields over a sweep) |
+| Tuned radiation patterns (2D, 3D) and antenna parameters in the reports | ✔ needs fields on the far field surface (Save fields or Save far fields over a sweep) |
 | Plot against a tuned variable (X axis) in rectangular plots, tables and antenna parameter reports | ✔ |
 | Design Wizard: Tools > Design Wizard (catalogue of structures as cards; specification with live synthesis; circuit, 3D design with the same variables and a multi-fidelity optimization; quarter-wave transformer, stub matching, branchline and coupled-line coupler, Wilkinson and T-junction divider, stepped-impedance lowpass, shorted-stub and edge-coupled bandpass open-stub bandstop, dipole, monopole and printed IFA so far) | ✔ |
 | Filter design toolkit: Tools > Design Wizard > Hairpin bandpass (N = 2 to 9 resonators, design frequency, hfsynpy microstrip synthesis, parametrized geometry, setup, sweep and conjugate gradient optimization on the filter mask; the filter as a circuit and a space mapping optimization with it as the fast model) | ✔ |

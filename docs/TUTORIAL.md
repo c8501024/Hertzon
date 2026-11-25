@@ -364,8 +364,9 @@ Results are the input impedance (about 73 Ω at resonance), S11, the radiation p
 3. **Add Frequency Sweep...**: **Interpolating**, Linear Count, `0.7GHz` to `1.3GHz`, Count `121`.
    This is enough for S-parameters and impedance over frequency.
 4. For gain, patterns and antenna parameters **over frequency**, add a second sweep: **Fast**, Linear
-   Count, `0.7GHz` to `1.3GHz`, Count `7`, with **Save fields (all frequencies)**. Far fields are computed
-   from the stored fields, so only a Discrete or Fast sweep with Save fields has them at every frequency;
+   Count, `0.7GHz` to `1.3GHz`, Count `7`, with **Save far fields (all frequencies)**. Far fields are
+   computed from the fields stored on the radiation boundary, so only a Discrete or Fast sweep with Save far
+   fields (or Save fields, which also keeps the volume fields for field plots) has them at every frequency;
    an Interpolating sweep has S-parameters only, and the far field reports then offer LastAdaptive.
 5. **Validation Check**, **Analyze All**.
 

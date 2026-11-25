@@ -275,11 +275,11 @@ class Optimizer:
             # taken over by Apply to Design. Only the goal sweep is solved (HERTZON_GOAL_SWEEP, _env). Goals on
             # the setup alone (LastAdaptive): all sweeps off, the open region is the one of the setup.
             # Goals on antenna parameters over a sweep need the fields of that sweep (huygens_<sweep>.npz,
-            # check_antenna_goals): the goal sweep keeps Save fields on; finish() reads the antenna data
+            # check_antenna_goals): the goal sweep keeps Save fields / Save far fields on; finish() reads the antenna data
             # before cleanup() removes the fields of the evaluations that are not the best.
             for sw in st.sweeps:
                 if not (self.antenna_goals and sw.name == self.sol):
-                    sw.props["SaveFields"] = "False"
+                    sw.props["SaveFields"] = sw.props["SaveFarFields"] = "False"
                 if self.sol == "LastAdaptive":
                     # goals on the setup alone: no sweep is solved, so none sizes the open region either
                     sw.props["Enabled"] = "False"

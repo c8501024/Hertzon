@@ -2825,7 +2825,10 @@ TOOLS = [
          "Fast), Distribution with its own property: 'Linear Count' + Count (number of points incl. Start and "
          "Stop), 'Linear Step' + Step (default 0.1GHz), 'Log Scale' + SamplesPerDecade, 'Single Points' + Points "
          "('2.4GHz;2.45GHz'); Start, Stop ('2.4GHz'). Count/Step/SamplesPerDecade/Points without Distribution "
-         "select it. The result lists the number of frequencies and warns when a range gives only one.",
+         "select it. SaveFarFields 'True' (Discrete/Fast): far field data at every frequency (patterns, gain, "
+         "efficiency over frequency) without the volume fields; SaveFields 'True' stores the volume fields too. "
+         "An Interpolating sweep has S-parameters only. The result lists the number of frequencies and warns "
+         "when a range gives only one.",
          _schema({"setup": {"type": "string"}, "name": {"type": "string"}, "props": OBJ}), t_set_sweep),
     Tool("set_far_field_sphere", "Create or change an infinite sphere for far fields (gain, RCS).",
          _schema({"name": {"type": "string"}, "props": OBJ}), t_set_far_field_sphere),

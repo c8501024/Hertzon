@@ -184,6 +184,9 @@ HELP: dict[str, str] = {
     "SaveFields": "Store fields for field plots (needs disk space). In a sweep (Discrete or Fast): the fields at "
                   "every frequency, needed for far fields, gain patterns and antenna parameters over frequency; "
                   "an Interpolating sweep has S-parameters only.",
+    "SaveFarFields": "Sweep (Discrete or Fast): store only the far field data at every frequency (fields on the "
+                     "radiation boundary and losses) for radiation patterns, gain and antenna parameters over "
+                     "frequency, without the disk space of the volume fields. 'Save fields' includes it.",
     "Threads": "Number of CPU cores used by the solver (0 = all).",
     "MinimumFrequency": "Lowest eigenfrequency to search for.",
     "MaximumDeltaFreq": "Convergence target: maximum relative change of the eigenfrequencies (%).",

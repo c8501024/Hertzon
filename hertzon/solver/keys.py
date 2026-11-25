@@ -113,4 +113,6 @@ def setup_key(setup) -> str:
     for sw in d.get("sweeps", []):
         if "Enabled" in sw.get("props", {}):
             sw["props"]["Enabled"] = "True"    # enabling / disabling a sweep keeps the solution valid
+        if sw.get("props", {}).get("SaveFarFields", "False") == "False":
+            sw["props"].pop("SaveFarFields", None)   # off is the state of sweeps saved before the option existed
     return hashlib.sha1(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()

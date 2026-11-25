@@ -976,7 +976,7 @@ class ReportWindow(QWidget):
             miss = sweeps_without_fields(doc)
             if miss:
                 hint = QLabel(f"Not in the list (no fields saved): {', '.join(miss)}. Far fields over frequency "
-                              "need a Discrete or Fast sweep with 'Save fields (all frequencies)'.")
+                              "need a Discrete or Fast sweep with 'Save far fields (all frequencies)'.")
                 hint.setWordWrap(True)
                 hint.setStyleSheet("color:#7a6a00")
                 ll.addWidget(hint)
