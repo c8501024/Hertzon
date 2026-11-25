@@ -1,0 +1,328 @@
+{
+ "name": "PatchAntenna",
+ "designs": [
+  {
+   "name": "Patch245",
+   "units": "mm",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Auto Open",
+    "AutoOpenBoundary": "Radiation",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "RadiatingStructure": "True"
+   },
+   "variables": {
+    "h": "0.1mm",
+    "Wp": "37.3mm",
+    "Lp": "28.5mm",
+    "Ws": "60mm",
+    "Ls": "60mm",
+    "wf": "3mm",
+    "inset": "8mm",
+    "gap": "1mm"
+   },
+   "objects": [
+    {
+     "name": "Substrate",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-Ws/2,-Ls/2,0",
+        "XSize": "Ws",
+        "YSize": "Ls",
+        "ZSize": "h"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "FR4_epoxy",
+     "solve_inside": true,
+     "model": true,
+     "color": "#3f8f4f",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Ground",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-Ws/2,-Ls/2,0",
+        "Axis": "Z",
+        "XSize": "Ws",
+        "YSize": "Ls"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#ffaa00",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Patch",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-Wp/2,-Lp/2,h",
+        "Axis": "Z",
+        "XSize": "Wp",
+        "YSize": "Lp"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Notch",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Feed",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#ffaa7f",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Notch",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-wf/2-gap,-Lp/2,h",
+        "Axis": "Z",
+        "XSize": "wf+2*gap",
+        "YSize": "inset"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Patch",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-wf/2,-Ls/2,h",
+        "Axis": "Z",
+        "XSize": "wf",
+        "YSize": "Ls/2-Lp/2+inset"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Patch",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "PortSheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-wf/2,-Ls/2,0",
+        "Axis": "Y",
+        "ZSize": "h",
+        "XSize": "wf"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [
+    {
+     "name": "PerfE_Ground",
+     "kind": "Perfect E",
+     "props": {
+      "InfGroundPlane": "False"
+     },
+     "faces": [],
+     "objects": [
+      "Ground"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "PerfE_Patch",
+     "kind": "Perfect E",
+     "props": {
+      "InfGroundPlane": "False"
+     },
+     "faces": [],
+     "objects": [
+      "Patch"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "excitations": [
+    {
+     "name": "1",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "1",
+      "Impedance": "50ohm",
+      "IntegrationLine": "0,-Ls/2,0;0,-Ls/2,h"
+     },
+     "faces": [],
+     "objects": [
+      "PortSheet"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "2.45GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "MaximumPasses": "50",
+      "MaximumDeltaS": "0.01",
+      "MaximumDeltaEnergy": "0.1",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "2",
+      "BasisOrder": "Second Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "2",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "False",
+      "Threads": "0",
+      "HybridRemeshPasses": "4",
+      "HybridBlockPasses": "2",
+      "CurveMeshing": "Precise (slow)",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Interpolating",
+        "Distribution": "Linear Step",
+        "Start": "1.225GHz",
+        "Stop": "3.675GHz",
+        "Step": "0.0245GHz",
+        "Count": "101",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [
+    {
+     "name": "Infinite Sphere1",
+     "props": {
+      "CoordinateSystem": "Global",
+      "PhiStart": "0deg",
+      "PhiStop": "360deg",
+      "PhiStep": "10deg",
+      "ThetaStart": "0deg",
+      "ThetaStop": "180deg",
+      "ThetaStep": "10deg"
+     }
+    }
+   ],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": ""
+  }
+ ],
+ "variables": {},
+ "materials": [],
+ "format": "hertzon-project",
+ "version": 2
+}

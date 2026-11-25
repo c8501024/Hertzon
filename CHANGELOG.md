@@ -3,6 +3,21 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Added
+- **Hertzon Bench: one score for your computer, and a public site to compare it** (Diupth, #564). Tools > Solver
+  Benchmark has a new first tab that solves a fixed suite of six models (microstrip, hairpin filter, patch antenna,
+  patch on 0.1 mm, waveguide post, sphere RCS) with all cores, checks every result against a reference (the
+  S-parameters, the exact Mie solution for the sphere) and gives a score per test and an overall score (geometric
+  mean; 1000 = the reference computer). **Submit Results** shows exactly what would be sent, asks for consent and
+  sends it with one click to the comparison site, which ranks results by system, operating system, architecture,
+  solver and Hertzon version and shows per version how the same hardware changed. Sent are the times, checks and
+  scores and a description of the computer on Windows, macOS and Linux (device model, CPU, cores, clock, memory
+  size, type and speed, GPU, operating system, library versions, power source, a measured memory bandwidth); no
+  user or computer name, paths or projects. The site's code is in `bench-site/` (Cloudflare Pages with a D1
+  database). `python -m hertzon.solver.suite OUTDIR` runs the suite without the window.
+
 ## 0.4.6 (2026-11-25)
 
 ### Added

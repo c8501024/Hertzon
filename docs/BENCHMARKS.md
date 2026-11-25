@@ -6,6 +6,38 @@ in [`examples/benchmark/scaling`](../examples/benchmark/scaling), the raw result
 [`examples/benchmark/scaling/results`](../examples/benchmark/scaling/results). Run the same benchmark on your
 own computer to find the best number of cores and sweep processes for it.
 
+## Hertzon Bench
+
+The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench*, a fixed suite of six models in
+[`examples/benchmark/suite`](../examples/benchmark/suite), each solved once with all cores:
+
+| Test | What it measures |
+|---|---|
+| Microstrip line | Two lumped ports, first order, 1–6 GHz sweep: start-up and small matrices |
+| Hairpin filter | Three resonators on 0.508 mm, second order, interpolating sweep |
+| Patch antenna | Radiation boundary, far field, broadband 1.2–3.7 GHz sweep |
+| Patch on 0.1 mm | Very thin substrate: the mesh of thin layers |
+| Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
+| Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere |
+
+Every result is checked: the S-parameters against the reference run (largest |ΔS| at most 0.05), the RCS of the
+sphere against the exact Mie solution (at most 0.5 dB). A test with a wrong result gets no score. The score of a
+test is the reference time divided by your time, times 1000; the overall score is the geometric mean of the six.
+The reference computer (score 1000) is a 4-core cloud server (Intel Xeon 2.1 GHz, 16 GB, Linux) with Hertzon
+0.4.6. The suite takes about 5 to 15 minutes and up to 9 GB of memory (16 GB recommended).
+
+**Submit Results** sends the result to the comparison site, [hertzon-bench.pages.dev](https://hertzon-bench.pages.dev), after showing exactly what is sent and asking for
+consent: the times, passes, tetrahedra, memory, checks and scores, and the description of the computer (device
+model, CPU, cores, clock, memory size, type and speed, GPU, operating system, Python, NumPy, SciPy, BLAS and
+EMerge versions, power source, whether it is a virtual machine, and the memory bandwidth Hertzon measures by
+copying a 256 MB array). Not sent: user or computer name, serial numbers, network addresses, paths, projects. The
+site ranks the results by system (the median of repeated runs), filters by operating system, architecture,
+device, solver and Hertzon version, and shows for each version how the same hardware changed against the
+version before. Each submission gets a delete key to remove it again.
+
+Without the window: `python -m hertzon.solver.suite OUTDIR [--solver NAME] [--cores N]`.
+The site itself is in [`bench-site`](../bench-site) (Cloudflare Pages with a D1 database).
+
 ## Computer
 
 | | |

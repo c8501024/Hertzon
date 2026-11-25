@@ -53,7 +53,8 @@ def default_cores(n: int | None = None) -> list[int]:
 
 
 def machine() -> dict:
-    info = {"cpu": platform.processor() or platform.machine(), "logical_cores": os.cpu_count() or 1,
+    from .sysinfo import cpu_name
+    info = {"cpu": cpu_name() or platform.processor() or platform.machine(), "logical_cores": os.cpu_count() or 1,
             "system": f"{platform.system()} {platform.release()}", "python": platform.python_version()}
     try:
         import psutil
