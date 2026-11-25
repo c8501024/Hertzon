@@ -3,7 +3,15 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.4.6 (2026-11-25)
+
+### Added
+- **Sweep option "Save far fields"** for Discrete and Fast sweeps. A sweep can store only the far field data (the
+  fields on the radiation boundary and the losses) at every frequency, without the volume fields of "Save fields",
+  so radiation patterns, gain and antenna parameters over frequency need far less disk space. The window and the
+  command line run (`SaveFarFields`, also over MCP) use the same code. The solver log says when a sweep of a design
+  with a far field setup stores no far field data and which option turns it on. Off by default; stored solutions
+  stay valid.
 
 ### Changed
 - **Solved frequencies of an interpolating sweep marked in the plot.** A rectangular report over frequency marks
