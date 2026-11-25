@@ -94,3 +94,41 @@ def test_interpolating_sweep_lists_its_sampled_frequencies():
     txt = solved_frequencies_text("Sweep", [3e9, 1e9, 2.5e9])
     assert txt == "Sweep 'Sweep': 3 adaptively sampled frequencies (GHz): 1, 2.5, 3"
     assert "1 adaptively sampled frequency " in solved_frequencies_text("S", [1e9])
+
+
+def test_solution_data_keeps_the_chosen_view_when_a_new_pass_arrives(tmp_path):
+    """A running solve reloads the window after every pass: Solution, Frequency / Pass, Matrix and Format stay
+    what the user chose (Adaptive Passes, Zo) instead of going back to LastAdaptive and S."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QComboBox, QTableWidget
+    from hertzon.gui.doc import Document
+    from hertzon.gui.panels import SolutionDataDialog
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    p = _project(tmp_path)
+    st = _solution(p)
+    dlg = SolutionDataDialog(Document(p), "Setup1")
+    dlg.tabs.setCurrentIndex(2)
+
+    def matrix():
+        tab = dlg.tabs.widget(2)
+        return tab.findChildren(QComboBox)[:4], tab.findChildren(QTableWidget)[0]
+    (sol, fsel, kind, fmt), _ = matrix()
+    sol.setCurrentText("Adaptive Passes")
+    kind.setCurrentText("Zo")
+    fmt.setCurrentText("Real/Imag")
+    fsel.setCurrentIndex(0)
+    # the next pass of the running solve
+    conv = st.read_json("convergence.json")
+    conv["passes"].append(dict(conv["passes"][-1], **{"pass": 3, "zo": [[[50.1, 0.0], [377.0, 0.0]]]}))
+    st.write_json("convergence.json", conv)
+    dlg.reload()
+    (sol, fsel, kind, fmt), table = matrix()
+    assert dlg.tabs.currentIndex() == 2
+    assert (sol.currentText(), fsel.currentText(), kind.currentText(), fmt.currentText()) == \
+        ("Adaptive Passes", "All Passes", "Zo", "Real/Imag")
+    assert [table.item(r, 1).text() for r in range(table.rowCount())] == ["47 + j0", "50.3 + j0", "50.1 + j0"]
+    # another simulation setup opens on its defaults
+    dlg._load("Setup1")
+    (sol, _, kind, _), _ = matrix()
+    assert (sol.currentText(), kind.currentText()) == ("LastAdaptive", "S")
+    dlg.close()

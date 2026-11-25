@@ -425,6 +425,11 @@ SWEEP: list[Prop] = [
     P("SaveFields", "bool", "False", label="Save fields (all frequencies)", visible_if=("SweepType", "!Interpolating"),
       help="Store the fields at every sweep frequency: field plots, far fields, gain patterns and antenna "
            "parameters over frequency (needs disk space). Discrete and Fast sweeps"),
+    P("SaveFarFields", "bool", "False", label="Save far fields (all frequencies)",
+      visible_if=("SweepType", "!Interpolating"),
+      help="Store only what far fields need at every sweep frequency (the fields on the radiation boundary and "
+           "the losses): radiation patterns, gain and antenna parameters over frequency, without the disk space "
+           "of the volume fields. Included in 'Save fields (all frequencies)'. Discrete and Fast sweeps"),
     P("ErrorTolerance", "float", "0.5", label="Error tolerance (%)", visible_if=("SweepType", "!Discrete")),
     P("MaxSolutions", "int", "250", label="Max solutions", visible_if=("SweepType", "!Discrete")),
     P("Parallel", "bool", "False", label="Solve frequencies in parallel"),
@@ -688,3 +693,11 @@ def is_visible(prop: Prop, values: dict[str, str]) -> bool:
     if want.startswith("!"):
         return have != want[1:]
     return have == want
+
+
+def sweep_saves_far_fields(props: dict) -> bool:
+    """A sweep that stores its far field data at every frequency (SaveFields includes SaveFarFields);
+    an interpolating sweep has S-parameters only."""
+    if props.get("SweepType", "Interpolating") == "Interpolating":
+        return False
+    return any(str(props.get(k, "False")).lower() in ("true", "1", "yes") for k in ("SaveFields", "SaveFarFields"))

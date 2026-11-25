@@ -976,7 +976,7 @@ class ReportWindow(QWidget):
             miss = sweeps_without_fields(doc)
             if miss:
                 hint = QLabel(f"Not in the list (no fields saved): {', '.join(miss)}. Far fields over frequency "
-                              "need a Discrete or Fast sweep with 'Save fields (all frequencies)'.")
+                              "need a Discrete or Fast sweep with 'Save far fields (all frequencies)'.")
                 hint.setWordWrap(True)
                 hint.setStyleSheet("color:#7a6a00")
                 ll.addWidget(hint)
@@ -1830,9 +1830,10 @@ class ReportWindow(QWidget):
             form.addRow(label + ":", e)
             edits[key] = e
         checks = {}
-        for key, label in (("xlog", "Logarithmic X"), ("ylog", "Logarithmic Y"), ("legend", "Show legend")):
+        for key, label in (("xlog", "Logarithmic X"), ("ylog", "Logarithmic Y"), ("legend", "Show legend"),
+                           ("solved_points", "Mark the solved frequencies of interpolating sweeps")):
             c = QCheckBox(label)
-            c.setChecked(p.get(key, "True" if key == "legend" else "False") == "True")
+            c.setChecked(p.get(key, "True" if key in ("legend", "solved_points") else "False") == "True")
             form.addRow(c)
             checks[key] = c
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -2124,6 +2125,29 @@ class ReportWindow(QWidget):
         v = eval_expr(data, expr, self._outvars())
         return xs, (np.abs(v) if np.iscomplexobj(v) else v.astype(float))
 
+    def _solved_x(self, tr: str, root=None):
+        """x values of the frequencies an interpolating sweep solved directly (its support points), when the
+        trace is drawn over frequency from such a sweep; else None."""
+        from .tuning import TUNED
+        if root == TUNED or self.report.kind in ("Near Field Line", "Radiation Pattern") \
+                or self.report.kind.startswith("Monostatic RCS"):
+            return None
+        try:
+            expr, sol = split_trace(tr)
+            from .calc_bridge import field_names_in
+            if field_names_in(self.doc.design, expr):
+                return None
+            data = self._sol_data(sol, root)
+        except Exception:  # noqa: BLE001
+            return None
+        if data.get("xaxis") in ("Pass", "Variable") or data.get("solved") is None:
+            return None
+        f, sf = np.asarray(data["freq"], float), np.asarray(data["solved"], float)
+        if len(sf) == 0 or len(sf) >= len(f):
+            return None                     # every point solved (discrete sweep, single frequency)
+        _, _, scale = x_axis(data)
+        return np.sort(sf) * scale
+
     def _field_trace(self, expr: str, sol: str | None, root=None):
         """A trace with values of the Fields Calculator: each named value at every frequency with saved
         fields (S, Y, Z of the trace are taken at those frequencies)."""
@@ -2393,6 +2417,11 @@ class ReportWindow(QWidget):
             if tuned and root is None:
                 kw["alpha"] = 0.55
             line, = target.plot(xs, y, marker=mk, **kw)
+            sx = self._solved_x(tr, root) if p.get("solved_points", "True") == "True" else None
+            if sx is not None:      # the frequencies an interpolating sweep solved: open circles on its curve
+                target.plot(sx, np.interp(sx, xs, y), linestyle="none", marker="o", markersize=4,
+                            markerfacecolor="none", markeredgewidth=1.0, color=line.get_color(),
+                            alpha=kw.get("alpha", 1.0), label="_nolegend_")
             colors.setdefault(tr, line.get_color())
             curves.append((tr + suffix, xs, y, target, line.get_color()))
         self._draw_markers(ax, curves, unit, xlabel)

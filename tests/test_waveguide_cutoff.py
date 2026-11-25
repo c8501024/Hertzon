@@ -148,3 +148,43 @@ def test_cutoff_rows_are_the_rows_of_the_modes():
     pm = [{"number": 1, "kind": "Wave Port", "modes": 2}, {"number": 2, "kind": "Wave Port", "modes": 2}]
     assert B.cutoff_rows(["wave port 1 mode 2", "wave port 2 mode 2"], pm) == {1, 3}
     assert B.cutoff_rows(["wave port 2"], [{"number": 1, "modes": 1}, {"number": 2, "modes": 1}]) == {1}
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_interpolating_sweep_lists_each_solve_when_it_starts(tmp_path, capfd, monkeypatch, parallel):
+    """The Message Manager lists the frequencies of an interpolating sweep as they are solved, in the order they
+    are solved (not ascending): one line per frequency, frequencies solved at the same time (Parallel) on one
+    line. Every sampled frequency is in those lines."""
+    import json
+    monkeypatch.setenv("HERTZON_CORES", "4")
+    monkeypatch.setenv("HERTZON_HYBRID_SWEEP", "0")       # every check point a direct solve
+    p, d, st = _guide("10GHz", dict(SweepType="Interpolating", Distribution="Linear Count", Start="8GHz",
+                                    Stop="12GHz", Count="41", Parallel=str(parallel)))
+    B.Bridge(p, d, st, tmp_path).run()
+    msgs = [json.loads(ln[len(B.TAG):]).get("msg", "") for ln in capfd.readouterr().out.splitlines()
+            if ln.startswith(B.TAG)]
+    lines = [m for m in msgs if m.startswith("Sweep 'Sweep': solving ")]
+    groups = [[float(x) for x in re.match(r"Sweep 'Sweep': solving (.*) GHz", m).group(1).split(", ")]
+              for m in lines]
+    order = [f for g in groups for f in g]
+    summary = next(m for m in msgs if "adaptively sampled" in m)
+    sampled = [float(x) for x in summary.split("(GHz): ")[1].split(", ")]
+    assert sorted(order) == sampled                         # each sampled frequency once, as it was solved
+    assert order != sorted(order)                           # check points between the start points come later
+    n = 8 if parallel else 7                                # start points (in batches of 2 with Parallel)
+    assert order[:n] == pytest.approx(list(np.linspace(8, 12, n)), rel=1e-5)
+    if parallel:
+        assert all(len(g) == 2 for g in groups) and all("(at the same time)" in m for m in lines)
+    else:
+        assert all(len(g) == 1 for g in groups) and not any("same time" in m for m in lines)
+
+
+def test_solve_order_announces_the_next_group_when_the_last_one_is_solved(capfd):
+    order = B.SolveOrder("S", [1e9, 2e9, 3e9], 2)
+    order.solved()
+    assert "solving 3" not in capfd.readouterr().out          # 1 and 2 at the same time: 2 still running
+    order.solved()
+    out = capfd.readouterr().out
+    assert "Sweep 'S': solving 3 GHz" in out and "same time" not in out
+    order.solved()
+    assert capfd.readouterr().out == ""

@@ -2559,17 +2559,16 @@ class Bridge:
                 f, S, z0, data = fast_sweep(m, fr, tol=tol, log=lambda s, n=sw.name: info(f"Fast sweep '{n}': {s}"),
                                             on_solved=prog.solved)
                 self.save_s(sw.name, f, S, z0, solved=f)
-                if p.get("SaveFields") == "True":
-                    self.save_fields(list(data.field)[-len(f):], sw.name)
-                    self.save_farfields(list(data.field)[-len(f):], sw.name)     # antenna parameters over f
+                self.save_sweep_fields(sw, list(data.field)[-len(f):])
             elif p.get("SweepType", "Interpolating") == "Discrete":
                 f, S, z0, data = solve_at(m, fr, parallel=par, n_workers=nw, on_solved=prog.solved)
                 self.save_s(sw.name, f, S, z0, solved=f)
-                if p.get("SaveFields") == "True":
-                    self.save_fields(list(data.field)[-len(f):], sw.name)
-                    self.save_farfields(list(data.field)[-len(f):], sw.name)     # antenna parameters over f
+                self.save_sweep_fields(sw, list(data.field)[-len(f):])
             else:
                 self.interpolating_sweep(sw.name, fr, p, par, nw, prog)
+                if self.design.spheres:
+                    info(f"Sweep '{sw.name}': an interpolating sweep stores S-parameters only; far fields over "
+                         "frequency need a Discrete or Fast sweep with 'Save far fields'")
             if prog.done:
                 with prog._lock:
                     prog.planned, prog.estimate = prog.done, False
@@ -2579,6 +2578,19 @@ class Bridge:
             if mt_pardiso is not None and mt_pardiso.TIMES["solve"] > 0:
                 info(f"Sweep '{sw.name}': matrix assembly {mt_pardiso.TIMES['assembly']:.1f} s, PARDISO "
                      f"{mt_pardiso.TIMES['solve']:.1f} s (summed over the parallel frequencies)")
+
+    def save_sweep_fields(self, sw, fields: list) -> None:
+        """Volume fields (Save fields) and far field data (Save fields or Save far fields) of a Discrete or
+        Fast sweep: the far field data alone are the fields on the radiation boundary, small next to the
+        volume fields."""
+        p = sw.props
+        if p.get("SaveFields") == "True":
+            self.save_fields(fields, sw.name)
+        if schema.sweep_saves_far_fields(p):
+            self.save_farfields(fields, sw.name)     # antenna parameters over f
+        elif self.design.spheres:
+            info(f"Sweep '{sw.name}': no far field data stored (turn on 'Save far fields' in the sweep for "
+                 "patterns and antenna parameters over frequency)")
 
     def factor_memory(self) -> None:
         """PARDISO factor size of the final mesh: saved after the adaptive passes, read back by a run that
@@ -2630,7 +2642,8 @@ class Bridge:
             for band in bands:
                 if len(band) <= n_start:
                     # as many frequencies as start points: solved directly
-                    gf, Sm, z0, _ = solve_at(m, list(band), parallel=par, n_workers=nw, on_solved=prog.solved)
+                    gf, Sm, z0, _ = solve_at(m, list(band), parallel=par, n_workers=nw, on_solved=prog.solved,
+                                             announce=(name,))
                     for f in band:
                         S_all[float(f)] = Sm[int(np.argmin(np.abs(gf - f)))]
                     dense.append(np.array([S_all[float(f)] for f in band]))
@@ -2669,7 +2682,8 @@ class Bridge:
             if todo:
                 if hyb is not None:
                     hyb.reduced = False             # start points: direct (in parallel when switched on)
-                gf, Sm, z0, _ = solve_at(m, todo, parallel=par, n_workers=nw, on_solved=prog.solved)
+                gf, Sm, z0, _ = solve_at(m, todo, parallel=par, n_workers=nw, on_solved=prog.solved,
+                                         announce=(name,))
                 for f in todo:
                     k = int(np.argmin(np.abs(gf - f)))
                     S_all[f] = Sm[k]
@@ -2685,9 +2699,10 @@ class Bridge:
             cand = sorted(float(f_of((x[i] + x[i + 1]) / 2)) for i in np.argsort(gaps)[::-1][:n_check])
             model = _fit(SparamModel, ff, SS, cutoffs)
             if hyb is not None and hyb.V is not None:
-                gf, Sm = self._check_points(m, cand, {**known, **S_all}, par, nw, prog, hyb)
+                gf, Sm = self._check_points(m, cand, {**known, **S_all}, par, nw, prog, hyb, name)
             else:
-                gf, Sm, _, _ = solve_at(m, cand, parallel=par, n_workers=nw, on_solved=prog.solved)
+                gf, Sm, _, _ = solve_at(m, cand, parallel=par, n_workers=nw, on_solved=prog.solved,
+                                        announce=(name,))
             err = 0.0
             for f in cand:
                 k = int(np.argmin(np.abs(gf - f)))
@@ -2707,10 +2722,11 @@ class Bridge:
         return z0
 
     @staticmethod
-    def _check_points(m, cand, S_all, par, nw, prog, hyb):
+    def _check_points(m, cand, S_all, par, nw, prog, hyb, name="Sweep"):
         """Check frequencies of the interpolating sweep: first all from the reduced basis (main thread,
         no factorization), then those the basis cannot reach directly (in parallel when switched on);
         their solutions join the basis."""
+        info(f"Sweep '{name}': evaluating {', '.join(f'{f / 1e9:.6g}' for f in cand)} GHz from the reduced basis")
         hyb.reduced = hyb.probe = True
         hyb.missed = []
         try:
@@ -2723,7 +2739,8 @@ class Bridge:
         gf, Sm = gf[~bad], Sm[~bad]
         if bad.any():
             miss = [f for f in cand if not np.any(np.isclose(gf, f, rtol=1e-12, atol=0))]
-            g2, S2, _, _ = solve_at(m, miss, parallel=par, n_workers=nw, on_solved=prog.solved)
+            g2, S2, _, _ = solve_at(m, miss, parallel=par, n_workers=nw, on_solved=prog.solved,
+                                    announce=(name, " (not reached by the reduced basis)"))
             gf, Sm = np.r_[gf, g2], np.concatenate([Sm, S2]) if len(Sm) else S2
             o = np.argsort(gf)
             gf, Sm = gf[o], Sm[o]
@@ -4118,9 +4135,41 @@ def _hook_solved() -> None:
     SimJob.submit_solution = submit_solution
 
 
-def solve_at(m, freqs, on_solved=None, **kw):
+class SolveOrder:
+    """Message Manager lines of an interpolating sweep in real time: each group of frequencies EMerge solves at
+    the same time (one at a time without Parallel), in the order it solves them, when it starts on them. EMerge
+    solves the frequency list in groups of `size`, one group after the other; a group starts when every
+    frequency of the one before is solved."""
+
+    def __init__(self, name: str, freqs, size: int, note: str = ""):
+        size = max(1, int(size))
+        self.name, self.note = name, note
+        self.groups = [list(freqs[i:i + size]) for i in range(0, len(freqs), size)]
+        self.i, self.left = 0, len(self.groups[0]) if self.groups else 0
+        self._lock = threading.Lock()
+        if self.groups:
+            info(self.line(self.groups[0]))
+
+    def line(self, group) -> str:
+        fs = ", ".join(f"{f / 1e9:.6g}" for f in group)
+        both = " (at the same time)" if len(group) > 1 else ""
+        return f"Sweep '{self.name}': solving {fs} GHz{both}{self.note}"
+
+    def solved(self) -> None:
+        with self._lock:
+            self.left -= 1
+            if self.left > 0 or self.i + 1 >= len(self.groups):
+                return
+            self.i += 1
+            self.left = len(self.groups[self.i])
+            msg = self.line(self.groups[self.i])
+        info(msg)
+
+
+def solve_at(m, freqs, on_solved=None, announce=None, **kw):
     """Run a frequency sweep and return only the new results: (freq, S, z0, data).
-    on_solved: called after every solved frequency (progress)."""
+    on_solved: called after every solved frequency (progress). announce: (sweep name, note) to list the
+    frequencies in the Message Manager as they are solved (SolveOrder)."""
     from . import mt_pardiso
     freqs = [float(f) for f in np.atleast_1d(freqs)]
     if on_solved is not None:
@@ -4130,7 +4179,7 @@ def solve_at(m, freqs, on_solved=None, **kw):
         except Exception:  # noqa: BLE001
             on_solved = None
     try:
-        return _solve_at(m, freqs, **kw)
+        return _solve_at(m, freqs, announce=announce, **kw)
     finally:
         if on_solved is not None:
             _SOLVED_CB.remove(on_solved)
@@ -4164,7 +4213,27 @@ def _run_sweep(m, kw: dict):
     return drv(parallel=par, n_workers=nw, **kw)
 
 
-def _solve_at(m, freqs, **kw):
+def _announced(m, freqs, kw, announce):
+    """A SolveOrder for `announce` (sweep name, note) with the groups EMerge solves; registered for the solved
+    frequencies, or None."""
+    if not announce:
+        return None
+    try:
+        _hook_solved()
+    except Exception:  # noqa: BLE001
+        return None
+    order = SolveOrder(announce[0], freqs, kw.get("frequency_groups", 1) if kw.get("parallel") else 1,
+                       announce[1] if len(announce) > 1 else "")
+    _SOLVED_CB.append(order.solved)
+    return order
+
+
+def _unannounce(order) -> None:
+    if order is not None and order.solved in _SOLVED_CB:
+        _SOLVED_CB.remove(order.solved)
+
+
+def _solve_at(m, freqs, announce=None, **kw):
     from . import mt_pardiso
     fresh_port_modes(m)
     try:
@@ -4200,6 +4269,7 @@ def _solve_at(m, freqs, **kw):
     forced = None
     if kw.get("parallel") and routine is not None and getattr(routine, "forced_solver", None):
         forced, routine.forced_solver = routine.forced_solver, []
+    order = _announced(m, freqs, kw, announce)
     try:
         data = _run_sweep(m, kw)
     except Exception as e:  # noqa: BLE001
@@ -4210,8 +4280,11 @@ def _solve_at(m, freqs, **kw):
             n0 = int(m.mw.data.scalar.n)
         except Exception:  # noqa: BLE001
             pass
+        _unannounce(order)
+        order = _announced(m, freqs, dict(kw, parallel=False), announce)
         data = _run_sweep(m, dict(kw, parallel=False))
     finally:
+        _unannounce(order)
         mt_pardiso.WORKER_THREADS = 0
         if forced is not None:
             routine.forced_solver = forced

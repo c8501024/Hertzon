@@ -3,6 +3,40 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.4.6 (2026-11-25)
+
+### Added
+- **Sweep option "Save far fields"** for Discrete and Fast sweeps. A sweep can store only the far field data (the
+  fields on the radiation boundary and the losses) at every frequency, without the volume fields of "Save fields",
+  so radiation patterns, gain and antenna parameters over frequency need far less disk space. The window and the
+  command line run (`SaveFarFields`, also over MCP) use the same code. The solver log says when a sweep of a design
+  with a far field setup stores no far field data and which option turns it on. Off by default; stored solutions
+  stay valid.
+
+### Changed
+- **Solved frequencies of an interpolating sweep marked in the plot.** A rectangular report over frequency marks
+  the frequencies the sweep solved directly (its support points) as open circles on each curve, in the trace
+  colour; the rest of the curve is interpolated. Axis Properties > "Mark the solved frequencies of interpolating
+  sweeps" switches them off. Discrete sweeps, where every point is solved, get no extra marks.
+- **The Message Manager lists the frequencies of an interpolating sweep as they are solved** (Kwang Choi, #5).
+  When the sweep chooses its next frequencies it writes one line per solve, in the order they are solved, not
+  ascending: one frequency per line, or the frequencies solved at the same time (Parallel) together on one line.
+  Check frequencies taken from the reduced basis are listed on one line, the ones it cannot reach again as they
+  are solved directly. The line with every sampled frequency in ascending order at the end of the sweep stays.
+
+### Fixed
+- **The material list of the ribbon opens again** (Kwang Choi, #15). The list under Model / Non Model showed
+  "vacuum", but opening it listed nothing and left the field blank: it read the materials from the design instead
+  of the project. It now lists every project and library material with the current one selected.
+- **Solution Data keeps the chosen view during a solve** (Kwang Choi, #16). Every new adaptive pass rebuilt the
+  window and set Matrix Data back to LastAdaptive and S. The chosen Solution (e.g. Adaptive Passes), Frequency /
+  Pass, Matrix (e.g. Zo), Format and the choices of the other tabs now stay; choosing another simulation setup
+  still opens on its defaults.
+- **Every column edge in the Properties and Progress panels can be dragged** (#545). The Value column of the
+  Properties panel (and State in the Progress panel) filled the spare width in a mode Qt does not let the user
+  resize, so the edges of Value and Evaluated Value showed no resize cursor. Now every inner edge can be dragged
+  and the last column takes the rest of the width.
+
 ## 0.4.5 (2026-11-24)
 
 ### Changed
