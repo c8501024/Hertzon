@@ -89,6 +89,9 @@ its dimensions:
   arm or branch, a parasitic element, a slot, a stub. Check afterwards that the good band stayed good.
 - Shifting the existing dimensions moves the resonances that already work; if the weak band improves only as
   the good one degrades, the structure lacks a resonance, not the right dimensions.
+- Extending the good design is one branch of the search, not the whole of it: keep the other concept
+  families running in the same batches (skill `hf-design-loop`), so that a family that reaches both bands in
+  another way is not missed while this one is extended.
 
 ## Matching networks
 
