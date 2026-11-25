@@ -27,15 +27,13 @@ def test_columns_can_be_dragged_and_fit_after_the_table_is_filled(app):
     from hertzon.gui.columns import FitColumns
     t = QTableWidget(0, 3)
     t.resize(800, 300)
-    fc = FitColumns(t, fit=(0, 2), stretch=1)
+    fc = FitColumns(t, fit=(0, 1))
     h = t.horizontalHeader()
-    assert h.sectionResizeMode(0) == QHeaderView.Interactive
-    assert h.sectionResizeMode(1) == QHeaderView.Stretch
-    assert h.sectionResizeMode(2) == QHeaderView.Interactive
+    assert all(h.sectionResizeMode(c) == QHeaderView.Interactive for c in range(3))
     _fill(t, [("a" * 60, "v", "x")])
     app.processEvents()                      # the fit runs once the filling event is done
     wide = t.columnWidth(0)
-    assert wide > t.columnWidth(2)
+    assert wide > t.columnWidth(1)
     t.setColumnWidth(0, 40)                  # the user drags the column narrower
     _fill(t, [("a" * 60, "v", "x"), ("b", "w", "y")])
     app.processEvents()
@@ -61,12 +59,42 @@ def test_max_width_when_fitted(app):
     assert t.columnWidth(0) == 400
 
 
+def _draggable_edges(table):
+    """Columns whose right edge the user can drag: Interactive, and not the stretched last one."""
+    from PySide6.QtWidgets import QHeaderView
+    h = table.horizontalHeader()
+    n = table.columnCount()
+    return [c for c in range(n) if h.sectionResizeMode(c) == QHeaderView.Interactive
+            and not (h.stretchLastSection() and c == n - 1)]
+
+
+def test_properties_panel_every_inner_edge_can_be_dragged(app):
+    """#545 (0.4.5 on macOS): the edges of Value and Evaluated Value could not be dragged, because Value was in
+    Stretch mode. Now every inner edge is draggable and the last column takes the spare width."""
+    from hertzon.gui.props import PropertyGrid
+    g = PropertyGrid()
+    g.resize(600, 300)
+    t = g.table
+    assert _draggable_edges(t) == [0, 1]
+    assert t.horizontalHeader().stretchLastSection()
+    _fill(t, [("Width", "w1/2", "5 mm"), ("Height", "1.6", "1.6 mm")])
+    app.processEvents()
+    assert t.columnWidth(1) >= 120
+    t.setColumnWidth(1, 300)                 # the user drags Value wider
+    _fill(t, [("Width", "w1/2", "5 mm")])
+    app.processEvents()
+    assert t.columnWidth(1) == 300
+    g2 = PropertyGrid(show_evaluated=False)
+    assert _draggable_edges(g2.table) == [0]
+
+
 def test_progress_panel_analysis_column(app):
     from PySide6.QtWidgets import QHeaderView
     from hertzon.gui.panels import ProgressPanel
     p = ProgressPanel()
     h = p.table.horizontalHeader()
-    assert all(h.sectionResizeMode(c) != QHeaderView.ResizeToContents for c in range(p.table.columnCount()))
+    assert all(h.sectionResizeMode(c) == QHeaderView.Interactive for c in range(p.table.columnCount()))
+    assert _draggable_edges(p.table) == [0, 1, 2]
     _fill(p.table, [("Project - Design - Setup1 " * 6, "", "Queued", "")])
     app.processEvents()
     assert p.table.columnWidth(0) <= 200

@@ -103,9 +103,10 @@ class PropertyGrid(QWidget):
         self.table = QTableWidget(0, 3 if show_evaluated else 2, self)
         self.table.setHorizontalHeaderLabels(["Name", "Value", "Evaluated Value"][: self.table.columnCount()])
         self.table.verticalHeader().setVisible(False)
-        # Name and Evaluated Value fit their content and can be dragged wider or narrower; Value takes the rest
+        # every column edge can be dragged (#545); Name and Value fit their content (Value at least 120 px to
+        # type in), the last column takes the rest of the width
         from .columns import FitColumns
-        self._columns = FitColumns(self.table, fit=(0, 2), stretch=1)
+        self._columns = FitColumns(self.table, stretch_last=True, min_width={1: 120})
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setEditTriggers(QAbstractItemView.AllEditTriggers)
         self.table.itemChanged.connect(self._item_changed)
