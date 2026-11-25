@@ -26,6 +26,7 @@ from ..model.materials import EMERGE_DISPERSION, is_conductor
 from ..model import schema
 from ..kernel import occ as K
 from . import facematch
+from . import cad_repair
 from . import sparta_setup
 from . import port_modes as PM
 from .results import ResultStore, port_entries, deembed_renormalize, running_status
@@ -84,6 +85,21 @@ def info(msg: str) -> None:
 
 def warn(msg: str) -> None:
     emit("log", level="warning", msg=msg)
+
+
+class MeshRetry(Exception):
+    """The initial mesh failed in a way the solver can work around: run() builds the model once more with the
+    objects in ``rebuild`` rebuilt (cad_repair.rebuild_bodies) and the hairline gaps between conductors in
+    ``fills`` closed (cad_repair.apply_fills)."""
+
+    def __init__(self, message: str, rebuild: list | None = None, fills: list | None = None):
+        super().__init__(message)
+        self.rebuild = rebuild or []
+        self.fills = fills or []
+
+
+# builds after a failed initial mesh at most in one analysis (each rebuilds and meshes the model once more)
+MAX_MESH_RETRIES = 4
 
 
 class SolveAbort(RuntimeError):
@@ -224,6 +240,8 @@ class Bridge:
     scan: tuple = (0.0, 0.0)                        # scan angles theta, phi of the periodic cell (degrees)
     sparta: bool = False                            # the matrix solver is SPARTA (set_sparta)
     sweep_solver: str = ""                          # SPARTA choice for the sweeps only (set_solver)
+    gap_fills: list = field(default_factory=list)   # hairline gaps between conductors to close (cad_repair.py)
+    rebuilds: list = field(default_factory=list)    # objects whose faces are rebuilt (cad_repair.rebuild_bodies)
 
     def __post_init__(self):
         self.ev = self.design.evaluator(self.project)
@@ -271,6 +289,8 @@ class Bridge:
             info(f"Solver start: EMerge simulation ready in {time.time() - t:.1f} s")
             try:
                 self._run_in(m)
+            except MeshRetry:
+                raise
             except Exception as e:  # noqa: BLE001
                 # the sheet check builds the whole model once more: only after a failure, not before every run
                 if not hasattr(self, "sheet_hints"):
@@ -344,7 +364,11 @@ class Bridge:
         t = time.time()
         emit("progress", value=10, text="Initial mesh (lambda refinement)")
         keep_global_max_size(m)
-        m.generate_mesh()
+        try:
+            m.generate_mesh()
+        except Exception as e:  # noqa: BLE001
+            self.raise_mesh_retry(e)
+            raise
         if layers and self.limit_thin_layers(layers, m.mesh.n_tets):
             m._reset_mesh()
             keep_global_max_size(m)
@@ -357,6 +381,52 @@ class Bridge:
         from .port_lines import spread_lumped_port_lines
         spread_lumped_port_lines(m)       # port voltage averaged over the width, not taken at a corner
         self.step("Initial meshing", t)
+
+    def raise_mesh_retry(self, exc: Exception) -> None:
+        """After the initial mesh failed: raise MeshRetry when another build can avoid the failure.
+
+        - An imported body whose volume got no tetrahedra (its CAD faces and edges disagree by micrometres) is
+          rebuilt (cad_repair.rebuild_bodies).
+        - Two overlapping faces that bound a hairline air gap between two conductors: the gap is closed
+          (cad_repair.find_gap).
+
+        At most MAX_MESH_RETRIES builds more; a failure no workaround applies to stays as it is."""
+        msg = f"{type(exc).__name__}: {exc}"
+        if len(self.rebuilds) + len(self.gap_fills) >= MAX_MESH_RETRIES:
+            return
+        owner, conductor = {}, set()
+        for obj in self.design.live_objects():
+            g = self.geos.get(obj.name)
+            if g is None or getattr(g, "dim", 0) != 3 or obj.history[0].kind == "CreateRegion":
+                continue
+            owner.update({int(t): obj.name for t in g.tags})
+            try:
+                if is_conductor(self.project.material(obj.material)):
+                    conductor.add(obj.name)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            lost = {owner[v] for v in cad_repair.empty_volumes() if v in owner} - set(self.rebuilds)
+            lost = [n for n in lost if self.imported(n)]
+            if lost:
+                raise MeshRetry(msg, rebuild=self.rebuilds + sorted(lost), fills=self.gap_fills) from exc
+            pair = cad_repair.failing_surfaces(str(exc))
+            fill = None
+            if pair is not None:
+                fill = cad_repair.find_gap(*pair, {v: n for v, n in owner.items() if n in conductor})
+        except MeshRetry:
+            raise
+        except Exception as e:  # noqa: BLE001
+            info(f"Mesh failure check skipped: {e}")
+            return
+        if fill is not None:
+            raise MeshRetry(msg, rebuild=self.rebuilds, fills=self.gap_fills + [fill]) from exc
+
+    def imported(self, name: str) -> bool:
+        """The object is a body imported from a CAD file (STEP, IGES, BREP)."""
+        o = self.design.obj(name)
+        return o is not None and o.history[0].kind == "Import" \
+            and not str(o.history[0].props.get("File", "")).lower().endswith(".stl")
 
     def solve(self) -> None:
         try:
@@ -597,6 +667,10 @@ class Bridge:
         ctx = K.build_design(self.design, self.ev, names=K.model_names(self.design))
         for n, e in ctx.errors.items():
             raise RuntimeError(f"Geometry error in '{n}': {e}")
+        if self.rebuilds:
+            cad_repair.rebuild_bodies(ctx.built, self.rebuilds)
+        if self.gap_fills:
+            cad_repair.apply_fills(ctx.built, self.gap_fills)
         vols = []
         for obj in self.design.live_objects():
             dt = ctx.built.get(obj.name)
@@ -4608,7 +4682,21 @@ def run(project_path: str, design: str, setup: str, out_dir: str) -> int:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
         _PROGRESS.update(file=Path(out_dir) / "progress.json", phase=None)
         _PROGRESS["file"].unlink(missing_ok=True)          # not the phase of an earlier run
-        Bridge(proj, des, st, Path(out_dir)).run()
+        rebuild: list = []
+        fills: list = []
+        while True:
+            try:
+                Bridge(proj, des, st, Path(out_dir), gap_fills=fills, rebuilds=rebuild).run()
+                break
+            except MeshRetry as retry:
+                # a fresh model (the failed one holds the fragmented geometry) built with the workaround
+                for name in retry.rebuild[len(rebuild):]:
+                    warn(f"The initial mesh failed: imported body '{name}' got no elements (its CAD faces and "
+                         f"edges disagree); its faces were rebuilt and the model meshed again")
+                for f in retry.fills[len(fills):]:
+                    warn(f"The initial mesh failed at {cad_repair.describe(f)}; the gap was filled with the metal of "
+                         f"'{f['object']}' and the model meshed again")
+                rebuild, fills = retry.rebuild, retry.fills
         return 0
     except KeyboardInterrupt:
         # Ctrl+C in a console (while Python code runs): not a failure, but not running any more
