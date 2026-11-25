@@ -58,6 +58,10 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
 
 ## Typical knobs
 
+- Aim for a radiating mode everywhere in every band. A part of a band that is carried only by the skirt of a
+  neighbouring resonance, or where the structure mostly stores energy (strong reflection, high Q_Z, current
+  circulating on parts that do not radiate), stays weak whatever the dimensions; it needs a resonance of its
+  own. The skill `results-check` shows how to tell these cases apart.
 - Patch: length sets the frequency, inset or feed position sets the match, substrate height and permittivity
   set the bandwidth. `create_patch_antenna()` builds one with its optimizer PatchOpt; run that optimization
   directly (`run_simulation()` with optimization "PatchOpt"): it usually meets the match in one or two solves. The
