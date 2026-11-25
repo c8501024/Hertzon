@@ -3,6 +3,17 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Imported CAD models whose initial mesh failed now mesh.** Two defects of exported CAD stopped the analysis
+  at the initial mesh: two metal bodies meeting at a fraction of a degree (an air wedge of 0 to some 10 um,
+  "Invalid boundary mesh (overlapping facets)"), and a body whose faces and edges disagree by micrometres (a
+  hole wall standing out of a flex board), whose volume got no elements. After such a failure the solver builds
+  the model once more: the air wedge between the two conductors is filled with the metal of one of them, and the
+  body without elements is rebuilt with its faces approximated anew. The log names the bodies and the gap. A
+  model that meshes at once is not touched, so its geometry and mesh stay exactly as before.
+
 ## 0.4.6 (2026-11-25)
 
 ### Added
