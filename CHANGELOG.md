@@ -20,6 +20,10 @@ the GitHub release notes.
   window and set Matrix Data back to LastAdaptive and S. The chosen Solution (e.g. Adaptive Passes), Frequency /
   Pass, Matrix (e.g. Zo), Format and the choices of the other tabs now stay; choosing another simulation setup
   still opens on its defaults.
+- **Every column edge in the Properties and Progress panels can be dragged** (#545). The Value column of the
+  Properties panel (and State in the Progress panel) filled the spare width in a mode Qt does not let the user
+  resize, so the edges of Value and Evaluated Value showed no resize cursor. Now every inner edge can be dragged
+  and the last column takes the rest of the width.
 
 ## 0.4.5 (2026-11-24)
 

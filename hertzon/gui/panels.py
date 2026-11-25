@@ -370,7 +370,7 @@ class ProgressPanel(QWidget):
         # every column can be dragged; Analysis fits its name up to 200 px (the full name is in its tooltip),
         # so that a long project name does not push the progress bar out of sight (#545)
         from .columns import FitColumns
-        self._columns = FitColumns(self.table, fit=(0, 3), stretch=2, max_width={0: 200})
+        self._columns = FitColumns(self.table, fit=(0, 2), max_width={0: 200}, stretch_last=True)
         self.table.setColumnWidth(1, 220)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
