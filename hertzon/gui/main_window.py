@@ -1308,14 +1308,28 @@ class MainWindow(QMainWindow):
 
     def _mat_popup(self, orig):
         def show():
-            cur = self.mat_combo.currentText()
-            self.mat_combo.blockSignals(True)
-            self.mat_combo.clear()
-            self.mat_combo.addItems(sorted({m.name for m in self.des.all_materials()}))
-            self.mat_combo.setCurrentText(cur)
-            self.mat_combo.blockSignals(False)
+            self._fill_mat_combo()
             orig()
         return show
+
+    def _fill_mat_combo(self) -> None:
+        """Material list of the ribbon: every material of the project and the library, the material for new
+        objects selected (it stays even if the list cannot be read)."""
+        cb = self.mat_combo
+        cur = cb.currentText() or self.new_material
+        try:
+            names = sorted({m.name for m in self.doc.project.all_materials()}, key=str.lower)
+        except Exception:  # noqa: BLE001
+            names = []
+        if cur not in names:
+            names.insert(0, cur)
+        cb.blockSignals(True)
+        try:
+            cb.clear()
+            cb.addItems(names)
+            cb.setCurrentIndex(max(0, cb.findText(cur)))
+        finally:
+            cb.blockSignals(False)
 
     def _apply_new_material(self, o) -> None:
         if o.dim == 3 and self.new_material != "vacuum":

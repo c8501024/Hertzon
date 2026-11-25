@@ -671,6 +671,9 @@ class SolutionDataDialog(QDialog):
         self.st = ResultStore(folder) if folder is not None else None
         self._sig = self._signature(setup)
         cur = self.tabs.currentIndex()
+        # a reload (new pass, new evaluation) rebuilds the tabs: they keep what the user chose in them
+        # (Solution, Frequency / Pass, Matrix, Format, View, ...)
+        chosen = self._choices() if keep_variation else {}
         old = [self.tabs.widget(i) for i in range(self.tabs.count())]
         self.tabs.clear()
         for wdg in old:
@@ -692,8 +695,28 @@ class SolutionDataDialog(QDialog):
             cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             cb.setMinimumContentsLength(min(28, max(6, max((len(cb.itemText(i)) for i in range(cb.count())),
                                                            default=6))))
+        self._restore_choices(chosen)
         # an eigenmode solution opens on its eigenfrequencies
         self.tabs.setCurrentIndex(self.tabs.count() - 1 if eig and cur < 0 else max(0, cur))
+
+    def _choices(self) -> dict[str, list[str]]:
+        """The entries chosen in the drop-down lists of every tab, by tab title, in the order of the lists."""
+        out = {}
+        for i in range(self.tabs.count()):
+            out[self.tabs.tabText(i)] = [cb.currentText() for cb in self.tabs.widget(i).findChildren(QComboBox)]
+        return out
+
+    def _restore_choices(self, chosen: dict[str, list[str]]) -> None:
+        """Choose the entries of _choices() again, list by list in order (a list can fill the next one, as
+        Solution fills Frequency / Pass); an entry the new solution does not have keeps the default."""
+        for i in range(self.tabs.count()):
+            texts = chosen.get(self.tabs.tabText(i))
+            if not texts:
+                continue
+            for cb, text in zip(self.tabs.widget(i).findChildren(QComboBox), texts):
+                k = cb.findText(text)
+                if k >= 0 and k != cb.currentIndex():
+                    cb.setCurrentIndex(k)
 
     def _table(self, headers, rows) -> QTableWidget:
         t = QTableWidget(len(rows), len(headers))
