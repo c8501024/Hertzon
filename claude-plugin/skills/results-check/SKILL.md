@@ -26,6 +26,8 @@ conclusions. These are the checks that tell a trustworthy result from a wrong on
   with beta, Zo and its symmetry; `image=true` shows the mode fields. Check that the modes are the ones
   intended before reading S of a mode; field plots take `port` and `mode`.
 - `render_image()` shows ports and boundaries on the faces; look at it.
+- Look at the geometry of a final design in the same way: vias meet copper at both ends, cut-outs sit where
+  the holes are, nothing overlaps that should not.
 
 ## 3. Does the energy add up?
 
@@ -46,6 +48,8 @@ conclusions. These are the checks that tell a trustworthy result from a wrong on
   efficiency at that frequency, and a matching network that actually recovers the efficiency.
 - Strong reflection with a high Q_Z and no resonance nearby usually means there is no radiating mode at that
   frequency. The fix is geometric, not a matching network. Look at surface currents (`set_field_plot()`).
+- A band can lie above a limit only on the skirt of a neighbouring resonance. Impedance, Q_Z and radiation
+  efficiency over frequency show whether every part of a band has a radiating mode of its own.
 - Separate loss from radiation with a counter test: solve once lossless (PEC metal, tan delta = 0). If the
   total efficiency barely changes, losses are not the cause.
 
@@ -53,6 +57,10 @@ conclusions. These are the checks that tell a trustworthy result from a wrong on
 
 State a cause as confirmed only after a test that could have refuted it. Otherwise call it a hypothesis and
 name the test that would decide it. In reports, mark each conclusion as one or the other.
+
+The same holds for the simplifications a final design rests on (a sheet for thick metal, a flat strip for a
+via, a part left out). List them. Where one could change the answer, solve the more exact variant once and
+give the difference; otherwise say that it was not checked.
 
 ## 6. Independent check
 
