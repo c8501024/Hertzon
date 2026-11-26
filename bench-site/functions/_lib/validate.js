@@ -37,7 +37,7 @@ export function validate(raw) {
   // the parts (RF, RCS) that ran: every test of such a part must be there; a part that did not run has none
   const parts = spec.parts || [{ id: "all", title: "All", tests: spec.tests.filter((t) => !t.large).map((t) => t.id) }];
   const run = parts.filter((p) => p.tests.some((id) => byId[id]));
-  if (!run.length) return { error: "No part of the suite ran." };
+  if (!run.length && !d.scaling) return { error: "No part of the suite ran." };
   const partOf = Object.fromEntries(parts.flatMap((p) => p.tests.map((id) => [id, p.id])));
   const scores = {};
   let counted = 0;
@@ -84,23 +84,36 @@ export function validate(raw) {
     d.parts[p.id] = { score: sc, counted: xs.length, tests: p.tests.length, complete: sc !== null };
   }
   delete d.parts_sent;
-  if (!Object.values(d.parts).some((p) => p.score)) return { error: "No part has a score." };
   d.complete = run.length === parts.length && Object.values(d.parts).every((p) => p.complete);
   const score = d.complete ? gmean(Object.values(d.parts).map((p) => p.score)) : null;
   if (score && d.score && Math.abs(score - d.score) > Math.max(2, 0.01 * score)) return { error: "Overall score does not match the tests." };
   d.score = score;
   d.parts_run = run.map((p) => p.id);
-  // core scaling (optional): the scaling test with fewer cores; the single-core score is recomputed
+  // scaling benchmark (optional): the scaling test of each part with 1, 2, 4, ... cores; the single-core score
+  // of a part is recomputed from its 1-core run when that run counted, the overall one needs every part
   if (d.scaling !== undefined) {
     const sc = d.scaling;
-    if (!sc || sc.test !== spec.scaling_test || !Array.isArray(sc.runs) || sc.runs.length > 16) return { error: "Bad core scaling." };
-    for (const r of sc.runs)
-      if (!num(r.cores, 1, 1024) || !num(r.total, 0.1, 86400)) return { error: "Bad core scaling run." };
-    const one = sc.runs.find((r) => r.cores === 1);
-    const ref1 = (spec.single_core || {})[sc.test];
-    const main = byId[sc.test];
-    sc.single_core_score = one && ref1 && main && main.counted !== false ? Math.round((1000 * ref1) / one.total) : null;
+    if (!sc || typeof sc.parts !== "object" || !sc.parts) return { error: "Bad scaling benchmark." };
+    const out = {};
+    for (const [k, part] of Object.entries(sc.parts)) {
+      const tid = (spec.scaling_tests || {})[k];
+      if (!tid || !part || part.test !== tid || !Array.isArray(part.runs) || part.runs.length > 16)
+        return { error: "Bad scaling benchmark." };
+      for (const r of part.runs)
+        if (!num(r.cores, 1, 1024) || !num(r.total, 0.1, 86400)) return { error: "Bad scaling run." };
+      const one = part.runs.find((r) => r.cores === 1 && r.counted !== false);
+      const ref1 = (spec.single_core || {})[tid];
+      const single = one && ref1 ? Math.round((1000 * ref1) / one.total) : null;
+      out[k] = { test: tid, runs: part.runs.map((r) => ({ cores: r.cores, total: r.total, adaptive: r.adaptive, sweep: r.sweep,
+        passes: r.passes, tets: r.tets, counted: r.counted !== false, speedup: r.speedup, efficiency: r.efficiency })),
+        single_core_score: single, ...(single ? {} : { reason: str(part.reason, 400) || "no counted 1-core run" }) };
+    }
+    const singles = Object.values(out).map((p) => p.single_core_score);
+    d.scaling = { cores: sc.cores, parts: out,
+      single_core_score: singles.length === parts.length && singles.every(Boolean) ? gmean(singles) : null };
   }
+  if (!Object.values(d.parts).some((p) => p.score) && !(d.scaling && Object.values(d.scaling.parts).some((p) => p.single_core_score)))
+    return { error: "No score: in every part that ran a test did not count." };
   d.counted = counted;
   return { data: d, score, version: ver, complete: d.complete };
 }

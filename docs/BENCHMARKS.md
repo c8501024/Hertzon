@@ -41,9 +41,13 @@ reason, and it has its own score outside the overall score, so that the overall 
 computers with 16 GB. It needs about 36 GB (183k tetrahedra, 5 passes); its score 1000 is a 32-core
 AMD Ryzen Threadripper 3970X (256 GB, Windows, all 64 threads) with Hertzon 0.4.6, which needs 282 s.
 
-**Core scaling.** Optionally (on by default) the hairpin filter is solved again with 1, 2, 4, ... cores: speedup
-and parallel efficiency, and the *single-core score* from the 1-core time (reference 207 s), which the site ranks
-separately, like single- and multi-core scores of other benchmarks.
+**Two benchmarks.** The *full benchmark* (multi-core, on by default) solves every test of the chosen parts with
+all cores and gives the scores above. The *scaling benchmark* (single- to multi-core, off by default because it
+takes longer) solves one test per part with 1, 2, 4, ... up to all cores: the hairpin filter for RF (1-core
+reference 207 s) and the PEC sphere for RCS (84 s). Its 1-core times give the *single-core scores* (per part and,
+with both parts, overall), the other runs speedup and parallel efficiency. The site ranks multi-core and
+single-core separately, like other benchmarks, and plots the speedup of every result. Both can be run alone or
+together (`--no-full`, `--scaling` on the command line).
 
 The reference computer (score 1000) is a 4-core cloud server (Intel Xeon 2.1 GHz, 16 GB, Linux) with Hertzon
 0.4.6. The suite takes about 5 to 15 minutes and up to 9 GB of memory (16 GB recommended).

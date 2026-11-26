@@ -100,8 +100,13 @@ export const SUITES = {
    }
   ],
   "scaling_test": "hairpin",
+  "scaling_tests": {
+   "rf": "hairpin",
+   "rcs": "sphere_rcs"
+  },
   "single_core": {
-   "hairpin": 207.0
+   "hairpin": 207.0,
+   "sphere_rcs": 83.73
   },
   "titles": {
    "microstrip": "Microstrip line",

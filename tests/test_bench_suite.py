@@ -210,6 +210,22 @@ def test_parts_can_run_alone(tmp_path):
     assert [t[0] for t in only_rcs.tests] == suite.PARTS[1][2] and not only_rcs.scaling
     assert only_rcs.result["parts_run"] == ["rcs"]
     rf = suite.Suite(tmp_path, parts=["rf"])
-    assert [t[0] for t in rf.tests] == suite.PARTS[0][2] and rf.scaling
+    assert [t[0] for t in rf.tests] == suite.PARTS[0][2] and not rf.scaling
+    sc = suite.Suite(tmp_path, scaling=True, full=False)             # the scaling benchmark alone
+    assert sc.tests == [] and sc.scaling_parts == ["rf", "rcs"] and sc.result["parts_run"] == []
     assert "drone_rcs" in [t[0] for t in suite.Suite(tmp_path).tests]
     assert sorted(i for _k, _t, ids in suite.PARTS for i in ids) == sorted(suite.TEST_IDS)
+
+
+def test_scaling_benchmark_alone_can_be_submitted():
+    res = {"schema": 1, "suite": suite.SUITE, "run_id": "c" * 32, "cores": 4, "solver": "Auto", "parts_run": [],
+           "tests": [], "scaling": {"cores": 4, "parts": {
+               "rf": {"test": "hairpin", "runs": [{"cores": 1, "total": 200.0, "counted": True}],
+                      "single_core_score": 1035},
+               "rcs": {"test": "sphere_rcs", "runs": [], "single_core_score": None, "reason": "x"}},
+               "single_core_score": None}}
+    suite.summarize(res)
+    assert res["score"] is None and res["parts"] == {}
+    assert bench_submit.can_submit(res) == ""
+    res["scaling"]["parts"]["rf"]["single_core_score"] = None
+    assert bench_submit.can_submit(res)

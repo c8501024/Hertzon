@@ -2,8 +2,12 @@
 a score per test, per part (RF: ports and S-parameters; RCS: incident plane wave) and overall, comparable
 between computers and Hertzon versions.
 
-python -m hertzon.solver.suite OUTDIR [--solver NAME] [--cores N] [--parts rf,rcs] [--no-large] [--no-scaling]
-                              [--only id1,id2] [--make-reference]
+python -m hertzon.solver.suite OUTDIR [--solver NAME] [--cores N] [--parts rf,rcs] [--no-large] [--scaling]
+                              [--no-full] [--only id1,id2] [--make-reference]
+
+Two benchmarks, run alone or together: the full benchmark (multi-core; --no-full leaves it out) solves every test
+of the parts with all cores; the scaling benchmark (--scaling) solves one test per part with 1, 2, 4, ... up to all
+cores, for the single-core scores, speedup and parallel efficiency.
 
 Every test solves its whole setup (initial mesh, adaptive passes, sweep or far field) once, in a fresh solver
 process, with all cores (or --cores) and the setup's matrix solver (or --solver). Each result is checked
@@ -77,8 +81,10 @@ LARGE_IDS = [t[0] for t in LARGE_TESTS]
 ALL_TESTS = TESTS + LARGE_TESTS
 # matrix solvers the suite does not offer: far too slow for models of this size (SuperLU, the last fallback)
 EXCLUDED_SOLVERS = ("SuperLU",)
-# core scaling: this test is solved again with 1, 2, 4, ... cores; its 1-core time gives the single-core score
-SCALING_TEST = "hairpin"
+# scaling benchmark (single- to multi-core): one test per part is solved with 1, 2, 4, ... up to all cores; the
+# 1-core times give the single-core scores, the others speedup and parallel efficiency
+SCALING_TESTS = {"rf": "hairpin", "rcs": "sphere_rcs"}
+SCALING_TEST = SCALING_TESTS["rf"]
 MEMORY_MARGIN = 1.15     # a large test runs when the usable memory is this much above its reference peak
 
 # reference time (s) of every test = score 1000, measured on the reference computer (REFERENCE_SYSTEM)
@@ -223,17 +229,20 @@ def _this_system(cores: int) -> str:
 
 class Suite:
     def __init__(self, out: Path, solver: str = "", cores: int = 0, only: list[str] | None = None,
-                 make_reference: bool = False, scaling: bool = True, parts: list[str] | None = None,
-                 large: bool = True):
+                 make_reference: bool = False, scaling: bool = False, parts: list[str] | None = None,
+                 large: bool = True, full: bool = True):
+        """full: the full (multi-core) benchmark, every test of the parts with all cores; scaling: the scaling
+        benchmark (single- to multi-core), the scaling test of each part with 1, 2, 4, ... cores."""
         self.out = out
         self.solver = solver
         self.cores = cores or os.cpu_count() or 1
         self.parts = [k for k in PART_IDS if not parts or k in parts]
-        self.tests = [t for t in ALL_TESTS if (not only or t[0] in only) and PART_OF[t[0]] in self.parts
+        self.tests = [t for t in ALL_TESTS if full and (not only or t[0] in only) and PART_OF[t[0]] in self.parts
                       and (large or t[0] not in LARGE_IDS)]
+        self.scaling_parts = [k for k in self.parts if scaling and (not only or SCALING_TESTS[k] in only)]
         self.parts = [k for k in self.parts if any(PART_OF[t[0]] == k for t in self.tests)]
         self.make_reference = make_reference
-        self.scaling = scaling and PART_OF[SCALING_TEST] in self.parts and (not only or SCALING_TEST in only)
+        self.scaling = bool(self.scaling_parts)
         self.ref = reference()
         self.t0 = time.time()
         self.result = {"schema": SCHEMA, "suite": SUITE, "run_id": uuid.uuid4().hex, "cores": self.cores,
@@ -253,7 +262,9 @@ class Suite:
             log("Compiling the solver kernels first, so that no test includes it")
             from .warmup import run as warmup
             warmup(lambda s: None)
-        log(f"{SUITE}: {len(self.tests)} tests with {self.cores} cores"
+        log(f"{SUITE}: " + " and ".join(
+            x for x in (f"full benchmark, {len(self.tests)} tests with {self.cores} cores" if self.tests else "",
+                        f"scaling benchmark, 1 to {self.cores} cores" if self.scaling else "") if x)
             + (f", solver {self.solver}" if self.solver else ""))
         n = len(self.tests)
         new_ref = {"suite": SUITE, "system": _this_system(self.cores), "times": {}, "tets": {}, "sparams": {}} \
@@ -329,6 +340,15 @@ class Suite:
                 + (f"; not counted: {reason}" if reason else ""), "warning" if reason else "info")
         if self.scaling and not self._scaling(new_ref):
             return self._stop()
+        if self.scaling:
+            sc = self.result["scaling"]
+            for k, title, _ids in PARTS:
+                part = sc["parts"].get(k)
+                if part:
+                    log(f"{title} single-core score: {part['single_core_score']}" if part.get("single_core_score")
+                        else f"{title}: no single-core score, {part.get('reason', 'no 1-core run')}")
+            if sc.get("single_core_score"):
+                log(f"{SUITE} single-core score: {sc['single_core_score']}")
         summarize(self.result)
         self.result["finished"] = time.time()
         self._write()
@@ -347,50 +367,71 @@ class Suite:
         return True
 
     def _scaling(self, new_ref: dict | None) -> bool:
-        """The scaling test once more with 1, 2, 4, ... cores below the cores of the suite (that run is taken
-        from the suite): speedup and parallel efficiency, and the single-core score from the 1-core time."""
-        tid, title, file, design, setup, _ = next(t for t in TESTS if t[0] == SCALING_TEST)
-        full = next((t for t in self.result["tests"] if t["id"] == tid and "total" in t), None)
-        if full is None:
-            return True
-        cores = [c for c in default_cores(self.cores) if c < self.cores]
-        src = SUITE_DIR / file
-        b = Benchmark(str(src), design, setup, self.out, [self.cores], [], [self.solver] if self.solver else [])
-        b.aborted = self.aborted
-        path = b._project(f"test_{tid}", solver=self.solver)
-        runs = []
-        for k, c in enumerate(cores, start=1):
-            folder = self.out / "runs" / f"{tid}_cores_{c}"
-            shutil.rmtree(folder, ignore_errors=True)
-            folder.mkdir(parents=True)
-            try:
-                if not b._solve(path, folder, b._env(c, 1), f"Core scaling: {title}, {c} core(s)", k, len(cores)):
-                    return False
-            except RuntimeError as ex:
-                log(f"Core scaling with {c} core(s) failed: {ex}", "warning")
-                continue
-            s = run_summary(folder, b.sweeps)
-            runs.append({"cores": c, **{key: round(s[key], 2) for key in ("total", "adaptive", "sweep")},
-                         "passes": s["passes"], "tets": s["tets"]})
-            log(f"Core scaling: {c} core(s) {s['total']:.1f} s")
-        runs.append({"cores": self.cores, **{key: round(full[key], 2) for key in ("total", "adaptive", "sweep")},
-                     "passes": full["passes"], "tets": full["tets"]})
-        one = next((r for r in runs if r["cores"] == 1), None)
-        for r in runs:
-            if one:
-                r["speedup"] = round(one["total"] / r["total"], 2)
-                r["efficiency"] = round(one["total"] / r["total"] / r["cores"], 3)
-        sc = {"test": tid, "runs": runs}
-        ref1 = (self.ref.get("single_core") or {}).get(tid)
-        if one and full.get("counted"):
-            sc["single_core_score"] = score(ref1, one["total"])
-        if new_ref is not None and one:
-            new_ref["single_core"] = {tid: one["total"]}
+        """Scaling benchmark: the scaling test of each part with 1, 2, 4, ... up to all cores (the all-core run
+        is taken from the full benchmark when it ran): speedup and parallel efficiency, and the single-core
+        score of the part from the 1-core time, when that run counts (converged, as asked, correct)."""
+        cores = default_cores(self.cores)
+        jobs = [(k, c) for k in self.scaling_parts for c in cores]
+        sc = {"cores": self.cores, "parts": {}}
         self.result["scaling"] = sc
+        done = 0
+        for k in self.scaling_parts:
+            tid = SCALING_TESTS[k]
+            _t, title, file, design, setup, _ = next(t for t in TESTS if t[0] == tid)
+            full = next((t for t in self.result["tests"] if t["id"] == tid and "total" in t), None)
+            src = SUITE_DIR / file
+            b = Benchmark(str(src), design, setup, self.out, [self.cores], [], [self.solver] if self.solver else [])
+            b.aborted = self.aborted
+            path = b._project(f"test_{tid}", solver=self.solver)
+            runs, one_reason = [], "the 1-core run failed"
+            for c in cores:
+                done += 1
+                if c == self.cores and full is not None:
+                    runs.append({"cores": c, **{key: round(full[key], 2) for key in ("total", "adaptive", "sweep")},
+                                 "passes": full["passes"], "tets": full["tets"], "counted": full.get("counted", False)})
+                    continue
+                folder = self.out / "runs" / f"{tid}_cores_{c}"
+                shutil.rmtree(folder, ignore_errors=True)
+                folder.mkdir(parents=True)
+                try:
+                    if not b._solve(path, folder, b._env(c, 1), f"Scaling: {title}, {c} core(s)", done, len(jobs)):
+                        return False
+                except RuntimeError as ex:
+                    log(f"Scaling: {title} with {c} core(s) failed: {ex}", "warning")
+                    if c == 1:
+                        one_reason = failure_reason(folder, str(ex))
+                    continue
+                s = run_summary(folder, b.sweeps)
+                check = (check_rcs(folder, path, design) if tid in MIE_TESTS else
+                         check_sparams(folder, b.sweeps[0] if b.sweeps else "", (self.ref.get("sparams") or {}).get(tid)))
+                reason = not_counted_reason(folder, s, check)
+                if c == 1 and reason:
+                    one_reason = reason
+                runs.append({"cores": c, **{key: round(s[key], 2) for key in ("total", "adaptive", "sweep")},
+                             "passes": s["passes"], "tets": s["tets"], "counted": not reason})
+                log(f"Scaling: {title}, {c} core(s) {s['total']:.1f} s" + (f"; not counted: {reason}" if reason else ""),
+                    "warning" if reason else "info")
+            one = next((r for r in runs if r["cores"] == 1), None)
+            for r in runs:
+                if one:
+                    r["speedup"] = round(one["total"] / r["total"], 2)
+                    r["efficiency"] = round(one["total"] / r["total"] / r["cores"], 3)
+            part = {"test": tid, "runs": runs}
+            ref1 = (self.ref.get("single_core") or {}).get(tid)
+            if one and one["counted"]:
+                part["single_core_score"] = score(ref1, one["total"])
+                if not ref1:
+                    part["reason"] = "no single-core reference for this test yet"
+                if new_ref is not None:
+                    new_ref.setdefault("single_core", {})[tid] = one["total"]
+            else:
+                part["single_core_score"] = None
+                part["reason"] = one_reason
+            sc["parts"][k] = part
+            self._write()
+        sc["single_core_score"] = overall([p["single_core_score"] for p in sc["parts"].values()]) \
+            if len(sc["parts"]) == len(PARTS) else None
         self._write()
-        if one:
-            log(f"Core scaling: {self.cores} cores {one['total'] / full['total']:.1f}x faster than 1 core"
-                + (f", single-core score {sc['single_core_score']}" if sc.get("single_core_score") else ""))
         return True
 
     def _stop(self) -> bool:
@@ -485,7 +526,7 @@ def site_spec() -> dict:
         tests.append({"id": tid, "large": tid in LARGE_IDS, "hashes": [file_hash(SUITE_DIR / file)],
                       "time": (ref.get("times") or {}).get(tid),
                       "tets": [int(tets / 3), int(tets * 3)] if tets else [100, 10_000_000]})
-    return {SUITE: {"tests": tests, "scaling_test": SCALING_TEST, "single_core": ref.get("single_core") or {},
+    return {SUITE: {"tests": tests, "scaling_test": SCALING_TEST, "scaling_tests": SCALING_TESTS, "single_core": ref.get("single_core") or {},
                     "titles": {t[0]: t[1] for t in ALL_TESTS},
                     "about": {t[0]: t[5] for t in ALL_TESTS}, "reference": REFERENCE_SYSTEM,
                     "reference_large": REFERENCE_SYSTEM_LARGE,
@@ -505,9 +546,11 @@ def main() -> int:
             i = args.index(key)
             opts[key] = args[i + 1]
             del args[i:i + 2]
-    scaling = "--no-scaling" not in args
-    if not scaling:
-        args.remove("--no-scaling")
+    scaling = "--scaling" in args
+    full = "--no-full" not in args
+    for flag in ("--scaling", "--no-scaling", "--no-full"):
+        if flag in args:
+            args.remove(flag)
     make_ref = "--make-reference" in args
     if make_ref:
         args.remove("--make-reference")
@@ -531,7 +574,7 @@ def main() -> int:
             print(f"Unknown part {', '.join(bad)}; the parts are {', '.join(PART_IDS)}", file=sys.stderr)
             return 2
         ok = Suite(out, opts.get("--solver", ""), int(opts.get("--cores", 0) or 0), only, make_ref, scaling,
-                   parts, large).run()
+                   parts, large, full).run()
         return 0 if ok else 3
     except Exception as ex:  # noqa: BLE001
         emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")

@@ -21,8 +21,9 @@ the GitHub release notes.
   A test stopped by the memory guard, ended for lack of memory, solved by another solver than chosen (e.g. no
   usable GPU) or not converged does not count: it is marked with the reason, its part gets no score and the run no
   overall score, while the other part keeps its score.
-  An optional large test (Drone RCS) runs only with enough memory and has its own score. The core scaling of the
-  hairpin filter (1, 2, 4, ... cores) gives a separate single-core score. SuperLU is not offered in the suite.
+  An optional large test (Drone RCS) runs only with enough memory and has its own score. A separate scaling
+  benchmark (single- to multi-core) solves the hairpin filter and the PEC sphere with 1, 2, 4, ... cores and gives
+  single-core scores, speedup and parallel efficiency; the site ranks multi-core and single-core separately. SuperLU is not offered in the suite.
 
 ### Fixed
 - **RCS (incident plane wave): the memory guard now stops the refinement before memory runs out.** The adaptive
