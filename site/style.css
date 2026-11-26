@@ -207,7 +207,7 @@ img{max-width:100%;height:auto}
 .aid-card{position:absolute;inset:36px 0 0 0;background:rgba(8,14,26,.94);display:grid;align-content:center;column-gap:28px;
   grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "stats" "plot" "foot";
   padding:24px clamp(16px,4vw,48px);animation:aidfade .6s both}
-.aid-card[hidden]{display:none}
+.aid-card[hidden],.aid-win.video .aid-card[hidden]{display:none}
 .aid-win:not(.video) .aid-card{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"head head" "stats plot" "foot foot"}
 .aid-win:not(.video) .aid-card .aid-stats{grid-template-columns:1fr 1fr}
 .aid-card-head{grid-area:head}.aid-card .aid-stats{grid-area:stats;align-self:center}
@@ -234,6 +234,10 @@ img{max-width:100%;height:auto}
 .aid-replay{position:absolute;right:12px;bottom:12px;display:none;align-items:center;gap:6px;background:#16243d;color:#dfe5ee;
   border:1px solid #2b3d5e;border-radius:8px;padding:6px 12px;font:inherit;font-size:.85rem;cursor:pointer;z-index:2}
 .aid-win.done .aid-replay{display:flex}
+.aid-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;align-items:center;gap:8px;
+  background:#f2a33a;color:#0b1220;border:0;border-radius:999px;padding:12px 24px;font:inherit;font-size:1rem;font-weight:700;
+  cursor:pointer;z-index:3;box-shadow:0 6px 24px rgba(0,0,0,.45)}
+.aid-win.idle .aid-play{display:flex}
 .outlook{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-top:40px}
 @media (max-width:800px){
   .aid-body{grid-template-columns:1fr}
@@ -247,6 +251,12 @@ img{max-width:100%;height:auto}
 .aid-win.video .aid-note{display:none}
 .aid-win.video .aid-card{display:flex;flex-direction:column;justify-content:center;right:auto;width:min(560px,52%);background:rgba(8,14,26,.95);border-right:1px solid #22324f}
 .aid-win.video .aid-stats{grid-template-columns:1fr 1fr}
+@media (max-width:800px){             /* phones: recording on top, full width, the log below it */
+  .aid-win.video .aid-body{grid-template-columns:1fr}
+  .aid-win.video .aid-right{order:-1}
+  .aid-win.video .aid-chat{border-bottom:0;border-top:1px solid #1f2d47}
+  .aid-win.video .aid-card{width:auto;border-right:0}
+}
 .aid-plot{max-height:190px}
 .outlook-h{font-size:1.4rem;margin:64px 0 8px}
 .outlook{margin-top:0}
