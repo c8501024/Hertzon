@@ -6,6 +6,55 @@ in [`examples/benchmark/scaling`](../examples/benchmark/scaling), the raw result
 [`examples/benchmark/scaling/results`](../examples/benchmark/scaling/results). Run the same benchmark on your
 own computer to find the best number of cores and sweep processes for it.
 
+## Hertzon Bench
+
+The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench*, a fixed suite of six models in
+[`examples/benchmark/suite`](../examples/benchmark/suite), each solved once with all cores:
+
+| Test | What it measures |
+|---|---|
+| Microstrip line | Two lumped ports, first order, 1–6 GHz sweep: start-up and small matrices |
+| Hairpin filter | Three resonators on 0.508 mm, second order, interpolating sweep |
+| Patch antenna | Radiation boundary, far field, broadband 1.2–3.7 GHz sweep |
+| Patch on 0.1 mm | Very thin substrate: the mesh of thin layers |
+| Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
+| Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere |
+
+Every result is checked: the S-parameters against the reference run (largest |ΔS| at most 0.05), the RCS of the
+sphere against the exact Mie solution (at most 0.5 dB). A test with a wrong result gets no score. The score of a
+test is the reference time divided by your time, times 1000; the overall score is the geometric mean of the six.
+A test counts only when it converged with the matrix solver that was asked for and its result is correct. When
+the memory guard stopped its refinement, the operating system ended the solver for lack of memory, the solver fell
+back to another one (e.g. no usable GPU for SPARTA) or it did not converge, the test is left out of the score and
+marked with the reason; the overall score is then the geometric mean of the tests that count, and the run is
+marked incomplete (the site lists complete runs unless asked otherwise). SuperLU is not offered: it is far too
+slow for these models.
+
+**Large test.** *Drone RCS* (the imported surface of a delta-wing drone, PEC, monostatic RCS) needs much more
+memory. It runs only when the computer has enough usable memory for it, else it is listed as not run with the
+reason, and it has its own score outside the overall score, so that the overall score stays comparable for
+computers with 16 GB. It needs about 36 GB (183k tetrahedra, 5 passes); its score 1000 is a 32-core
+AMD Ryzen Threadripper 3970X (256 GB, Windows, all 64 threads) with Hertzon 0.4.6, which needs 282 s.
+
+**Core scaling.** Optionally (on by default) the hairpin filter is solved again with 1, 2, 4, ... cores: speedup
+and parallel efficiency, and the *single-core score* from the 1-core time (reference 207 s), which the site ranks
+separately, like single- and multi-core scores of other benchmarks.
+
+The reference computer (score 1000) is a 4-core cloud server (Intel Xeon 2.1 GHz, 16 GB, Linux) with Hertzon
+0.4.6. The suite takes about 5 to 15 minutes and up to 9 GB of memory (16 GB recommended).
+
+**Submit Results** sends the result to the comparison site, [hertzon-bench.pages.dev](https://hertzon-bench.pages.dev), after showing exactly what is sent and asking for
+consent: the times, passes, tetrahedra, memory, checks and scores, and the description of the computer (device
+model, CPU, cores, clock, memory size, type and speed, GPU, operating system, Python, NumPy, SciPy, BLAS and
+EMerge versions, power source, whether it is a virtual machine, and the memory bandwidth Hertzon measures by
+copying a 256 MB array). Not sent: user or computer name, serial numbers, network addresses, paths, projects. The
+site ranks the results by system (the median of repeated runs), filters by operating system, architecture,
+device, solver and Hertzon version, and shows for each version how the same hardware changed against the
+version before. Each submission gets a delete key to remove it again.
+
+Without the window: `python -m hertzon.solver.suite OUTDIR [--solver NAME] [--cores N]`.
+The site itself is in [`bench-site`](../bench-site) (Cloudflare Pages with a D1 database).
+
 ## Computer
 
 | | |

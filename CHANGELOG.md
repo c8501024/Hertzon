@@ -3,6 +3,37 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.4.7 (2026-11-26)
+
+### Added
+- **Hertzon Bench: one score for your computer, and a public site to compare it** (Diupth, #564). Tools > Solver
+  Benchmark has a new first tab that solves a fixed suite of six models (microstrip, hairpin filter, patch antenna,
+  patch on 0.1 mm, waveguide post, sphere RCS) with all cores, checks every result against a reference (the
+  S-parameters, the exact Mie solution for the sphere) and gives a score per test and an overall score (geometric
+  mean; 1000 = the reference computer). **Submit Results** shows exactly what would be sent, asks for consent and
+  sends it with one click to the comparison site, which ranks results by system, operating system, architecture,
+  solver and Hertzon version and shows per version how the same hardware changed. Sent are the times, checks and
+  scores and a description of the computer on Windows, macOS and Linux (device model, CPU, cores, clock, memory
+  size, type and speed, GPU, operating system, library versions, power source, a measured memory bandwidth); no
+  user or computer name, paths or projects. The site's code is in `bench-site/` (Cloudflare Pages with a D1
+  database). `python -m hertzon.solver.suite OUTDIR` runs the suite without the window.
+  A test stopped by the memory guard, ended for lack of memory, solved by another solver than chosen (e.g. no
+  usable GPU) or not converged does not count: it is marked with the reason and the run is marked incomplete.
+  An optional large test (Drone RCS) runs only with enough memory and has its own score. The core scaling of the
+  hairpin filter (1, 2, 4, ... cores) gives a separate single-core score. SuperLU is not offered in the suite.
+
+### Changed
+- **Parametric results: plot a calculation over another calculation.** The "over" list of the Optimization
+  Results of a parametric setup also offers the calculations, e.g. the attenuation of a coaxial line over its
+  simulated port impedance `re(Zo(1))`. The swept variable runs along the curve, other swept variables give the
+  families.
+
+### Fixed
+- **RCS (incident plane wave): the memory guard now stops the refinement before memory runs out.** The adaptive
+  passes of a plane wave had no memory guard, so a large scatterer could grow its mesh until the operating system
+  ended the solver without a result (drone RCS on 16 GB in pass 2). Like the port driven passes, the refinement
+  now stops on the last mesh that fits, with the message "Stopping refinement: ...", and that pass is the solution.
+
 ## 0.4.6 (2026-11-25)
 
 ### Added

@@ -923,7 +923,8 @@ class ParametricDialog(QDialog):
 
 class ParametricResults(QDialog):
     """Optimization Results of a parametric setup: the table of the variations with their state and
-    calculations, a plot of a calculation over a variable; Apply sets the design variables of a variation."""
+    calculations, a plot of a calculation over a variable or over another calculation; Apply sets the design
+    variables of a variation."""
 
     def __init__(self, win, name: str, folder):
         super().__init__(win)
@@ -1007,7 +1008,7 @@ class ParametricResults(QDialog):
             for c, v in enumerate(vals):
                 self.table.setItem(r, c, QTableWidgetItem(v))
         self.table.resizeColumnsToContents()
-        for box, items in ((self.calc, calcs), (self.xvar, names)):
+        for box, items in ((self.calc, calcs), (self.xvar, names + calcs)):
             cur = box.currentText()
             box.blockSignals(True)
             box.clear()
@@ -1021,21 +1022,18 @@ class ParametricResults(QDialog):
         from ..solver.optimetrics import split_value as sv
         self.ax.clear()
         calc, xv = self.calc.currentText(), self.xvar.currentText()
-        rows = [r for r in getattr(self, "t", {}).get("variations", [])
-                if calc and xv and r.get("calcs", {}).get(calc) is not None]
-        others = [n for n in self.t.get("variables", []) if n != xv] if rows else []
-        fam: dict[tuple, list] = {}
-        for r in rows:
-            k = tuple(r["variables"].get(n, "") for n in others)
-            x = sv(r["variables"].get(xv, ""))
-            if x is not None:
-                fam.setdefault(k, []).append((x[0], r["calcs"][calc]))
+        t = getattr(self, "t", {})
+        names = t.get("variables", [])
+        on_calc = xv in t.get("calcs", []) and xv not in names
+        rows = [r for r in t.get("variations", [])
+                if calc and xv and r.get("calcs", {}).get(calc) is not None
+                and (not on_calc or r.get("calcs", {}).get(xv) is not None)]
+        from ..solver.parametric import plot_families
+        fam = plot_families(rows, names, xv, calc, on_calc)
         for k, pts in fam.items():
-            pts.sort()
-            lab = " ".join(f"{n}='{v}'" for n, v in zip(others, k)) or calc
-            self.ax.plot([p[0] for p in pts], [p[1] for p in pts], "o-", ms=3, label=lab)
+            self.ax.plot([p[0] for p in pts], [p[1] for p in pts], "o-", ms=3, label=k or calc)
         if fam:
-            unit = (sv(rows[0]["variables"].get(xv, "")) or (0, ""))[1]
+            unit = "" if on_calc else (sv(rows[0]["variables"].get(xv, "")) or (0, ""))[1]
             self.ax.set_xlabel(f"{xv} [{unit}]" if unit else xv)
             self.ax.set_ylabel(calc)
             if 1 < len(fam) <= 12:
@@ -1054,3 +1052,4 @@ class ParametricResults(QDialog):
                 self.win.show_variation(self.name, vs[rows[0]]["variables"])
             else:
                 self.win.apply_variables(vs[rows[0]]["variables"], f"variation {rows[0] + 1} of {self.name}")
+

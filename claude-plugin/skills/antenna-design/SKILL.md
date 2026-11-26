@@ -26,6 +26,9 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
   wavelength and the feature it feeds, and make sure nothing else touches it.
 - A Wave Port sits on the boundary of the solution region over the cross section of a line (microstrip,
   coax, grounded CPW). Use it when the feed line itself is part of the design.
+- A feed through a via: model the via as a cylinder that ends on a pad, and put the port sheet between two
+  straight conductor edges (pad edge and board edge). A sheet across the round end face of a via, or one that
+  reaches into metal, is not a clean excitation and shows up in the power balance.
 - If Delta S jumps between passes or S11 changes a lot from pass to pass, check the port before anything else.
 
 ## Frequencies and mesh
@@ -34,6 +37,8 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
   SolutionFrequencyMode "Multi-Frequencies" with the band centres, plus a band edge where that edge limits
   the design; for very wide bands "Broadband".
   A sweep never refines the mesh: it is solved on the mesh adapted at these frequencies.
+- A narrow resonance (a small antenna in its lowest band) moves in frequency while the mesh refines. In a
+  narrow band that position decides the result: adapt in that band and read it from the converged mesh.
 - The adaptive meshing refines where it is needed. A tighter Delta S makes every solve, tuning model and
   optimizer step slower and much larger; a looser one (0.03, few passes) is a cheap way to compare concepts.
 - Use an interpolating sweep over a range wider than the bands for S11, and a discrete sweep with `SaveFarFields`
@@ -42,14 +47,21 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
 
 ## Figure of merit
 
-- Screen variants with S11 or the mismatch efficiency from `get_results()` kind `impedance`; it is fast.
+- S11 or the mismatch efficiency from `get_results()` kind `impedance` is fast and shows where the resonances
+  are. It does not rank antennas: a variant can be matched and radiate little. Compare concepts by the total
+  efficiency at a few frequencies per band, band edges included.
 - Judge the final design with far fields: `get_results()` kind `efficiency` (total = mismatch x radiation
   efficiency, per frequency, with the limiting factor) and kind `farfield` (gain, pattern cuts). A good S11 is
   not a good antenna if the radiation efficiency is low.
-- Average or worst case over a band, as the specification says, not only at the centre frequency.
+- Average or worst case over a band, as the specification says, not only at the centre frequency. For a
+  minimum over a band include both band edges and space the points so that no dip between them is missed.
 
 ## Typical knobs
 
+- Aim for a radiating mode everywhere in every band. A part of a band that is carried only by the skirt of a
+  neighbouring resonance, or where the structure mostly stores energy (strong reflection, high Q_Z, current
+  circulating on parts that do not radiate), stays weak whatever the dimensions; it needs a resonance of its
+  own. The skill `results-check` shows how to tell these cases apart.
 - Patch: length sets the frequency, inset or feed position sets the match, substrate height and permittivity
   set the bandwidth. `create_patch_antenna()` builds one with its optimizer PatchOpt; run that optimization
   directly (`run_simulation()` with optimization "PatchOpt"): it usually meets the match in one or two solves. The
@@ -57,13 +69,14 @@ Use this with the design loop (skill `hf-design-loop`). It covers what is specif
 - IFA/PIFA: total length from the short sets the frequency, the feed-to-short distance sets the resistance,
   the height above ground and the ground clearance set the bandwidth.
 - Monopole/dipole: length sets the frequency; a wider or tapered element gives more bandwidth.
-- A second band usually needs a second resonance: a branch, a slot or a parasitic element. Matching parts
+- A second band usually needs a second resonance: a second driven arm or branch of another length, a higher
+  mode of a long arm (for example its 3/4-wavelength mode), a slot or a parasitic element. Matching parts
   can widen a band but cannot create radiation that is not there.
 - Small antennas: bandwidth is limited by size. Check Q_Z from `get_results()` kind `impedance`: a very
   high Q_Z means the bandwidth goal may be out of reach without changing the size or the topology.
 - Where the antenna is small (high Q_Z), one resonance cannot cover a wide band; several resonances placed
-  side by side help: parasitic resonators coupled to the driven element, a second arm or branch of another
-  length, a slot, or a feed and short that excite two modes.
+  side by side help: a second arm or branch of another length, a higher mode of the long arm, a feed and
+  short that excite two modes, a slot, or parasitic resonators coupled to the driven element.
 
 ## One band good, the other not
 
@@ -80,6 +93,9 @@ its dimensions:
   arm or branch, a parasitic element, a slot, a stub. Check afterwards that the good band stayed good.
 - Shifting the existing dimensions moves the resonances that already work; if the weak band improves only as
   the good one degrades, the structure lacks a resonance, not the right dimensions.
+- Extending the good design is one branch of the search, not the whole of it: keep the other concept
+  families running in the same batches (skill `hf-design-loop`), so that a family that reaches both bands in
+  another way is not missed while this one is extended.
 
 ## Matching networks
 

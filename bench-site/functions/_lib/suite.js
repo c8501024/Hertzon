@@ -1,0 +1,115 @@
+// Written by make_suite_spec.py from the Hertzon Bench definition; do not edit.
+export const SUITES = {
+ "Hertzon Bench 1": {
+  "tests": [
+   {
+    "id": "microstrip",
+    "large": false,
+    "hashes": [
+     "c12b4637790e5396"
+    ],
+    "time": 26.9,
+    "tets": [
+     4768,
+     42918
+    ]
+   },
+   {
+    "id": "hairpin",
+    "large": false,
+    "hashes": [
+     "20a6d13167895682"
+    ],
+    "time": 82.23,
+    "tets": [
+     7524,
+     67719
+    ]
+   },
+   {
+    "id": "patch",
+    "large": false,
+    "hashes": [
+     "c8eb2a957560cfee"
+    ],
+    "time": 208.05,
+    "tets": [
+     13421,
+     120792
+    ]
+   },
+   {
+    "id": "patch_thin",
+    "large": false,
+    "hashes": [
+     "1548b63004871a64"
+    ],
+    "time": 135.69,
+    "tets": [
+     10462,
+     94161
+    ]
+   },
+   {
+    "id": "waveguide",
+    "large": false,
+    "hashes": [
+     "a8885c744178ab43"
+    ],
+    "time": 56.71,
+    "tets": [
+     4343,
+     39087
+    ]
+   },
+   {
+    "id": "sphere_rcs",
+    "large": false,
+    "hashes": [
+     "189c53257bd24fd0"
+    ],
+    "time": 26.38,
+    "tets": [
+     5337,
+     48039
+    ]
+   },
+   {
+    "id": "drone_rcs",
+    "large": true,
+    "hashes": [
+     "eea3f4994da3d8de"
+    ],
+    "time": 281.78,
+    "tets": [
+     61157,
+     550413
+    ]
+   }
+  ],
+  "scaling_test": "hairpin",
+  "single_core": {
+   "hairpin": 207.0
+  },
+  "titles": {
+   "microstrip": "Microstrip line",
+   "hairpin": "Hairpin filter",
+   "patch": "Patch antenna",
+   "patch_thin": "Patch on 0.1 mm",
+   "waveguide": "Waveguide post",
+   "sphere_rcs": "Sphere RCS",
+   "drone_rcs": "Drone RCS (large)"
+  },
+  "about": {
+   "microstrip": "Two lumped ports, first order, 1-6 GHz sweep: start-up and small matrices",
+   "hairpin": "Three resonators on 0.508 mm, second order, interpolating sweep",
+   "patch": "Radiation boundary, far field, broadband 1.2-3.7 GHz sweep",
+   "patch_thin": "Very thin substrate: the mesh of thin layers",
+   "waveguide": "WR90 wave ports, 8.2-12.4 GHz sweep",
+   "sphere_rcs": "Incident plane wave, monostatic RCS of a PEC sphere (checked against the exact Mie solution)",
+   "drone_rcs": "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"
+  },
+  "reference": "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hertzon 0.4.6",
+  "reference_large": "AMD Ryzen Threadripper 3970X (32 cores, 64 threads used, 256 GB), Windows, Hertzon 0.4.6"
+ }
+};

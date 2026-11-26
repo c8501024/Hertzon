@@ -1,0 +1,267 @@
+{
+ "name": "WaveguidePost",
+ "designs": [
+  {
+   "name": "WR90_Post",
+   "units": "mm",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Off",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "RadiatingStructure": "False"
+   },
+   "variables": {
+    "a": "22.86mm",
+    "b": "10.16mm",
+    "L": "50mm",
+    "r_post": "1.5mm"
+   },
+   "objects": [
+    {
+     "name": "Waveguide",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "0,0,0",
+        "XSize": "a",
+        "YSize": "L",
+        "ZSize": "b"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Post",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#e6f2ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Post",
+     "history": [
+      {
+       "kind": "CreateCylinder",
+       "props": {
+        "CenterPosition": "a/2,L/2,0",
+        "Axis": "Z",
+        "Radius": "r_post",
+        "Height": "b",
+        "NumberOfSegments": "0"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "pec",
+     "solve_inside": true,
+     "model": true,
+     "color": "#d6a45c",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Waveguide",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port1Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0,0,0",
+        "Axis": "Y",
+        "ZSize": "b",
+        "XSize": "a"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port2Sheet",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "0,L,0",
+        "Axis": "Y",
+        "ZSize": "b",
+        "XSize": "a"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [],
+   "excitations": [
+    {
+     "name": "1",
+     "kind": "Wave Port",
+     "props": {
+      "PortNumber": "1",
+      "NumberOfModes": "1",
+      "ModeType": "Auto",
+      "ImpedanceDefinition": "Zpv",
+      "Renormalize": "False",
+      "RenormImpedance": "50ohm",
+      "Deembed": "False",
+      "DeembedDistance": "0"
+     },
+     "faces": [],
+     "objects": [
+      "Port1Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "2",
+     "kind": "Wave Port",
+     "props": {
+      "PortNumber": "2",
+      "NumberOfModes": "1",
+      "ModeType": "Auto",
+      "ImpedanceDefinition": "Zpv",
+      "Renormalize": "False",
+      "RenormImpedance": "50ohm",
+      "Deembed": "False",
+      "DeembedDistance": "0"
+     },
+     "faces": [],
+     "objects": [
+      "Port2Sheet"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "10GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "MaximumPasses": "12",
+      "MaximumDeltaS": "0.0005",
+      "MaximumDeltaEnergy": "0.1",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "2",
+      "BasisOrder": "Second Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "Remesh (stable, experimental)",
+      "SaveFields": "False",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Interpolating",
+        "Distribution": "Linear Count",
+        "Start": "8.2GHz",
+        "Stop": "12.4GHz",
+        "Step": "0.1GHz",
+        "Count": "101",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      },
+      {
+       "name": "Discrete",
+       "props": {
+        "Enabled": "False",
+        "SweepType": "Discrete",
+        "Distribution": "Linear Step",
+        "Start": "8GHz",
+        "Stop": "12GHz",
+        "Step": "0.5GHz",
+        "Count": "101",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": ""
+  }
+ ],
+ "variables": {},
+ "materials": [],
+ "format": "hertzon-project",
+ "version": 2
+}

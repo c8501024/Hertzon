@@ -1,0 +1,10 @@
+# Hertzon Bench comparison site: Cloudflare Pages (public/) with Pages Functions (functions/) and a D1
+# database. Setup and deployment: README.md in this folder.
+name = "hertzon-bench"
+pages_build_output_dir = "public"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hertzon-bench"
+database_id = "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create"
