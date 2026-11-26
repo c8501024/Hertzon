@@ -22,7 +22,7 @@ export function validate(raw) {
   if (!spec) return { error: `Unknown suite '${str(d.suite, 40)}'; update Hertzon.` };
   if (!/^[0-9a-f]{32}$/.test(d.run_id || "")) return { error: "Missing run id." };
   if (!num(d.cores, 1, 1024)) return { error: "Cores out of range." };
-  if (!num(d.score, 1, 1e7)) return { error: "Missing overall score." };
+  if (d.score !== null && d.score !== undefined && !num(d.score, 1, 1e7)) return { error: "Overall score out of range." };
   const sys = d.system || {};
   if (!["Windows", "macOS", "Linux"].includes(sys.platform)) return { error: "Unknown platform." };
   if (!str(sys.cpu, 120)) return { error: "Missing CPU." };
@@ -33,12 +33,18 @@ export function validate(raw) {
   if (!Array.isArray(d.tests) || d.tests.length > spec.tests.length) return { error: "Unknown tests." };
 
   const byId = Object.fromEntries(d.tests.map((t) => [t && t.id, t]));
-  const scores = [];
+  d.parts_sent = d.parts && typeof d.parts === "object" ? d.parts : {};
+  // the parts (RF, RCS) that ran: every test of such a part must be there; a part that did not run has none
+  const parts = spec.parts || [{ id: "all", title: "All", tests: spec.tests.filter((t) => !t.large).map((t) => t.id) }];
+  const run = parts.filter((p) => p.tests.some((id) => byId[id]));
+  if (!run.length) return { error: "No part of the suite ran." };
+  const partOf = Object.fromEntries(parts.flatMap((p) => p.tests.map((id) => [id, p.id])));
+  const scores = {};
   let counted = 0;
   for (const ref of spec.tests) {
     const t = byId[ref.id];
     if (!t) {
-      if (ref.large) continue;                        // large tests are optional
+      if (ref.large || !run.some((p) => p.id === partOf[ref.id])) continue;   // large tests are optional
       return { error: `Test '${ref.id}' missing.` };
     }
     if (!ref.hashes.includes(t.file_hash)) return { error: `Test '${ref.id}' used another model.` };
@@ -65,13 +71,25 @@ export function validate(raw) {
     // the score is recomputed here, not taken from the submission
     const s = Math.round((1000 * ref.time) / t.total);
     if (Math.abs(s - (t.score || 0)) > Math.max(2, 0.01 * s)) return { error: `Test '${ref.id}': score does not match its time.` };
-    if (!ref.large) { scores.push(s); counted++; }
+    if (!ref.large) { scores[ref.id] = s; counted++; }
   }
-  if (!scores.length) return { error: "No test counts." };
-  const score = Math.round(Math.exp(scores.reduce((a, s) => a + Math.log(s), 0) / scores.length));
-  if (Math.abs(score - d.score) > Math.max(2, 0.01 * score)) return { error: "Overall score does not match the tests." };
-  const core = spec.tests.filter((t) => !t.large).length;
-  d.complete = counted === core;
+  // a part has a score only when every one of its tests counts; the overall score only when every part has one
+  const gmean = (xs) => Math.round(Math.exp(xs.reduce((a, s) => a + Math.log(s), 0) / xs.length));
+  d.parts = {};
+  for (const p of run) {
+    const xs = p.tests.map((id) => scores[id]).filter(Boolean);
+    const sc = xs.length === p.tests.length ? gmean(xs) : null;
+    const sent = ((d.parts_sent || {})[p.id] || {}).score;
+    if (sc && sent && Math.abs(sc - sent) > Math.max(2, 0.01 * sc)) return { error: `${p.title} score does not match its tests.` };
+    d.parts[p.id] = { score: sc, counted: xs.length, tests: p.tests.length, complete: sc !== null };
+  }
+  delete d.parts_sent;
+  if (!Object.values(d.parts).some((p) => p.score)) return { error: "No part has a score." };
+  d.complete = run.length === parts.length && Object.values(d.parts).every((p) => p.complete);
+  const score = d.complete ? gmean(Object.values(d.parts).map((p) => p.score)) : null;
+  if (score && d.score && Math.abs(score - d.score) > Math.max(2, 0.01 * score)) return { error: "Overall score does not match the tests." };
+  d.score = score;
+  d.parts_run = run.map((p) => p.id);
   // core scaling (optional): the scaling test with fewer cores; the single-core score is recomputed
   if (d.scaling !== undefined) {
     const sc = d.scaling;

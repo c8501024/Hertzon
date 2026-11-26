@@ -74,6 +74,18 @@
     ]
    },
    {
+    "id": "dielectric_rcs",
+    "large": false,
+    "hashes": [
+     "59f214cbca679ffb"
+    ],
+    "time": 25.64,
+    "tets": [
+     4555,
+     40995
+    ]
+   },
+   {
     "id": "drone_rcs",
     "large": true,
     "hashes": [
@@ -97,6 +109,7 @@
    "patch_thin": "Patch on 0.1 mm",
    "waveguide": "Waveguide post",
    "sphere_rcs": "Sphere RCS",
+   "dielectric_rcs": "Dielectric sphere RCS",
    "drone_rcs": "Drone RCS (large)"
   },
   "about": {
@@ -106,9 +119,31 @@
    "patch_thin": "Very thin substrate: the mesh of thin layers",
    "waveguide": "WR90 wave ports, 8.2-12.4 GHz sweep",
    "sphere_rcs": "Incident plane wave, monostatic RCS of a PEC sphere (checked against the exact Mie solution)",
+   "dielectric_rcs": "Incident plane wave, monostatic RCS of a lossless dielectric sphere (er = 4), fields inside and outside (checked against the exact Mie solution)",
    "drone_rcs": "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"
   },
   "reference": "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hertzon 0.4.6",
-  "reference_large": "AMD Ryzen Threadripper 3970X (32 cores, 64 threads used, 256 GB), Windows, Hertzon 0.4.6"
+  "reference_large": "AMD Ryzen Threadripper 3970X (32 cores, 64 threads used, 256 GB), Windows, Hertzon 0.4.6",
+  "parts": [
+   {
+    "id": "rf",
+    "title": "RF",
+    "tests": [
+     "microstrip",
+     "hairpin",
+     "patch",
+     "patch_thin",
+     "waveguide"
+    ]
+   },
+   {
+    "id": "rcs",
+    "title": "RCS",
+    "tests": [
+     "sphere_rcs",
+     "dielectric_rcs"
+    ]
+   }
+  ]
  }
 }

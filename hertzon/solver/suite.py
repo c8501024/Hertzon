@@ -1,13 +1,16 @@
 """Hertzon Bench: a fixed suite of models that measures how fast this computer solves typical problems, as
-one overall score and a score per test, comparable between computers and Hertzon versions.
+a score per test, per part (RF: ports and S-parameters; RCS: incident plane wave) and overall, comparable
+between computers and Hertzon versions.
 
-python -m hertzon.solver.suite OUTDIR [--solver NAME] [--cores N] [--only id1,id2] [--no-scaling]
+python -m hertzon.solver.suite OUTDIR [--solver NAME] [--cores N] [--parts rf,rcs] [--no-large] [--no-scaling]
+                              [--only id1,id2] [--make-reference]
 
 Every test solves its whole setup (initial mesh, adaptive passes, sweep or far field) once, in a fresh solver
 process, with all cores (or --cores) and the setup's matrix solver (or --solver). Each result is checked
 against a reference (S-parameters, or the exact Mie solution for the sphere): a run with a wrong result gets
-no score. Score of a test = reference time / measured time x 1000; the overall score is the geometric mean
-of the test scores, so no single test dominates. The result is OUTDIR/suite.json; OUTDIR/ABORT stops it.
+no score. Score of a test = reference time / measured time x 1000; a part score is the geometric mean of its
+test scores (so no single test dominates) and needs every one of them, the overall score is the geometric mean
+of the part scores and needs every part. The result is OUTDIR/suite.json; OUTDIR/ABORT stops it.
 
 The models and reference values belong to the suite version (SUITE): when a test changes, the version goes
 up and results of different versions are not compared.
@@ -48,6 +51,9 @@ TESTS = [
      "WR90 wave ports, 8.2-12.4 GHz sweep"),
     ("sphere_rcs", "Sphere RCS", "sphere_rcs.hzn", "PECSphere", "Setup1",
      "Incident plane wave, monostatic RCS of a PEC sphere (checked against the exact Mie solution)"),
+    ("dielectric_rcs", "Dielectric sphere RCS", "dielectric_sphere_rcs.hzn", "DielectricSphere", "Setup1",
+     "Incident plane wave, monostatic RCS of a lossless dielectric sphere (er = 4), fields inside and outside "
+     "(checked against the exact Mie solution)"),
 ]
 # optional large tests: run only when the computer has the memory for them, with their own score, not in the
 # overall score (so that it stays comparable for computers with 16 GB)
@@ -55,6 +61,17 @@ LARGE_TESTS = [
     ("drone_rcs", "Drone RCS (large)", "drone_rcs.hzn", "Design1", "Setup1",
      "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"),
 ]
+MIE_TESTS = ("sphere_rcs", "dielectric_rcs")          # checked against the exact Mie solution
+# the suite in parts, each with its own score and run on its own if wanted: RF (ports and S-parameters:
+# circuits, filters, antennas, waveguides) and RCS (incident plane wave, scattering). A part has a score only
+# when every one of its tests counts; the overall score needs every part, so a failed RCS test leaves the RF
+# score valid. Large tests belong to a part but stay outside its score.
+PARTS = [
+    ("rf", "RF", ["microstrip", "hairpin", "patch", "patch_thin", "waveguide"]),
+    ("rcs", "RCS", ["sphere_rcs", "dielectric_rcs"]),
+]
+PART_IDS = [k for k, _t, _ids in PARTS]
+PART_OF = {**{tid: k for k, _t, ids in PARTS for tid in ids}, "drone_rcs": "rcs"}
 TEST_IDS = [t[0] for t in TESTS]                       # the tests of the overall score
 LARGE_IDS = [t[0] for t in LARGE_TESTS]
 ALL_TESTS = TESTS + LARGE_TESTS
@@ -95,17 +112,26 @@ def reference() -> dict:
         return {}
 
 
-def mie_rcs(radius: float, freq: float) -> float:
-    """Monostatic RCS (m^2) of a PEC sphere, Mie series (Bohren & Huffman 4.82)."""
+def mie_rcs(radius: float, freq: float, eps: float | None = None) -> float:
+    """Monostatic RCS (m^2) of a sphere, Mie series (Bohren & Huffman 4.53, 4.82): PEC without eps, else a
+    lossless dielectric with relative permittivity eps (mu = 1)."""
     import numpy as np
     from scipy.special import spherical_jn, spherical_yn
     x = 2 * np.pi * freq / 299792458.0 * radius
-    n = np.arange(1, int(x + 4 * x ** (1 / 3) + 20))
+    mx = x * (np.sqrt(eps) if eps else 1.0)
+    n = np.arange(1, int(max(x, mx) + 4 * max(x, mx) ** (1 / 3) + 20))
     j, y = spherical_jn(n, x), spherical_yn(n, x)
     jd, yd = spherical_jn(n, x, True), spherical_yn(n, x, True)
     psi, xi = x * j, x * (j + 1j * y)
     psid, xid = j + x * jd, (j + 1j * y) + x * (jd + 1j * yd)
-    an, bn = psid / xid, psi / xi
+    if eps:
+        m = np.sqrt(eps)
+        jm, jmd = spherical_jn(n, mx), spherical_jn(n, mx, True)
+        pm, pmd = mx * jm, jm + mx * jmd
+        an = (m * pm * psid - psi * pmd) / (m * pm * xid - xi * pmd)
+        bn = (pm * psid - m * psi * pmd) / (pm * xid - m * xi * pmd)
+    else:
+        an, bn = psid / xid, psi / xi
     qb = abs(np.sum((2 * n + 1) * (-1) ** n * (an - bn))) ** 2 / x ** 2
     return float(qb * np.pi * radius ** 2)
 
@@ -117,11 +143,13 @@ def check_rcs(folder: Path, project: Path, design: str) -> dict:
     p = Project.load(str(project))
     d = p.design(design)
     radius = d.evaluator(p).value("R")               # m
+    mat = next((m for m in p.all_materials() if m.name == d.obj("Sphere").material), None)
+    eps = None if mat is None or mat.pec or mat.name.lower() == "pec" else float(mat.permittivity)
     st = ResultStore(folder)
     sph = d.spheres[0].name
     r = monostatic_rcs(st, "LastAdaptive", sph)
     f, s = float(r["freq"][0]), float(r["MonostaticRCSTotal"][0])
-    err = 10 * math.log10(s / mie_rcs(radius, f)) if s > 0 else float("inf")
+    err = 10 * math.log10(s / mie_rcs(radius, f, eps)) if s > 0 else float("inf")
     return {"kind": "rcs_db", "value": round(err, 4), "limit": RCS_LIMIT_DB, "ok": abs(err) <= RCS_LIMIT_DB}
 
 
@@ -195,17 +223,22 @@ def _this_system(cores: int) -> str:
 
 class Suite:
     def __init__(self, out: Path, solver: str = "", cores: int = 0, only: list[str] | None = None,
-                 make_reference: bool = False, scaling: bool = True):
+                 make_reference: bool = False, scaling: bool = True, parts: list[str] | None = None,
+                 large: bool = True):
         self.out = out
         self.solver = solver
         self.cores = cores or os.cpu_count() or 1
-        self.tests = [t for t in ALL_TESTS if not only or t[0] in only]
+        self.parts = [k for k in PART_IDS if not parts or k in parts]
+        self.tests = [t for t in ALL_TESTS if (not only or t[0] in only) and PART_OF[t[0]] in self.parts
+                      and (large or t[0] not in LARGE_IDS)]
+        self.parts = [k for k in self.parts if any(PART_OF[t[0]] == k for t in self.tests)]
         self.make_reference = make_reference
-        self.scaling = scaling and (not only or SCALING_TEST in only)
+        self.scaling = scaling and PART_OF[SCALING_TEST] in self.parts and (not only or SCALING_TEST in only)
         self.ref = reference()
         self.t0 = time.time()
         self.result = {"schema": SCHEMA, "suite": SUITE, "run_id": uuid.uuid4().hex, "cores": self.cores,
-                       "solver": solver or "Auto", "started": time.time(), "complete": False, "tests": []}
+                       "solver": solver or "Auto", "started": time.time(), "complete": False,
+                       "parts_run": self.parts, "tests": []}
 
     def aborted(self) -> bool:
         return (self.out / "ABORT").exists()
@@ -255,7 +288,7 @@ class Suite:
             row = {"id": tid, "file_hash": file_hash(src),
                    **{key: s[key] for key in ("total", "start", "mesh", "adaptive", "sweep", "passes", "tets",
                                               "memory_mb", "converged", "notes")}}
-            if tid == "sphere_rcs":
+            if tid in MIE_TESTS:
                 try:
                     row["check"] = check_rcs(folder, path, design)
                 except Exception as ex:  # noqa: BLE001
@@ -285,7 +318,7 @@ class Suite:
                 new_ref.setdefault("memory_mb", {})[tid] = round(s["memory_mb"])
                 if "rcs_dbsm" in row["check"]:
                     new_ref.setdefault("rcs_dbsm", {})[tid] = row["check"]["rcs_dbsm"]
-                if tid not in ("sphere_rcs", "drone_rcs") and sweep:
+                if tid not in MIE_TESTS + ("drone_rcs",) and sweep:
                     new_ref["sparams"][tid] = sparams_points(folder, sweep)
             ref_t = (self.ref.get("times") or {}).get(tid)
             row["score"] = score(ref_t, s["total"]) if row["counted"] else None
@@ -302,6 +335,11 @@ class Suite:
         if new_ref is not None:
             (self.out / "reference.json").write_text(json.dumps(new_ref, indent=1), encoding="utf-8")
         ResultStore(self.out).write_json("status.json", {"state": "done", "finished": time.time()})
+        for k, title, _ids in PARTS:
+            part = self.result["parts"].get(k)
+            if part:
+                log(f"{title} score: {part['score']}" if part["score"] else
+                    f"{title}: no score, {part['counted']} of {part['tests']} tests count")
         if self.result.get("score"):
             log(f"{SUITE} score: {self.result['score']}")
         emit("progress", value=100, text="Done")
@@ -363,14 +401,24 @@ class Suite:
 
 
 def summarize(result: dict) -> None:
-    """Overall score and completeness of a suite result: the geometric mean of the counted tests of the overall
-    score; complete when every one of them ran and counts. A test that does not count (memory guard, another
-    solver than asked, not converged, wrong result) is left out and marked with its reason."""
-    core = [t for t in result.get("tests", []) if t.get("id") in TEST_IDS]
-    counted = [t for t in core if t.get("score")]
-    result["counted"] = len(counted)
-    result["complete"] = len(core) == len(TEST_IDS) and len(counted) == len(TEST_IDS)
-    result["score"] = overall([t["score"] for t in counted]) if counted else None
+    """Scores and completeness of a suite result. Per part (RF, RCS): the geometric mean of its tests, only
+    when every one of them ran and counts. Overall: the geometric mean of the part scores, only when every
+    part ran and has a score (complete). A test that does not count (memory guard, another solver than asked,
+    not converged, wrong result) has no score and keeps its reason; the other parts stay valid."""
+    tests = {t.get("id"): t for t in result.get("tests", [])}
+    run = [k for k in PART_IDS if k in (result.get("parts_run")
+                                        or [PART_OF.get(i) for i in tests if i in TEST_IDS])]
+    parts = {}
+    for k, _title, ids in PARTS:
+        if k not in run:
+            continue
+        scores = [(tests.get(i) or {}).get("score") for i in ids]
+        counted = sum(1 for x in scores if x)
+        parts[k] = {"score": overall(scores), "counted": counted, "tests": len(ids), "complete": counted == len(ids)}
+    result["parts"] = parts
+    result["counted"] = sum(p["counted"] for p in parts.values())
+    result["complete"] = len(parts) == len(PARTS) and all(p["complete"] for p in parts.values())
+    result["score"] = overall([p["score"] for p in parts.values()]) if result["complete"] else None
 
 
 def too_large(tid: str, ref: dict) -> str:
@@ -440,7 +488,8 @@ def site_spec() -> dict:
     return {SUITE: {"tests": tests, "scaling_test": SCALING_TEST, "single_core": ref.get("single_core") or {},
                     "titles": {t[0]: t[1] for t in ALL_TESTS},
                     "about": {t[0]: t[5] for t in ALL_TESTS}, "reference": REFERENCE_SYSTEM,
-                    "reference_large": REFERENCE_SYSTEM_LARGE}}
+                    "reference_large": REFERENCE_SYSTEM_LARGE,
+                    "parts": [{"id": k, "title": t, "tests": ids} for k, t, ids in PARTS]}}
 
 
 def main() -> int:
@@ -451,7 +500,7 @@ def main() -> int:
             pass
     args = sys.argv[1:]
     opts = {}
-    for key in ("--solver", "--cores", "--only"):
+    for key in ("--solver", "--cores", "--only", "--parts"):
         if key in args:
             i = args.index(key)
             opts[key] = args[i + 1]
@@ -462,6 +511,9 @@ def main() -> int:
     make_ref = "--make-reference" in args
     if make_ref:
         args.remove("--make-reference")
+    large = "--no-large" not in args
+    if not large:
+        args.remove("--no-large")
     if len(args) != 1:
         print(__doc__, file=sys.stderr)
         return 2
@@ -473,7 +525,13 @@ def main() -> int:
         if opts.get("--solver") in EXCLUDED_SOLVERS:
             print(f"{opts['--solver']} is not offered by {SUITE}: far too slow for these models", file=sys.stderr)
             return 2
-        ok = Suite(out, opts.get("--solver", ""), int(opts.get("--cores", 0) or 0), only, make_ref, scaling).run()
+        parts = [x.strip() for x in opts.get("--parts", "").split(",") if x.strip()]
+        bad = [x for x in parts if x not in PART_IDS]
+        if bad:
+            print(f"Unknown part {', '.join(bad)}; the parts are {', '.join(PART_IDS)}", file=sys.stderr)
+            return 2
+        ok = Suite(out, opts.get("--solver", ""), int(opts.get("--cores", 0) or 0), only, make_ref, scaling,
+                   parts, large).run()
         return 0 if ok else 3
     except Exception as ex:  # noqa: BLE001
         emit("log", level="error", msg=f"{type(ex).__name__}: {ex}")

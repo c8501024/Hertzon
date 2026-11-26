@@ -8,7 +8,8 @@
   "patch_thin": 135.69,
   "waveguide": 56.71,
   "sphere_rcs": 26.38,
-  "drone_rcs": 281.78
+  "drone_rcs": 281.78,
+  "dielectric_rcs": 25.64
  },
  "tets": {
   "microstrip": 14306,
@@ -17,7 +18,8 @@
   "patch_thin": 31387,
   "waveguide": 13029,
   "sphere_rcs": 16013,
-  "drone_rcs": 183471
+  "drone_rcs": 183471,
+  "dielectric_rcs": 13665
  },
  "sparams": {
   "microstrip": {
@@ -1000,7 +1002,8 @@
   "hairpin": 207.0
  },
  "memory_mb": {
-  "drone_rcs": 37077
+  "drone_rcs": 37077,
+  "dielectric_rcs": 3038
  },
  "rcs_dbsm": {
   "drone_rcs": -7.513

@@ -7,10 +7,11 @@ the GitHub release notes.
 
 ### Added
 - **Hertzon Bench: one score for your computer, and a public site to compare it** (Diupth, #564). Tools > Solver
-  Benchmark has a new first tab that solves a fixed suite of six models (microstrip, hairpin filter, patch antenna,
-  patch on 0.1 mm, waveguide post, sphere RCS) with all cores, checks every result against a reference (the
-  S-parameters, the exact Mie solution for the sphere) and gives a score per test and an overall score (geometric
-  mean; 1000 = the reference computer). **Submit Results** shows exactly what would be sent, asks for consent and
+  Benchmark has a new first tab that solves a fixed suite of seven models in two parts, **RF** (microstrip, hairpin
+  filter, patch antenna, patch on 0.1 mm, waveguide post) and **RCS** (PEC sphere, dielectric sphere), with all
+  cores, checks every result against a reference (the S-parameters, the exact Mie solution for the spheres) and
+  gives a score per test, an RF and an RCS score and an overall score (geometric means; 1000 = the reference
+  computer). The parts can be run on their own. **Submit Results** shows exactly what would be sent, asks for consent and
   sends it with one click to the comparison site, which ranks results by system, operating system, architecture,
   solver and Hertzon version and shows per version how the same hardware changed. Sent are the times, checks and
   scores and a description of the computer on Windows, macOS and Linux (device model, CPU, cores, clock, memory
@@ -18,7 +19,8 @@ the GitHub release notes.
   user or computer name, paths or projects. The site's code is in `bench-site/` (Cloudflare Pages with a D1
   database). `python -m hertzon.solver.suite OUTDIR` runs the suite without the window.
   A test stopped by the memory guard, ended for lack of memory, solved by another solver than chosen (e.g. no
-  usable GPU) or not converged does not count: it is marked with the reason and the run is marked incomplete.
+  usable GPU) or not converged does not count: it is marked with the reason, its part gets no score and the run no
+  overall score, while the other part keeps its score.
   An optional large test (Drone RCS) runs only with enough memory and has its own score. The core scaling of the
   hairpin filter (1, 2, 4, ... cores) gives a separate single-core score. SuperLU is not offered in the suite.
 

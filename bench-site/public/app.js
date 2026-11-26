@@ -27,6 +27,7 @@ async function load() {
 function scoreOf(r) {
   if (!state.test) return r.score;
   if (state.test === "single") return r.single_core;
+  if (state.test.startsWith("part:")) return ((r.parts || {})[state.test.slice(5)] || {}).score;
   const t = (r.tests || []).find((x) => x.id === state.test);
   return t ? t.score : null;
 }
@@ -40,7 +41,6 @@ function filtered() {
     && (!state.solver || r.solver === state.solver)
     && (!state.device || r.device_type === state.device)
     && (!q || `${r.cpu} ${r.gpu} ${r.device} ${r.name} ${r.os}`.toLowerCase().includes(q))
-    && (state.test || state.incomplete || r.complete)
     && scoreOf(r));
 }
 
@@ -63,16 +63,19 @@ function options(values, cur, all) {
     .map((v) => `<option ${v === cur ? "selected" : ""}>${esc(v)}</option>`).join("");
 }
 
-function coreCount(r) {
-  const core = SPEC[r.suite].tests.filter((t) => !t.large).map((t) => t.id);
-  return [(r.tests || []).filter((t) => core.includes(t.id) && t.score).length, core.length];
+// what a run lacks for the overall score: parts not run, or parts in which a test did not count
+function missingParts(r) {
+  return (SPEC[r.suite].parts || []).map((p) => {
+    const x = (r.parts || {})[p.id];
+    return !x ? `${p.title} not run` : !x.score ? `${p.title}: ${x.counted} of ${x.tests} tests count` : "";
+  }).filter(Boolean);
 }
 
 function systemCell(r) {
   const sub = [r.device, r.gpu].filter(Boolean).join(" · ");
-  const [n, m] = coreCount(r);
+  const miss = r.complete ? [] : missingParts(r);
   return `<td class="wrap"><b>${esc(r.cpu)}</b>${r.name ? `<span class="tag">${esc(r.name)}</span>` : ""}
-    ${!r.complete ? `<span class="tag warn" title="Tests that did not count are left out of the score">${n} of ${m} tests</span>` : ""}
+    ${miss.map((m) => `<span class="tag warn" title="A part has a score only when every one of its tests counts">${esc(m)}</span>`).join("")}
     ${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</td>`;
 }
 
@@ -86,7 +89,7 @@ function rankingTable(rows) {
   const th = (k, t, cls = "") => `<th class="sort ${cls}" data-sort="${k}">${t}${state.sort === k ? " ▾" : ""}</th>`;
   return `<div class="tbl-wrap"><table><thead><tr><th class="num">#</th><th>System</th><th class="opt">OS</th>
     ${th("memory", "Memory", "num opt")}${th("bandwidth", "Bandwidth", "num opt")}${th("cores", "Cores", "num opt")}<th class="opt">Solver</th>
-    ${th("version", "Hertzon")}${th("score", state.test === "single" ? "Single-core score" : state.test ? `Score: ${esc(SPEC[state.suite].titles[state.test])}` : "Score")}
+    ${th("version", "Hertzon")}${th("score", scoreTitle())}
     <th class="num">${state.group ? "Runs" : "Date"}</th></tr></thead><tbody>
     ${g.map((r, i) => `<tr>
       <td class="num">${i + 1}</td>${systemCell(r)}
@@ -101,18 +104,25 @@ function rankingTable(rows) {
     </tbody></table></div>`;
 }
 
+function scoreTitle() {
+  const spec = SPEC[state.suite];
+  if (!state.test) return "Score";
+  if (state.test === "single") return "Single-core score";
+  if (state.test.startsWith("part:")) return `${esc((spec.parts.find((p) => "part:" + p.id === state.test) || {}).title || "")} score`;
+  return `Score: ${esc(spec.titles[state.test])}`;
+}
+
 function filterBar(all) {
   const spec = SPEC[state.suite];
   return `<div class="filters">
     <label>Suite<select data-f="suite">${Object.keys(SPEC).sort().map((s) => `<option ${s === state.suite ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></label>
-    <label>Score<select data-f="test"><option value="">Overall (all cores)</option><option value="single" ${state.test === "single" ? "selected" : ""}>Single-core</option>${spec.tests.map((t) => `<option value="${t.id}" ${t.id === state.test ? "selected" : ""}>${esc(spec.titles[t.id])}</option>`).join("")}</select></label>
+    <label>Score<select data-f="test"><option value="">Overall (all cores)</option>${(spec.parts || []).map((p) => `<option value="part:${p.id}" ${"part:" + p.id === state.test ? "selected" : ""}>${esc(p.title)}</option>`).join("")}<option value="single" ${state.test === "single" ? "selected" : ""}>Single-core</option>${spec.tests.map((t) => `<option value="${t.id}" ${t.id === state.test ? "selected" : ""}>${esc(spec.titles[t.id])}</option>`).join("")}</select></label>
     <label>Hertzon<select data-f="version">${options(all.map((r) => r.hertzon).sort(vcmp).reverse(), state.version, "All versions")}</select></label>
     <label>OS<select data-f="platform">${options(all.map((r) => r.platform), state.platform, "All")}</select></label>
     <label>Architecture<select data-f="arch">${options(all.map((r) => r.arch), state.arch, "All")}</select></label>
     <label>Device<select data-f="device">${options(all.map((r) => r.device_type), state.device, "All")}</select></label>
     <label>Solver<select data-f="solver">${options(all.map((r) => r.solver), state.solver, "All")}</select></label>
     <label>Search<input data-f="q" value="${esc(state.q)}" placeholder="CPU, GPU, device, name"></label>
-    <label>Runs<span class="seg"><button data-inc="0" class="${state.incomplete ? "" : "on"}">Complete</button><button data-inc="1" class="${state.incomplete ? "on" : ""}">Also incomplete</button></span></label>
     <label>Show<span class="seg"><button data-group="1" class="${state.group ? "on" : ""}">Per system</button><button data-group="0" class="${state.group ? "" : "on"}">All runs</button></span></label>
   </div>`;
 }
@@ -125,7 +135,6 @@ function bindFilters(render) {
     render();
     if (focus) { const i = app.querySelector('[data-f="q"]'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
   }));
-  app.querySelectorAll("[data-inc]").forEach((b) => b.addEventListener("click", () => { state.incomplete = b.dataset.inc === "1"; render(); }));
   app.querySelectorAll("[data-group]").forEach((b) => b.addEventListener("click", () => { state.group = b.dataset.group === "1"; render(); }));
   app.querySelectorAll("th[data-sort]").forEach((th) => th.addEventListener("click", () => { state.sort = th.dataset.sort; render(); }));
 }
@@ -134,11 +143,11 @@ function viewRanking() {
   const all = RESULTS.filter((r) => r.suite === state.suite);
   const rows = filtered();
   app.innerHTML = `<h1>${esc(state.suite)}</h1>
-    <p class="lead">How fast computers solve ${SPEC[state.suite].tests.filter((t) => !t.large).length} fixed FEM models with Hertzon
-    (plus large tests with their own score).
+    <p class="lead">How fast computers solve ${SPEC[state.suite].tests.filter((t) => !t.large).length} fixed FEM models with Hertzon,
+    in two parts with their own score (${(SPEC[state.suite].parts || []).map((p) => esc(p.title)).join(" and ")}), plus large tests with their own score.
     Higher is better: 1000 is the reference computer (${esc(SPEC[state.suite].reference)}), 2000 is twice as fast.
     ${state.group ? "One row per system: the median of its runs." : ""}
-    ${state.incomplete || state.test ? "" : "Only runs in which every test counted; a test that hit the memory guard, fell back to another solver or did not converge is left out of a run's score."}
+    A part has a score only when every one of its tests counted, the overall score only when every part has one.
     ${all.length} results from
     ${new Set(all.map((r) => r.hw_key)).size} systems. <a href="#/about">How it is measured</a></p>
     ${filterBar(all)}${rankingTable(rows)}`;
@@ -158,13 +167,15 @@ async function viewResult(id) {
   const s = d.system || {}, sw = s.software || {};
   const same = RESULTS.filter((x) => x.suite === d.suite && x.id !== d.id);
   const me = RESULTS.find((x) => x.id === d.id);
-  const better = me ? same.filter((x) => x.score > d.score).length : 0;
+  const better = me && d.score ? same.filter((x) => x.score > d.score).length : 0;
+  const miss = d.complete === false ? missingParts(d) : [];
   app.innerHTML = `<p class="sub"><a href="#/">Ranking</a> › Result ${esc(d.id)}</p>
     <div class="cards">
-      <div class="card"><div class="sub">${esc(d.suite)} score</div><div class="big">${fmt(d.score)}</div>
-        <p class="sub">${me ? `Rank ${better + 1} of ${same.length + 1} results` : ""} · submitted ${date(d.created)}
+      <div class="card"><div class="sub">${esc(d.suite)} score</div><div class="big">${d.score ? fmt(d.score) : "–"}</div>
+        <p>${(spec.parts || []).map((p) => { const x = (d.parts || {})[p.id]; return `${esc(p.title)} <b>${x && x.score ? fmt(x.score) : "–"}</b>`; }).join(" · ")}</p>
+        <p class="sub">${me && d.score ? `Rank ${better + 1} of ${same.length + 1} results · ` : ""}submitted ${date(d.created)}
         ${d.name ? ` by ${esc(d.name)}` : ""}</p>
-        ${d.complete === false ? `<p class="bad">Incomplete: ${d.counted} of ${spec.tests.filter((t) => !t.large).length} tests count; the score is their geometric mean. The reasons are in the table below.</p>` : ""}${d.comment ? `<p>${esc(d.comment)}</p>` : ""}
+        ${miss.length ? `<p class="bad">No overall score: ${esc(miss.join("; "))}. A part has a score only when every one of its tests counts; the reasons are in the table below.</p>` : ""}${d.comment ? `<p>${esc(d.comment)}</p>` : ""}
         ${me ? `<p><a href="#/system/${me.system_key}">All runs of this system</a></p>` : ""}</div>
       ${card("System", [["Device", s.device], ["Type", s.device_type], ["CPU", s.cpu],
         ["Cores", s.physical_cores ? `${s.physical_cores} physical, ${s.logical_cores} logical` : s.logical_cores],
@@ -211,19 +222,20 @@ function scalingHtml(d, spec) {
 function viewSystem(key) {
   const runs = RESULTS.filter((r) => r.system_key === key).sort((a, b) => b.created - a.created);
   if (!runs.length) { app.innerHTML = `<div class="empty">No results for this system.</div>`; return; }
-  const r0 = runs[0], s = runs.map((r) => r.score);
+  const r0 = runs[0], s = runs.map((r) => r.score).filter(Boolean);
   const other = RESULTS.filter((r) => r.hw_key === r0.hw_key && r.system_key !== key);
   const byVer = new Map();
-  for (const r of [...runs, ...other]) { if (!byVer.has(r.hertzon)) byVer.set(r.hertzon, []); byVer.get(r.hertzon).push(r.score); }
+  for (const r of [...runs, ...other].filter((x) => x.score)) { if (!byVer.has(r.hertzon)) byVer.set(r.hertzon, []); byVer.get(r.hertzon).push(r.score); }
   app.innerHTML = `<p class="sub"><a href="#/">Ranking</a> › System</p>
     <h1>${esc(r0.cpu)}</h1><p class="lead">${esc([r0.device, r0.gpu, r0.os, r0.memory_gb && r0.memory_gb + " GB", `${r0.cores} cores`, r0.solver].filter(Boolean).join(" · "))}</p>
-    <div class="cards"><div class="card"><div class="sub">Median of ${runs.length} run(s), Hertzon ${esc(r0.hertzon)}</div><div class="big">${fmt(median(s))}</div>
-      <p class="sub">best ${fmt(Math.max(...s))}, lowest ${fmt(Math.min(...s))}, spread ${fmt(100 * (Math.max(...s) - Math.min(...s)) / median(s))} %</p></div>
+    <div class="cards"><div class="card"><div class="sub">Median of ${runs.length} run(s), Hertzon ${esc(r0.hertzon)}</div><div class="big">${s.length ? fmt(median(s)) : "–"}</div>
+      ${s.length ? `<p class="sub">best ${fmt(Math.max(...s))}, lowest ${fmt(Math.min(...s))}, spread ${fmt(100 * (Math.max(...s) - Math.min(...s)) / median(s))} %</p>` : `<p class="sub">no run with an overall score</p>`}</div>
       ${byVer.size > 1 ? `<div class="card"><h3>Same hardware, other Hertzon versions</h3><dl class="kv">${[...byVer.entries()].sort((a, b) => vcmp(b[0], a[0]))
         .map(([v, sc]) => `<dt>${esc(v)}</dt><dd>${fmt(median(sc))} <span class="sub">(${sc.length} run${sc.length > 1 ? "s" : ""})</span></dd>`).join("")}</dl></div>` : ""}</div>
-    <h2>Runs</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Name</th>${SPEC[r0.suite].tests.map((t) => `<th class="num">${esc(SPEC[r0.suite].titles[t.id])}</th>`).join("")}<th class="num">Score</th></tr></thead><tbody>
+    <h2>Runs</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Name</th>${SPEC[r0.suite].tests.map((t) => `<th class="num">${esc(SPEC[r0.suite].titles[t.id])}</th>`).join("")}${(SPEC[r0.suite].parts || []).map((p) => `<th class="num">${esc(p.title)}</th>`).join("")}<th class="num">Score</th></tr></thead><tbody>
     ${runs.map((r) => `<tr><td><a href="#/result/${r.id}">${date(r.created)}</a></td><td>${esc(r.name)}</td>
       ${SPEC[r0.suite].tests.map((t) => { const x = (r.tests || []).find((y) => y.id === t.id); return `<td class="num">${x ? fmt(x.score) : ""}</td>`; }).join("")}
+      ${(SPEC[r0.suite].parts || []).map((p) => `<td class="num">${fmt(((r.parts || {})[p.id] || {}).score)}</td>`).join("")}
       <td class="num"><b>${fmt(r.score)}</b></td></tr>`).join("")}</tbody></table></div>`;
 }
 
@@ -241,7 +253,7 @@ async function viewVersions() {
   app.innerHTML = `<h1>Hertzon versions</h1><p class="lead">Every release of Hertzon. Versions with benchmark results link to them,
     with the change against the version before on the same hardware.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Released</th><th class="num">Results</th><th class="num">Median score</th><th></th></tr></thead><tbody>
-    ${releases.map((x) => { const n = count.get(x.v) || 0; const sc = RESULTS.filter((r) => r.hertzon === x.v && r.suite === state.suite).map((r) => r.score);
+    ${releases.map((x) => { const n = count.get(x.v) || 0; const sc = RESULTS.filter((r) => r.hertzon === x.v && r.suite === state.suite && r.score).map((r) => r.score);
       return `<tr><td>${n ? `<a href="#/version/${esc(x.v)}"><b>${esc(x.v)}</b></a>` : esc(x.v)}</td><td>${esc(x.date)}</td>
       <td class="num">${n || '<span class="muted">none</span>'}</td><td class="num">${sc.length ? fmt(median(sc)) : ""}</td>
       <td>${x.url ? `<a href="${esc(x.url)}">Release notes</a>` : ""}</td></tr>`; }).join("")}</tbody></table></div>`;
@@ -254,7 +266,7 @@ function viewVersion(v) {
   const prev = older.pop();
   let cmp = "";
   if (prev) {
-    const med = (ver, hw) => { const s = RESULTS.filter((r) => r.hertzon === ver && r.hw_key === hw && r.suite === state.suite).map((r) => r.score); return s.length ? median(s) : null; };
+    const med = (ver, hw) => { const s = RESULTS.filter((r) => r.hertzon === ver && r.hw_key === hw && r.suite === state.suite && r.score).map((r) => r.score); return s.length ? median(s) : null; };
     const hws = [...new Set(here.map((r) => r.hw_key))].map((hw) => ({ r: here.find((x) => x.hw_key === hw), a: med(prev, hw), b: med(v, hw) })).filter((x) => x.a);
     cmp = `<h2>Against ${esc(prev)} on the same hardware</h2>` + (hws.length ? `<div class="tbl-wrap"><table><thead><tr><th>System</th><th>Solver</th>
       <th class="num">${esc(prev)}</th><th class="num">${esc(v)}</th><th class="num">Change</th></tr></thead><tbody>
@@ -280,14 +292,15 @@ function viewAbout() {
   <h2>How it is measured</h2>
   <p>Every test solves its whole setup once (initial mesh, adaptive passes to convergence, frequency sweep or far field) in a fresh
   solver process with all cores and the chosen matrix solver. The result is checked against a reference: the S-parameters,
-  and for the sphere the exact Mie solution. A run with a wrong result gets no score.</p>
+  and for the spheres the exact Mie solution. A run with a wrong result gets no score.</p>
   <p>Score of a test = reference time / measured time × 1000, with the reference computer ${esc(spec.reference)}.
-  The overall score is the geometric mean of the test scores, so no single test dominates. Scores of different suite versions
+  The suite has two parts: ${(spec.parts || []).map((p) => `<b>${esc(p.title)}</b> (${p.tests.map((id) => esc(spec.titles[id])).join(", ")})`).join(" and ")}.
+  A part score is the geometric mean of its test scores, so no single test dominates, and the overall score is the geometric mean
+  of the part scores. Each part can be run on its own. Scores of different suite versions
   are not comparable; between Hertzon versions the suite stays the same, so the versions page shows whether Hertzon got faster.</p>
   <p>A test counts only when it converged with the chosen matrix solver and a correct result. A test stopped by the memory
   guard, ended for lack of memory, solved by another solver than chosen (e.g. no usable GPU) or not converged is left out
-  and marked with the reason; the run is then marked incomplete and the ranking shows only complete runs unless you ask for
-  the others. Large tests run only on computers with enough memory and have their own score (1000 = ${esc(spec.reference_large || "")}). The core scaling solves the
+  and marked with the reason; its part then has no score and the run no overall score, while the other part keeps its score. Large tests run only on computers with enough memory and have their own score (1000 = ${esc(spec.reference_large || "")}). The core scaling solves the
   ${esc(spec.titles[spec.scaling_test] || "")} with 1, 2, 4, ... cores; its 1-core time gives the single-core score.</p>
   <p>Several submissions of the same computer are welcome; the ranking shows their median. The memory bandwidth is measured
   by Hertzon (copying a 256 MB array on one core), because a sparse direct solver depends on it.</p>

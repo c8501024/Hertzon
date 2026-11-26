@@ -25,7 +25,7 @@ def test_reference_covers_every_test():
     for tid in suite.TEST_IDS:
         assert ref["times"][tid] > 0, tid
         assert ref["tets"][tid] > 0, tid
-        if tid != "sphere_rcs":
+        if tid not in suite.MIE_TESTS:
             assert ref["sparams"][tid]["freq"], tid
     assert ref["single_core"][suite.SCALING_TEST] > ref["times"][suite.SCALING_TEST]
 
@@ -44,6 +44,10 @@ def test_mie_reference():
     a = 1.0
     s = suite.mie_rcs(a, 50 * 299792458.0 / (2 * math.pi))      # ka = 50
     assert abs(s / (math.pi * a * a) - 1) < 0.05
+    # a small dielectric sphere: Rayleigh, 4 pi k^4 a^6 |(er - 1) / (er + 2)|^2
+    k, er = 0.05, 4.0
+    s = suite.mie_rcs(a, k * 299792458.0 / (2 * math.pi), er)
+    assert abs(s / (4 * math.pi * k ** 4 * a ** 6 * ((er - 1) / (er + 2)) ** 2) - 1) < 0.01
 
 
 def _result():
@@ -51,8 +55,10 @@ def _result():
               "passes": 4, "tets": 1000, "memory_mb": 500.0, "converged": True, "notes": ["n"],
               "check": {"kind": "ds", "value": 0.001, "ok": True}, "score": 1000, "counted": True}
              for t in suite.TEST_IDS]
-    return {"schema": 1, "suite": suite.SUITE, "run_id": "a" * 32, "cores": 4, "solver": "Auto", "score": 1000,
-            "complete": True, "finished": 1.7e9, "tests": tests}
+    res = {"schema": 1, "suite": suite.SUITE, "run_id": "a" * 32, "cores": 4, "solver": "Auto",
+           "finished": 1.7e9, "parts_run": list(suite.PART_IDS), "tests": tests}
+    suite.summarize(res)
+    return res
 
 
 def test_payload_has_no_paths_or_names():
@@ -71,8 +77,15 @@ def test_can_submit():
     r["tests"] = r["tests"][:2]
     assert bench_submit.can_submit(r)
     r = _result()
-    r["score"] = None                           # no test counts
+    for t in r["tests"]:                         # no test counts
+        t.update(score=None, counted=False, reason="x")
+    suite.summarize(r)
     assert bench_submit.can_submit(r)
+    r = _result()                                # only the RCS part ran
+    r["tests"] = [t for t in r["tests"] if suite.PART_OF[t["id"]] == "rcs"]
+    r["parts_run"] = ["rcs"]
+    suite.summarize(r)
+    assert bench_submit.can_submit(r) == "" and r["score"] is None and r["parts"]["rcs"]["score"] == 1000
 
 
 def test_sysinfo_is_anonymous():
@@ -166,11 +179,16 @@ def test_memory_guard_and_fallbacks_do_not_count(tmp_path):
     assert suite.failure_reason(tmp_path, "solver ended with code -9").startswith("too little memory")
 
     res = _result()
-    res["tests"][0].update(score=None, counted=False, reason="too little memory: ...")
+    assert res["complete"] and res["score"] == 1000 and res["parts"]["rf"]["score"] == 1000
+    rcs = next(t for t in res["tests"] if t["id"] == "dielectric_rcs")
+    rcs.update(score=None, counted=False, reason="too little memory: ...")
     suite.summarize(res)
-    assert not res["complete"] and res["counted"] == len(suite.TEST_IDS) - 1 and res["score"] == 1000
-    assert bench_submit.can_submit(res) == ""          # submitted, marked incomplete
-    assert bench_submit.payload(res, {})["complete"] is False
+    # a test that does not count: its part has no score, nor the run; the other part keeps its score
+    assert not res["complete"] and res["counted"] == len(suite.TEST_IDS) - 1 and res["score"] is None
+    assert res["parts"]["rcs"]["score"] is None and res["parts"]["rf"]["score"] == 1000
+    assert bench_submit.can_submit(res) == ""          # submitted with the RF score
+    data = bench_submit.payload(res, {})
+    assert data["complete"] is False and data["parts"]["rf"]["score"] == 1000
 
 
 def test_large_test_needs_reference_and_memory(monkeypatch):
@@ -185,3 +203,13 @@ def test_large_test_needs_reference_and_memory(monkeypatch):
 
 def test_superlu_not_offered():
     assert "SuperLU" in suite.EXCLUDED_SOLVERS
+
+
+def test_parts_can_run_alone(tmp_path):
+    only_rcs = suite.Suite(tmp_path, parts=["rcs"], large=False)
+    assert [t[0] for t in only_rcs.tests] == suite.PARTS[1][2] and not only_rcs.scaling
+    assert only_rcs.result["parts_run"] == ["rcs"]
+    rf = suite.Suite(tmp_path, parts=["rf"])
+    assert [t[0] for t in rf.tests] == suite.PARTS[0][2] and rf.scaling
+    assert "drone_rcs" in [t[0] for t in suite.Suite(tmp_path).tests]
+    assert sorted(i for _k, _t, ids in suite.PARTS for i in ids) == sorted(suite.TEST_IDS)

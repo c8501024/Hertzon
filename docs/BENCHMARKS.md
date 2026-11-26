@@ -8,26 +8,31 @@ own computer to find the best number of cores and sweep processes for it.
 
 ## Hertzon Bench
 
-The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench*, a fixed suite of six models in
-[`examples/benchmark/suite`](../examples/benchmark/suite), each solved once with all cores:
+The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench*, a fixed suite of seven models in
+[`examples/benchmark/suite`](../examples/benchmark/suite) in two parts with their own score, each model solved
+once with all cores:
 
-| Test | What it measures |
-|---|---|
-| Microstrip line | Two lumped ports, first order, 1–6 GHz sweep: start-up and small matrices |
-| Hairpin filter | Three resonators on 0.508 mm, second order, interpolating sweep |
-| Patch antenna | Radiation boundary, far field, broadband 1.2–3.7 GHz sweep |
-| Patch on 0.1 mm | Very thin substrate: the mesh of thin layers |
-| Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
-| Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere |
+| Part | Test | What it measures |
+|---|---|---|
+| RF | Microstrip line | Two lumped ports, first order, 1–6 GHz sweep: start-up and small matrices |
+| RF | Hairpin filter | Three resonators on 0.508 mm, second order, interpolating sweep |
+| RF | Patch antenna | Radiation boundary, far field, broadband 1.2–3.7 GHz sweep |
+| RF | Patch on 0.1 mm | Very thin substrate: the mesh of thin layers |
+| RF | Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
+| RCS | Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere (2 GHz) |
+| RCS | Dielectric sphere RCS | Incident plane wave, lossless dielectric sphere (εr = 4, 1 GHz): fields inside and outside |
+
+The parts can be run on their own (check boxes in the window, `--parts rf` or `--parts rcs` on the command line).
 
 Every result is checked: the S-parameters against the reference run (largest |ΔS| at most 0.05), the RCS of the
-sphere against the exact Mie solution (at most 0.5 dB). A test with a wrong result gets no score. The score of a
-test is the reference time divided by your time, times 1000; the overall score is the geometric mean of the six.
+spheres against the exact Mie solution (at most 0.5 dB). A test with a wrong result gets no score. The score of a
+test is the reference time divided by your time, times 1000; a part score (RF, RCS) is the geometric mean of its
+tests, and the overall score is the geometric mean of the two part scores.
 A test counts only when it converged with the matrix solver that was asked for and its result is correct. When
 the memory guard stopped its refinement, the operating system ended the solver for lack of memory, the solver fell
-back to another one (e.g. no usable GPU for SPARTA) or it did not converge, the test is left out of the score and
-marked with the reason; the overall score is then the geometric mean of the tests that count, and the run is
-marked incomplete (the site lists complete runs unless asked otherwise). SuperLU is not offered: it is far too
+back to another one (e.g. no usable GPU for SPARTA) or it did not converge, the test has no score and is
+marked with the reason. A part has a score only when every one of its tests counts, and the overall score only
+when both parts have one; a failed RCS test leaves the RF score valid, and that result can still be submitted. SuperLU is not offered: it is far too
 slow for these models.
 
 **Large test.** *Drone RCS* (the imported surface of a delta-wing drone, PEC, monostatic RCS) needs much more
