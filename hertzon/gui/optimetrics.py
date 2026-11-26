@@ -556,13 +556,13 @@ class SweepEntryDialog(QDialog):
         self.type = QComboBox()
         self.type.addItems(schema.PARAMETRIC_SWEEP_TYPES)
         self.start, self.stop, self.step = QLineEdit(), QLineEdit(), QLineEdit()
-        self.step_label = QLabel("Step:")
+        self.start_label, self.stop_label, self.step_label = QLabel("Start:"), QLabel("Stop:"), QLabel("Step:")
         self.preview = QLabel()
         self.preview.setWordWrap(True)
         f.addRow("Variable:", self.var)
         f.addRow("Type:", self.type)
-        f.addRow("Start:", self.start)
-        f.addRow("Stop:", self.stop)
+        f.addRow(self.start_label, self.start)
+        f.addRow(self.stop_label, self.stop)
         f.addRow(self.step_label, self.step)
         f.addRow("Values:", self.preview)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -591,16 +591,17 @@ class SweepEntryDialog(QDialog):
     def _type_changed(self, *_):
         t = self.type.currentText()
         single = t == "Single value"
-        self.stop.setEnabled(not single)
-        self.step.setEnabled(not single)
+        self.start_label.setText("Value:" if single else "Start:")
+        for w in (self.stop_label, self.stop, self.step_label, self.step):   # a single value has no stop or step
+            w.setVisible(not single)
         if t == "Linear step":
             self.step_label.setText("Step:")
             a, b, st = (split_value(w.text()) for w in (self.start, self.stop, self.step))
             if a and b and st and a[1] and not st[1]:            # a count from another type: a step in unit
                 self.step.setText(fmt_value(abs(b[0] - a[0]) / 4 or 1.0, a[1]))
-        else:
-            self.step_label.setText({"Linear count": "Count:", "Exponential count": "Count:"}.get(
-                t, "Points per decade:" if t == "Decade count" else "Points per octave:"))
+        elif not single:
+            self.step_label.setText({"Linear count": "Count:", "Exponential count": "Count:",
+                                     "Decade count": "Points per decade:"}.get(t, "Points per octave:"))
             sv = split_value(self.step.text())
             if not sv or sv[1] or sv[0] != int(sv[0]):
                 self.step.setText("5")

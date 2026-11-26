@@ -3,6 +3,13 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Add/Edit Sweep with Single value shows one Value field** (#577). The parametric sweep dialog kept showing
+  Start, Stop and "Points per octave" (greyed out) for a single value; it now shows only Value. The swept value
+  was already right.
+
 ## 0.4.8 (2026-11-26)
 
 ### Changed
