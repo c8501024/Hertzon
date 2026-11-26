@@ -134,3 +134,39 @@ def test_killed_solver_is_reported_as_out_of_memory(code):
 def test_access_violation_is_not_called_out_of_memory():
     assert "access violation" in exit_reason(-1073741819)
     assert exit_reason(1, crashed=False) == ""
+
+
+def test_guard_stops_before_a_pass_that_does_not_fit(monkeypatch, capfd):
+    monkeypatch.setattr(B, "memory_forecast", lambda n, c: (n * 1000.0, 30 * 2 ** 30))
+    assert not B.next_pass_too_large(20000, 30, sweep=True)
+    monkeypatch.setattr(B, "memory_forecast", lambda n, c: (28 * 2 ** 30, 30 * 2 ** 30))
+    assert not B.next_pass_too_large(20000, 30, sweep=False)            # 28 of 30 GB fits without a sweep
+    assert B.next_pass_too_large(20000, 30, sweep=True)                  # x1.25 for the sweep does not
+    assert "Stopping refinement: the next pass and the frequency sweep on its mesh would need about 35.0 GB" \
+        in capfd.readouterr().out
+
+
+def test_plane_wave_passes_stop_when_memory_runs_short(tmp_path, monkeypatch, capfd):
+    """The RCS passes (incident plane wave) have the memory guard of the port driven passes: the refinement
+    stops on the last mesh that fits, and that pass is the solution (drone RCS on 15 GB: ended by the
+    operating system in pass 2 before)."""
+    pytest.importorskip("emerge")
+    import json
+    from hertzon.model.design import Project
+    from hertzon.solver import suite
+    p = Project.load(str(suite.SUITE_DIR / "sphere_rcs.hzn"))
+    tid, _t, _f, design, setup, _w = next(t for t in suite.TESTS if t[0] == "sphere_rcs")
+    d = p.design(design)
+    st = d.setup(setup)
+    st.props.update(MaximumPasses="4", SaveFields="False")
+    first = {}
+
+    def forecast(n, c):            # the first pass fits, a refined one does not
+        first.setdefault("tets", c)
+        return (40 * 2 ** 30 if n > first["tets"] else 2 ** 30), 30 * 2 ** 30
+    monkeypatch.setattr(B, "memory_forecast", forecast)
+    B.Bridge(p, d, st, tmp_path).run()
+    conv = json.loads((tmp_path / "convergence.json").read_text())
+    assert len(conv["passes"]) == 1 and not conv["converged"]
+    assert "Stopping refinement: the next pass would need about" in capfd.readouterr().out
+    assert (tmp_path / f"farfield_{d.spheres[0].name}_LastAdaptive.npz").exists()
