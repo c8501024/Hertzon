@@ -101,6 +101,7 @@ Legend: **✔** implemented and tested · **◐** implemented with limitations �
 | Solver: Auto / Direct (PARDISO, MUMPS, UMFPACK, SuperLU) | ✔ (Auto: PARDISO for large problems) |
 | Solver: SPARTA (GPU / CPU), PARDISO + SPARTA sweep | ✔ optional, offered by the installers or Tools > Options > Install SPARTA; sweeps with SPARTA solve one frequency at a time |
 | Solver benchmark: core scaling and solver comparison on the same mesh | ✔ Tools > Solver Benchmark |
+| Hertzon Bench: fixed suite with one score, submitted to a public comparison site | ✔ Tools > Solver Benchmark > Hertzon Bench |
 | Save fields | ✔ |
 | Eigenmode setup (min frequency, number of modes) | ✔ (the search climbs from the minimum frequency until the wanted number of modes is found; eigenfrequencies and Q in Solution Data and as Results > Create Eigenmode Parameters Report > Data Table; field plots per mode, values relative) |
 

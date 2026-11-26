@@ -1458,6 +1458,9 @@ limits and the checks are in [CIRCUIT.md](CIRCUIT.md#circuit-from-a-3d-design).
   shows what is implemented.
 * **Solve on** in the status bar sends the analyses to another computer in your network or to a cloud
   server that Hertzon creates for the session (experimental, [REMOTE.md](REMOTE.md)).
+* **Tools > Solver Benchmark > Hertzon Bench** solves a fixed suite of six models and gives your computer one
+  score; **Submit Results** compares it online with other computers and Hertzon versions
+  ([BENCHMARKS.md](BENCHMARKS.md#hertzon-bench)).
 * **Tools > Solver Benchmark** times the projects of `examples/benchmark/scaling` on your computer and
   suggests the number of cores and sweep processes; its *Solver Comparison* tab times the matrix solvers
   (e.g. PARDISO, SPARTA on the CPU and on the GPU) with all cores, optionally also with parallel frequencies

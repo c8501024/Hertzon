@@ -1,0 +1,453 @@
+{
+ "name": "HairpinFilter",
+ "designs": [
+  {
+   "name": "Hairpin_N3",
+   "units": "mm",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Auto Open - Filter",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "RadiatingStructure": "False"
+   },
+   "variables": {
+    "h": "0.508mm",
+    "t_cu": "35um",
+    "Wsub": "23mm",
+    "wf": "1.0814mm",
+    "L": "36.6324mm",
+    "w": "1.0814mm",
+    "b": "1.5mm",
+    "g": "0.45mm",
+    "yP": "0mm",
+    "M": "0.65",
+    "dmin": "0.01mm",
+    "wo": "b+2*w",
+    "Me": "min(M, 1-dmin/(sqrt(2)*w), (wo/2-dmin)/(2*w))",
+    "cut": "2*Me*w",
+    "dep": "max(w, cut)",
+    "s": "(L-b-2*dep)/2",
+    "pitch": "wo+g",
+    "xe": "(3*wo+2*g)/2",
+    "ycap": "max(0mm, s/2-wf/2-dmin)",
+    "yt": "max(-ycap, min(ycap, yP))"
+   },
+   "objects": [
+    {
+     "name": "Substrate",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-Wsub/2,-Wsub/2,0",
+        "XSize": "Wsub",
+        "YSize": "Wsub",
+        "ZSize": "h"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "Rogers RO4350B (tm)",
+     "solve_inside": true,
+     "model": true,
+     "color": "#6a7f3a",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Ground",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-Wsub/2,-Wsub/2,0",
+        "Axis": "Z",
+        "XSize": "Wsub",
+        "YSize": "Wsub",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Hairpin1",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-1*pitch+(-wo/2),(s/2),h;-1*pitch+(-wo/2),(-s/2-dep+cut),h;-1*pitch+(-wo/2+cut),(-s/2-dep),h;-1*pitch+(wo/2-cut),(-s/2-dep),h;-1*pitch+(wo/2),(-s/2-dep+cut),h;-1*pitch+(wo/2),(s/2),h;-1*pitch+(wo/2-w),(s/2),h;-1*pitch+(wo/2-w),(-s/2-dep+w),h;-1*pitch+(-wo/2+w),(-s/2-dep+w),h;-1*pitch+(-wo/2+w),(s/2),h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Feed1",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Hairpin2",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "(-wo/2),-(s/2),h;(-wo/2+w),-(s/2),h;(-wo/2+w),-(-s/2-dep+w),h;(wo/2-w),-(-s/2-dep+w),h;(wo/2-w),-(s/2),h;(wo/2),-(s/2),h;(wo/2),-(-s/2-dep+cut),h;(wo/2-cut),-(-s/2-dep),h;(-wo/2+cut),-(-s/2-dep),h;(-wo/2),-(-s/2-dep+cut),h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Hairpin3",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "1*pitch+(-wo/2),(s/2),h;1*pitch+(-wo/2),(-s/2-dep+cut),h;1*pitch+(-wo/2+cut),(-s/2-dep),h;1*pitch+(wo/2-cut),(-s/2-dep),h;1*pitch+(wo/2),(-s/2-dep+cut),h;1*pitch+(wo/2),(s/2),h;1*pitch+(wo/2-w),(s/2),h;1*pitch+(wo/2-w),(-s/2-dep+w),h;1*pitch+(-wo/2+w),(-s/2-dep+w),h;1*pitch+(-wo/2+w),(s/2),h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Feed2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-Wsub/2,yt-wf/2,h",
+        "Axis": "Z",
+        "XSize": "Wsub/2-xe+w/2",
+        "YSize": "wf",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Hairpin1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Feed2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "xe-w/2,yt-wf/2,h",
+        "Axis": "Z",
+        "XSize": "Wsub/2-xe+w/2",
+        "YSize": "wf",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Hairpin3",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-Wsub/2,yt-wf/2,0",
+        "Axis": "X",
+        "XSize": "1",
+        "YSize": "wf",
+        "ZSize": "h"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Port2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "Wsub/2,yt-wf/2,0",
+        "Axis": "X",
+        "XSize": "1",
+        "YSize": "wf",
+        "ZSize": "h"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [
+    {
+     "name": "Copper_Top",
+     "kind": "Finite Conductivity",
+     "props": {
+      "UseMaterial": "True",
+      "Material": "copper",
+      "Conductivity": "58000000",
+      "Permeability": "1",
+      "Roughness": "0um",
+      "UseThickness": "True",
+      "Thickness": "t_cu",
+      "TwoSided": "True"
+     },
+     "faces": [],
+     "objects": [
+      "Hairpin1",
+      "Hairpin2",
+      "Hairpin3"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Copper_Ground",
+     "kind": "Finite Conductivity",
+     "props": {
+      "UseMaterial": "True",
+      "Material": "copper",
+      "Conductivity": "58000000",
+      "Permeability": "1",
+      "Roughness": "0um",
+      "UseThickness": "True",
+      "Thickness": "t_cu",
+      "TwoSided": "True"
+     },
+     "faces": [],
+     "objects": [
+      "Ground"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "excitations": [
+    {
+     "name": "1",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "1",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-Wsub/2,yt,0;-Wsub/2,yt,h"
+     },
+     "faces": [],
+     "objects": [
+      "Port1"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "2",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "2",
+      "Impedance": "50ohm",
+      "IntegrationLine": "Wsub/2,yt,0;Wsub/2,yt,h"
+     },
+     "faces": [],
+     "objects": [
+      "Port2"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [
+    {
+     "name": "Length_Copper",
+     "kind": "Length Based On Selection",
+     "props": {
+      "MaxLength": "w/2",
+      "RestrictElements": "False",
+      "MaxElements": "1000"
+     },
+     "faces": [],
+     "objects": [
+      "Hairpin1",
+      "Hairpin2",
+      "Hairpin3"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "2.45GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "MaximumPasses": "50",
+      "MaximumDeltaS": "0.05",
+      "MaximumDeltaEnergy": "0.1",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "Second Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "False",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Interpolating",
+        "Distribution": "Linear Step",
+        "Start": "2GHz",
+        "Stop": "2.9GHz",
+        "Step": "0.01GHz",
+        "Count": "101",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "1",
+        "MaxSolutions": "40",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": ""
+  }
+ ],
+ "variables": {},
+ "materials": [],
+ "format": "hertzon-project",
+ "version": 2
+}

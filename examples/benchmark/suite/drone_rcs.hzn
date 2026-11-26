@@ -1,0 +1,159 @@
+{
+ "name": "DroneRCS",
+ "designs": [
+  {
+   "name": "Design1",
+   "units": "mm",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Auto Open",
+    "AutoOpenBoundary": "Radiation",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "RadiatingStructure": "False",
+    "Sources": "{\"IncPWave1\": {\"mag\": 1.0, \"phase\": 0.0}}",
+    "FieldType": "Total"
+   },
+   "variables": {},
+   "objects": [
+    {
+     "name": "01_Fiberglass_Skin_1",
+     "history": [
+      {
+       "kind": "Import",
+       "props": {
+        "File": "models/drone_skin.stl",
+        "Body": "0",
+        "Dim": "3",
+        "Simplify": "2551"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "pec",
+     "solve_inside": false,
+     "model": true,
+     "color": "#d6a45c",
+     "transparency": 0.1,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Rectangle1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "2000,1800,0",
+        "Axis": "Z",
+        "XSize": "-4000",
+        "YSize": "-3800"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": false,
+     "model": false,
+     "color": "#8080ff",
+     "transparency": 0.6,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [],
+   "excitations": [
+    {
+     "name": "IncPWave1",
+     "kind": "Incident Plane Wave",
+     "props": {
+      "VectorInput": "Cartesian",
+      "E0Vector": "0,0,1",
+      "KVector": "1,0,0",
+      "Theta": "0deg",
+      "Phi": "0deg",
+      "Polarization": "0deg",
+      "ZeroPhasePosition": "0,0,0",
+      "EMagnitude": "1"
+     },
+     "faces": [],
+     "objects": [],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "1GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "MaximumPasses": "8",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.005",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "Second Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "False",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [],
+     "eigen": false
+    }
+   ],
+   "spheres": [
+    {
+     "name": "Infinite Sphere1",
+     "props": {
+      "CoordinateSystem": "Global",
+      "PhiStart": "0deg",
+      "PhiStop": "360deg",
+      "PhiStep": "10deg",
+      "ThetaStart": "0deg",
+      "ThetaStop": "180deg",
+      "ThetaStep": "10deg"
+     }
+    }
+   ],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": ""
+  }
+ ],
+ "variables": {},
+ "materials": [],
+ "format": "hertzon-project",
+ "version": 2
+}
