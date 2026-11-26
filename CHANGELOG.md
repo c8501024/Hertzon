@@ -22,6 +22,12 @@ the GitHub release notes.
   An optional large test (Drone RCS) runs only with enough memory and has its own score. The core scaling of the
   hairpin filter (1, 2, 4, ... cores) gives a separate single-core score. SuperLU is not offered in the suite.
 
+### Changed
+- **Parametric results: plot a calculation over another calculation.** The "over" list of the Optimization
+  Results of a parametric setup also offers the calculations, e.g. the attenuation of a coaxial line over its
+  simulated port impedance `re(Zo(1))`. The swept variable runs along the curve, other swept variables give the
+  families.
+
 ## 0.4.6 (2026-11-25)
 
 ### Added
