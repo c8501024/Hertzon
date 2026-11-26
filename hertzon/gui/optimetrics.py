@@ -449,8 +449,7 @@ class OptimizationResults(QDialog):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
-        split.addWidget(self.table)
-        lay.addWidget(split, 1)
+        lay.addWidget(self.table, 1)
         bl = QHBoxLayout()
         self.b_best = QPushButton("Apply Best to Design")
         self.b_sel = QPushButton("Apply Selected to Design")
@@ -634,9 +633,9 @@ class SweepEntryDialog(QDialog):
 
 
 class ParametricDialog(QDialog):
-    """Setup Sweep Analysis: Sweep Definitions, Table, General, Calculations and Options tabs."""
+    """Setup Sweep Analysis: Sweep Definitions, Table, General and Options tabs (the results are plotted in
+    Results > Create Report with Families)."""
 
-    CALC_COLUMNS = ["Calculation", "Solution", "Function", "Start", "Stop"]
 
     def __init__(self, parent, doc, ps, on_apply=None, original=None):
         super().__init__(parent)
@@ -714,30 +713,6 @@ class ParametricDialog(QDialog):
         gl.addWidget(self.setups)
         self.tabs.addTab(g, "General")
 
-        # ---- calculations ----
-        c = QWidget()
-        cl = QVBoxLayout(c)
-        self.calcs = QTableWidget(0, len(self.CALC_COLUMNS))
-        self.calcs.setHorizontalHeaderLabels(self.CALC_COLUMNS)
-        self.calcs.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.calcs.verticalHeader().setVisible(False)
-        self.calcs.setColumnWidth(1, 190)
-        for row in ps.calcs:
-            self._add_calc(row)
-        cl.addWidget(self.calcs)
-        bl = QHBoxLayout()
-        for txt, fn in (("Add Calculation", lambda: self._add_calc()), ("Remove", self._remove_calc)):
-            b = QPushButton(txt)
-            b.clicked.connect(fn)
-            bl.addWidget(b)
-        bl.addStretch(1)
-        cl.addLayout(bl)
-        hint = QLabel("Calculation: a report expression such as dB(S(1,1)). Function: Value at Start, or Max / "
-                      "Min / Mean / Peak to Peak between Start and Stop (empty = whole sweep). The results are "
-                      "in the table of View Results and can be plotted over a variable.")
-        hint.setWordWrap(True)
-        cl.addWidget(hint)
-        self.tabs.addTab(c, "Calculations")
 
         # ---- options ----
         self.values = {**schema.defaults(schema.PARAMETRIC), **ps.props}
@@ -844,40 +819,6 @@ class ParametricDialog(QDialog):
                 self.table.setItem(r, c, QTableWidgetItem(row[n]))
         self.table.resizeColumnsToContents()
 
-    # ---- calculations ----
-    def _add_calc(self, row: dict | None = None) -> None:
-        sols = goal_solutions(self.doc.design)
-        row = row or {"calc": "dB(S(1,1))", "solution": sols[0] if sols else "", "func": "Min", "start": "", "stop": ""}
-        r = self.calcs.rowCount()
-        self.calcs.insertRow(r)
-        self.calcs.setItem(r, 0, QTableWidgetItem(row.get("calc", "")))
-        sol = QComboBox()
-        sol.addItems(sols + ([row["solution"]] if row.get("solution") and row["solution"] not in sols else []))
-        sol.setCurrentText(row.get("solution", ""))
-        self.calcs.setCellWidget(r, 1, sol)
-        fn = QComboBox()
-        fn.addItems(schema.CALC_FUNCTIONS)
-        fn.setCurrentText(row.get("func", "Value"))
-        self.calcs.setCellWidget(r, 2, fn)
-        self.calcs.setItem(r, 3, QTableWidgetItem(row.get("start", "")))
-        self.calcs.setItem(r, 4, QTableWidgetItem(row.get("stop", "")))
-
-    def _remove_calc(self) -> None:
-        for r in sorted({i.row() for i in self.calcs.selectedIndexes()}, reverse=True):
-            self.calcs.removeRow(r)
-
-    def _calc_rows(self) -> list[dict]:
-        out = []
-        for r in range(self.calcs.rowCount()):
-            def t(c):
-                it = self.calcs.item(r, c)
-                return it.text().strip() if it else ""
-            if not t(0):
-                continue
-            out.append({"calc": t(0), "solution": self.calcs.cellWidget(r, 1).currentText(),
-                        "func": self.calcs.cellWidget(r, 2).currentText(), "start": t(3), "stop": t(4)})
-        return out
-
     # ---- storing ----
     def _ok(self) -> None:
         if self._store():
@@ -905,26 +846,16 @@ class ParametricDialog(QDialog):
         if len(rows) > 2000:
             QMessageBox.warning(self, "Parametric", f"{len(rows)} variations are too many.")
             return False
-        calcs = self._calc_rows()
-        try:
-            for c in calcs:
-                for k in ("start", "stop"):
-                    if c[k]:
-                        ev.freq(c[k])
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.warning(self, "Parametric", f"Calculation '{c['calc']}': {e}")
-            return False
         setups = [self.setups.item(r, 1).text() for r in range(self.setups.rowCount())
                   if self.setups.item(r, 0).checkState() == Qt.Checked]
         self.ps.name, self.ps.sweeps, self.ps.setups = name, [dict(e) for e in self.sweeps], setups
-        self.ps.calcs, self.ps.props = calcs, dict(self.values)
+        self.ps.props = dict(self.values)     # calcs (older projects, MCP) are kept as they are
         return True
 
 
 class ParametricResults(QDialog):
-    """Optimization Results of a parametric setup: the table of the variations with their state and
-    calculations, a plot of a calculation over a variable or over another calculation; Apply sets the design
-    variables of a variation."""
+    """Optimization Results of a parametric setup: the table of the variations with their state; Show Selected
+    Variation sets the design variables of a variation. Plots: Results > Create Report, Families."""
 
     def __init__(self, win, name: str, folder):
         super().__init__(win)
@@ -934,28 +865,15 @@ class ParametricResults(QDialog):
         self.info = QLabel("")
         self.info.setWordWrap(True)
         lay.addWidget(self.info)
-        row = QHBoxLayout()
-        self.calc = QComboBox()
-        self.xvar = QComboBox()
-        row.addWidget(QLabel("Plot"))
-        row.addWidget(self.calc, 1)
-        row.addWidget(QLabel("over"))
-        row.addWidget(self.xvar)
-        row.addStretch(1)
-        lay.addLayout(row)
-        split = QSplitter(Qt.Vertical)
-        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-        from matplotlib.figure import Figure
-        self.fig = Figure(figsize=(6, 2.6), tight_layout=True)
-        self.ax = self.fig.add_subplot(111)
-        self.canvas = FigureCanvasQTAgg(self.fig)
-        split.addWidget(self.canvas)
+        hint = QLabel(f"Plot the results in Results > Create Report: Families <b>{name}</b>, X axis a swept "
+                      "variable or another trace, one curve per value of the other swept variables.")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
         self.table = QTableWidget(0, 0)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
-        split.addWidget(self.table)
-        lay.addWidget(split, 1)
+        lay.addWidget(self.table, 1)
         bl = QHBoxLayout()
         self.b_sel = QPushButton("Show Selected Variation")
         self.b_sel.setToolTip("Set the design variables to the variation: geometry, fields and reports show its "
@@ -967,8 +885,6 @@ class ParametricResults(QDialog):
         lay.addLayout(bl)
         self.b_sel.clicked.connect(self._apply_selected)
         close.clicked.connect(self.close)
-        self.calc.currentTextChanged.connect(lambda *_: self._plot())
-        self.xvar.currentTextChanged.connect(lambda *_: self._plot())
         self._stamp = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
@@ -988,7 +904,7 @@ class ParametricResults(QDialog):
         self._stamp = stamp
         self.t = read_table(self.folder)
         rows = self.t.get("variations", [])
-        names, setups, calcs = self.t.get("variables", []), self.t.get("setups", []), self.t.get("calcs", [])
+        names, setups = self.t.get("variables", []), self.t.get("setups", [])
         states = [s for r in rows for s in r.get("state", {}).values()]
         from ..solver.results import run_status
         status = run_status(self.folder).get("state", "")
@@ -996,7 +912,7 @@ class ParametricResults(QDialog):
                           + (f", {states.count('pending') + states.count('running')} to go" if status == "running" else "")
                           + (f".  {status.capitalize()}" if status and status != "running" else "")
                           if rows else "Not analyzed yet")
-        cols = ["#"] + names + [f"State {s}" if len(setups) > 1 else "State" for s in setups] + calcs
+        cols = ["#"] + names + [f"State {s}" if len(setups) > 1 else "State" for s in setups]
         self.table.setColumnCount(len(cols))
         self.table.setHorizontalHeaderLabels(cols)
         self.table.setRowCount(len(rows))
@@ -1004,45 +920,9 @@ class ParametricResults(QDialog):
             vals = [str(r + 1)] + [row["variables"].get(n, "") for n in names]
             vals += [row.get("state", {}).get(s, "") + (f": {row['error'][s]}" if row.get("error", {}).get(s) else "")
                      for s in setups]
-            vals += ["" if row.get("calcs", {}).get(c) is None else f"{row['calcs'][c]:.6g}" for c in calcs]
             for c, v in enumerate(vals):
                 self.table.setItem(r, c, QTableWidgetItem(v))
         self.table.resizeColumnsToContents()
-        for box, items in ((self.calc, calcs), (self.xvar, names + calcs)):
-            cur = box.currentText()
-            box.blockSignals(True)
-            box.clear()
-            box.addItems(items)
-            if cur in items:
-                box.setCurrentText(cur)
-            box.blockSignals(False)
-        self._plot()
-
-    def _plot(self) -> None:
-        from ..solver.optimetrics import split_value as sv
-        self.ax.clear()
-        calc, xv = self.calc.currentText(), self.xvar.currentText()
-        t = getattr(self, "t", {})
-        names = t.get("variables", [])
-        on_calc = xv in t.get("calcs", []) and xv not in names
-        rows = [r for r in t.get("variations", [])
-                if calc and xv and r.get("calcs", {}).get(calc) is not None
-                and (not on_calc or r.get("calcs", {}).get(xv) is not None)]
-        from ..solver.parametric import plot_families
-        fam = plot_families(rows, names, xv, calc, on_calc)
-        for k, pts in fam.items():
-            self.ax.plot([p[0] for p in pts], [p[1] for p in pts], "o-", ms=3, label=k or calc)
-        if fam:
-            unit = "" if on_calc else (sv(rows[0]["variables"].get(xv, "")) or (0, ""))[1]
-            self.ax.set_xlabel(f"{xv} [{unit}]" if unit else xv)
-            self.ax.set_ylabel(calc)
-            if 1 < len(fam) <= 12:
-                self.ax.legend(loc="best", fontsize=8)
-        else:
-            self.ax.text(0.5, 0.5, "No calculation results yet (add calculations in the Calculations tab)",
-                         ha="center", va="center", transform=self.ax.transAxes, color="#777")
-        self.ax.grid(True, alpha=0.3)
-        self.canvas.draw_idle()
 
     def _apply_selected(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()})
