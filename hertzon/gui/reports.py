@@ -1077,6 +1077,9 @@ class ReportWindow(QWidget):
         return cached[1]
 
     def _fill_xaxis(self) -> None:
+        if self._family():
+            self._fill_family_xaxis()
+            return
         m = self._tuning_model()
         self._xmodel = m
         p = self.report.props
@@ -1100,6 +1103,14 @@ class ReportWindow(QWidget):
         self._form.setRowVisible(self.xfreq, m is not None and bool(self.xvar.currentData()))
 
     def _xaxis_changed(self) -> None:
+        if self._family():
+            self.report.props["family_x"] = self.xvar.currentData() or ""
+            if self.xfreq.count():
+                self.report.props["family_freq"] = repr(self.xfreq.currentData())
+            self._form.setRowVisible(self.xfreq, bool(self.xvar.currentData()) and self.xfreq.count() > 1)
+            self.changed.emit()
+            self.refresh()
+            return
         self.report.props["x_var"] = self.xvar.currentData() or ""
         if self.xfreq.count():
             self.report.props["x_freq"] = repr(self.xfreq.currentData())
@@ -1483,6 +1494,8 @@ class ReportWindow(QWidget):
     def _families_changed(self, name: str) -> None:
         self.report.props["families"] = self._family()
         self._fill_solutions()
+        if getattr(self, "xvar", None) is not None:
+            self._fill_xaxis()
         self.changed.emit()
         self.refresh()
 
@@ -1513,6 +1526,174 @@ class ReportWindow(QWidget):
             raise RuntimeError(f"{fam}: no solved variation" + (" with the chosen values" if keep else
                                                                  " yet (analyze the parametric setup)"))
         return out
+
+    # ---- families against a swept variable or another trace -------------------------------------------
+    FAMILY_X_KINDS = ("Rectangular", "Data Table")
+
+    def _fill_family_xaxis(self) -> None:
+        """X axis of a families report: frequency, a swept variable of the parametric setup or another trace
+        (e.g. alpha over re(Zo(1))), at one frequency of the solution."""
+        p = self.report.props
+        for w in (self.xvar, self.xfreq):
+            w.blockSignals(True)
+            w.clear()
+        self.xvar.addItem("Frequency", "")
+        freqs = []
+        try:
+            rows = self._family_rows()
+        except Exception:  # noqa: BLE001
+            rows = []
+        if rows and self.report.kind in self.FAMILY_X_KINDS:
+            for k in self._swept(rows):
+                self.xvar.addItem(k, "var:" + k)
+            for tr in self.report.traces:
+                self.xvar.addItem(tr, "expr:" + tr)
+            try:
+                data = self._sol_data(None, rows[0][1])
+                if data.get("xaxis") not in ("Pass", "Variable"):
+                    freqs = sorted({float(f) for f in data["freq"]})
+            except Exception:  # noqa: BLE001
+                freqs = []
+        for f in freqs:
+            self.xfreq.addItem(f"{f / 1e9:.6g} GHz", float(f))
+        self.xvar.setCurrentIndex(max(self.xvar.findData(p.get("family_x", "")), 0))
+        want = float(p.get("family_freq", "") or "nan")
+        if self.xfreq.count() and np.isfinite(want):
+            self.xfreq.setCurrentIndex(min(range(self.xfreq.count()),
+                                           key=lambda i: abs(self.xfreq.itemData(i) - want)))
+        for w in (self.xvar, self.xfreq):
+            w.blockSignals(False)
+        self._form.setRowVisible(self.xvar, self.report.kind in self.FAMILY_X_KINDS)
+        self._form.setRowVisible(self.xfreq, bool(self.xvar.currentData()) and self.xfreq.count() > 1)
+
+    @staticmethod
+    def _swept(rows) -> list[str]:
+        """The variables of the families that take more than one value."""
+        return [k for k in rows[0][0] if len({t.get(k) for t, _ in rows}) > 1] if rows else []
+
+    def _family_x(self) -> tuple[str, str] | None:
+        """('var', name) or ('expr', trace) of a families report against a swept variable or a trace, None
+        for frequency."""
+        if not self._family() or self.report.kind not in self.FAMILY_X_KINDS:
+            return None
+        x = self.report.props.get("family_x", "")
+        if x.startswith("var:"):
+            return "var", x[4:]
+        if x.startswith("expr:") and x[5:] in self.report.traces:
+            return "expr", x[5:]
+        return None
+
+    def _family_x_curves(self) -> tuple[str, list[tuple[str, str, np.ndarray, np.ndarray]], float]:
+        """(x label, [(trace, family label, x, y)], frequency in Hz): every trace at one frequency for each
+        variation, against the swept variable or another trace. The other swept variables make the families
+        (a curve each); against a trace, the variable with the most values runs along the curves."""
+        kind, name = self._family_x()
+        rows = self._family_rows()
+        swept = self._swept(rows)
+        want = float(self.report.props.get("family_freq", "") or "nan")
+        used = []
+
+        def at(tr, folder) -> float:
+            data = self._sol_data(split_trace(tr)[1], folder)
+            if data.get("xaxis") == "Pass":
+                raise RuntimeError("A plot against a variable needs a frequency solution (LastAdaptive or a "
+                                   "sweep), not the adaptive passes")
+            xs, y = self._trace_xy(tr, folder)          # xs in GHz
+            xs, y = np.asarray(xs, float), np.asarray(y, float)
+            o = np.argsort(xs)
+            xs, y = xs[o], y[o]
+            f = want * 1e-9 if np.isfinite(want) else xs[0]
+            if len(xs) == 1:
+                used.append(xs[0])
+                return float(y[0])
+            if f < xs[0] * (1 - 1e-9) or f > xs[-1] * (1 + 1e-9):
+                return float("nan")
+            used.append(f)
+            return float(np.interp(f, xs, y))
+
+        if kind == "var":
+            if name not in swept and name not in rows[0][0]:
+                raise RuntimeError(f"{name} is not a variable of {self._family()}")
+            nums = [_number_unit(t.get(name, "")) for t, _ in rows]
+            units = {u for _, u in nums}
+            if None in [n for n, _ in nums] or len(units) > 1:
+                ev = self.doc.evaluator()
+                nums = [(ev.value(t[name]), "") for t, _ in rows]
+                units = {""}
+            unit = units.pop()
+            xvals = [n for n, _ in nums]
+            others = [k for k in swept if k != name]
+            xlabel = f"{name} [{unit}]" if unit else name
+            ytr = list(self.report.traces)
+        else:
+            xvals = [at(name, folder) for _, folder in rows]
+            run = max(swept, key=lambda k: len({t.get(k) for t, _ in rows})) if swept else None
+            others = [k for k in swept if k != run]
+            xlabel = with_unit(self.doc, name)
+            ytr = [t for t in self.report.traces if t != name]
+        from ..solver.parametric import variation_label
+        groups: dict[str, list] = {}
+        for (texts, folder), x in zip(rows, xvals):
+            groups.setdefault(variation_label({k: texts.get(k, "") for k in others}), []).append((x, folder))
+        curves = []
+        for tr in ytr:
+            for g, pts in groups.items():
+                pts = sorted(pts, key=lambda q: q[0])
+                curves.append((tr, g, np.array([q[0] for q in pts], float),
+                               np.array([at(tr, folder) for _, folder in pts], float)))
+        f = (used[0] * 1e9) if used else float("nan")
+        return xlabel, curves, f
+
+    def _draw_family_x(self) -> None:
+        xlabel, curves, f = self._family_x_curves()
+        p = self.report.props
+        self.fig.clear()
+        ax = self.fig.add_subplot(111)
+        ax2 = None
+        LS = {"Solid": "-", "Dashed": "--", "Dotted": ":", "Dash-Dot": "-."}
+        SYM = {"None": None, "Circle": "o", "Square": "s", "Triangle": "^", "Cross": "x"}
+        drawn = []
+        for tr, g, xs, y in curves:
+            stl = self._style(tr)
+            if len(curves) > 1:
+                stl = {k: v for k, v in stl.items() if k != "color"}     # one colour per curve
+            target = ax
+            if stl.get("y2"):
+                if ax2 is None:
+                    ax2 = ax.twinx()
+                target = ax2
+            label = tr + ("  " + g if g else "")
+            kw = dict(label=label + ("  [Y2]" if stl.get("y2") else ""),
+                      linestyle=LS.get(stl.get("style", "Solid"), "-"), linewidth=float(stl.get("width", 1.5)))
+            if stl.get("color"):
+                kw["color"] = stl["color"]
+            line, = target.plot(xs, y, marker=SYM.get(stl.get("symbol", "None")) or "o", **kw)
+            drawn.append((label, xs, y, target, line.get_color()))
+        unit = re.search(r"\[(.*)\]$", xlabel)
+        self._draw_markers(ax, drawn, f" {unit.group(1)}" if unit else "", xlabel)
+        if p.get("ylog") != "True":
+            for a in (ax, ax2):
+                if a is not None:
+                    flat_ylim(a, [c[2] for c in drawn if c[3] is a])
+        self._apply_axes(ax, ax2)
+        ax.set_xlabel(p.get("xlabel") or xlabel)
+        ytr = [t for t in self.report.traces if t in {c[0] for c in curves}]
+        ax.set_ylabel(p.get("ylabel") or self._units_label([t for t in ytr if not self._style(t).get("y2")]))
+        if ax2 is not None:
+            ax2.set_ylabel(p.get("y2label") or self._units_label([t for t in ytr if self._style(t).get("y2")]))
+        ax.grid(True, alpha=0.4)
+        if p.get("legend", "True") == "True":
+            hs, ls = ax.get_legend_handles_labels()
+            if ax2 is not None:
+                h2, l2 = ax2.get_legend_handles_labels()
+                hs, ls = hs + h2, ls + l2
+            ax.legend(hs, ls, loc="best", fontsize=8)
+        at = f"   at {f / 1e9:.6g} GHz" if np.isfinite(f) else ""
+        ax.set_title(f"{self.report.name}   ({self.sol.currentText()}){at}", fontsize=10)
+        self.canvas.draw_idle()
+        n = len(self._family_rows())
+        self.info.setText(f"{n} variations of {self._family()}{at}. "
+                          "Double-click: marker. Right-click: markers, axes, traces, copy, templates.")
 
     def family_values(self) -> None:
         """Families tab: the values of every swept variable that are shown."""
@@ -1943,7 +2124,13 @@ class ReportWindow(QWidget):
         tr = self._selected_trace()
         if tr is None:
             return
-        xs, y = self._trace_xy(tr)
+        if self._family_x():
+            hit = next(((c[2], c[3]) for c in self._family_x_curves()[1] if c[0] == tr), None)
+            if hit is None:
+                return
+            xs, y = hit
+        else:
+            xs, y = self._trace_xy(tr)
         if what in ("max", "min"):
             k = int(np.argmax(y) if what == "max" else np.argmin(y))
         else:
@@ -2020,6 +2207,10 @@ class ReportWindow(QWidget):
                 out.append((f"fit {skin[0]} delta={skin[1]['delta']:.6g} {self.doc.design.units}",
                             skin[1]["x"], skin[1]["y"]))
             return xl, out
+        if self._family_x():
+            xl, cs, _ = self._family_x_curves()
+            return ((p.get("xlabel") if kind != "Data Table" else None) or xl,
+                    [(with_unit(self.doc, tr) + ("  " + g if g else ""), xs, y) for tr, g, xs, y in cs])
         _, _, data = self._data()
         xlabel = x_axis(data)[1]
         variations = self._variations()
@@ -2219,6 +2410,8 @@ class ReportWindow(QWidget):
         self._tuned_err = ""
         self.traces.clear()
         self.traces.addItems(self.report.traces)
+        if getattr(self, "xvar", None) is not None and self._family():
+            self._fill_family_xaxis()       # the traces (x axis choices) or the variations may have changed
         if self.report.kind == "Near Field Line":
             self._nf_update_phase_row()
         try:
@@ -2368,6 +2561,9 @@ class ReportWindow(QWidget):
         return rows
 
     def _draw_rect(self) -> None:
+        if self._family_x():
+            self._draw_family_x()
+            return
         st, sol, data = self._data()
         p = self.report.props
         self.fig.clear()
@@ -2851,6 +3047,18 @@ class ReportWindow(QWidget):
         return cols
 
     def _draw_table(self) -> None:
+        if self._family_x():
+            header, rows = self._export_rows()
+            self.table.setColumnCount(len(header))
+            self.table.setHorizontalHeaderLabels(header)
+            self.table.setRowCount(len(rows))
+            for r, row in enumerate(rows):
+                for c, v in enumerate(row):
+                    self.table.setItem(r, c, QTableWidgetItem("" if np.isnan(v) else f"{v:.6g}"))
+            f = self._family_x_curves()[2]
+            self.info.setText(f"{len(self._family_rows())} variations of {self._family()}"
+                              + (f" at {f / 1e9:.6g} GHz" if np.isfinite(f) else ""))
+            return
         st, sol, data = self._data()
         cols = self._family_columns()
         f, xlabel, _ = x_axis(data)
