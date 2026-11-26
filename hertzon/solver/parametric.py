@@ -167,27 +167,6 @@ def variation_project(project: Project, design: str, texts: dict[str, str], save
     return p
 
 
-def plot_families(rows: list[dict], names: list[str], xv: str, calc: str, on_calc: bool) -> dict[str, list]:
-    """Curves of the parametric results plot: {legend: sorted [(x, y)]}. Over a variable, one curve per value of
-    the other variables. Over another calculation (on_calc), the variable with the most values runs along each
-    curve and the other swept variables make the families."""
-    if on_calc:
-        count = {n: len({r["variables"].get(n, "") for r in rows}) for n in names}
-        run = max(names, key=lambda n: count[n]) if names else None
-        others = [n for n in names if n != run and count[n] > 1]
-    else:
-        others = [n for n in names if n != xv] if rows else []
-    fam: dict[str, list] = {}
-    for r in rows:
-        k = " ".join(f"{n}='{r['variables'].get(n, '')}'" for n in others)
-        x = (r["calcs"][xv], "") if on_calc else split_value(r["variables"].get(xv, ""))
-        if x is not None:
-            fam.setdefault(k, []).append((x[0], r["calcs"][calc]))
-    for pts in fam.values():
-        pts.sort()
-    return fam
-
-
 def calc_value(c: dict, data: dict, ev, outvars=None) -> float:
     """A calculation (Calculations tab): an expression reduced over its frequency range."""
     from .expressions import eval_expr

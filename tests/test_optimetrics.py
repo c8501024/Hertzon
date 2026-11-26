@@ -307,17 +307,3 @@ def test_antenna_goals_on_a_sweep_keep_the_fields_of_the_goal_sweep(tmp_path):
     assert sweeps["Sweep"].props["SaveFields"] == "True"         # the goal sweep: fields for the antenna goals
     assert sweeps["Wide"].props["SaveFields"] == "False"         # every other sweep: no fields
 
-
-def test_parametric_plot_over_calculation():
-    """The parametric results plot a calculation over a variable or over another calculation (alpha over Zo)."""
-    from hertzon.solver.parametric import plot_families
-    rows = [{"variables": {"ratio": str(r), "sigma": s}, "calcs": {"Zo": 60 * r, "alpha": 1 / r}}
-            for r in (3, 1, 2) for s in ("1e5", "1e6")]
-    over_var = plot_families(rows, ["ratio", "sigma"], "ratio", "alpha", False)
-    assert set(over_var) == {"sigma='1e5'", "sigma='1e6'"}
-    assert [p[0] for p in over_var["sigma='1e5'"]] == [1, 2, 3]
-    over_calc = plot_families(rows, ["ratio", "sigma"], "Zo", "alpha", True)
-    assert set(over_calc) == {"sigma='1e5'", "sigma='1e6'"}
-    assert over_calc["sigma='1e6'"] == [(60, 1.0), (120, 0.5), (180, 1 / 3)]
-    single = plot_families([r for r in rows if r["variables"]["sigma"] == "1e5"], ["ratio", "sigma"], "Zo", "alpha", True)
-    assert list(single) == [""] and len(single[""]) == 3

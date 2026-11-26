@@ -3,6 +3,21 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.4.8 (2026-11-26)
+
+### Changed
+- **Families against a swept variable or another trace, right in the report.** A Rectangular Plot or Data Table
+  with Families has an **X axis** choice: Frequency (as before), any swept variable of the parametric setup, or
+  any trace of the report, at a frequency chosen under **At**. The other swept variables make a family of curves.
+  Example: Families `Sweep_ratio` (ratio and epsr swept), traces `re(Zo(1))` and `-ln(mag(S(2,1)))/0.1`,
+  X axis `ratio` gives Zo and the attenuation over ratio, one curve per epsr; X axis `re(Zo(1))` gives the
+  attenuation over the impedance. Copy Data and Export write the curves as drawn.
+- **No Calculations tab in the parametric setup any more.** Quantities over the variations are plotted in
+  Results > Create Report with Families (above), and expressions belong in the report or in Output Variables.
+  The Optimization Results window of a parametric setup shows the variations and their state, and Show Selected
+  Variation as before. Calculations stored in older projects or set through MCP are kept and still computed for
+  the results table of MCP; the 0.4.7 plot of a calculation over another calculation is gone.
+
 ## 0.4.7 (2026-11-26)
 
 ### Added

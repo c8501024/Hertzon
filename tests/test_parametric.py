@@ -85,12 +85,16 @@ def test_parametric_dialog_stores_and_checks_names(monkeypatch):
     from hertzon.gui.optimetrics import ParametricDialog, new_parametric
     doc = Document(Project.load(EX / "Microstrip.hzn"))
     ps = new_parametric(doc)
+    ps.calcs = [{"calc": "dB(S(1,1))", "solution": "Setup1 : Sweep", "func": "Min", "start": "", "stop": ""}]
     assert ps.name == "ParametricSetup1" and ps.setups == [s.name for s in doc.design.setups]
     dlg = ParametricDialog(None, doc, ps)
     dlg.sweeps.append({"variable": "w", "type": "Linear step", "start": "2mm", "stop": "3mm", "step": "0.5mm"})
     dlg._fill_defs()
     assert dlg.table.rowCount() == 3
     assert dlg._store() and ps.sweeps[0]["variable"] == "w"
+    # no Calculations tab (Results > Create Report with Families plots); calcs of older projects are kept
+    assert "Calculations" not in [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
+    assert ps.calcs[0]["calc"] == "dB(S(1,1))"
     doc.design.parametrics.append(ps)
     other = new_parametric(doc)
     dlg2 = ParametricDialog(None, doc, other)
