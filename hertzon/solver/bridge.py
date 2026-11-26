@@ -1716,6 +1716,9 @@ class Bridge:
             self.save_farfields(fields, sw.name)
             self.step(f"Sweep {sw.name}", t)
 
+    def _plane_wave_sweeps(self) -> bool:
+        return any(s.props.get("Enabled", "True") == "True" for s in self.setup.sweeps)
+
     def plane_wave_adaptive(self, fa: list[float]) -> dict:
         """Adaptive passes for the incident plane wave (Maximum Delta Energy). The refinement
         uses the same element error estimate as the port driven passes."""
@@ -1739,6 +1742,7 @@ class Bridge:
                 warn("Adaptive meshing aborted by user")
                 break
             emit("progress", value=12 + 40 * (step - 1) / maxp, text=f"Adaptive pass {step} of max {maxp}")
+            warn_memory_before_solve(f"Pass {step}", m.mesh.n_tets, passes[-1]["tets"] if passes else 0)
             t0 = time.time()
             fields = self.solve_scattered(fa)
             WT = np.array([scattered_energy(fl, m) for fl in fields])
@@ -1779,6 +1783,9 @@ class Bridge:
                 converged = True
                 break
             if step == maxp or m.mesh.n_tets >= max_tets:
+                break
+            # like the port driven passes: stop on the last mesh that fits rather than run out of memory
+            if next_pass_too_large(m.mesh.n_tets, pct, sweep=self._plane_wave_sweeps()):
                 break
             self._pw_fields = None
             pec = [int(t) for bc in m.mw.bc.oftype(PEC) for t in m.mesh.get_triangles(bc.tags)]
@@ -3022,17 +3029,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         if m.mesh.n_tets >= max_tets:
             warn(f"Maximum number of tetrahedra reached ({m.mesh.n_tets} >= {max_tets})")
             break
-        need, avail = memory_forecast(m.mesh.n_tets * (1 + pct / 100.0), m.mesh.n_tets)
-        # the frequency sweep on the final mesh needs more than its adaptive pass (measured: peak of the
-        # whole solve 1.23x the peak of the last pass), so the next pass must leave room for it. The
-        # forecast itself errs on the safe side (n^(4/3)), and the usable memory already leaves out what other
-        # programs hold, hence 95 % of it (90 % of it stopped the hairpin filter on a 16 GB machine a pass
-        # before 0.3.30, whose pass fitted with room to spare: forecast 13.9 GB, peak 12.0 GB of 15.7 GB).
-        need *= SWEEP_MEMORY_FACTOR
-        if avail and need > GUARD_FRACTION * avail:
-            warn(f"Stopping refinement: the next pass and the frequency sweep on its mesh would need about "
-                 f"{need / 2**30:.1f} GB of memory, {avail / 2**30:.1f} GB available. "
-                 f"Reduce Maximum Refinement or use coarser settings.")
+        if next_pass_too_large(m.mesh.n_tets, pct, sweep=True):
             break
         if on_pass is not None:
             # current mesh + fields as "LastAdaptive" so they can be plotted while the solve continues
@@ -3849,6 +3846,25 @@ def _system_free_memory() -> float:
 SWEEP_MEMORY_FACTOR = 1.25
 # share of the usable memory (own process + free) the next adaptive pass and the sweep may plan with
 GUARD_FRACTION = 0.95
+
+
+def next_pass_too_large(n_tets: int, pct: float, sweep: bool) -> bool:
+    """Memory guard between two adaptive passes: True (with a warning) when the next pass, refined by pct %,
+    would not fit, so that the refinement stops on the last mesh that did instead of the operating system
+    ending the solver. sweep: a frequency sweep follows on the final mesh and needs more than its pass
+    (measured: peak of the whole solve 1.23x the peak of the last pass). The forecast itself errs on the safe
+    side (n^(4/3)), and the usable memory already leaves out what other programs hold, hence 95 % of it (90 %
+    of it stopped the hairpin filter on a 16 GB machine a pass before 0.3.30, whose pass fitted with room to
+    spare: forecast 13.9 GB, peak 12.0 GB of 15.7 GB)."""
+    need, avail = memory_forecast(n_tets * (1 + pct / 100.0), n_tets)
+    if sweep:
+        need *= SWEEP_MEMORY_FACTOR
+    if not avail or need <= GUARD_FRACTION * avail:
+        return False
+    warn(f"Stopping refinement: the next pass{' and the frequency sweep on its mesh' if sweep else ''} would need "
+         f"about {need / 2**30:.1f} GB of memory, {avail / 2**30:.1f} GB available. "
+         f"Reduce Maximum Refinement or use coarser settings.")
+    return True
 
 
 def memory_forecast(next_tets: float, cur_tets: int) -> tuple[float, float]:

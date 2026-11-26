@@ -22,6 +22,12 @@ the GitHub release notes.
   An optional large test (Drone RCS) runs only with enough memory and has its own score. The core scaling of the
   hairpin filter (1, 2, 4, ... cores) gives a separate single-core score. SuperLU is not offered in the suite.
 
+### Fixed
+- **RCS (incident plane wave): the memory guard now stops the refinement before memory runs out.** The adaptive
+  passes of a plane wave had no memory guard, so a large scatterer could grow its mesh until the operating system
+  ended the solver without a result (drone RCS on 16 GB in pass 2). Like the port driven passes, the refinement
+  now stops on the last mesh that fits, with the message "Stopping refinement: ...", and that pass is the solution.
+
 ## 0.4.6 (2026-11-25)
 
 ### Added
