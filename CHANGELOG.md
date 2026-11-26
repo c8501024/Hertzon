@@ -64,17 +64,17 @@ the GitHub release notes.
   the frequencies the sweep solved directly (its support points) as open circles on each curve, in the trace
   colour; the rest of the curve is interpolated. Axis Properties > "Mark the solved frequencies of interpolating
   sweeps" switches them off. Discrete sweeps, where every point is solved, get no extra marks.
-- **The Message Manager lists the frequencies of an interpolating sweep as they are solved** (Kwang Choi, #5).
+- **The Message Manager lists the frequencies of an interpolating sweep as they are solved** (#5).
   When the sweep chooses its next frequencies it writes one line per solve, in the order they are solved, not
   ascending: one frequency per line, or the frequencies solved at the same time (Parallel) together on one line.
   Check frequencies taken from the reduced basis are listed on one line, the ones it cannot reach again as they
   are solved directly. The line with every sampled frequency in ascending order at the end of the sweep stays.
 
 ### Fixed
-- **The material list of the ribbon opens again** (Kwang Choi, #15). The list under Model / Non Model showed
+- **The material list of the ribbon opens again** (#15). The list under Model / Non Model showed
   "vacuum", but opening it listed nothing and left the field blank: it read the materials from the design instead
   of the project. It now lists every project and library material with the current one selected.
-- **Solution Data keeps the chosen view during a solve** (Kwang Choi, #16). Every new adaptive pass rebuilt the
+- **Solution Data keeps the chosen view during a solve** (#16). Every new adaptive pass rebuilt the
   window and set Matrix Data back to LastAdaptive and S. The chosen Solution (e.g. Adaptive Passes), Frequency /
   Pass, Matrix (e.g. Zo), Format and the choices of the other tabs now stay; choosing another simulation setup
   still opens on its defaults.
