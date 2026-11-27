@@ -87,8 +87,9 @@ def test_basis_stays_within_memory_and_still_matches_direct(monkeypatch):
 def test_basis_gets_the_memory_emerge_no_longer_keeps(monkeypatch):
     """EMerge that releases each sweep frequency after its post-processing: without the fields (no Save
     fields) only the frequency being solved is kept, with them its solutions; the basis gets the rest."""
-    from hertzon.solver import bridge
+    from hertzon.solver import bridge, fast_assembly
     monkeypatch.setattr(bridge, "emerge_releases_sweeps", lambda: True)
+    monkeypatch.setitem(fast_assembly.FACTOR, "bytes", 0)        # earlier tests leave a factorization behind
     n, nb, nf, tets = 1000, 2, 1002, 100
     room = 16.0 * n * 400
     sizes = {}
@@ -100,7 +101,6 @@ def test_basis_gets_the_memory_emerge_no_longer_keeps(monkeypatch):
         sizes[fields] = red.max_basis
     # a direct solve inside the sweep needs its own factorization next to the centre one (Rotman lens array
     # and edge-coupled filter were ended in one when the basis had taken that memory)
-    from hertzon.solver import fast_assembly
     monkeypatch.setitem(fast_assembly.FACTOR, "bytes", 16.0 * n * 50)
     red = ReducedSolver(lambda *a, **k: None, n_freqs=61, room=lambda: room, n_tets=tets, keep_fields=False)
     red._set_max_basis(n, nb, nf)
