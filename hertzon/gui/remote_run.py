@@ -119,7 +119,7 @@ class RemoteRun(QObject):
             self.note.emit("warning", f"{host.address} runs Hertzon {info.get('hertzon')}, this computer "
                                       f"{__version__}; results can differ. Install the same version on both.")
         self.status.emit(0, f"Uploading the project to {host.address}")
-        archive, rel = prepare(Path(self.project), self.out)
+        archive, rel = prepare(Path(self.project), self.out, design=self.design)
         try:
             meta = {"kind": self.kind, "project": Path(self.project).name, "design": self.design,
                     "name": self.name, "out": rel, "env": self.env, "label": self.label,
