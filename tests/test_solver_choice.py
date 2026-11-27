@@ -65,7 +65,7 @@ def test_real_mac():
 def test_auto_on_a_mac(mac_arm, monkeypatch):
     monkeypatch.setattr(sc, "_installed", lambda dist, module=None: True)
     monkeypatch.setattr(sc.sparta_setup, "installed_version", lambda: "0.3.2")
-    assert sc.auto_solver() == "SPARTA (GPU)"                       # fastest on a Mac when installed
+    assert sc.auto_solver() == "SPARTA (CPU)"                       # fastest on a Mac when installed
     monkeypatch.setattr(sc.sparta_setup, "installed_version", lambda: None)
     assert sc.auto_solver() == sc.ACCELERATE and sc.factor_accelerate()
     monkeypatch.setattr(sc, "_installed", lambda dist, module=None: False)

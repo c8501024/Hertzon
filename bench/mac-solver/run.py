@@ -13,7 +13,15 @@ p = subprocess.Popen([sys.executable, "-m", "hertzon.cli", "solve", proj, "--des
                       "--progress", "text", "-o", f"{tag}.sNp"], env=env, stdout=open(tag + ".out", "w"),
                      stderr=open(tag + ".log", "w"))
 pp = psutil.Process(p.pid); peak = 0
+timeout = float(os.environ.get("BENCH_TIMEOUT", "1500"))
 while p.poll() is None:
+    if time.time() - t > timeout:
+        for c in pp.children(recursive=True) + [pp]:
+            try:
+                c.kill()
+            except psutil.Error:
+                pass
+        break
     try:
         peak = max(peak, sum(c.memory_info().rss for c in [pp] + pp.children(recursive=True)))
     except psutil.Error:
