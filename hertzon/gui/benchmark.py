@@ -172,15 +172,25 @@ def solver_recommendation(result: dict) -> tuple[str, str | None]:
 
 
 def scaling_text(sc: dict | None) -> str:
-    """The core scaling of a suite result as one line below the score."""
-    if not sc or not sc.get("runs"):
+    """The scaling benchmark of a suite result below the scores: per part the times per core count and the
+    single-core score."""
+    if not sc or not sc.get("parts"):
         return ""
-    runs = sorted(sc["runs"], key=lambda r: r["cores"])
-    parts = [f"{r['cores']}: {r['total']:.0f} s" + (f" ({r['speedup']:.1f}x)" if r.get("speedup") and r["cores"] > 1 else "")
-             for r in runs]
-    title = dict((t[0], t[1]) for t in suite.TESTS).get(sc.get("test"), sc.get("test"))
-    return (f"<br>Core scaling ({title}): " + ", ".join(parts)
-            + (f"; <b>single-core score {sc['single_core_score']}</b>" if sc.get("single_core_score") else ""))
+    titles = dict((t[0], t[1]) for t in suite.TESTS)
+    lines = []
+    for k, title, _ids in suite.PARTS:
+        part = sc["parts"].get(k)
+        if not part:
+            continue
+        runs = sorted(part.get("runs", []), key=lambda r: r["cores"])
+        times = ", ".join(f"{r['cores']}: {r['total']:.0f} s" + (f" ({r['speedup']:.1f}x)" if r.get("speedup")
+                                                                 and r["cores"] > 1 else "") for r in runs)
+        lines.append(f"{title} single-core <b>{part['single_core_score']}</b>" if part.get("single_core_score")
+                     else f"<span style='color:#c0392b'>{title}: no single-core score, {part.get('reason', '')}</span>")
+        lines[-1] += f" ({titles.get(part.get('test'), part.get('test'))}, cores {times})"
+    head = (f"<span style='font-size:14pt'><b>{sc['single_core_score']}</b></span> single-core score &nbsp; "
+            if sc.get("single_core_score") else "")
+    return "<br>" + head + "<br>".join(lines)
 
 
 class BenchmarkDialog(QDialog):
@@ -221,13 +231,18 @@ class BenchmarkDialog(QDialog):
         # ---- Hertzon Bench
         page = QWidget()
         pl = QVBoxLayout(page)
-        hint = QLabel(f"<b>{suite.SUITE}</b>: {len(suite.TESTS)} fixed models ("
-                      + ", ".join(t[1] for t in suite.TESTS) + "), each solved once with all cores and "
-                      "checked against a reference, plus a large test (Drone RCS) when there is enough memory for "
-                      "it; it has its own score. A test counts only when it converged with the asked solver and "
-                      "a correct result: a stop by the memory guard or a fallback to another solver is marked "
-                      "with its reason and left out of the score. Score per test = reference time / your time x 1000 "
-                      f"(reference: {suite.REFERENCE_SYSTEM}); the overall score is their geometric mean. "
+        parts = "; ".join(f"<b>{t}</b>: " + ", ".join(dict((x[0], x[1]) for x in suite.TESTS)[i] for i in ids)
+                          for _k, t, ids in suite.PARTS)
+        hint = QLabel(f"<b>{suite.SUITE}</b> in two parts with their own score ({parts}), each model solved once "
+                      "with all cores and checked against a reference. Every test of the parts runs on a computer with "
+                      "16 GB of memory, also on computers with more. Workstation tests are meant for machines with much "
+                      "more memory (Rotman lens array about 26 GB, Drone RCS about 37 GB): they are optional, run only when there is enough "
+                      "memory and have their own score. A test counts only when it converged with the "
+                      "asked solver and a correct result: a stop by the memory guard or a fallback to another solver "
+                      "is marked with its reason, and its part gets no score, while the other part stays valid. "
+                      "Score per test = reference time / your time x 1000 "
+                      f"(reference: {suite.REFERENCE_SYSTEM}); a part score is the geometric mean of its tests, the "
+                      "overall score that of the part scores (only when both parts ran and count). "
                       "Takes about 5 to 15 minutes and up to 9 GB of memory (16 GB recommended). Close other programs meanwhile. "
                       "Submit the result to compare it with other computers and Hertzon versions.")
         hint.setWordWrap(True)
@@ -243,10 +258,32 @@ class BenchmarkDialog(QDialog):
                 item.setToolTip(why)
         self.suite_solver.setToolTip("Matrix solver of every test; Auto chooses per problem")
         f.addRow("Matrix solver:", self.suite_solver)
-        self.suite_scaling = QCheckBox(f"Also measure the core scaling (the {dict((t[0], t[1]) for t in suite.TESTS)[suite.SCALING_TEST].lower()} "
-                                       "with 1, 2, 4, ... cores; gives the single-core score; a few minutes more)")
-        self.suite_scaling.setChecked(True)
+        titles = dict((t[0], t[1]) for t in suite.TESTS)
+        self.suite_full = QCheckBox("Full benchmark (multi-core): every test with all cores, about 10 minutes on 4 cores")
+        self.suite_full.setChecked(True)
+        self.suite_full.toggled.connect(self._suite_choice)
+        f.addRow("Benchmarks:", self.suite_full)
+        self.suite_scaling = QCheckBox(
+            "Scaling benchmark (single- to multi-core): " + " and ".join(titles[t] for t in suite.SCALING_TESTS.values())
+            + " with 1, 2, 4, ... cores; single-core scores and speedup; about 10 minutes more on 4 cores")
+        self.suite_scaling.setChecked(False)
+        self.suite_scaling.toggled.connect(self._suite_choice)
         f.addRow("", self.suite_scaling)
+        row = QHBoxLayout()
+        self.suite_parts = {}
+        for k, title, ids in suite.PARTS:
+            cb = QCheckBox(f"{title} ({len(ids)} tests)")
+            cb.setChecked(True)
+            cb.toggled.connect(self._suite_choice)
+            self.suite_parts[k] = cb
+            row.addWidget(cb)
+        self.suite_large = QCheckBox("Workstation tests (high-memory machines: Rotman lens array about 26 GB, Drone RCS about 37 GB)")
+        self.suite_large.setChecked(True)
+        self.suite_large.setToolTip("Optional extra of the full benchmark for workstations with much more than 16 GB of "
+                                    "memory; a test runs only when the computer has the memory for it; its own score")
+        row.addWidget(self.suite_large)
+        row.addStretch(1)
+        f.addRow("Parts:", row)
         pl.addLayout(f)
         self.suite_score = QLabel("")
         self.suite_score.setTextFormat(Qt.RichText)
@@ -419,6 +456,17 @@ class BenchmarkDialog(QDialog):
     def _comparing(self) -> bool:
         return self.tabs.currentWidget() is self.solvers_page
 
+    def _suite_choice(self) -> None:
+        """At least one benchmark and one part; the drone belongs to the full benchmark and RCS."""
+        sender = self.sender()
+        if not self.suite_full.isChecked() and not self.suite_scaling.isChecked():
+            (self.suite_scaling if sender is self.suite_full else self.suite_full).setChecked(True)
+            return
+        if not any(cb.isChecked() for cb in self.suite_parts.values()):
+            next(cb for cb in self.suite_parts.values() if cb is not sender).setChecked(True)
+            return
+        self.suite_large.setEnabled(self.suite_full.isChecked())
+
     def _suite_tab(self) -> bool:
         return self.tabs.currentWidget() is self.suite_page
 
@@ -488,7 +536,7 @@ class BenchmarkDialog(QDialog):
             bad = t.get("counted") is False
             if bad:
                 ctext = f"NOT COUNTED: {t.get('reason', '')}"
-            score = str(t.get("score") or "") + (" (not in overall)" if t["id"] in suite.LARGE_IDS and t.get("score") else "")
+            score = str(t.get("score") or "") + (" (own score)" if t["id"] in suite.LARGE_IDS and t.get("score") else "")
             rows.append(([name, f"{t['total']:.1f}", f"{t['mesh']:.1f}", f"{t['adaptive']:.1f}", f"{t['sweep']:.1f}",
                           str(t["passes"]), str(t["tets"]), f"{t['memory_mb'] / 1024:.1f}", ctext, score], bad))
         self.suite_table.setRowCount(len(rows))
@@ -500,21 +548,27 @@ class BenchmarkDialog(QDialog):
                     it.setToolTip(v)
                 self.suite_table.setItem(i, c, it)
         self.suite_table.resizeColumnsToContents()
-        if res.get("score"):
+        parts = res.get("parts") or {}
+        single = any(p.get("single_core_score") for p in ((res.get("scaling") or {}).get("parts") or {}).values())
+        if any(p.get("score") for p in parts.values()) or single:
             import time
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(res.get("finished", 0)))
-            self.suite_score.setText(f"<span style='font-size:20pt'><b>{res['score']}</b></span>&nbsp;&nbsp;"
-                                     f"{res.get('suite', '')} score, {res.get('cores')} cores, solver "
-                                     f"{res.get('solver')}, measured {when}"
-                                     + ("" if res.get("complete") else
-                                        f" &nbsp;<span style='color:#c0392b'>incomplete: {res.get('counted', 0)} of "
-                                        f"{len(suite.TEST_IDS)} tests count (see Result check)</span>")
+            big = (f"<span style='font-size:20pt'><b>{res['score']}</b></span> {res.get('suite', '')} score&nbsp;&nbsp; "
+                   if res.get("score") else "")
+            each = " &nbsp; ".join(
+                f"<span style='font-size:14pt'><b>{p['score']}</b></span> {title}" if p.get("score") else
+                f"<span style='color:#c0392b'>{title}: no score, {p['counted']} of {p['tests']} tests count "
+                f"(see Result check)</span>"
+                for k, title, _ids in suite.PARTS if (p := parts.get(k)))
+            self.suite_score.setText(big + each + f"<br>{res.get('cores')} cores, solver {res.get('solver')}, "
+                                     f"measured {when}"
+                                     + ("" if res.get("score") or not parts else " &nbsp;(no overall score: it needs every part)")
                                      + scaling_text(res.get("scaling"))
                                      + (" &nbsp;<i>(submitted)</i>" if (self.suite_folder() / "submitted.json").exists()
                                         and json.loads((self.suite_folder() / "submitted.json").read_text(
                                             encoding="utf-8")).get("run_id") == res.get("run_id") else ""))
         elif res.get("tests"):
-            self.suite_score.setText("No overall score: " + (bench_submit.can_submit(res) or "not finished."))
+            self.suite_score.setText("No score: " + (bench_submit.can_submit(res) or "not finished."))
         else:
             self.suite_score.setText("No result yet.")
         self.b_submit.setEnabled(self.proc is None and not bench_submit.can_submit(res))
@@ -759,8 +813,15 @@ class BenchmarkDialog(QDialog):
         sv = self.suite_solver.currentText()
         if sv != "Auto":
             args += ["--solver", sv]
-        if not self.suite_scaling.isChecked():
-            args.append("--no-scaling")
+        parts = [k for k, cb in self.suite_parts.items() if cb.isChecked()]
+        if len(parts) < len(self.suite_parts):
+            args += ["--parts", ",".join(parts)]
+        if not self.suite_large.isChecked():
+            args.append("--no-large")
+        if not self.suite_full.isChecked():
+            args.append("--no-full")
+        if self.suite_scaling.isChecked():
+            args.append("--scaling")
         p = self._process()
         self.suite_result = {}
         self.show_suite()

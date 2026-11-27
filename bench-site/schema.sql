@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS results (
   bandwidth   REAL,                      -- measured memory bandwidth, GB/s
   cores       INTEGER,
   solver      TEXT,
-  score       INTEGER NOT NULL,          -- geometric mean of the counted tests of the overall score
-  complete    INTEGER NOT NULL,          -- 1 when every test of the overall score counted
+  score       INTEGER,                   -- overall: geometric mean of the part scores, only when every part has one
+  complete    INTEGER NOT NULL,          -- 1 when every part ran and every test counted
   hw_key      TEXT NOT NULL,             -- same hardware and solver, any version
   system_key  TEXT NOT NULL,             -- same hardware, solver and Hertzon version
   name        TEXT,

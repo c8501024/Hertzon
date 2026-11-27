@@ -5,6 +5,12 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- **Matrix solver "Auto" takes the fastest direct solver for every matrix size.** PARDISO on Windows and Linux;
+  on a Mac SPARTA on the CPU when it is installed, otherwise Apple Accelerate. Before, small matrices (below
+  10,000 unknowns) always went to SuperLU. Measured on Apple silicon, SPARTA solves two to three times faster than Accelerate,
+  so the Mac installer recommends it ("Install SPARTA? [Y/n]"). Windows and Linux run as fast as before.
+
 ### Fixed
 - **Add/Edit Sweep with Single value shows one Value field** (#577). The parametric sweep dialog kept showing
   Start, Stop and "Points per octave" (greyed out) for a single value; it now shows only Value. The swept value
@@ -18,6 +24,12 @@ the GitHub release notes.
   sessions with a limit are planned with the memory they really have. The forecast of the next pass learns how
   fast the memory grows from the last two passes (it assumed a steeper growth than measured) and plans 15 %
   instead of 25 % for an interpolating sweep, so models that still fit are no longer stopped a pass early.
+- **Remote and cloud solves of designs with imported CAD files** (#584). The job sent to the remote computer
+  now carries every file the project reads from elsewhere: imported STEP/IGES/STL files, Touchstone files of
+  lumped components and the model files of circuit parts (Touchstone, Verilog-A, SPICE). A file the solved
+  design needs but that is missing is reported before the upload. Absolute Windows paths stay absolute when a
+  project is opened on Linux or macOS, and Touchstone files of lumped components given relative to the project
+  are found from copies saved elsewhere, as imported files already were.
 
 ## 0.4.8 (2026-11-26)
 
@@ -38,10 +50,11 @@ the GitHub release notes.
 
 ### Added
 - **Hertzon Bench: one score for your computer, and a public site to compare it** (Diupth, #564). Tools > Solver
-  Benchmark has a new first tab that solves a fixed suite of six models (microstrip, hairpin filter, patch antenna,
-  patch on 0.1 mm, waveguide post, sphere RCS) with all cores, checks every result against a reference (the
-  S-parameters, the exact Mie solution for the sphere) and gives a score per test and an overall score (geometric
-  mean; 1000 = the reference computer). **Submit Results** shows exactly what would be sent, asks for consent and
+  Benchmark has a new first tab that solves a fixed suite of seven models in two parts, **RF** (microstrip, hairpin
+  filter, patch antenna, patch on 0.1 mm, waveguide post) and **RCS** (PEC sphere, dielectric sphere), with all
+  cores, checks every result against a reference (the S-parameters, the exact Mie solution for the spheres) and
+  gives a score per test, an RF and an RCS score and an overall score (geometric means; 1000 = the reference
+  computer). The parts can be run on their own. **Submit Results** shows exactly what would be sent, asks for consent and
   sends it with one click to the comparison site, which ranks results by system, operating system, architecture,
   solver and Hertzon version and shows per version how the same hardware changed. Sent are the times, checks and
   scores and a description of the computer on Windows, macOS and Linux (device model, CPU, cores, clock, memory
@@ -49,9 +62,11 @@ the GitHub release notes.
   user or computer name, paths or projects. The site's code is in `bench-site/` (Cloudflare Pages with a D1
   database). `python -m hertzon.solver.suite OUTDIR` runs the suite without the window.
   A test stopped by the memory guard, ended for lack of memory, solved by another solver than chosen (e.g. no
-  usable GPU) or not converged does not count: it is marked with the reason and the run is marked incomplete.
-  An optional large test (Drone RCS) runs only with enough memory and has its own score. The core scaling of the
-  hairpin filter (1, 2, 4, ... cores) gives a separate single-core score. SuperLU is not offered in the suite.
+  usable GPU) or not converged does not count: it is marked with the reason, its part gets no score and the run no
+  overall score, while the other part keeps its score.
+  Every scored test runs on a computer with 16 GB; the RCS part includes a medium drone model (0.5 GHz, about 8.5 GB). Optional workstation tests for high-memory machines (RF: Rotman lens array with patch array, 11 ports, second order, about 26 GB; RCS: drone at 1 GHz, about 37 GB) run only with enough memory and have their own score. A separate scaling
+  benchmark (single- to multi-core) solves the hairpin filter and the PEC sphere with 1, 2, 4, ... cores and gives
+  single-core scores, speedup and parallel efficiency; the site ranks multi-core and single-core separately. SuperLU is not offered in the suite.
 
 ### Changed
 - **Parametric results: plot a calculation over another calculation.** The "over" list of the Optimization
