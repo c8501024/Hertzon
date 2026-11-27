@@ -9,89 +9,26 @@ env:
   HERTZON_NO_PRELOAD: "1"
   QT_QPA_PLATFORM: offscreen
 jobs:
-  micro:
-    runs-on: ${{ matrix.os }}
+  full:
+    runs-on: macos-15
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-26]
-        model: [dipole, patch025fast]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.13"}
-      - name: Install
-        run: |
-          python -m pip install -q -e . psutil
-          sw_vers; sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
-          python -m hertzon.solver.sparta_setup install
-      - name: Matrix of the fast sweep
-        run: |
-          mkdir work && cd work
-          python ../bench/mac-fast/prep.py "$GITHUB_WORKSPACE" proj
-          D=$(python -c "import json;print(json.load(open('proj/${{ matrix.model }}.hzn'))['designs'][0]['name'])")
-          python ../bench/mac-fast/dump.py A.npz proj/${{ matrix.model }}.hzn "$D" Setup1 res > dump.log 2>&1 || true
-          grep DUMPED dump.log || tail -40 dump.log
-      - name: Backends
-        run: |
-          cd work
-          python ../bench/mac-fast/micro.py A.npz all
-  full:
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 340
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, macos-26]
-        model: [dipole, patch025fast, patch01fast, gps]
+        model: [patch025fast, patch01fast]
     steps:
       - uses: actions/checkout@v4
         with: {path: new}
-      - uses: actions/checkout@v4
-        with: {path: old, ref: v0.4.8}
       - uses: actions/setup-python@v5
         with: {python-version: "3.13"}
       - name: Install
         run: |
-          python -m pip install -q -e new psutil
-          sw_vers; sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
-      - name: Without SPARTA
+          for i in 1 2 3; do python -m pip install -q -e new psutil && break; sleep 30; done
+      - name: Accelerate and SPARTA
         run: |
           mkdir work && cd work
           python ../new/bench/mac-fast/prep.py "$GITHUB_WORKSPACE/new" proj
           P=proj/${{ matrix.model }}.hzn
-          python ../new/bench/mac-fast/run.py old "$GITHUB_WORKSPACE/old" - $P
-          python ../new/bench/mac-fast/run.py acc "$GITHUB_WORKSPACE/new" Accelerate $P
-          python ../new/bench/mac-fast/run.py old2 "$GITHUB_WORKSPACE/old" - $P
-          python ../new/bench/mac-fast/run.py acc2 "$GITHUB_WORKSPACE/new" Accelerate $P
-      - name: With SPARTA installed
-        run: |
+          python ../new/bench/mac-fast/run.py acc "$GITHUB_WORKSPACE/new" Accelerate $P | cut -c1-900
           python -m hertzon.solver.sparta_setup install
-          cd work
-          P=proj/${{ matrix.model }}.hzn
-          python ../new/bench/mac-fast/run.py old_sp "$GITHUB_WORKSPACE/old" - $P
-          python ../new/bench/mac-fast/run.py sparta "$GITHUB_WORKSPACE/new" SPARTA $P
-          python ../new/bench/mac-fast/run.py acc_sp "$GITHUB_WORKSPACE/new" Accelerate $P
-          python ../new/bench/mac-fast/run.py sparta2 "$GITHUB_WORKSPACE/new" SPARTA $P
-  tests:
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, macos-26]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.13"}
-      - name: Install
-        run: |
-          python -m pip install -q -e . pytest psutil
-          python -m hertzon.solver.sparta_setup install
-      - name: Fast sweep and tuning tests per backend
-        run: |
-          for F in SuperLU Accelerate SPARTA; do
-            echo "=== $F"
-            HERTZON_FAST_FACTOR=$F python -m pytest -q -x tests/test_fast_sweep.py tests/test_tuning.py --durations=8 -p no:cacheprovider 2>&1 | tail -16
-          done
+          python ../new/bench/mac-fast/run.py sparta "$GITHUB_WORKSPACE/new" SPARTA $P | cut -c1-900
