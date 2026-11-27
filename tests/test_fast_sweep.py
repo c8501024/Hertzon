@@ -50,10 +50,12 @@ def test_reduced_matches_direct():
     assert red.n_direct < 10 and red.n_reduced > 50      # far fewer factorizations than the 61 frequencies
 
 
-def test_basis_stays_within_memory_and_still_matches_direct():
+def test_basis_stays_within_memory_and_still_matches_direct(monkeypatch):
     """A basis that would outgrow the memory starts again from the current solution instead of growing with
     ports x enrichments x frequencies (Rotman lens, 11 ports: ended by the operating system); the solutions
-    still meet the tolerance."""
+    still meet the tolerance. (EMerge that keeps every frequency of the sweep until its end.)"""
+    from hertzon.solver import bridge
+    monkeypatch.setattr(bridge, "emerge_releases_sweeps", lambda: False)
     K, M, C, b = _system()
     n = K.shape[0]
     ids = np.arange(n)
@@ -80,6 +82,35 @@ def test_basis_stays_within_memory_and_still_matches_direct():
     assert red.max_basis == 12
     assert red.n_restart > 0 and largest <= 12
     assert worst < 1e-6
+
+
+def test_basis_gets_the_memory_emerge_no_longer_keeps(monkeypatch):
+    """EMerge that releases each sweep frequency after its post-processing: without the fields (no Save
+    fields) only the frequency being solved is kept, with them its solutions; the basis gets the rest."""
+    from hertzon.solver import bridge
+    monkeypatch.setattr(bridge, "emerge_releases_sweeps", lambda: True)
+    n, nb, nf, tets = 1000, 2, 1002, 100
+    room = 16.0 * n * 400
+    sizes = {}
+    for fields in (True, False):
+        red = ReducedSolver(lambda *a, **k: None, n_freqs=61, room=lambda: room, n_tets=tets, keep_fields=fields)
+        red._set_max_basis(n, nb, nf)
+        keep = 16.0 * 2 * nb * nf + 900.0 * tets + (61 * (16.0 * nf * nb + 48.0 * tets) if fields else 0.0)
+        assert red.max_basis == int((0.85 * room - keep - 16.0 * 6 * nb * n) / (2.5 * 16.0 * n))
+        sizes[fields] = red.max_basis
+    # a direct solve inside the sweep needs its own factorization next to the centre one (Rotman lens array
+    # and edge-coupled filter were ended in one when the basis had taken that memory)
+    from hertzon.solver import fast_assembly
+    monkeypatch.setitem(fast_assembly.FACTOR, "bytes", 16.0 * n * 50)
+    red = ReducedSolver(lambda *a, **k: None, n_freqs=61, room=lambda: room, n_tets=tets, keep_fields=False)
+    red._set_max_basis(n, nb, nf)
+    assert red.max_basis == int((0.85 * room - 16.0 * 2 * nb * nf - 900.0 * tets - 1.2 * 16.0 * n * 50
+                                 - 16.0 * 6 * nb * n) / (2.5 * 16.0 * n))
+    monkeypatch.setitem(fast_assembly.FACTOR, "bytes", 0)
+    monkeypatch.setattr(bridge, "emerge_releases_sweeps", lambda: False)
+    red = ReducedSolver(lambda *a, **k: None, n_freqs=61, room=lambda: room, n_tets=tets, keep_fields=False)
+    red._set_max_basis(n, nb, nf)
+    assert red.max_basis < sizes[True] < sizes[False]
 
 
 def test_no_memory_limit_without_a_room_estimate():

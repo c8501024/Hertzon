@@ -144,7 +144,7 @@ class ReducedSolver:
     """Stands in for EMerge's SolveRoutine.solve during a fast sweep."""
 
     def __init__(self, direct_solve, tol: float = 1e-4, max_enrich: int = 8, n_freqs: int = 1,
-                 room=None, release=None, n_tets: int = 0):
+                 room=None, release=None, n_tets: int = 0, keep_fields: bool = True):
         self.direct = direct_solve           # EMerge's own solve (A, b, solve_ids, ...) -> (x, report)
         self.tol = tol
         self.max_enrich = max_enrich
@@ -152,6 +152,7 @@ class ReducedSolver:
         self.room = room                     # () -> bytes this process may still grow by, None: no limit
         self.release = release               # () frees the memory of the direct solver after a direct solve
         self.n_tets = n_tets                 # tetrahedra of the mesh (per frequency EMerge keeps data on each)
+        self.keep_fields = keep_fields       # EMerge keeps the fields of every frequency (bridge.keep_fields)
         self.max_basis: int | None = None    # basis vectors that fit in memory (set after the first solve)
         self.n_restart = 0
         self._buf: np.ndarray | None = None  # preallocated basis (with a memory limit)
@@ -202,8 +203,8 @@ class ReducedSolver:
     def _set_max_basis(self, n: int, nb: int, nf: int) -> None:
         """How many basis vectors fit in the memory left after the centre factorization: each one is held
         twice (V and A V of the reduced solve, counted 2.5 times for the temporaries), the solutions of all
-        sweep frequencies (nb excitations on the nf unknowns of the model; measured twice that with what EMerge
-        keeps per frequency) are kept until the sweep ends, and 15 % of the room stays free. The basis is then
+        sweep frequencies are kept as far as EMerge keeps them (bridge.sweep_kept_bytes), a direct solve needs its
+        own factorization (bridge.fast_sweep_direct_bytes), and 15 % of the room stays free. The basis is then
         preallocated, so it no longer copies itself when it grows. Without a limit the basis grew with ports x enrichments x frequencies (Rotman lens array, 11
         ports, 17 frequencies, 425k unknowns: more than 280 vectors, 2 GB each copy) until the operating
         system ended the solver on a 15 GB machine; a limit that counted 3 vectors with the copies did too."""
@@ -216,9 +217,11 @@ class ReducedSolver:
         if not np.isfinite(room):
             return
         room = max(0.0, room)
-        from .bridge import SWEEP_BYTES_PER_TET
-        per_freq = 16.0 * 2 * nb * nf + SWEEP_BYTES_PER_TET * self.n_tets
-        keep = per_freq * (self.n_freqs + 1) + 16.0 * 6 * nb * n
+        from .bridge import fast_sweep_direct_bytes, sweep_kept_bytes
+        # what the sweep keeps, a direct solve's factorization next to the centre one, and the right hand
+        # sides, residuals and solutions of one frequency (6 x nb vectors)
+        keep = (sweep_kept_bytes(nf, nb, self.n_tets, self.n_freqs, self.keep_fields) + fast_sweep_direct_bytes()
+                + 16.0 * 6 * nb * n)
         self.max_basis = max(2 * nb, int((0.85 * room - keep) / (2.5 * 16.0 * n)))
         # column major: V = buf[:, :k] stays contiguous, so the products with V and V^T copy nothing
         self._buf = np.empty((n, self.max_basis + nb), dtype=np.complex128, order="F")  # pages taken when written
@@ -387,6 +390,7 @@ def fast_sweep(m, freqs, tol: float = 1e-4, log=None, on_solved=None):
     order = sorted(freqs, key=lambda f: abs(f - f0))
     routine = m.mw.solveroutine
     red = ReducedSolver(routine.solve, tol=tol, n_freqs=len(freqs), room=_room, n_tets=int(m.mesh.n_tets),
+                        keep_fields=bool(getattr(getattr(m, "settings", None), "mw_sweep_fields", True)),
                         release=lambda: [s.reset() for s in getattr(routine, "solvers", {}).values()])
     routine.solve = red.solve
     cache = getattr(m.mw, "cache_matrices", False)

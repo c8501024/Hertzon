@@ -193,8 +193,10 @@ def test_guard_leaves_room_for_the_solutions_of_a_sweep_with_many_ports(monkeypa
     """Rotman lens array, 11 ports, Fast sweep with 17 points, second order (about 8.8 unknowns per
     tetrahedron): pass 4 (48k tetrahedra) peaked at 8.5 GB on a 15.3 GB cloud, the guard planned pass 5 plus
     1.25 x for the sweep and let it run, the sweep on 48k then outgrew the memory. Now the solutions the sweep
-    keeps are planned on top of 1.15 x the pass; a sweep with one port and few points still fits."""
+    keeps are planned on top of 1.15 x the pass; a sweep with one port and few points still fits. (EMerge that
+    keeps every frequency of the sweep until its end.)"""
     from hertzon.solver import fast_assembly
+    monkeypatch.setattr(B, "emerge_releases_sweeps", lambda: False)
     monkeypatch.setitem(fast_assembly.FACTOR, "unknowns", 425502)
     monkeypatch.setattr(B, "memory_forecast", lambda n, c: (11.0 * 2 ** 30, 15.3 * 2 ** 30))
     assert not B.next_pass_too_large(48244, 30, sweep=True)                                  # 12.65 GB fits
@@ -204,6 +206,42 @@ def test_guard_leaves_room_for_the_solutions_of_a_sweep_with_many_ports(monkeypa
     extra = B.sweep_memory(62717, 48244, 11, 17, True)
     assert 6 * 2 ** 30 < extra < 7.5 * 2 ** 30
     assert B.sweep_memory(62717, 48244, 11, 0, False) == 0.0                # interpolating sweep: x1.15 only
+
+
+def test_guard_plans_only_what_emerge_keeps_of_a_sweep(monkeypatch):
+    """EMerge that post-processes and releases each sweep frequency: the edge-coupled filter with a 201-point
+    Fast sweep stopped after its first pass for 201 kept solutions; without Save fields only the frequency
+    being solved counts, with them the solutions of every frequency."""
+    from hertzon.solver import fast_assembly
+    monkeypatch.setattr(B, "emerge_releases_sweeps", lambda: True)
+    monkeypatch.setitem(fast_assembly.FACTOR, "unknowns", 425502)
+    n = 425502 / 48244 * 62717
+    no_fields = B.sweep_memory(62717, 48244, 11, 17, False, fields=False)
+    assert no_fields == pytest.approx(16 * n * 2 * 11 + 900 * 62717)
+    fields = B.sweep_memory(62717, 48244, 11, 17, False, fields=True)
+    assert fields == pytest.approx(no_fields + 17 * (16 * n * 11 + 48 * 62717))
+    # a fast sweep also plans a direct solve next to its centre factorization, scaled to the next mesh
+    monkeypatch.setitem(fast_assembly.FACTOR, "bytes", 2.62 * 2 ** 30)
+    fast = B.sweep_memory(62717, 48244, 11, 17, True, fields=False)
+    assert fast == pytest.approx(no_fields + 16 * n * 11 * B.FAST_SWEEP_MIN_VECTORS
+                                 + 1.2 * 2.62 * 2 ** 30 * (62717 / 48244) ** (4 / 3))
+    monkeypatch.setattr(B, "emerge_releases_sweeps", lambda: False)
+    assert B.sweep_memory(62717, 48244, 11, 17, False, fields=False) > fields
+
+
+def test_sweeps_keep_their_fields_only_when_they_are_saved():
+    class _S:
+        mw_sweep_fields = True
+
+    class _M:
+        settings = _S()
+    assert not B.sweep_keeps_fields({"SweepType": "Fast"})
+    assert B.sweep_keeps_fields({"SweepType": "Discrete", "SaveFields": "True"})
+    assert B.sweep_keeps_fields({"SweepType": "Fast", "SaveFarFields": "True"})
+    assert not B.sweep_keeps_fields({"SweepType": "Interpolating", "SaveFields": "True"})
+    B.keep_fields(_M, False)
+    assert _M.settings.mw_sweep_fields is False
+    B.keep_fields(object(), False)             # older EMerge without the setting: nothing to do
 
 
 def test_memory_exponent_is_learned_from_the_last_two_passes(monkeypatch):

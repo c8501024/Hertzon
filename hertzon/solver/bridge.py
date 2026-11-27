@@ -1736,11 +1736,12 @@ class Bridge:
     def _plane_wave_sweeps(self) -> bool:
         return any(s.props.get("Enabled", "True") == "True" for s in self.setup.sweeps)
 
-    def sweep_load(self) -> tuple[int, bool]:
-        """(frequencies, fast) of the enabled Discrete or Fast sweep that keeps the most solutions, for the
-        memory guard of the adaptive passes (next_pass_too_large); an interpolating sweep stays within
-        SWEEP_MEMORY_FACTOR. (0, False) without one."""
-        points, fast = 0, False
+    def sweep_load(self) -> tuple[int, bool, bool]:
+        """(frequencies, fast, fields) of the enabled Discrete or Fast sweep that keeps the most solutions, for
+        the memory guard of the adaptive passes (next_pass_too_large); fields: it keeps its fields (Save fields
+        or Save far fields, sweep_keeps_fields). An interpolating sweep stays within SWEEP_MEMORY_FACTOR.
+        (0, False, False) without one."""
+        points, fast, fields = 0, False, False
         for sw in self.setup.sweeps:
             p = sw.props
             if p.get("Enabled", "True") != "True" or p.get("SweepType", "Interpolating") not in ("Fast", "Discrete"):
@@ -1751,7 +1752,8 @@ class Bridge:
                 continue
             if n > points or (n == points and p.get("SweepType") == "Fast"):
                 points, fast = n, p.get("SweepType") == "Fast" and n > 1
-        return points, fast
+            fields = fields or sweep_keeps_fields(p)
+        return points, fast, fields
 
     def plane_wave_adaptive(self, fa: list[float]) -> dict:
         """Adaptive passes for the incident plane wave (Maximum Delta Energy). The refinement
@@ -1820,9 +1822,9 @@ class Bridge:
             if step == maxp or m.mesh.n_tets >= max_tets:
                 break
             # like the port driven passes: stop on the last mesh that fits rather than run out of memory
-            points, fast = self.sweep_load()
+            points, fast, keep = self.sweep_load()
             if next_pass_too_large(m.mesh.n_tets, pct, sweep=self._plane_wave_sweeps(), n_exc=len(fields),
-                                   points=points, fast=fast):
+                                   points=points, fast=fast, fields=keep):
                 break
             self._pw_fields = None
             pec = [int(t) for bc in m.mw.bc.oftype(PEC) for t in m.mesh.get_triangles(bc.tags)]
@@ -2554,6 +2556,7 @@ class Bridge:
             self._run_sweeps()
         finally:
             KEEP_SOLVER = False
+            keep_fields(self.m, True)
             if self.sparta:
                 try:
                     self.m.mw.solveroutine.reset()
@@ -2597,6 +2600,7 @@ class Bridge:
             if kind in ("Fast", "Discrete") or len(fr) <= 1:
                 prog.planned = len(fr)
             prog.show()
+            keep_fields(m, sweep_keeps_fields(p))
             if p.get("SweepType") == "Fast" and len(fr) > 1:
                 from .fast_sweep import fast_sweep
                 tol = max(1e-6, float(p.get("ErrorTolerance", "0.5")) / 100.0 * 0.02)
@@ -2897,7 +2901,7 @@ def aligned_delta(S_old: np.ndarray, S_new: np.ndarray, track=None) -> tuple[flo
 
 
 def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str = "", resume: dict | None = None,
-                  power=None, ds_limits: list[float] | None = None, sweep_load: tuple[int, bool] = (0, False)) -> dict:
+                  power=None, ds_limits: list[float] | None = None, sweep_load: tuple = (0, False, False)) -> dict:
     """Adaptive mesh refinement with the reference tool's semantics.
 
     Pass 1 solves the initial mesh; from pass 2 on Delta S is the maximum change of any S-parameter
@@ -3070,7 +3074,8 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
             warn(f"Maximum number of tetrahedra reached ({m.mesh.n_tets} >= {max_tets})")
             break
         if next_pass_too_large(m.mesh.n_tets, pct, sweep=True, n_exc=_excitations(fields[-1], Ss[-1]),
-                               points=sweep_load[0], fast=sweep_load[1]):
+                               points=sweep_load[0], fast=sweep_load[1],
+                               fields=sweep_load[2] if len(sweep_load) > 2 else True):
             break
         if on_pass is not None:
             # current mesh + fields as "LastAdaptive" so they can be plotted while the solve continues
@@ -3957,9 +3962,52 @@ GUARD_FRACTION = 0.95
 FAST_SWEEP_MIN_VECTORS = 3 * (8 + 1)
 # what a stored sweep frequency holds per tetrahedron besides the solution (material tensors and more)
 SWEEP_BYTES_PER_TET = 900.0
+# what EMerge keeps per tetrahedron and frequency with the fields of a sweep (the averaged εr, μr, σ)
+SWEEP_FIELD_BYTES_PER_TET = 48.0
 
 
-def sweep_memory(next_tets: float, cur_tets: int, n_exc: int, points: int, fast: bool) -> float:
+def emerge_releases_sweeps() -> bool:
+    """EMerge post-processes each frequency group of a sweep when it is solved and releases its right hand
+    sides and material tensors, and settings.mw_sweep_fields can drop the fields (EMerge hertzon branch of
+    27 November 2026). Older EMerge kept all of them until the end of the sweep."""
+    try:
+        from emerge._emerge.physics.microwave.simjob import SimJob
+        return hasattr(SimJob, "release_inputs")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def sweep_kept_bytes(n: float, n_exc: int, tets: float, points: int, fields: bool = True) -> float:
+    """Memory (bytes) a sweep of `points` frequencies holds besides its solver, for n unknowns and n_exc
+    excitations: the frequency being solved and post-processed (its solutions and right hand sides, 2 x n_exc
+    vectors, and its material tensors) and, of every frequency solved, the fields when they are kept (fields:
+    Save fields or Save far fields). EMerge before emerge_releases_sweeps kept all of it for every frequency
+    (measured: Rotman lens 0.13 GB per frequency for 11 excitations on 323k unknowns, 37k tetrahedra; Patch with
+    a 101-point Fast sweep about 23 MB for one excitation on 24k tetrahedra)."""
+    current = 16.0 * n * 2 * n_exc + SWEEP_BYTES_PER_TET * tets
+    if not emerge_releases_sweeps():
+        return current * (points + 1)
+    kept = 16.0 * n * n_exc + SWEEP_FIELD_BYTES_PER_TET * tets if fields else 0.0
+    return kept * points + current
+
+
+def fast_sweep_direct_bytes(scale: float = 1.0) -> float:
+    """Memory of a direct solve inside a fast sweep: its factorization exists next to the centre factorization
+    and the basis until it is released (the last PARDISO factorization, FACTOR, x scale for another mesh, plus
+    20 % for its work arrays). Without a planned direct solve, the Rotman lens array (sweep on 48k
+    tetrahedra) and the edge-coupled filter (201 points on 91k) were ended by the operating system in the
+    first direct solve after their basis had taken the memory the stored solutions no longer need. 0 with an
+    EMerge that keeps every sweep frequency (emerge_releases_sweeps): what it keeps planned more than this."""
+    if not emerge_releases_sweeps():
+        return 0.0
+    try:
+        from .fast_assembly import FACTOR
+        return 1.2 * float(FACTOR.get("bytes", 0) or 0) * scale
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def sweep_memory(next_tets: float, cur_tets: int, n_exc: int, points: int, fast: bool, fields: bool = True) -> float:
     """Memory (bytes) a Discrete or Fast sweep needs on top of its adaptive pass that scales with the ports:
     it keeps the solution of every excitation at every frequency (n_exc x points vectors of the unknowns,
     and as much again for what EMerge stores with them) and a fast sweep its reduced basis. 1.25 x the pass (SWEEP_MEMORY_FACTOR) covered one or two ports;
@@ -3974,16 +4022,14 @@ def sweep_memory(next_tets: float, cur_tets: int, n_exc: int, points: int, fast:
     if unknowns <= 0 or cur_tets <= 0 or n_exc <= 0 or points <= 0:
         return 0.0
     n = unknowns / cur_tets * next_tets
-    # per solved frequency EMerge keeps about twice the solution vectors and the material tensors of every
-    # tetrahedron (measured: Rotman lens 0.13 GB per frequency for 11 excitations on 323k unknowns, 37k
-    # tetrahedra; Patch with a 101-point Fast sweep about 23 MB for one excitation on 24k tetrahedra)
-    per_freq = 16.0 * n * 2 * n_exc + SWEEP_BYTES_PER_TET * next_tets
     basis = 16.0 * n * n_exc * FAST_SWEEP_MIN_VECTORS if fast else 0.0
-    return per_freq * (points + 1) + basis
+    if fast:
+        basis += fast_sweep_direct_bytes((next_tets / cur_tets) ** (4 / 3))
+    return sweep_kept_bytes(n, n_exc, next_tets, points, fields) + basis
 
 
 def next_pass_too_large(n_tets: int, pct: float, sweep: bool, n_exc: int = 0, points: int = 0,
-                        fast: bool = False) -> bool:
+                        fast: bool = False, fields: bool = True) -> bool:
     """Memory guard between two adaptive passes: True (with a warning) when the next pass, refined by pct %,
     would not fit, so that the refinement stops on the last mesh that did instead of the operating system
     ending the solver. sweep: a frequency sweep follows on the final mesh and needs more than its pass
@@ -3997,7 +4043,7 @@ def next_pass_too_large(n_tets: int, pct: float, sweep: bool, n_exc: int = 0, po
     next_tets = n_tets * (1 + pct / 100.0)
     need, avail = memory_forecast(next_tets, n_tets)
     if sweep:
-        need = need * SWEEP_MEMORY_FACTOR + sweep_memory(next_tets, n_tets, n_exc, points, fast)
+        need = need * SWEEP_MEMORY_FACTOR + sweep_memory(next_tets, n_tets, n_exc, points, fast, fields)
     if not avail or need <= GUARD_FRACTION * avail:
         return False
     warn(f"Stopping refinement: the next pass{' and the frequency sweep on its mesh' if sweep else ''} would need "
@@ -4346,6 +4392,21 @@ class SolveOrder:
             self.left = len(self.groups[self.i])
             msg = self.line(self.groups[self.i])
         info(msg)
+
+
+def sweep_keeps_fields(props: dict) -> bool:
+    """A sweep whose fields are needed after it: Save fields or Save far fields of a Discrete or Fast sweep
+    (an interpolating sweep stores S-parameters only)."""
+    return schema.sweep_saves_far_fields(props)
+
+
+def keep_fields(m, keep: bool) -> None:
+    """Whether EMerge keeps the field solution of every sweep frequency (settings.mw_sweep_fields, see
+    emerge_releases_sweeps). Without them a sweep holds only the frequency it is solving: the edge-coupled
+    filter with a 201-point Fast sweep kept 201 solutions and stopped its adaptive passes early for it."""
+    settings = getattr(m, "settings", None)
+    if settings is not None and hasattr(settings, "mw_sweep_fields"):
+        settings.mw_sweep_fields = bool(keep)
 
 
 def solve_at(m, freqs, on_solved=None, announce=None, **kw):
