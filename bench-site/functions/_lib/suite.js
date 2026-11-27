@@ -125,11 +125,11 @@ export const SUITES = {
     "hashes": [
      "cb52b197c82fdb9d"
     ],
-    "time": null,
-    "memory_gb": null,
+    "time": 445.88,
+    "memory_gb": 25.9,
     "tets": [
-     100,
-     10000000
+     48081,
+     432732
     ]
    }
   ],

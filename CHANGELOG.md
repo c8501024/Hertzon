@@ -21,7 +21,7 @@ the GitHub release notes.
   A test stopped by the memory guard, ended for lack of memory, solved by another solver than chosen (e.g. no
   usable GPU) or not converged does not count: it is marked with the reason, its part gets no score and the run no
   overall score, while the other part keeps its score.
-  Every scored test runs on a computer with 16 GB; the RCS part includes a medium drone model (0.5 GHz, about 8.5 GB). An optional workstation test (Drone RCS at 1 GHz, about 37 GB) runs only with enough memory and has its own score. A separate scaling
+  Every scored test runs on a computer with 16 GB; the RCS part includes a medium drone model (0.5 GHz, about 8.5 GB). Optional workstation tests for high-memory machines (RF: Rotman lens array with patch array, 11 ports, second order, about 26 GB; RCS: drone at 1 GHz, about 37 GB) run only with enough memory and have their own score. A separate scaling
   benchmark (single- to multi-core) solves the hairpin filter and the PEC sphere with 1, 2, 4, ... cores and gives
   single-core scores, speedup and parallel efficiency; the site ranks multi-core and single-core separately. SuperLU is not offered in the suite.
 

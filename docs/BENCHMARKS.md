@@ -40,11 +40,17 @@ marked with the reason. A part has a score only when every one of its tests coun
 when both parts have one; a failed RCS test leaves the RF score valid, and that result can still be submitted. SuperLU is not offered: it is far too
 slow for these models.
 
-**Workstation test.** *Drone RCS* (the imported surface of a delta-wing drone, PEC, monostatic RCS) needs much more
-memory than 16 GB. It runs only when the computer has enough usable memory for it, else it is listed as not run with the
-reason, and it has its own score outside the overall score, so that the overall score stays comparable for
-computers with 16 GB. It needs about 36 GB (183k tetrahedra, 5 passes); its score 1000 is a 32-core
-AMD Ryzen Threadripper 3970X (256 GB, Windows, all 64 threads) with Hertzon 0.4.6, which needs 282 s.
+**Workstation tests.** Two tests are meant for workstations with much more memory than 16 GB (the check box
+*Workstation tests* in the window, `--no-large` leaves them out). Each runs only when the computer has enough
+usable memory for it, else it is listed as not run with the reason, and each has its own score outside the part
+and overall scores, so that these stay comparable for computers with 16 GB.
+
+| Part | Test | Mesh | Memory | Reference time |
+|---|---|---|---|---|
+| RF | Rotman lens array: 24 GHz Rotman lens with its patch array on RO4350B, 11 lumped ports, second order, far field, discrete sweep at 22, 24, 26 GHz | 144k tetrahedra, 8 passes | about 26 GB | 446 s |
+| RCS | Drone RCS: imported surface of a delta-wing drone, PEC, 1 GHz, monostatic RCS | 183k tetrahedra, 5 passes | about 36 GB | 282 s |
+
+Their score 1000 is a 32-core AMD Ryzen Threadripper 3970X (256 GB, Windows, all 64 threads) with Hertzon 0.4.6.
 
 **Two benchmarks.** The *full benchmark* (multi-core, on by default) solves every test of the chosen parts with
 all cores and gives the scores above. The *scaling benchmark* (single- to multi-core, off by default because it
