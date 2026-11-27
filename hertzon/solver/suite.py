@@ -70,7 +70,7 @@ LARGE_TESTS = [
      "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"),
     ("rotman_array", "Rotman lens array (workstation)", "rotman_array.hzn", "RotmanArray", "Setup1",
      "24 GHz Rotman lens beamformer with its patch array on RO4350B, 11 lumped ports, second order, far field "
-     "and 22-26 GHz sweep: a large antenna system"),
+     "and a discrete sweep at 22, 24 and 26 GHz: a large antenna system"),
 ]
 MIE_TESTS = ("sphere_rcs", "dielectric_rcs")          # checked against the exact Mie solution
 REF_RCS_TESTS = ("drone_medium_rcs", "drone_rcs")     # checked against the RCS of the reference run

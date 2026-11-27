@@ -1657,11 +1657,11 @@
        "name": "Sweep22_26",
        "props": {
         "Enabled": "True",
-        "SweepType": "Fast",
+        "SweepType": "Discrete",
         "Distribution": "Linear Step",
         "Start": "22GHz",
         "Stop": "26GHz",
-        "Step": "0.25GHz",
+        "Step": "2GHz",
         "Count": "101",
         "SamplesPerDecade": "20",
         "Points": "1GHz,2GHz",
