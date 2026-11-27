@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode
 
 from . import DEFAULT_PORT, PROTOCOL
-from .protocol import changed, file_list, local_target, pack, replace_file
+from .protocol import MissingFiles, changed, file_list, local_target, pack, replace_file
 
 
 class RemoteError(RuntimeError):
@@ -209,9 +209,14 @@ def pair(address: str, code: str) -> str:
                       headers={"Content-Type": "application/json"})["token"]
 
 
-def prepare(project: Path, out: Path, workdir: Path | None = None) -> tuple[Path, str]:
-    """The job archive of PROJECT with the results folder OUT, in a temporary file."""
+def prepare(project: Path, out: Path, workdir: Path | None = None, design: str | None = None) -> tuple[Path, str]:
+    """The job archive of PROJECT with the results folder OUT (and the files DESIGN reads), in a temporary
+    file. Raises RemoteError before anything is uploaded when one of those files is missing."""
     fd, tmp = tempfile.mkstemp(suffix=".zip", prefix="hertzon-job-", dir=workdir)
     os.close(fd)
-    rel = pack(Path(project), Path(out), Path(tmp))
+    try:
+        rel = pack(Path(project), Path(out), Path(tmp), design=design)
+    except MissingFiles as ex:
+        Path(tmp).unlink(missing_ok=True)
+        raise RemoteError(str(ex)) from None
     return Path(tmp), rel

@@ -10,7 +10,7 @@ import copy
 import json
 import re
 from dataclasses import dataclass, field, asdict
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from . import schema
 from .expr import Evaluator
@@ -19,6 +19,12 @@ from .stackup import Stackup
 from .materials import Material, default_color, library_material, library_materials, normalize_color
 
 FILE_VERSION = 2     # 2: integration lines and U vectors in the coordinates of their object
+
+
+def is_absolute_path(text: str) -> bool:
+    """A file path that names one place: absolute here, or an absolute Windows path (C:\\..., \\\\server\\...)
+    read on Linux or macOS, for example in a project solved on a remote computer."""
+    return Path(text).is_absolute() or PureWindowsPath(text).is_absolute()
 
 
 @dataclass
@@ -406,21 +412,26 @@ class Project:
             for o in d.objects:
                 for c in o.history:
                     f = c.props.get("File", "") if c.kind == "Import" else ""
-                    if f and not Path(f).is_absolute():
+                    if f and not is_absolute_path(f):
                         c.props["File"] = str(base / f)
+            # Touchstone files of lumped components, so that copies saved elsewhere (variations) still find them
+            for a in list(d.boundaries) + list(d.excitations):
+                f = a.props.get("TouchstoneFile", "").strip()
+                if f and not is_absolute_path(f):
+                    a.props["TouchstoneFile"] = str(base / f)
             # model and data files of circuit parts (Verilog-A, SPICE libraries, Touchstone), so that an example
             # opened as an untitled copy still finds them
             for c in d.components:
                 for key in ("File", "OSDI"):
                     v = c.props.get(key, "") if c.type in ("DEVICE", "SPICELIB", "SNP") else ""
                     if v.strip():
-                        c.props[key] = ";".join(str(base / x.strip()) if x.strip() and not Path(x.strip()).is_absolute()
+                        c.props[key] = ";".join(str(base / x.strip()) if x.strip() and not is_absolute_path(x.strip())
                                                 else x for x in v.split(";"))
                 # footprint and symbol files (a library id "Lib:Name" stays as it is)
                 for key in ("Footprint", "Symbol"):
                     v = c.props.get(key, "").strip()
                     m = re.match(r"^(.*\.kicad_(?:mod|sym))(:.*)?$", v)
-                    if m and not Path(m.group(1)).is_absolute():
+                    if m and not is_absolute_path(m.group(1)):
                         c.props[key] = str(base / m.group(1)) + (m.group(2) or "")
         return p
 

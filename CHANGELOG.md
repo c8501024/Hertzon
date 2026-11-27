@@ -9,6 +9,12 @@ the GitHub release notes.
 - **Add/Edit Sweep with Single value shows one Value field** (#577). The parametric sweep dialog kept showing
   Start, Stop and "Points per octave" (greyed out) for a single value; it now shows only Value. The swept value
   was already right.
+- **Remote and cloud solves of designs with imported CAD files** (#584). The job sent to the remote computer
+  now carries every file the project reads from elsewhere: imported STEP/IGES/STL files, Touchstone files of
+  lumped components and the model files of circuit parts (Touchstone, Verilog-A, SPICE). A file the solved
+  design needs but that is missing is reported before the upload. Absolute Windows paths stay absolute when a
+  project is opened on Linux or macOS, and Touchstone files of lumped components given relative to the project
+  are found from copies saved elsewhere, as imported files already were.
 
 ## 0.4.8 (2026-11-26)
 
