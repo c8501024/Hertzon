@@ -1590,6 +1590,8 @@ class Bridge:
             # SPARTA for the sweeps on the final mesh (run_sweeps)
             self.sweep_solver = sparta_setup.SWEEP_ONLY[name]
             name = "PARDISO"
+        if name == "Auto":
+            name = self.auto_solver()
         if self.cell is not None and name in ("Auto", "PARDISO"):
             from .periodic import pardiso_transposes
             if pardiso_transposes():
@@ -1613,6 +1615,21 @@ class Bridge:
                                "Apple Accelerate": em.solvers.AASDS}[name])
         except Exception as ex:  # noqa: BLE001
             warn(f"Solver {name} not available ({ex}); using automatic choice")
+
+    def auto_solver(self) -> str:
+        """What "Auto" solves with: the platform's fastest direct solver for every matrix size (solver_choice),
+        when EMerge can load it; otherwise EMerge's own automatic choice ("Auto")."""
+        from .solver_choice import ACCELERATE, auto_solver
+        pick = auto_solver()
+        if pick is None:
+            return "Auto"
+        em = self.em
+        cls = em.solvers.Sparta if sparta_setup.is_sparta(pick) else \
+            {"PARDISO": em.solvers.Pardiso, ACCELERATE: em.solvers.AASDS}.get(pick)
+        if cls is None or not getattr(cls, "available", False):
+            return "Auto"
+        info(f"Matrix solver (Auto): {pick}")
+        return pick
 
     def set_sparta(self, name: str) -> None:
         """SPARTA on the GPU or the CPU (sparta_setup). Not installed: EMerge's automatic choice."""

@@ -5,6 +5,12 @@ the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- **Matrix solver "Auto" takes the fastest direct solver for every matrix size.** PARDISO on Windows and Linux;
+  on a Mac SPARTA on the CPU when it is installed, otherwise Apple Accelerate. Before, small matrices (below
+  10,000 unknowns) always went to SuperLU. Measured on Apple silicon, SPARTA solves two to three times faster than Accelerate,
+  so the Mac installer recommends it ("Install SPARTA? [Y/n]"). Windows and Linux run as fast as before.
+
 ### Fixed
 - **Add/Edit Sweep with Single value shows one Value field** (#577). The parametric sweep dialog kept showing
   Start, Stop and "Points per octave" (greyed out) for a single value; it now shows only Value. The swept value
