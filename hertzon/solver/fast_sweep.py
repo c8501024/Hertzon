@@ -19,6 +19,16 @@ import time
 import numpy as np
 
 
+def _mac_order() -> list[str]:
+    """Direct solvers tried for the centre factorization where PARDISO is missing (a Mac), in order.
+    HERTZON_FAST_FACTOR (comma separated: SPARTA, Accelerate, SuperLU) overrides it."""
+    import os
+    env = os.environ.get("HERTZON_FAST_FACTOR", "")
+    if env:
+        return [x.strip() for x in env.split(",") if x.strip()]
+    return []
+
+
 class _Factor:
     """Factorization of the centre matrix, reused for many right-hand sides (PARDISO, else SuperLU).
 
@@ -43,10 +53,61 @@ class _Factor:
                 p.clear_memory()
         except Exception:  # noqa: BLE001
             self._p = None
+        self._acc = self._sp = self._sp_sym = None
         if self._p is None:
+            for name in _mac_order():
+                if name == "SPARTA" and self._sparta():
+                    break
+                if name == "Accelerate" and self._accelerate():
+                    break
+        if self._p is None and self._acc is None and self._sp is None:
             from scipy.sparse.linalg import splu
             self._lu = splu(self.A.tocsc())
             self.kind = "SuperLU"
+
+    def _symmetric(self) -> bool:
+        d = self.A - self.A.T
+        return d.nnz == 0 or abs(d).max() <= 1e-12 * abs(self.A).max()
+
+    def _accelerate(self) -> bool:
+        """Apple Accelerate through EMerge's AASDS interface: LDL^T for a complex symmetric matrix where macOS
+        offers it (26 and newer), else LU."""
+        try:
+            from emerge._emerge.solvers.aasds import AVAILABLE, AASDSInterface
+            if not AVAILABLE:
+                return False
+            A = self.A.tocsc()
+            acc = AASDSInterface()
+            acc._csym = self._symmetric()
+            acc.analyse(A)
+            acc.factorize(A)
+            self._acc = acc
+            fac = getattr(acc._solver, "_active_factor_type", None)
+            self.kind = "Accelerate " + ("LDL^T" if fac is not None and fac < 40 else "LU")
+            return True
+        except Exception:  # noqa: BLE001
+            self._acc = None
+            return False
+
+    def _sparta(self) -> bool:
+        """SPARTA on the CPU (double precision), LDL^T for a complex symmetric matrix."""
+        try:
+            from . import sparta_setup
+            if not sparta_setup.installed_version():
+                return False
+            import sparta
+            mtype = sparta.MatrixType.COMPLEX_SYMMETRIC if self._symmetric() \
+                else sparta.MatrixType.COMPLEX_STRUCTURALLY_SYMMETRIC
+            kw = dict(force_cpu=True, hybrid=False, mtype=mtype, ordering=sparta.Ordering.SCALPEL,
+                      refinement_steps=0)
+            A = self.A.tocsc()
+            self._sp_sym = sparta.analyze(A, **kw)
+            self._sp = self._sp_sym.factorize(A, **kw)
+            self.kind = "SPARTA (CPU)"
+            return True
+        except Exception:  # noqa: BLE001
+            self._sp = self._sp_sym = None
+            return False
 
     def solve(self, B: np.ndarray) -> np.ndarray:
         B = np.asarray(B, dtype=np.complex128)
@@ -54,6 +115,11 @@ class _Factor:
             B = B[:, None]
         if self._lu is not None:
             return self._lu.solve(B)
+        if self._acc is not None:           # all columns in one Accelerate solve
+            x = np.asarray(self._acc.solve(np.asfortranarray(B))[0])
+            return x.reshape(B.shape)
+        if self._sp is not None:
+            return np.asarray(self._sp.solve_many(B)).reshape(B.shape)
         try:
             return self._block(B)
         except Exception:  # noqa: BLE001
@@ -100,7 +166,13 @@ class _Factor:
                 self._p.clear_memory()
             except Exception:  # noqa: BLE001
                 pass
-        self._p = self._lu = self.A = None
+        for obj in (self._acc, self._sp, self._sp_sym):
+            if obj is not None:
+                try:
+                    obj.destroy()
+                except Exception:  # noqa: BLE001
+                    pass
+        self._p = self._lu = self._acc = self._sp = self._sp_sym = self.A = None
 
 
 class ReducedSolver:
