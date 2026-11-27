@@ -106,10 +106,17 @@ class _Factor:
 class ReducedSolver:
     """Stands in for EMerge's SolveRoutine.solve during a fast sweep."""
 
-    def __init__(self, direct_solve, tol: float = 1e-4, max_enrich: int = 8):
+    def __init__(self, direct_solve, tol: float = 1e-4, max_enrich: int = 8, n_freqs: int = 1,
+                 room=None, release=None):
         self.direct = direct_solve           # EMerge's own solve (A, b, solve_ids, ...) -> (x, report)
         self.tol = tol
         self.max_enrich = max_enrich
+        self.n_freqs = n_freqs               # frequencies of the sweep (their solutions are kept)
+        self.room = room                     # () -> bytes this process may still grow by, None: no limit
+        self.release = release               # () frees the memory of the direct solver after a direct solve
+        self.max_basis: int | None = None    # basis vectors that fit in memory (set after the first solve)
+        self.n_restart = 0
+        self._buf: np.ndarray | None = None  # preallocated basis (with a memory limit)
         self.V: np.ndarray | None = None     # orthonormal basis on the solve dofs
         self.ids: np.ndarray | None = None
         self.fac: _Factor | None = None
@@ -122,7 +129,10 @@ class ReducedSolver:
 
     # basis ---------------------------------------------------------------------------------------
     def _add(self, X: np.ndarray) -> int:
-        added = 0
+        """Orthonormalize the columns of X against the basis and each other and append the new directions:
+        into the preallocated basis when there is one (appending column by column copied the whole basis
+        once per vector), else with one copy for the whole block."""
+        new: list[np.ndarray] = []
         for j in range(X.shape[1]):
             v = np.array(X[:, j], dtype=np.complex128)
             n0 = np.linalg.norm(v)
@@ -130,14 +140,59 @@ class ReducedSolver:
                 continue
             for _ in range(2):              # Gram-Schmidt twice for a numerically orthonormal basis
                 if self.V is not None and self.V.shape[1]:
-                    v -= self.V @ (self.V.conj().T @ v)
+                    v -= self.V @ (v.conj() @ self.V).conj()    # V^H v without a conjugated copy of V
+                for w in new:
+                    v -= w * np.vdot(w, v)
             n = np.linalg.norm(v)
             if n <= 1e-10 * n0:
                 continue
-            v /= n
-            self.V = v[:, None] if self.V is None else np.hstack([self.V, v[:, None]])
-            added += 1
-        return added
+            new.append(v / n)
+        if new:
+            k = 0 if self.V is None else self.V.shape[1]
+            if self._buf is not None and k + len(new) <= self._buf.shape[1]:
+                for j, v in enumerate(new):         # into the preallocated basis: no copy of the whole basis
+                    self._buf[:, k + j] = v
+                self.V = self._buf[:, :k + len(new)]
+            else:
+                N = np.stack(new, axis=1)
+                self.V = N if not k else np.hstack([self.V, N])
+        return len(new)
+
+    def _set_max_basis(self, n: int, nb: int, nf: int) -> None:
+        """How many basis vectors fit in the memory left after the centre factorization: each one is held
+        twice (V and A V of the reduced solve, counted 2.5 times for the temporaries), the solutions of all
+        sweep frequencies (nb excitations on the nf unknowns of the model; measured twice that with what EMerge
+        keeps per frequency) are kept until the sweep ends, and 15 % of the room stays free. The basis is then
+        preallocated, so it no longer copies itself when it grows. Without a limit the basis grew with ports x enrichments x frequencies (Rotman lens array, 11
+        ports, 17 frequencies, 425k unknowns: more than 280 vectors, 2 GB each copy) until the operating
+        system ended the solver on a 15 GB machine; a limit that counted 3 vectors with the copies did too."""
+        if self.room is None:
+            return
+        try:
+            room = float(self.room())
+        except Exception:  # noqa: BLE001
+            return
+        if not np.isfinite(room):
+            return
+        room = max(0.0, room)
+        keep = 16.0 * nb * (2 * nf * (self.n_freqs + 1) + 6 * n)
+        self.max_basis = max(2 * nb, int((0.85 * room - keep) / (2.5 * 16.0 * n)))
+        # column major: V = buf[:, :k] stays contiguous, so the products with V and V^T copy nothing
+        self._buf = np.empty((n, self.max_basis + nb), dtype=np.complex128, order="F")  # pages taken when written
+        k = 0 if self.V is None else self.V.shape[1]       # the first solution, nb <= max_basis vectors
+        if k:
+            self._buf[:, :k] = self.V
+            self.V = self._buf[:, :k]
+
+    def _restart_if_full(self, x: np.ndarray | None, extra: int) -> None:
+        """Basis at its memory limit: start again from the current solution (the factorization stays), like
+        a restarted Krylov method; later frequencies may need more enrichments, but the memory is bounded."""
+        if self.max_basis is None or self.V is None or self.V.shape[1] + extra <= self.max_basis:
+            return
+        self.V = None
+        if x is not None:
+            self._add(x)
+        self.n_restart += 1
 
     # solve -----------------------------------------------------------------------------------------
     def solve(self, A, b, solve_ids, direct=True, id=-1, matrix_type=None, **kw):  # noqa: A002
@@ -160,11 +215,21 @@ class ReducedSolver:
             self.n_direct += 1
             how = "centre factorization"
         else:
+            if self.max_basis is None and self._buf is None:
+                # after the first solve, when the factorization and the first solution hold their memory
+                self._set_max_basis(bsel.shape[0], bsel.shape[1], A.shape[0])
             x, rel, it = self._reduced(Asel, bsel, bn)
             if rel > self.tol:
                 sol, rep = self.direct(A, b, solve_ids, direct=direct, id=id,
                                        **({"matrix_type": matrix_type} if matrix_type is not None else {}))
-                self._add(np.asarray(sol)[solve_ids, :])
+                if self.release is not None:
+                    try:        # its factorization is not reused: free it beside the centre factorization
+                        self.release()
+                    except Exception:  # noqa: BLE001
+                        pass
+                xs = np.asarray(sol)[solve_ids, :]
+                self._restart_if_full(None, xs.shape[1])
+                self._add(xs)
                 self.n_direct += 1
                 rep.add(fast_sweep=f"direct solve (residual {rel:.1e} after {it} enrichments)")
                 return sol, rep
@@ -188,7 +253,8 @@ class ReducedSolver:
     def _reduced(self, Asel, bsel, bn):
         rel = np.inf
         x = None
-        for it in range(self.max_enrich + 1):
+        it, limit = 0, self.max_enrich
+        while True:
             V = self.V
             AV = Asel @ V
             Ar = V.T @ AV                   # A is complex symmetric: V^T keeps the reduced system symmetric
@@ -199,27 +265,43 @@ class ReducedSolver:
                 y = np.linalg.lstsq(AV, bsel, rcond=None)[0]
             x = V @ y
             r = bsel - AV @ y
+            del AV
             rel = float(np.max(np.linalg.norm(r, axis=0) / bn))
-            if rel <= self.tol or it == self.max_enrich:
+            if rel <= self.tol or it >= limit:
                 return x, rel, it
+            restarts = self.n_restart
+            self._restart_if_full(x, r.shape[1])
+            if self.n_restart > restarts and limit == self.max_enrich:
+                # a fresh basis from the current solution needs its own enrichments, still cheaper than a
+                # direct solve (a factorization, and memory beside the centre one)
+                limit = it + self.max_enrich
             if self._add(self.fac.solve(r)) == 0:
                 return x, rel, it
             self.n_enrich += 1
-        return x, rel, self.max_enrich
+            it += 1
 
     def reset(self) -> None:
         if self.fac is not None:
             self.fac.close()
         self.fac = None
         self.V = None
+        self._buf = None
         self.ids = None
 
     def summary(self) -> str:
         r = 0 if self.V is None else self.V.shape[1]
         kind = f", {self.fac.kind}" if self.fac is not None and self.fac.kind else ""
         return (f"{self.n_direct} factorization(s) ({self.t_fact:.1f} s for the centre{kind}), {self.n_reduced} "
-                f"frequencies from a basis of {r} vectors ({self.n_enrich} enrichments), "
+                f"frequencies from a basis of {r} vectors ({self.n_enrich} enrichments"
+                f"{f', {self.n_restart} restarts at the memory limit of {self.max_basis} vectors' if self.n_restart else ''}), "
                 f"worst residual {self.worst:.1e}, {self.t_solve:.1f} s in the solves")
+
+
+def _room() -> float:
+    """Bytes this process may still grow by under the memory guard (GUARD_FRACTION of the usable memory)."""
+    from .bridge import GUARD_FRACTION, _current_rss, usable_memory
+    use = usable_memory()
+    return GUARD_FRACTION * use - _current_rss() if use > 0 else float("inf")
 
 
 def fast_sweep(m, freqs, tol: float = 1e-4, log=None, on_solved=None):
@@ -230,7 +312,8 @@ def fast_sweep(m, freqs, tol: float = 1e-4, log=None, on_solved=None):
     f0 = 0.5 * (freqs[0] + freqs[-1])
     order = sorted(freqs, key=lambda f: abs(f - f0))
     routine = m.mw.solveroutine
-    red = ReducedSolver(routine.solve, tol=tol)
+    red = ReducedSolver(routine.solve, tol=tol, n_freqs=len(freqs), room=_room,
+                        release=lambda: [s.reset() for s in getattr(routine, "solvers", {}).values()])
     routine.solve = red.solve
     cache = getattr(m.mw, "cache_matrices", False)
     try:

@@ -9,6 +9,13 @@ the GitHub release notes.
 - **Add/Edit Sweep with Single value shows one Value field** (#577). The parametric sweep dialog kept showing
   Start, Stop and "Points per octave" (greyed out) for a single value; it now shows only Value. The swept value
   was already right.
+- **Memory guard for sweeps with many ports and in Linux containers.** A Fast or Discrete sweep keeps the
+  solution of every port at every frequency, and the guard of the adaptive passes now plans for that instead
+  of a flat 25 % (a lens beamformer with 11 ports ran out of memory in its sweep). The basis of a Fast sweep
+  stays within the free memory: it no longer copies itself while it grows, starts again from the current
+  solution when it is full, and a direct solve inside the sweep frees its factorization afterwards. On Linux
+  the memory limit of the solver's own cgroup is read (before only the top level), so containers and cloud
+  sessions with a limit are planned with the memory they really have.
 
 ## 0.4.8 (2026-11-26)
 

@@ -136,6 +136,48 @@ def test_access_violation_is_not_called_out_of_memory():
     assert exit_reason(1, crashed=False) == ""
 
 
+def _cgroup_tree(tmp_path, proc: str, files: dict[str, str]):
+    for rel, text in files.items():
+        f = tmp_path / "cg" / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+    (tmp_path / "proc").write_text(proc)
+    return tmp_path / "cg", tmp_path / "proc"
+
+
+def test_memory_limit_of_the_own_cgroup_v1(tmp_path, monkeypatch):
+    """Cloud container (cgroup v1): the root says unlimited, the solver's own group is limited to 14.0 GB;
+    the guard planned with the 15.3 GB of the machine and the operating system ended the solver."""
+    own = "memory/process_api/abc/claude-code-bash"
+    root, proc = _cgroup_tree(tmp_path, "4:memory:/process_api/abc/claude-code-bash\n0::/\n", {
+        "memory/memory.limit_in_bytes": "9223372036854771712",
+        "memory/process_api/memory.limit_in_bytes": "9223372036854771712",
+        f"{own}/memory.limit_in_bytes": "14338371584",
+        f"{own}/memory.stat": "cache 100\nrss 2147483648\ntotal_rss 3221225472\n"})
+    monkeypatch.setattr(B, "CGROUP_ROOT", root)
+    monkeypatch.setattr(B, "PROC_CGROUP", proc)
+    assert B.cgroup_memory() == (14338371584.0, 3221225472.0)
+
+
+def test_memory_limit_of_a_parent_cgroup_v2(tmp_path, monkeypatch):
+    root, proc = _cgroup_tree(tmp_path, "0::/user.slice/app/run\n", {
+        "memory.max": "max",
+        "user.slice/memory.max": "8589934592",
+        "user.slice/memory.stat": "anon 1073741824\nfile 5\n",
+        "user.slice/app/memory.max": "max",
+        "user.slice/app/run/memory.max": "max"})
+    monkeypatch.setattr(B, "CGROUP_ROOT", root)
+    monkeypatch.setattr(B, "PROC_CGROUP", proc)
+    assert B.cgroup_memory() == (8589934592.0, 1073741824.0)
+
+
+def test_no_cgroup_limit(tmp_path, monkeypatch):
+    root, proc = _cgroup_tree(tmp_path, "0::/\n", {"memory.max": "max"})
+    monkeypatch.setattr(B, "CGROUP_ROOT", root)
+    monkeypatch.setattr(B, "PROC_CGROUP", proc)
+    assert B.cgroup_memory() == (0.0, 0.0)
+
+
 def test_guard_stops_before_a_pass_that_does_not_fit(monkeypatch, capfd):
     monkeypatch.setattr(B, "memory_forecast", lambda n, c: (n * 1000.0, 30 * 2 ** 30))
     assert not B.next_pass_too_large(20000, 30, sweep=True)
@@ -144,6 +186,23 @@ def test_guard_stops_before_a_pass_that_does_not_fit(monkeypatch, capfd):
     assert B.next_pass_too_large(20000, 30, sweep=True)                  # x1.25 for the sweep does not
     assert "Stopping refinement: the next pass and the frequency sweep on its mesh would need about 35.0 GB" \
         in capfd.readouterr().out
+
+
+def test_guard_leaves_room_for_the_solutions_of_a_sweep_with_many_ports(monkeypatch, capfd):
+    """Rotman lens array, 11 ports, Fast sweep with 17 points, second order (about 8.8 unknowns per
+    tetrahedron): pass 4 (48k tetrahedra) peaked at 8.5 GB on a 15.3 GB cloud, the guard planned pass 5 plus
+    1.25 x for the sweep and let it run, the sweep on 48k then outgrew the memory. With one or two ports the
+    1.25 x stays the larger reserve, so their passes stop where they did."""
+    from hertzon.solver import fast_assembly
+    monkeypatch.setitem(fast_assembly.FACTOR, "unknowns", 425502)
+    monkeypatch.setattr(B, "memory_forecast", lambda n, c: (11.0 * 2 ** 30, 15.3 * 2 ** 30))
+    assert not B.next_pass_too_large(48244, 30, sweep=True)                                  # 13.75 GB fits
+    assert not B.next_pass_too_large(48244, 30, sweep=True, n_exc=1, points=101, fast=True)  # patch-like
+    assert B.next_pass_too_large(48244, 30, sweep=True, n_exc=11, points=17, fast=True)
+    assert "would need about 16.7 GB of memory, 15.3 GB available" in capfd.readouterr().out
+    extra = B.sweep_memory(62717, 48244, 11, 17, True)
+    assert 5 * 2 ** 30 < extra < 6.5 * 2 ** 30
+    assert B.sweep_memory(62717, 48244, 11, 0, False) == 0.0                # interpolating sweep: x1.25 only
 
 
 def test_plane_wave_passes_stop_when_memory_runs_short(tmp_path, monkeypatch, capfd):
