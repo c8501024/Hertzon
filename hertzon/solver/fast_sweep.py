@@ -15,26 +15,20 @@ solved from the centre outwards, so the basis grows smoothly.
 from __future__ import annotations
 
 import time
+import warnings
 
 import numpy as np
 
 
-def _mac_order() -> list[str]:
-    """Direct solvers tried for the centre factorization where PARDISO is missing (a Mac), in order.
-    HERTZON_FAST_FACTOR (comma separated: SPARTA, Accelerate, SuperLU) overrides it."""
-    import os
-    env = os.environ.get("HERTZON_FAST_FACTOR", "")
-    if env:
-        return [x.strip() for x in env.split(",") if x.strip()]
-    return []
-
-
 class _Factor:
-    """Factorization of the centre matrix, reused for many right-hand sides (PARDISO, else SuperLU).
+    """Factorization of the centre matrix, reused for many right-hand sides: PARDISO; without it (a Mac) SPARTA on the
+    CPU, else Apple Accelerate; SuperLU as the last resort.
 
     EMerge's PARDISO interface factorizes the complex symmetric FEM matrix as LDL^T on its upper triangle (as in
     the main solve, about half the factor memory of LU), a matrix that is not symmetric as LU. All right-hand
-    sides of a call are solved in one PARDISO call (nrhs > 1)."""
+    sides of a call are solved in one call (nrhs > 1) with every solver: one call per column costs several times more.
+    SPARTA and Accelerate factor a complex symmetric matrix as LDL^T as well (Accelerate on macOS 26 and newer, LU
+    before)."""
 
     def __init__(self, A):
         self.A = A.tocsr()
@@ -55,11 +49,8 @@ class _Factor:
             self._p = None
         self._acc = self._sp = self._sp_sym = None
         if self._p is None:
-            for name in _mac_order():
-                if name == "SPARTA" and self._sparta():
-                    break
-                if name == "Accelerate" and self._accelerate():
-                    break
+            # without PARDISO (a Mac): SPARTA on the CPU where it is installed, else Apple Accelerate
+            self._sparta() or self._accelerate()
         if self._p is None and self._acc is None and self._sp is None:
             from scipy.sparse.linalg import splu
             self._lu = splu(self.A.tocsc())
@@ -79,8 +70,10 @@ class _Factor:
             A = self.A.tocsc()
             acc = AASDSInterface()
             acc._csym = self._symmetric()
-            acc.analyse(A)
-            acc.factorize(A)
+            with warnings.catch_warnings():     # macOS < 26 falls back to LU, which is what we want there
+                warnings.simplefilter("ignore", RuntimeWarning)
+                acc.analyse(A)
+                acc.factorize(A)
             self._acc = acc
             fac = getattr(acc._solver, "_active_factor_type", None)
             self.kind = "Accelerate " + ("LDL^T" if fac is not None and fac < 40 else "LU")
