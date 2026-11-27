@@ -111,6 +111,7 @@ def test_mesh_defects_finds_a_port_node_off_its_plane(tmp_path, monkeypatch):
 
 def test_usable_memory_leaves_out_what_others_use(monkeypatch):
     monkeypatch.setattr(B, "available_memory", lambda: 32 * 2 ** 30)
+    monkeypatch.setattr(B, "cgroup_memory", lambda: (0.0, 0.0))
     monkeypatch.setattr(B, "_current_rss", lambda: 2 * 2 ** 30)
     monkeypatch.setattr(B, "_system_free_memory", lambda: 10 * 2 ** 30)
     assert B.usable_memory() == pytest.approx(12 * 2 ** 30)
@@ -136,14 +137,89 @@ def test_access_violation_is_not_called_out_of_memory():
     assert exit_reason(1, crashed=False) == ""
 
 
+def _cgroup_tree(tmp_path, proc: str, files: dict[str, str]):
+    for rel, text in files.items():
+        f = tmp_path / "cg" / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+    (tmp_path / "proc").write_text(proc)
+    return tmp_path / "cg", tmp_path / "proc"
+
+
+def test_memory_limit_of_the_own_cgroup_v1(tmp_path, monkeypatch):
+    """Cloud container (cgroup v1): the root says unlimited, the solver's own group is limited to 14.0 GB;
+    the guard planned with the 15.3 GB of the machine and the operating system ended the solver."""
+    own = "memory/process_api/abc/claude-code-bash"
+    root, proc = _cgroup_tree(tmp_path, "4:memory:/process_api/abc/claude-code-bash\n0::/\n", {
+        "memory/memory.limit_in_bytes": "9223372036854771712",
+        "memory/process_api/memory.limit_in_bytes": "9223372036854771712",
+        f"{own}/memory.limit_in_bytes": "14338371584",
+        f"{own}/memory.stat": "cache 100\nrss 2147483648\ntotal_rss 3221225472\n"})
+    monkeypatch.setattr(B, "CGROUP_ROOT", root)
+    monkeypatch.setattr(B, "PROC_CGROUP", proc)
+    assert B.cgroup_memory() == (14338371584.0, 3221225472.0)
+
+
+def test_memory_limit_of_a_parent_cgroup_v2(tmp_path, monkeypatch):
+    root, proc = _cgroup_tree(tmp_path, "0::/user.slice/app/run\n", {
+        "memory.max": "max",
+        "user.slice/memory.max": "8589934592",
+        "user.slice/memory.stat": "anon 1073741824\nfile 5\n",
+        "user.slice/app/memory.max": "max",
+        "user.slice/app/run/memory.max": "max"})
+    monkeypatch.setattr(B, "CGROUP_ROOT", root)
+    monkeypatch.setattr(B, "PROC_CGROUP", proc)
+    assert B.cgroup_memory() == (8589934592.0, 1073741824.0)
+
+
+def test_no_cgroup_limit(tmp_path, monkeypatch):
+    root, proc = _cgroup_tree(tmp_path, "0::/\n", {"memory.max": "max"})
+    monkeypatch.setattr(B, "CGROUP_ROOT", root)
+    monkeypatch.setattr(B, "PROC_CGROUP", proc)
+    assert B.cgroup_memory() == (0.0, 0.0)
+
+
 def test_guard_stops_before_a_pass_that_does_not_fit(monkeypatch, capfd):
     monkeypatch.setattr(B, "memory_forecast", lambda n, c: (n * 1000.0, 30 * 2 ** 30))
     assert not B.next_pass_too_large(20000, 30, sweep=True)
     monkeypatch.setattr(B, "memory_forecast", lambda n, c: (28 * 2 ** 30, 30 * 2 ** 30))
     assert not B.next_pass_too_large(20000, 30, sweep=False)            # 28 of 30 GB fits without a sweep
-    assert B.next_pass_too_large(20000, 30, sweep=True)                  # x1.25 for the sweep does not
-    assert "Stopping refinement: the next pass and the frequency sweep on its mesh would need about 35.0 GB" \
+    assert B.next_pass_too_large(20000, 30, sweep=True)                  # x1.15 for the sweep does not
+    assert "Stopping refinement: the next pass and the frequency sweep on its mesh would need about 32.2 GB" \
         in capfd.readouterr().out
+
+
+def test_guard_leaves_room_for_the_solutions_of_a_sweep_with_many_ports(monkeypatch, capfd):
+    """Rotman lens array, 11 ports, Fast sweep with 17 points, second order (about 8.8 unknowns per
+    tetrahedron): pass 4 (48k tetrahedra) peaked at 8.5 GB on a 15.3 GB cloud, the guard planned pass 5 plus
+    1.25 x for the sweep and let it run, the sweep on 48k then outgrew the memory. Now the solutions the sweep
+    keeps are planned on top of 1.15 x the pass; a sweep with one port and few points still fits."""
+    from hertzon.solver import fast_assembly
+    monkeypatch.setitem(fast_assembly.FACTOR, "unknowns", 425502)
+    monkeypatch.setattr(B, "memory_forecast", lambda n, c: (11.0 * 2 ** 30, 15.3 * 2 ** 30))
+    assert not B.next_pass_too_large(48244, 30, sweep=True)                                  # 12.65 GB fits
+    assert not B.next_pass_too_large(48244, 30, sweep=True, n_exc=1, points=11, fast=True)   # + 1.05 GB
+    assert B.next_pass_too_large(48244, 30, sweep=True, n_exc=11, points=17, fast=True)
+    assert "would need about 19.3 GB of memory, 15.3 GB available" in capfd.readouterr().out
+    extra = B.sweep_memory(62717, 48244, 11, 17, True)
+    assert 6 * 2 ** 30 < extra < 7.5 * 2 ** 30
+    assert B.sweep_memory(62717, 48244, 11, 0, False) == 0.0                # interpolating sweep: x1.15 only
+
+
+def test_memory_exponent_is_learned_from_the_last_two_passes(monkeypatch):
+    """Hairpin filter, passes 7 and 8 (0.4.8, cloud): 7.78 GB at 38505 and 10.22 GB at 50645 tetrahedra grow
+    about linearly; with 4/3 the forecast for the next pass was about 10 % too high per pass and stopped the
+    filter a pass early under the real memory limit."""
+    monkeypatch.setattr(B, "PASS_PEAKS", [(29226, 5.89e9), (38505, 7.78e9)])
+    e = B.memory_exponent(38505)
+    assert 1.0 < e < 1.1
+    monkeypatch.setattr(B, "_peak_rss", lambda: 7.78e9)
+    need, _ = B.memory_forecast(38505 * 1.3, 38505)
+    assert need < 7.78e9 * 1.3 ** 1.1                       # actual pass 8: 10.22 GB; 4/3 forecast 11.0 GB
+    monkeypatch.setattr(B, "PASS_PEAKS", [(38505, 7.78e9)])
+    assert B.memory_exponent(38505) == pytest.approx(4 / 3)       # one pass: nested dissection
+    monkeypatch.setattr(B, "PASS_PEAKS", [(29226, 7.78e9), (38505, 7.78e9)])
+    assert B.memory_exponent(38505) == pytest.approx(4 / 3)       # peak from an earlier, larger model
 
 
 def test_plane_wave_passes_stop_when_memory_runs_short(tmp_path, monkeypatch, capfd):
