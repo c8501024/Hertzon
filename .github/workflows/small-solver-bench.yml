@@ -1,0 +1,58 @@
+# Temporary: small models, the fast direct solver for every matrix size against EMerge's SuperLU below 10,000
+# unknowns, on Windows (PARDISO) and on a Mac (Apple Accelerate). Removed before the PR.
+name: Small solver bench
+on:
+  push:
+    branches: [claude/project-thread-6wg1n4]
+    paths: [".github/workflows/small-solver-bench.yml", "bench/small/**"]
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    env:
+      HERTZON_NO_UPDATE_CHECK: "1"
+      HERTZON_NO_PRELOAD: "1"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+        with: {path: new}
+      - uses: actions/checkout@v4
+        with: {path: old, ref: v0.4.8}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - name: Install
+        run: |
+          python -m pip install -q -e new psutil
+          python -c "import os, platform; print(platform.platform(), platform.processor(), os.cpu_count())"
+          python -c "from hertzon.solver import solver_choice as s; print(s.offered(), s.auto_solver())"
+      - name: Projects
+        run: |
+          mkdir work && cd work
+          python ../new/bench/small/prep.py "$GITHUB_WORKSPACE/new" proj
+      - name: Solve (two rounds, order swapped)
+        run: |
+          cd work
+          R=../new/bench/mac-solver/run.py
+          if [ "$RUNNER_OS" = "Windows" ]; then FAST=PARDISO; TREE="$GITHUB_WORKSPACE/new"; else FAST="Apple Accelerate"; TREE="$GITHUB_WORKSPACE/new"; fi
+          OLD="$GITHUB_WORKSPACE/old"
+          for m in microstrip wr90post coax gcpw dipole diffpair; do
+            python $R auto1 "$OLD" Auto proj/$m.hzn
+            python $R fast1 "$TREE" "$FAST" proj/$m.hzn
+            python $R fast2 "$TREE" "$FAST" proj/$m.hzn
+            python $R auto2 "$OLD" Auto proj/$m.hzn
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: small-${{ matrix.os }}
+          path: |
+            work/*.json
+            work/*.log
+            work/*.s*p
