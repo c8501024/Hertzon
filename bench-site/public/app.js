@@ -70,8 +70,8 @@ function grouped(rows) {
 }
 
 // what a run lacks for the overall score: parts in which a test did not count
-function missingParts(r, only) {
-  return parts(SPEC[r.suite]).filter((p) => !only || p.id === only).map((p) => {
+function missingParts(r) {
+  return parts(SPEC[r.suite]).map((p) => {
     const x = (r.parts || {})[p.id];
     return !x ? "" : !x.score ? `${p.title}: ${x.counted} of ${x.tests} tests count` : "";
   }).filter(Boolean);
@@ -93,12 +93,7 @@ function options(values, cur, all) {
 
 function systemCell(r) {
   const sub = [r.device, r.gpu].filter(Boolean).join(" · ");
-  // the ranking shows only what the chosen score lacks: every part for Overall, the part itself for RF or RCS
-  const m = state.metric, viewed = m === "overall" ? null : m;
-  const isPart = viewed === null || parts(SPEC[r.suite]).some((p) => p.id === viewed);
-  const miss = state.mode === "multi" && !r.complete && isPart ? missingParts(r, viewed) : [];
   return `<td class="wrap sys"><b>${esc(r.cpu)}</b>${r.name ? `<span class="tag">${esc(r.name)}</span>` : ""}
-    ${miss.map((m) => `<span class="tag warn" title="A part has a score only when every one of its tests counts">${esc(m)}</span>`).join("")}
     ${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</td>`;
 }
 
