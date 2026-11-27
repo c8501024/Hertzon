@@ -87,3 +87,20 @@ def offered(solvers=None) -> list[str]:
 
 def available(name: str) -> bool:
     return unavailable(name) is None
+
+
+def auto_solver() -> str | None:
+    """The solver "Auto" stands for on this computer when Hertzon chooses it, None to leave the choice to EMerge.
+
+    On a Mac that is Apple Accelerate for every matrix: EMerge's automatic choice would take SuperLU below
+    10,000 unknowns and SPARTA before Accelerate above, and PARDISO, its first choice elsewhere, does not exist
+    on Apple silicon. Accelerate is Apple's own multithreaded sparse direct solver and comes with EMerge on
+    macOS. Elsewhere EMerge's choice (PARDISO) stays."""
+    if sys.platform == "darwin" and available(ACCELERATE):
+        return ACCELERATE
+    return None
+
+
+def factor_accelerate() -> bool:
+    """Fast sweep and tuning factorize with Apple Accelerate when PARDISO is missing (a Mac), instead of SuperLU."""
+    return sys.platform == "darwin" and available(ACCELERATE)

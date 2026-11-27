@@ -20,7 +20,8 @@ import numpy as np
 
 
 class _Factor:
-    """Factorization of the centre matrix, reused for many right-hand sides (PARDISO, else SuperLU).
+    """Factorization of the centre matrix, reused for many right-hand sides (PARDISO, on a Mac Apple Accelerate,
+    else SuperLU).
 
     EMerge's PARDISO interface factorizes the complex symmetric FEM matrix as LDL^T on its upper triangle (as in
     the main solve, about half the factor memory of LU), a matrix that is not symmetric as LU. All right-hand
@@ -33,6 +34,7 @@ class _Factor:
         self.kind = ""
         self._p = None
         self._lu = None
+        self._acc = None
         try:
             from emerge._emerge.solvers import pardiso as PI
             p = PI.PardisoInterface()
@@ -44,6 +46,8 @@ class _Factor:
         except Exception:  # noqa: BLE001
             self._p = None
         if self._p is None:
+            self._accelerate()
+        if self._p is None and self._acc is None:
             from scipy.sparse.linalg import splu
             self._lu = splu(self.A.tocsc())
             self.kind = "SuperLU"
@@ -54,6 +58,11 @@ class _Factor:
             B = B[:, None]
         if self._lu is not None:
             return self._lu.solve(B)
+        if self._acc is not None:
+            out = np.empty_like(B)
+            for i in range(B.shape[1]):
+                out[:, i] = self._acc.solve(np.ascontiguousarray(B[:, i]))[0]
+            return out
         try:
             return self._block(B)
         except Exception:  # noqa: BLE001
@@ -65,6 +74,24 @@ class _Factor:
                 raise RuntimeError(f"PARDISO error {err}")
             out[:, i] = x
         return out
+
+    def _accelerate(self) -> None:
+        """Apple Accelerate (EMerge's AASDS interface) where PARDISO is missing: a Mac. Complex symmetric as in
+        EMerge's own solve with it (symmetric factorization), any other matrix as LU."""
+        from .solver_choice import factor_accelerate
+        if not factor_accelerate():
+            return
+        try:
+            from emerge._emerge.solvers.aasds import AASDSInterface
+            A = self.A.tocsc()
+            d = abs(A - A.T)
+            acc = AASDSInterface()
+            acc._csym = d.nnz == 0 or d.max() <= 1e-12 * abs(A).max()
+            acc.analyse(A)
+            acc.factorize(A)
+            self._acc, self.kind = acc, "Accelerate"
+        except Exception:  # noqa: BLE001
+            self._acc = None
 
     def _block(self, B: np.ndarray) -> np.ndarray:
         """All columns of B in one PARDISO solve (phase 33 with nrhs columns, column major)."""
@@ -100,7 +127,12 @@ class _Factor:
                 self._p.clear_memory()
             except Exception:  # noqa: BLE001
                 pass
-        self._p = self._lu = self.A = None
+        if self._acc is not None:
+            try:
+                self._acc.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        self._p = self._lu = self._acc = self.A = None
 
 
 class ReducedSolver:

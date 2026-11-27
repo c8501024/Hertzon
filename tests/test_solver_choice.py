@@ -60,3 +60,34 @@ def test_every_schema_solver_is_known():
 @pytest.mark.skipif(sys.platform != "darwin", reason="the real check on a Mac (CI install-macos)")
 def test_real_mac():
     assert sc.available(sc.ACCELERATE), sc.unavailable(sc.ACCELERATE)
+
+
+def test_auto_is_accelerate_on_a_mac(mac_arm, monkeypatch):
+    monkeypatch.setattr(sc, "_installed", lambda dist, module=None: True)
+    assert sc.auto_solver() == sc.ACCELERATE and sc.factor_accelerate()
+    monkeypatch.setattr(sc, "_installed", lambda dist, module=None: False)
+    assert sc.auto_solver() is None and not sc.factor_accelerate()     # without emerge-aasds: EMerge's choice
+
+
+def test_auto_left_to_emerge_elsewhere(win_x86):
+    assert sc.auto_solver() is None and not sc.factor_accelerate()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Apple Accelerate exists on macOS only (CI install-macos)")
+@pytest.mark.parametrize("symmetric", [True, False])
+def test_fast_sweep_factor_uses_accelerate_on_a_mac(symmetric):
+    import numpy as np
+    import scipy.sparse as sp
+    from hertzon.solver.fast_sweep import _Factor
+    rng = np.random.default_rng(1)
+    n = 400
+    M = sp.random(n, n, density=0.01, random_state=2) + 1j * sp.random(n, n, density=0.01, random_state=3)
+    A = (M + M.T if symmetric else M) + sp.identity(n) * (8 + 1j)
+    B = rng.standard_normal((n, 3)) + 1j * rng.standard_normal((n, 3))
+    f = _Factor(A.tocsr())
+    try:
+        assert f.kind == "Accelerate"
+        X = f.solve(B)
+        assert np.linalg.norm(A @ X - B) <= 1e-10 * np.linalg.norm(B)
+    finally:
+        f.close()
