@@ -6,6 +6,10 @@ the GitHub release notes.
 ## Unreleased
 
 ### Changed
+- **Matrix solver "Auto" takes the fastest direct solver for every matrix size.** PARDISO on Windows and Linux;
+  on a Mac SPARTA on the CPU when it is installed, otherwise Apple Accelerate. Before, small matrices (below
+  10,000 unknowns) always went to SuperLU. Measured on Apple silicon, SPARTA solves two to three times faster than Accelerate,
+  so the Mac installer recommends it ("Install SPARTA? [Y/n]"). Windows and Linux run as fast as before.
 - **Fast sweep and tuning on a Mac many times faster.** Without PARDISO (Apple Silicon) the centre factorization of
   a Fast sweep and of tuning now uses SPARTA on the CPU where it is installed, else Apple Accelerate, instead of
   SuperLU, and solves all right-hand sides in one call. Measured on GitHub's Mac runners with the same S-parameters:
@@ -17,6 +21,21 @@ the GitHub release notes.
 - **Add/Edit Sweep with Single value shows one Value field** (#577). The parametric sweep dialog kept showing
   Start, Stop and "Points per octave" (greyed out) for a single value; it now shows only Value. The swept value
   was already right.
+- **Memory guard for sweeps with many ports and in Linux containers.** A Fast or Discrete sweep keeps the
+  solution of every port at every frequency, and the guard of the adaptive passes now plans for that instead
+  of a flat 25 % (a lens beamformer with 11 ports ran out of memory in its sweep). The basis of a Fast sweep
+  stays within the free memory: it no longer copies itself while it grows, starts again from the current
+  solution when it is full, and a direct solve inside the sweep frees its factorization afterwards. On Linux
+  the memory limit of the solver's own cgroup is read (before only the top level), so containers and cloud
+  sessions with a limit are planned with the memory they really have. The forecast of the next pass learns how
+  fast the memory grows from the last two passes (it assumed a steeper growth than measured) and plans 15 %
+  instead of 25 % for an interpolating sweep, so models that still fit are no longer stopped a pass early.
+- **Remote and cloud solves of designs with imported CAD files** (#584). The job sent to the remote computer
+  now carries every file the project reads from elsewhere: imported STEP/IGES/STL files, Touchstone files of
+  lumped components and the model files of circuit parts (Touchstone, Verilog-A, SPICE). A file the solved
+  design needs but that is missing is reported before the upload. Absolute Windows paths stay absolute when a
+  project is opened on Linux or macOS, and Touchstone files of lumped components given relative to the project
+  are found from copies saved elsewhere, as imported files already were.
 
 ## 0.4.8 (2026-11-26)
 

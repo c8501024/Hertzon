@@ -1590,6 +1590,8 @@ class Bridge:
             # SPARTA for the sweeps on the final mesh (run_sweeps)
             self.sweep_solver = sparta_setup.SWEEP_ONLY[name]
             name = "PARDISO"
+        if name == "Auto":
+            name = self.auto_solver()
         if self.cell is not None and name in ("Auto", "PARDISO"):
             from .periodic import pardiso_transposes
             if pardiso_transposes():
@@ -1613,6 +1615,21 @@ class Bridge:
                                "Apple Accelerate": em.solvers.AASDS}[name])
         except Exception as ex:  # noqa: BLE001
             warn(f"Solver {name} not available ({ex}); using automatic choice")
+
+    def auto_solver(self) -> str:
+        """What "Auto" solves with: the platform's fastest direct solver for every matrix size (solver_choice),
+        when EMerge can load it; otherwise EMerge's own automatic choice ("Auto")."""
+        from .solver_choice import ACCELERATE, auto_solver
+        pick = auto_solver()
+        if pick is None:
+            return "Auto"
+        em = self.em
+        cls = em.solvers.Sparta if sparta_setup.is_sparta(pick) else \
+            {"PARDISO": em.solvers.Pardiso, ACCELERATE: em.solvers.AASDS}.get(pick)
+        if cls is None or not getattr(cls, "available", False):
+            return "Auto"
+        info(f"Matrix solver (Auto): {pick}")
+        return pick
 
     def set_sparta(self, name: str) -> None:
         """SPARTA on the GPU or the CPU (sparta_setup). Not installed: EMerge's automatic choice."""
@@ -1657,7 +1674,7 @@ class Bridge:
         key = self.keys["model_key"] if hasattr(self, "keys") else model_key(self.project, self.design, self.setup)
         state = load_amr_state(self.out, key, fa) if resume else None
         conv = adaptive_loop(m, fa, p, self.out, on_pass, key=key, resume=state, power=self.pass_power,
-                             ds_limits=adaptive_delta_s(self.setup, self.ev))
+                             ds_limits=adaptive_delta_s(self.setup, self.ev), sweep_load=self.sweep_load())
         last = conv.pop("_last", None)
         conv["final_tets"] = int(m.mesh.n_tets)
         conv["frequencies"] = fa
@@ -1719,6 +1736,23 @@ class Bridge:
     def _plane_wave_sweeps(self) -> bool:
         return any(s.props.get("Enabled", "True") == "True" for s in self.setup.sweeps)
 
+    def sweep_load(self) -> tuple[int, bool]:
+        """(frequencies, fast) of the enabled Discrete or Fast sweep that keeps the most solutions, for the
+        memory guard of the adaptive passes (next_pass_too_large); an interpolating sweep stays within
+        SWEEP_MEMORY_FACTOR. (0, False) without one."""
+        points, fast = 0, False
+        for sw in self.setup.sweeps:
+            p = sw.props
+            if p.get("Enabled", "True") != "True" or p.get("SweepType", "Interpolating") not in ("Fast", "Discrete"):
+                continue
+            try:
+                n = len(sweep_frequencies(p, self.ev))
+            except Exception:  # noqa: BLE001
+                continue
+            if n > points or (n == points and p.get("SweepType") == "Fast"):
+                points, fast = n, p.get("SweepType") == "Fast" and n > 1
+        return points, fast
+
     def plane_wave_adaptive(self, fa: list[float]) -> dict:
         """Adaptive passes for the incident plane wave (Maximum Delta Energy). The refinement
         uses the same element error estimate as the port driven passes."""
@@ -1726,6 +1760,7 @@ class Bridge:
         from emerge._emerge.physics.microwave.bcs.boundary_conditions import PEC
         m, p = self.m, self.setup.props
         maxp = max(1, int(p.get("MaximumPasses", "15")))
+        PASS_PEAKS.clear()
         max_de = float(p.get("MaximumDeltaEnergy", "0.001") or 0.001)
         min_passes = max(2, int(p.get("MinimumPasses", "2")))
         min_conv = max(1, int(p.get("MinimumConvergedPasses", "1")))
@@ -1785,7 +1820,9 @@ class Bridge:
             if step == maxp or m.mesh.n_tets >= max_tets:
                 break
             # like the port driven passes: stop on the last mesh that fits rather than run out of memory
-            if next_pass_too_large(m.mesh.n_tets, pct, sweep=self._plane_wave_sweeps()):
+            points, fast = self.sweep_load()
+            if next_pass_too_large(m.mesh.n_tets, pct, sweep=self._plane_wave_sweeps(), n_exc=len(fields),
+                                   points=points, fast=fast):
                 break
             self._pw_fields = None
             pec = [int(t) for bc in m.mw.bc.oftype(PEC) for t in m.mesh.get_triangles(bc.tags)]
@@ -2860,7 +2897,7 @@ def aligned_delta(S_old: np.ndarray, S_new: np.ndarray, track=None) -> tuple[flo
 
 
 def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str = "", resume: dict | None = None,
-                  power=None, ds_limits: list[float] | None = None) -> dict:
+                  power=None, ds_limits: list[float] | None = None, sweep_load: tuple[int, bool] = (0, False)) -> dict:
     """Adaptive mesh refinement with the reference tool's semantics.
 
     Pass 1 solves the initial mesh; from pass 2 on Delta S is the maximum change of any S-parameter
@@ -2871,9 +2908,12 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     passes (but not before `MinimumPasses`), at `MaximumPasses`, or when the tetrahedra limit is hit.
     With UsePowerBalance a pass also needs |Prad + Ploss - Pacc| / Pin <= MaxPowerBalance and an efficiency
     change <= MaxDeltaEfficiency; power(fields, Ss) computes them (Bridge.pass_power).
+    sweep_load: (frequencies, fast) of the Discrete or Fast sweep on the final mesh (Bridge.sweep_load), so
+    that the memory guard leaves room for the solutions it keeps.
     """
     from .emerge_compat import select_refinement_indices, tet_to_node
     maxp = max(1, int(p.get("MaximumPasses", "15")))
+    PASS_PEAKS.clear()
     max_ds = float(p.get("MaximumDeltaS", "0.02"))
     # Max Delta S per adaptive frequency (Multi-Frequencies entries may carry their own)
     lims = list(ds_limits) if ds_limits is not None and len(ds_limits) == len(fa) else [max_ds] * len(fa)
@@ -3029,7 +3069,8 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
         if m.mesh.n_tets >= max_tets:
             warn(f"Maximum number of tetrahedra reached ({m.mesh.n_tets} >= {max_tets})")
             break
-        if next_pass_too_large(m.mesh.n_tets, pct, sweep=True):
+        if next_pass_too_large(m.mesh.n_tets, pct, sweep=True, n_exc=_excitations(fields[-1], Ss[-1]),
+                               points=sweep_load[0], fast=sweep_load[1]):
             break
         if on_pass is not None:
             # current mesh + fields as "LastAdaptive" so they can be plotted while the solve continues
@@ -3778,14 +3819,80 @@ def available_memory() -> float:
             total = float(ms.total)
         except Exception:  # noqa: BLE001
             return 0.0
-    for f in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+    limit, _used = cgroup_memory()
+    if limit > 0:
+        total = min(total, limit) if total > 0 else limit
+    return total
+
+
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+PROC_CGROUP = Path("/proc/self/cgroup")
+
+
+def _own_cgroup_dirs() -> list[Path]:
+    """The memory cgroup directories of this process, its own first, then its parents up to the root: cgroup
+    v2 ("0::/path" in /proc/self/cgroup, mounted at /sys/fs/cgroup or /sys/fs/cgroup/unified) and v1 (the
+    memory controller at /sys/fs/cgroup/memory). A limit can sit on the process's own group, not on the
+    root: in a cloud container the solver ran in a group limited to 14.0 GB while the root said unlimited,
+    the guard planned with 15.3 GB and the operating system ended the solver."""
+    try:
+        lines = PROC_CGROUP.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    out: list[Path] = []
+    for line in lines:
+        parts = line.split(":", 2)
+        if len(parts) != 3:
+            continue
+        hid, ctrl, path = parts
+        if hid == "0" and ctrl == "":
+            mounts = [CGROUP_ROOT, CGROUP_ROOT / "unified"]
+        elif "memory" in ctrl.split(","):
+            mounts = [CGROUP_ROOT / "memory"]
+        else:
+            continue
+        for mnt in mounts:
+            d = mnt / path.lstrip("/")
+            if not d.is_dir():
+                continue
+            while True:
+                out.append(d)
+                if d == mnt or mnt not in d.parents:
+                    break
+                d = d.parent
+    for d in (CGROUP_ROOT, CGROUP_ROOT / "memory"):     # no /proc/self/cgroup: the root files, as before
+        if d not in out:
+            out.append(d)
+    return out
+
+
+def _cgroup_number(path: Path) -> float:
+    try:
+        v = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return 0.0
+    return float(v) if v.isdigit() and float(v) < 2 ** 60 else 0.0     # "max" or the v1 "unlimited" value
+
+
+def cgroup_memory() -> tuple[float, float]:
+    """(memory limit, anonymous memory in use) in bytes of the tightest memory cgroup this process is in,
+    zeros when there is none (or not Linux). The page cache counts against the limit too but is given back
+    on demand, so only the anonymous memory (v2 "anon", v1 "total_rss") is taken as used."""
+    best, used = 0.0, 0.0
+    for d in _own_cgroup_dirs():
+        lim = _cgroup_number(d / "memory.max") or _cgroup_number(d / "memory.limit_in_bytes")
+        if lim <= 0 or (best and lim >= best):
+            continue
+        best, used = lim, 0.0
         try:
-            v = Path(f).read_text(encoding="utf-8").strip()
-            if v.isdigit():
-                total = min(total, float(v))
+            for line in (d / "memory.stat").read_text(encoding="utf-8").splitlines():
+                key, _, val = line.partition(" ")
+                if key in ("anon", "total_rss") and val.strip().isdigit():
+                    used = float(val)
+                    break
         except OSError:
             pass
-    return total
+    return best, used
 
 
 def usable_memory() -> float:
@@ -3799,15 +3906,11 @@ def usable_memory() -> float:
     free = _system_free_memory()
     if free <= 0:
         return total
-    try:
-        # in a container the system figure is the host's: what the processes of the container hold
-        # (anonymous memory; the page cache is given back on demand) counts against its limit
-        for line in Path("/sys/fs/cgroup/memory.stat").read_text(encoding="utf-8").splitlines():
-            if line.startswith("anon ") and total > 0:
-                free = min(free, max(0.0, total - float(line.split()[1])))
-                break
-    except (OSError, ValueError):
-        pass
+    # in a container the system figure is the host's: what the processes of the container hold
+    # (anonymous memory; the page cache is given back on demand) counts against its limit
+    limit, used = cgroup_memory()
+    if limit > 0 and used > 0:
+        free = min(free, max(0.0, min(limit, total or limit) - used))
     usable = own + free
     return min(total, usable) if total > 0 else usable
 
@@ -3841,24 +3944,60 @@ def _system_free_memory() -> float:
         return 0.0
 
 
-# peak memory of the frequency sweep on the final mesh relative to the peak of its adaptive pass (Patch
-# 245 MHz, 30k tetrahedra: 6.25 GB vs 5.08 GB; Hairpin, 66k: a 12.0 GB pass, sweep out of memory at 15.7 GB)
-SWEEP_MEMORY_FACTOR = 1.25
+# peak memory of the whole solve (sweep on the final mesh) relative to the peak of the last adaptive pass,
+# measured with 0.4.8 on a cloud machine: Patch 245 MHz 1.10 / 1.13 (0.25 / 0.1 mm), edge-coupled filter
+# 1.13, hairpin filter 1.10 (interpolating sweeps); 1.25 (from an older 1.23) stopped models with room left.
+# Discrete and Fast sweeps add the solutions they keep (sweep_memory).
+SWEEP_MEMORY_FACTOR = 1.15
 # share of the usable memory (own process + free) the next adaptive pass and the sweep may plan with
 GUARD_FRACTION = 0.95
+# basis vectors per excitation a fast sweep needs at least to solve one frequency from its centre factorization
+# (fast_sweep.ReducedSolver: the solution plus up to 8 enrichments, each held as V and A V, with temporaries
+# and margin); a basis that grows beyond the memory starts again from the current solution
+FAST_SWEEP_MIN_VECTORS = 3 * (8 + 1)
+# what a stored sweep frequency holds per tetrahedron besides the solution (material tensors and more)
+SWEEP_BYTES_PER_TET = 900.0
 
 
-def next_pass_too_large(n_tets: int, pct: float, sweep: bool) -> bool:
+def sweep_memory(next_tets: float, cur_tets: int, n_exc: int, points: int, fast: bool) -> float:
+    """Memory (bytes) a Discrete or Fast sweep needs on top of its adaptive pass that scales with the ports:
+    it keeps the solution of every excitation at every frequency (n_exc x points vectors of the unknowns,
+    and as much again for what EMerge stores with them) and a fast sweep its reduced basis. 1.25 x the pass (SWEEP_MEMORY_FACTOR) covered one or two ports;
+    the Rotman lens with 11 ports and 17 points needed far more and was ended by the operating system.
+    The fast sweep fits its basis into what is left (fast_sweep.ReducedSolver), so only a minimum is planned.
+    The unknowns per tetrahedron are learned from the last factorization (0 when unknown)."""
+    try:
+        from .fast_assembly import FACTOR
+        unknowns = float(FACTOR.get("unknowns", 0) or 0)
+    except Exception:  # noqa: BLE001
+        unknowns = 0.0
+    if unknowns <= 0 or cur_tets <= 0 or n_exc <= 0 or points <= 0:
+        return 0.0
+    n = unknowns / cur_tets * next_tets
+    # per solved frequency EMerge keeps about twice the solution vectors and the material tensors of every
+    # tetrahedron (measured: Rotman lens 0.13 GB per frequency for 11 excitations on 323k unknowns, 37k
+    # tetrahedra; Patch with a 101-point Fast sweep about 23 MB for one excitation on 24k tetrahedra)
+    per_freq = 16.0 * n * 2 * n_exc + SWEEP_BYTES_PER_TET * next_tets
+    basis = 16.0 * n * n_exc * FAST_SWEEP_MIN_VECTORS if fast else 0.0
+    return per_freq * (points + 1) + basis
+
+
+def next_pass_too_large(n_tets: int, pct: float, sweep: bool, n_exc: int = 0, points: int = 0,
+                        fast: bool = False) -> bool:
     """Memory guard between two adaptive passes: True (with a warning) when the next pass, refined by pct %,
     would not fit, so that the refinement stops on the last mesh that did instead of the operating system
     ending the solver. sweep: a frequency sweep follows on the final mesh and needs more than its pass
-    (measured: peak of the whole solve 1.23x the peak of the last pass). The forecast itself errs on the safe
-    side (n^(4/3)), and the usable memory already leaves out what other programs hold, hence 95 % of it (90 %
-    of it stopped the hairpin filter on a 16 GB machine a pass before 0.3.30, whose pass fitted with room to
-    spare: forecast 13.9 GB, peak 12.0 GB of 15.7 GB)."""
-    need, avail = memory_forecast(n_tets * (1 + pct / 100.0), n_tets)
+    (SWEEP_MEMORY_FACTOR, measured 1.10 to 1.13) plus the solutions it keeps
+    (sweep_memory: n_exc excitations at `points` frequencies of a Discrete or Fast sweep, fast: its reduced
+    basis). The forecast itself errs on the safe side (memory_exponent + 0.05), and the usable memory leaves out
+    what other programs hold, hence 95 % of it (90 % of it stopped the hairpin filter on a 16 GB machine a
+    pass before 0.3.30, whose pass fitted with room to spare: forecast 13.9 GB, peak 12.0 GB of 15.7 GB)."""
+    if not PASS_PEAKS or PASS_PEAKS[-1][0] != n_tets:
+        PASS_PEAKS.append((int(n_tets), _peak_rss()))
+    next_tets = n_tets * (1 + pct / 100.0)
+    need, avail = memory_forecast(next_tets, n_tets)
     if sweep:
-        need *= SWEEP_MEMORY_FACTOR
+        need = need * SWEEP_MEMORY_FACTOR + sweep_memory(next_tets, n_tets, n_exc, points, fast)
     if not avail or need <= GUARD_FRACTION * avail:
         return False
     warn(f"Stopping refinement: the next pass{' and the frequency sweep on its mesh' if sweep else ''} would need "
@@ -3867,17 +4006,44 @@ def next_pass_too_large(n_tets: int, pct: float, sweep: bool) -> bool:
     return True
 
 
+def _excitations(field, S) -> int:
+    """Solution vectors of one solved frequency: one per port mode (the S-matrix size)."""
+    n = len(getattr(field, "_fields", None) or {})
+    if not n and np.ndim(S):
+        n = int(np.asarray(S).shape[0])
+    return n
+
+
+# (tetrahedra, peak memory) after each adaptive pass of the current refinement (next_pass_too_large)
+PASS_PEAKS: list[tuple[int, float]] = []
+
+
+def memory_exponent(cur_tets: int) -> float:
+    """Exponent of the memory growth with the mesh, learned from the last two passes (cur_tets the last one):
+    the measured one plus 0.05, between 1 and 4/3. Measured: the peak of a pass grows about linearly with
+    the tetrahedra (hairpin filter, passes 6 to 8: 1.01; Rotman lens array: 1.04 to 1.05; the factorization
+    alone about 1.1), the 4/3 of nested dissection overestimated the next pass by about 10 % per pass and
+    stopped the hairpin filter a pass early. 4/3 without two passes (or when the peak did not grow, e.g.
+    after a larger model in the same process)."""
+    if len(PASS_PEAKS) >= 2 and PASS_PEAKS[-1][0] == cur_tets:
+        (t1, p1), (t2, p2) = PASS_PEAKS[-2], PASS_PEAKS[-1]
+        if t2 > t1 * 1.05 and p2 > p1 > 0:
+            e = math.log(p2 / p1) / math.log(t2 / t1) + 0.05
+            return min(4.0 / 3.0, max(1.0, e))
+    return 4.0 / 3.0
+
+
 def memory_forecast(next_tets: float, cur_tets: int) -> tuple[float, float]:
     """(estimated bytes for a solve with next_tets, available bytes). Learns bytes/tet from the peak so far.
 
     The fill-in of a direct factorization of a 3D mesh grows faster than the mesh (nested dissection:
-    about n^(4/3) entries), so the learned memory per tetrahedron is extrapolated with that exponent."""
+    about n^(4/3) entries); the exponent is learned from the last two passes (memory_exponent)."""
     per_tet = 140e3   # 2nd-order Nedelec + direct solver, measured
     peak = _peak_rss()
     if peak > 0 and cur_tets > 0:
         per_tet = max(per_tet * 0.5, peak / cur_tets)
         if next_tets > cur_tets:
-            per_tet *= (next_tets / cur_tets) ** (1.0 / 3.0)
+            per_tet *= (next_tets / cur_tets) ** (memory_exponent(cur_tets) - 1.0)
     return next_tets * per_tet, usable_memory()
 
 

@@ -48,3 +48,41 @@ def test_reduced_matches_direct():
         worst = max(worst, np.abs(x - xd).max() / np.abs(xd).max())
     assert worst < 1e-6
     assert red.n_direct < 10 and red.n_reduced > 50      # far fewer factorizations than the 61 frequencies
+
+
+def test_basis_stays_within_memory_and_still_matches_direct():
+    """A basis that would outgrow the memory starts again from the current solution instead of growing with
+    ports x enrichments x frequencies (Rotman lens, 11 ports: ended by the operating system); the solutions
+    still meet the tolerance."""
+    K, M, C, b = _system()
+    n = K.shape[0]
+    ids = np.arange(n)
+    pad = lambda A: sp.block_diag([A, sp.identity(2)]).tocsc()  # noqa: E731
+
+    def direct(A, bb, solve_ids, **kw):
+        from scipy.sparse.linalg import spsolve
+        x = np.zeros_like(bb)
+        x[solve_ids] = spsolve(A[:, solve_ids][solve_ids, :].tocsc(), bb[solve_ids]).reshape(-1, bb.shape[1])
+        from emerge._emerge.solvers import SolveReport
+        return x, SolveReport()
+
+    freqs = np.linspace(0.6, 0.9, 61)
+    # room for 12 basis vectors next to the kept solutions of all frequencies
+    keep = 16.0 * 2 * (2 * (n + 2) * (len(freqs) + 1) + 6 * n)
+    red = ReducedSolver(direct, tol=1e-8, n_freqs=len(freqs), room=lambda: (keep + 12 * 2.5 * 16.0 * n) / 0.85)
+    worst, largest = 0.0, 0
+    for f in sorted(freqs, key=lambda f: abs(f - 0.75)):
+        A = pad(K - f ** 2 * M + 1j * f * C)
+        x, _ = red.solve(A, b, ids)
+        largest = max(largest, red.V.shape[1])
+        xd, _ = direct(A, b, ids)
+        worst = max(worst, np.abs(x - xd).max() / np.abs(xd).max())
+    assert red.max_basis == 12
+    assert red.n_restart > 0 and largest <= 12
+    assert worst < 1e-6
+
+
+def test_no_memory_limit_without_a_room_estimate():
+    red = ReducedSolver(lambda *a, **k: None, room=lambda: float("inf"))
+    red._set_max_basis(1000, 2, 1002)
+    assert red.max_basis is None
