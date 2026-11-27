@@ -86,3 +86,25 @@ def test_no_memory_limit_without_a_room_estimate():
     red = ReducedSolver(lambda *a, **k: None, room=lambda: float("inf"))
     red._set_max_basis(1000, 2, 1002)
     assert red.max_basis is None
+
+
+def test_parallel_sparse_product_matches_scipy():
+    from hertzon.solver.fast_sweep import spmm
+    rng = np.random.default_rng(3)
+    A = (sp.random(500, 500, density=0.02, random_state=4) + 1j * sp.random(500, 500, density=0.02,
+                                                                             random_state=5)).tocsr()
+    X = np.asfortranarray(rng.standard_normal((500, 70)) + 1j * rng.standard_normal((500, 70)))
+    out = np.empty((500, 90), dtype=np.complex128, order="F")
+    Y = spmm(A, X[:, 5:], out=out[:, 10:75])
+    assert np.allclose(Y, A @ X[:, 5:]) and np.allclose(out[:, 10:75], A @ X[:, 5:])
+
+
+def test_block_orthonormalization_drops_known_directions():
+    red = ReducedSolver(lambda *a, **k: None)
+    rng = np.random.default_rng(7)
+    X = rng.standard_normal((300, 6)) + 1j * rng.standard_normal((300, 6))
+    assert red._add(X) == 6
+    Y = np.hstack([X[:, :2] @ np.array([[1.0], [2.0]]), rng.standard_normal((300, 3)) + 0j])
+    assert red._add(Y) == 3                  # the combination of known vectors adds nothing
+    V = red.V
+    assert np.allclose(V.conj().T @ V, np.eye(9), atol=1e-12)

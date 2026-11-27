@@ -18,6 +18,43 @@ import time
 
 import numpy as np
 
+try:
+    from numba import njit, prange
+except Exception:  # noqa: BLE001
+    njit = None
+
+if njit is not None:
+    @njit(cache=True, nogil=True, parallel=True)
+    def _csr_matmat(indptr, indices, data, X, Y):  # pragma: no cover - compiled
+        """Y = A X for a CSR matrix A and a row-major block X, rows in parallel."""
+        m = X.shape[1]
+        for i in prange(indptr.shape[0] - 1):
+            for j in range(m):
+                Y[i, j] = 0.0
+            for k in range(indptr[i], indptr[i + 1]):
+                c = indices[k]
+                v = data[k]
+                for j in range(m):
+                    Y[i, j] += v * X[c, j]
+
+
+def spmm(A, X: np.ndarray, out: np.ndarray | None = None, chunk: int = 32) -> np.ndarray:
+    """A @ X for a sparse CSR matrix and a dense block on all cores (numba; scipy's product runs on one core:
+    half the time of a fast sweep with 11 ports went there), written into `out` when given. X is taken in
+    chunks of columns, each copied row-major, so the copy stays small."""
+    m = X.shape[1]
+    if out is None:
+        out = np.empty((A.shape[0], m), dtype=np.complex128, order="F")
+    if njit is None or not m or A.format != "csr" or A.dtype != np.complex128:
+        out[:, :] = A @ X
+        return out
+    for j0 in range(0, m, chunk):
+        Xc = np.ascontiguousarray(X[:, j0:j0 + chunk], dtype=np.complex128)
+        Yc = np.empty((A.shape[0], Xc.shape[1]), dtype=np.complex128)
+        _csr_matmat(A.indptr, A.indices, A.data, Xc, Yc)
+        out[:, j0:j0 + Xc.shape[1]] = Yc
+    return out
+
 
 class _Factor:
     """Factorization of the centre matrix, reused for many right-hand sides (PARDISO, else SuperLU).
@@ -118,6 +155,7 @@ class ReducedSolver:
         self.max_basis: int | None = None    # basis vectors that fit in memory (set after the first solve)
         self.n_restart = 0
         self._buf: np.ndarray | None = None  # preallocated basis (with a memory limit)
+        self._avbuf: np.ndarray | None = None
         self.V: np.ndarray | None = None     # orthonormal basis on the solve dofs
         self.ids: np.ndarray | None = None
         self.fac: _Factor | None = None
@@ -131,33 +169,35 @@ class ReducedSolver:
     # basis ---------------------------------------------------------------------------------------
     def _add(self, X: np.ndarray) -> int:
         """Orthonormalize the columns of X against the basis and each other and append the new directions:
-        into the preallocated basis when there is one (appending column by column copied the whole basis
-        once per vector), else with one copy for the whole block."""
-        new: list[np.ndarray] = []
-        for j in range(X.shape[1]):
-            v = np.array(X[:, j], dtype=np.complex128)
-            n0 = np.linalg.norm(v)
-            if n0 == 0:
-                continue
-            for _ in range(2):              # Gram-Schmidt twice for a numerically orthonormal basis
-                if self.V is not None and self.V.shape[1]:
-                    v -= self.V @ (v.conj() @ self.V).conj()    # V^H v without a conjugated copy of V
-                for w in new:
-                    v -= w * np.vdot(w, v)
-            n = np.linalg.norm(v)
-            if n <= 1e-10 * n0:
-                continue
-            new.append(v / n)
-        if new:
-            k = 0 if self.V is None else self.V.shape[1]
-            if self._buf is not None and k + len(new) <= self._buf.shape[1]:
-                for j, v in enumerate(new):         # into the preallocated basis: no copy of the whole basis
-                    self._buf[:, k + j] = v
-                self.V = self._buf[:, :k + len(new)]
-            else:
-                N = np.stack(new, axis=1)
-                self.V = N if not k else np.hstack([self.V, N])
-        return len(new)
+        block Gram-Schmidt against the basis (twice, two passes over it for the whole block; vector by vector
+        it was two passes per vector), then a QR factorization of the block that drops directions already in
+        the basis. Into the preallocated basis when there is one, else with one copy for the whole block."""
+        W = np.array(X, dtype=np.complex128, order="F")
+        if W.ndim == 1:
+            W = W[:, None]
+        n0 = np.linalg.norm(W, axis=0)
+        keep0 = n0 > 0
+        if not keep0.any():
+            return 0
+        W, n0 = W[:, keep0], n0[keep0]
+        for _ in range(2):
+            if self.V is not None and self.V.shape[1]:
+                C = (W.conj().T @ self.V).conj().T          # V^H W without a conjugated copy of V
+                W -= self.V @ C
+        Q, R = np.linalg.qr(W)
+        good = np.abs(np.diag(R)) > 1e-10 * n0
+        if not good.any():
+            return 0
+        Q = Q[:, good]
+        k = 0 if self.V is None else self.V.shape[1]
+        a = Q.shape[1]
+        if self._buf is not None and k + a <= self._buf.shape[1]:
+            self._buf[:, k:k + a] = Q                       # into the preallocated basis: no copy of the basis
+            self.V = self._buf[:, :k + a]
+        else:
+            Q = np.asfortranarray(Q)
+            self.V = Q if not k else np.hstack([self.V, Q])
+        return a
 
     def _set_max_basis(self, n: int, nb: int, nf: int) -> None:
         """How many basis vectors fit in the memory left after the centre factorization: each one is held
@@ -223,6 +263,7 @@ class ReducedSolver:
                 self._set_max_basis(bsel.shape[0], bsel.shape[1], A.shape[0])
             x, rel, it = self._reduced(Asel, bsel, bn)
             if rel > self.tol:
+                self._avbuf = None      # its memory goes back before the direct solve factorizes
                 sol, rep = self.direct(A, b, solve_ids, direct=direct, id=id,
                                        **({"matrix_type": matrix_type} if matrix_type is not None else {}))
                 if self.release is not None:
@@ -253,14 +294,40 @@ class ReducedSolver:
         rep.ndof_solve = bsel.shape[0]
         return sol, rep
 
+    def _av(self, Asel, AV, k0: int) -> np.ndarray:
+        """A V for the current basis: columns from k0 on are computed, the ones before are kept (the matrix
+        is the same within a frequency; recomputing all of them every enrichment took half the sweep)."""
+        V = self.V
+        k = V.shape[1]
+        if self._avbuf is None and self._buf is not None:
+            # A V of the current frequency, as many columns as the basis; freed before a direct solve
+            self._avbuf = np.empty(self._buf.shape, dtype=np.complex128, order="F")
+        if self._avbuf is not None and k <= self._avbuf.shape[1]:
+            if AV is not None and k0 and AV.base is not self._avbuf and AV is not self._avbuf:
+                self._avbuf[:, :k0] = AV[:, :k0]
+            spmm(Asel, V[:, k0:], out=self._avbuf[:, k0:k])
+            return self._avbuf[:, :k]
+        new = spmm(Asel, V[:, k0:])
+        return new if not k0 else np.hstack([AV[:, :k0], new])
+
     def _reduced(self, Asel, bsel, bn):
         rel = np.inf
         x = None
         it, limit = 0, self.max_enrich
+        AV, Ar, k_done = None, None, 0
         while True:
             V = self.V
-            AV = Asel @ V
-            Ar = V.T @ AV                   # A is complex symmetric: V^T keeps the reduced system symmetric
+            k = V.shape[1]
+            AV = self._av(Asel, AV, k_done)
+            # A is complex symmetric: V^T keeps the reduced system symmetric, so only the new columns of
+            # V^T A V are computed and mirrored
+            Ar_new = np.empty((k, k), dtype=np.complex128)
+            if k_done:
+                Ar_new[:k_done, :k_done] = Ar
+            B = V.T @ AV[:, k_done:]
+            Ar_new[:, k_done:] = B
+            Ar_new[k_done:, :k_done] = B[:k_done, :].T
+            Ar, k_done = Ar_new, k
             br = V.T @ bsel
             try:
                 y = np.linalg.solve(Ar, br)
@@ -268,17 +335,20 @@ class ReducedSolver:
                 y = np.linalg.lstsq(AV, bsel, rcond=None)[0]
             x = V @ y
             r = bsel - AV @ y
-            del AV
-            rel = float(np.max(np.linalg.norm(r, axis=0) / bn))
+            col = np.linalg.norm(r, axis=0) / bn
+            rel = float(np.max(col))
             if rel <= self.tol or it >= limit:
                 return x, rel, it
             restarts = self.n_restart
-            self._restart_if_full(x, r.shape[1])
-            if self.n_restart > restarts and limit == self.max_enrich:
-                # a fresh basis from the current solution needs its own enrichments, still cheaper than a
-                # direct solve (a factorization, and memory beside the centre one)
-                limit = it + self.max_enrich
-            if self._add(self.fac.solve(r)) == 0:
+            open_cols = col > self.tol          # ports that already meet the tolerance need no enrichment
+            self._restart_if_full(x, int(open_cols.sum()))
+            if self.n_restart > restarts:
+                AV, Ar, k_done = None, None, 0
+                if limit == self.max_enrich:
+                    # a fresh basis from the current solution needs its own enrichments, still cheaper than a
+                    # direct solve (a factorization, and memory beside the centre one)
+                    limit = it + self.max_enrich
+            if self._add(self.fac.solve(r[:, open_cols])) == 0:
                 return x, rel, it
             self.n_enrich += 1
             it += 1
@@ -289,6 +359,7 @@ class ReducedSolver:
         self.fac = None
         self.V = None
         self._buf = None
+        self._avbuf = None
         self.ids = None
 
     def summary(self) -> str:

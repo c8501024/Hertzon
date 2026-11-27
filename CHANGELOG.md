@@ -11,6 +11,13 @@ the GitHub release notes.
   10,000 unknowns) always went to SuperLU. Measured on Apple silicon, SPARTA solves two to three times faster than Accelerate,
   so the Mac installer recommends it ("Install SPARTA? [Y/n]"). Windows and Linux run as fast as before.
 
+### Faster
+- **Fast sweep with many ports two to three times faster.** The product of the system matrix with the reduced
+  basis now runs on all cores and only for the new basis vectors of a frequency, only ports that do not yet meet
+  the tolerance are enriched, and the basis is orthonormalized block by block. Rotman lens array (11 ports, 17
+  frequencies): sweep 1606 s to 561 s; patch antenna (one port, 101 frequencies): 515 s to 270 s, with the same
+  S-parameters and memory.
+
 ### Fixed
 - **Add/Edit Sweep with Single value shows one Value field** (#577). The parametric sweep dialog kept showing
   Start, Stop and "Points per octave" (greyed out) for a single value; it now shows only Value. The swept value
