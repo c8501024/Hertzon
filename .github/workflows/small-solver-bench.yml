@@ -40,7 +40,7 @@ jobs:
         run: |
           cd work
           R=../new/bench/mac-solver/run.py
-          if [ "$RUNNER_OS" = "Windows" ]; then FAST=PARDISO; TREE="$GITHUB_WORKSPACE/new"; else FAST="Apple Accelerate"; TREE="$GITHUB_WORKSPACE/new"; fi
+          FAST=Auto; TREE="$GITHUB_WORKSPACE/new"   # this branch: Auto = PARDISO (Windows), Accelerate (Mac without SPARTA)
           OLD="$GITHUB_WORKSPACE/old"
           for m in microstrip wr90post coax gcpw dipole diffpair; do
             python $R auto1 "$OLD" Auto proj/$m.hzn
