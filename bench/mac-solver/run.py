@@ -27,7 +27,11 @@ try:
 except Exception as e:  # noqa: BLE001
     res["error"] = str(e)
 log = open(tag + ".log", errors="replace").read()
+try:
+    log += open(os.path.join(j["results"], "solver.log"), errors="replace").read()
+except Exception:  # noqa: BLE001
+    pass
 res["solver_lines"] = sorted({l.strip()[-140:] for l in log.splitlines()
-                              if any(k in l for k in ("Matrix solver", "Accelerate", "SPARTA", "SuperLU", "solves the frequencies"))})[:8]
+                              if any(k in l for k in ("Matrix solver", "factorization(s)", "solves the frequencies", "SPARTA:"))})[:8]
 json.dump(res, open(tag + ".json", "w"), indent=1)
-print(json.dumps({k: res[k] for k in res if k != "solver_lines"}), flush=True)
+print(json.dumps(res), flush=True)

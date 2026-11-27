@@ -90,14 +90,21 @@ def available(name: str) -> bool:
 
 
 def auto_solver() -> str | None:
-    """The solver "Auto" stands for on this computer when Hertzon chooses it, None to leave the choice to EMerge.
+    """The solver "Auto" stands for on this computer, for every matrix size; None leaves the choice to EMerge.
 
-    On a Mac that is Apple Accelerate for every matrix: EMerge's automatic choice would take SuperLU below
-    10,000 unknowns and SPARTA before Accelerate above, and PARDISO, its first choice elsewhere, does not exist
-    on Apple silicon. Accelerate is Apple's own multithreaded sparse direct solver and comes with EMerge on
-    macOS. Elsewhere EMerge's choice (PARDISO) stays."""
-    if sys.platform == "darwin" and available(ACCELERATE):
-        return ACCELERATE
+    The fastest direct solver the platform has: PARDISO on an x86-64 processor; on a Mac SPARTA when it is
+    installed (measured two to three times faster than Apple Accelerate there), otherwise Apple Accelerate.
+    EMerge's own automatic choice takes SuperLU below 10,000 unknowns, which is never faster (Windows: the same
+    time as PARDISO; Mac: up to 25 % slower than Accelerate), and on a Mac without SPARTA it prefers nothing
+    over SuperLU in the Fast sweep. The caller checks that EMerge can load the solver."""
+    if sys.platform == "darwin":
+        if _sparta() is None:
+            return "SPARTA (GPU)"            # falls back to SPARTA's CPU factorization without a usable GPU
+        if available(ACCELERATE):
+            return ACCELERATE
+        return None
+    if _pardiso() is None:
+        return "PARDISO"
     return None
 
 

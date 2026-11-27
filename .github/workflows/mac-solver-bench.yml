@@ -12,6 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         model: [microstrip, patch025, patch01, patch025fast, edge, hairpin]
+        # (the 7 GB runner stops the larger models after the first pass: memory guard)
     env:
       HERTZON_NO_UPDATE_CHECK: "1"
       HERTZON_NO_PRELOAD: "1"
@@ -20,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with: {path: new}
       - uses: actions/checkout@v4
-        with: {path: old, ref: dev}
+        with: {path: old, ref: v0.4.8}
       - uses: actions/setup-python@v5
         with: {python-version: "3.13"}
       - name: Install

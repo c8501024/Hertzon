@@ -62,15 +62,19 @@ def test_real_mac():
     assert sc.available(sc.ACCELERATE), sc.unavailable(sc.ACCELERATE)
 
 
-def test_auto_is_accelerate_on_a_mac(mac_arm, monkeypatch):
+def test_auto_on_a_mac(mac_arm, monkeypatch):
     monkeypatch.setattr(sc, "_installed", lambda dist, module=None: True)
+    monkeypatch.setattr(sc.sparta_setup, "installed_version", lambda: "0.3.2")
+    assert sc.auto_solver() == "SPARTA (GPU)"                       # fastest on a Mac when installed
+    monkeypatch.setattr(sc.sparta_setup, "installed_version", lambda: None)
     assert sc.auto_solver() == sc.ACCELERATE and sc.factor_accelerate()
     monkeypatch.setattr(sc, "_installed", lambda dist, module=None: False)
-    assert sc.auto_solver() is None and not sc.factor_accelerate()     # without emerge-aasds: EMerge's choice
+    assert sc.auto_solver() is None and not sc.factor_accelerate()     # nothing fast: EMerge's choice
 
 
-def test_auto_left_to_emerge_elsewhere(win_x86):
-    assert sc.auto_solver() is None and not sc.factor_accelerate()
+def test_auto_is_pardiso_on_x86(win_x86, monkeypatch):
+    monkeypatch.setattr(sc.sparta_setup, "installed_version", lambda: "0.3.2")
+    assert sc.auto_solver() == "PARDISO" and not sc.factor_accelerate()
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Apple Accelerate exists on macOS only (CI install-macos)")
