@@ -83,7 +83,9 @@ echo "Preparing the solver (once, a few minutes) ..."
 # answer is kept in .venv/hertzon_sparta_asked); later updates update it when it is installed and leave it
 # out otherwise (Tools > Options > Install SPARTA adds it any time). HERTZON_SPARTA=1 or 0 answers without
 # asking (scripts, CI); without a terminal it is left out and asked at the next run in a terminal.
-# On a Mac it is the only solver that factorizes on the GPU (Metal), so "yes" is preselected here.
+# On a Mac it is the fastest matrix solver Hertzon has (measured on Apple silicon: two to three times faster
+# than Apple Accelerate, on the CPU in double precision), and "Auto" uses it when installed, so "yes" is
+# preselected here.
 SPARTA="${HERTZON_SPARTA:-}"
 if [ -z "$SPARTA" ]; then
     if "$DEST/.venv/bin/python" -m hertzon.solver.sparta_setup version >/dev/null 2>&1; then
@@ -91,6 +93,7 @@ if [ -z "$SPARTA" ]; then
     elif [ ! -e "$DEST/.venv/hertzon_sparta_asked" ] && [ -t 0 ]; then
         echo
         echo "SPARTA is an optional sparse direct solver that factorizes on the GPU (Metal) or the CPU."
+        echo "On a Mac it solves about two to three times faster than Apple Accelerate; recommended."
         echo "It is a separate program under the AGPL-3.0 licence: https://github.com/FennisRobert/SPARTA"
         printf "Install SPARTA? [Y/n] "
         read -r answer || answer=n

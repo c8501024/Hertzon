@@ -167,7 +167,7 @@ HELP: dict[str, str] = {
     "MinimumConvergedPasses": "Number of consecutive converged passes required.",
     "BasisOrder": "Order of basis functions: Zero Order (6 per tetrahedron), First Order (20, "
                   "default), Second Order (higher order for strong field gradients).",
-    "Solver": "Sparse matrix solver (Auto selects the fastest available direct solver). SPARTA (GPU) factors "
+    "Solver": "Sparse matrix solver. Auto takes the fastest direct solver of this computer for every matrix: PARDISO on an x86-64 processor; on a Mac SPARTA (CPU) when SPARTA is installed, otherwise Apple Accelerate. SPARTA (GPU) factors "
               "the matrix on the graphics card (Metal on Apple silicon, Vulkan on AMD and NVIDIA) in single "
               "precision, SPARTA (CPU) on the processor in double precision; both need SPARTA installed "
               "(Tools > Options > Install SPARTA). 'PARDISO + SPARTA sweep' solves the adaptive passes with PARDISO "
