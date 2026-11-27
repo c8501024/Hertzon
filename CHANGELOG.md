@@ -15,7 +15,9 @@ the GitHub release notes.
   stays within the free memory: it no longer copies itself while it grows, starts again from the current
   solution when it is full, and a direct solve inside the sweep frees its factorization afterwards. On Linux
   the memory limit of the solver's own cgroup is read (before only the top level), so containers and cloud
-  sessions with a limit are planned with the memory they really have.
+  sessions with a limit are planned with the memory they really have. The forecast of the next pass learns how
+  fast the memory grows from the last two passes (it assumed a steeper growth than measured) and plans 15 %
+  instead of 25 % for an interpolating sweep, so models that still fit are no longer stopped a pass early.
 
 ## 0.4.8 (2026-11-26)
 

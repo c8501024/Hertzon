@@ -107,13 +107,14 @@ class ReducedSolver:
     """Stands in for EMerge's SolveRoutine.solve during a fast sweep."""
 
     def __init__(self, direct_solve, tol: float = 1e-4, max_enrich: int = 8, n_freqs: int = 1,
-                 room=None, release=None):
+                 room=None, release=None, n_tets: int = 0):
         self.direct = direct_solve           # EMerge's own solve (A, b, solve_ids, ...) -> (x, report)
         self.tol = tol
         self.max_enrich = max_enrich
         self.n_freqs = n_freqs               # frequencies of the sweep (their solutions are kept)
         self.room = room                     # () -> bytes this process may still grow by, None: no limit
         self.release = release               # () frees the memory of the direct solver after a direct solve
+        self.n_tets = n_tets                 # tetrahedra of the mesh (per frequency EMerge keeps data on each)
         self.max_basis: int | None = None    # basis vectors that fit in memory (set after the first solve)
         self.n_restart = 0
         self._buf: np.ndarray | None = None  # preallocated basis (with a memory limit)
@@ -175,7 +176,9 @@ class ReducedSolver:
         if not np.isfinite(room):
             return
         room = max(0.0, room)
-        keep = 16.0 * nb * (2 * nf * (self.n_freqs + 1) + 6 * n)
+        from .bridge import SWEEP_BYTES_PER_TET
+        per_freq = 16.0 * 2 * nb * nf + SWEEP_BYTES_PER_TET * self.n_tets
+        keep = per_freq * (self.n_freqs + 1) + 16.0 * 6 * nb * n
         self.max_basis = max(2 * nb, int((0.85 * room - keep) / (2.5 * 16.0 * n)))
         # column major: V = buf[:, :k] stays contiguous, so the products with V and V^T copy nothing
         self._buf = np.empty((n, self.max_basis + nb), dtype=np.complex128, order="F")  # pages taken when written
@@ -312,7 +315,7 @@ def fast_sweep(m, freqs, tol: float = 1e-4, log=None, on_solved=None):
     f0 = 0.5 * (freqs[0] + freqs[-1])
     order = sorted(freqs, key=lambda f: abs(f - f0))
     routine = m.mw.solveroutine
-    red = ReducedSolver(routine.solve, tol=tol, n_freqs=len(freqs), room=_room,
+    red = ReducedSolver(routine.solve, tol=tol, n_freqs=len(freqs), room=_room, n_tets=int(m.mesh.n_tets),
                         release=lambda: [s.reset() for s in getattr(routine, "solvers", {}).values()])
     routine.solve = red.solve
     cache = getattr(m.mw, "cache_matrices", False)

@@ -1743,6 +1743,7 @@ class Bridge:
         from emerge._emerge.physics.microwave.bcs.boundary_conditions import PEC
         m, p = self.m, self.setup.props
         maxp = max(1, int(p.get("MaximumPasses", "15")))
+        PASS_PEAKS.clear()
         max_de = float(p.get("MaximumDeltaEnergy", "0.001") or 0.001)
         min_passes = max(2, int(p.get("MinimumPasses", "2")))
         min_conv = max(1, int(p.get("MinimumConvergedPasses", "1")))
@@ -2895,6 +2896,7 @@ def adaptive_loop(m, fa: list[float], p: dict, out: Path, on_pass=None, key: str
     """
     from .emerge_compat import select_refinement_indices, tet_to_node
     maxp = max(1, int(p.get("MaximumPasses", "15")))
+    PASS_PEAKS.clear()
     max_ds = float(p.get("MaximumDeltaS", "0.02"))
     # Max Delta S per adaptive frequency (Multi-Frequencies entries may carry their own)
     lims = list(ds_limits) if ds_limits is not None and len(ds_limits) == len(fa) else [max_ds] * len(fa)
@@ -3925,15 +3927,19 @@ def _system_free_memory() -> float:
         return 0.0
 
 
-# peak memory of the frequency sweep on the final mesh relative to the peak of its adaptive pass (Patch
-# 245 MHz, 30k tetrahedra: 6.25 GB vs 5.08 GB; Hairpin, 66k: a 12.0 GB pass, sweep out of memory at 15.7 GB)
-SWEEP_MEMORY_FACTOR = 1.25
+# peak memory of the whole solve (sweep on the final mesh) relative to the peak of the last adaptive pass,
+# measured with 0.4.8 on a cloud machine: Patch 245 MHz 1.10 / 1.13 (0.25 / 0.1 mm), edge-coupled filter
+# 1.13, hairpin filter 1.10 (interpolating sweeps); 1.25 (from an older 1.23) stopped models with room left.
+# Discrete and Fast sweeps add the solutions they keep (sweep_memory).
+SWEEP_MEMORY_FACTOR = 1.15
 # share of the usable memory (own process + free) the next adaptive pass and the sweep may plan with
 GUARD_FRACTION = 0.95
 # basis vectors per excitation a fast sweep needs at least to solve one frequency from its centre factorization
 # (fast_sweep.ReducedSolver: the solution plus up to 8 enrichments, each held as V and A V, with temporaries
 # and margin); a basis that grows beyond the memory starts again from the current solution
 FAST_SWEEP_MIN_VECTORS = 3 * (8 + 1)
+# what a stored sweep frequency holds per tetrahedron besides the solution (material tensors and more)
+SWEEP_BYTES_PER_TET = 900.0
 
 
 def sweep_memory(next_tets: float, cur_tets: int, n_exc: int, points: int, fast: bool) -> float:
@@ -3941,6 +3947,7 @@ def sweep_memory(next_tets: float, cur_tets: int, n_exc: int, points: int, fast:
     it keeps the solution of every excitation at every frequency (n_exc x points vectors of the unknowns,
     and as much again for what EMerge stores with them) and a fast sweep its reduced basis. 1.25 x the pass (SWEEP_MEMORY_FACTOR) covered one or two ports;
     the Rotman lens with 11 ports and 17 points needed far more and was ended by the operating system.
+    The fast sweep fits its basis into what is left (fast_sweep.ReducedSolver), so only a minimum is planned.
     The unknowns per tetrahedron are learned from the last factorization (0 when unknown)."""
     try:
         from .fast_assembly import FACTOR
@@ -3950,10 +3957,12 @@ def sweep_memory(next_tets: float, cur_tets: int, n_exc: int, points: int, fast:
     if unknowns <= 0 or cur_tets <= 0 or n_exc <= 0 or points <= 0:
         return 0.0
     n = unknowns / cur_tets * next_tets
-    # EMerge keeps about twice the solution vector per solved frequency (measured, Rotman lens: 0.13 GB per
-    # frequency for 11 excitations on 356k unknowns)
-    vectors = n_exc * (2 * points + 2) + (n_exc * FAST_SWEEP_MIN_VECTORS if fast else 0)
-    return 16.0 * n * vectors
+    # per solved frequency EMerge keeps about twice the solution vectors and the material tensors of every
+    # tetrahedron (measured: Rotman lens 0.13 GB per frequency for 11 excitations on 323k unknowns, 37k
+    # tetrahedra; Patch with a 101-point Fast sweep about 23 MB for one excitation on 24k tetrahedra)
+    per_freq = 16.0 * n * 2 * n_exc + SWEEP_BYTES_PER_TET * next_tets
+    basis = 16.0 * n * n_exc * FAST_SWEEP_MIN_VECTORS if fast else 0.0
+    return per_freq * (points + 1) + basis
 
 
 def next_pass_too_large(n_tets: int, pct: float, sweep: bool, n_exc: int = 0, points: int = 0,
@@ -3961,15 +3970,17 @@ def next_pass_too_large(n_tets: int, pct: float, sweep: bool, n_exc: int = 0, po
     """Memory guard between two adaptive passes: True (with a warning) when the next pass, refined by pct %,
     would not fit, so that the refinement stops on the last mesh that did instead of the operating system
     ending the solver. sweep: a frequency sweep follows on the final mesh and needs more than its pass
-    (measured: peak of the whole solve 1.23x the peak of the last pass), at least the solutions it keeps
+    (SWEEP_MEMORY_FACTOR, measured 1.10 to 1.13) plus the solutions it keeps
     (sweep_memory: n_exc excitations at `points` frequencies of a Discrete or Fast sweep, fast: its reduced
-    basis). The forecast itself errs on the safe side (n^(4/3)), and the usable memory already leaves out
+    basis). The forecast itself errs on the safe side (memory_exponent + 0.05), and the usable memory leaves out
     what other programs hold, hence 95 % of it (90 % of it stopped the hairpin filter on a 16 GB machine a
     pass before 0.3.30, whose pass fitted with room to spare: forecast 13.9 GB, peak 12.0 GB of 15.7 GB)."""
+    if not PASS_PEAKS or PASS_PEAKS[-1][0] != n_tets:
+        PASS_PEAKS.append((int(n_tets), _peak_rss()))
     next_tets = n_tets * (1 + pct / 100.0)
     need, avail = memory_forecast(next_tets, n_tets)
     if sweep:
-        need = max(need * SWEEP_MEMORY_FACTOR, need + sweep_memory(next_tets, n_tets, n_exc, points, fast))
+        need = need * SWEEP_MEMORY_FACTOR + sweep_memory(next_tets, n_tets, n_exc, points, fast)
     if not avail or need <= GUARD_FRACTION * avail:
         return False
     warn(f"Stopping refinement: the next pass{' and the frequency sweep on its mesh' if sweep else ''} would need "
@@ -3986,17 +3997,36 @@ def _excitations(field, S) -> int:
     return n
 
 
+# (tetrahedra, peak memory) after each adaptive pass of the current refinement (next_pass_too_large)
+PASS_PEAKS: list[tuple[int, float]] = []
+
+
+def memory_exponent(cur_tets: int) -> float:
+    """Exponent of the memory growth with the mesh, learned from the last two passes (cur_tets the last one):
+    the measured one plus 0.05, between 1 and 4/3. Measured: the peak of a pass grows about linearly with
+    the tetrahedra (hairpin filter, passes 6 to 8: 1.01; Rotman lens array: 1.04 to 1.05; the factorization
+    alone about 1.1), the 4/3 of nested dissection overestimated the next pass by about 10 % per pass and
+    stopped the hairpin filter a pass early. 4/3 without two passes (or when the peak did not grow, e.g.
+    after a larger model in the same process)."""
+    if len(PASS_PEAKS) >= 2 and PASS_PEAKS[-1][0] == cur_tets:
+        (t1, p1), (t2, p2) = PASS_PEAKS[-2], PASS_PEAKS[-1]
+        if t2 > t1 * 1.05 and p2 > p1 > 0:
+            e = math.log(p2 / p1) / math.log(t2 / t1) + 0.05
+            return min(4.0 / 3.0, max(1.0, e))
+    return 4.0 / 3.0
+
+
 def memory_forecast(next_tets: float, cur_tets: int) -> tuple[float, float]:
     """(estimated bytes for a solve with next_tets, available bytes). Learns bytes/tet from the peak so far.
 
     The fill-in of a direct factorization of a 3D mesh grows faster than the mesh (nested dissection:
-    about n^(4/3) entries), so the learned memory per tetrahedron is extrapolated with that exponent."""
+    about n^(4/3) entries); the exponent is learned from the last two passes (memory_exponent)."""
     per_tet = 140e3   # 2nd-order Nedelec + direct solver, measured
     peak = _peak_rss()
     if peak > 0 and cur_tets > 0:
         per_tet = max(per_tet * 0.5, peak / cur_tets)
         if next_tets > cur_tets:
-            per_tet *= (next_tets / cur_tets) ** (1.0 / 3.0)
+            per_tet *= (next_tets / cur_tets) ** (memory_exponent(cur_tets) - 1.0)
     return next_tets * per_tet, usable_memory()
 
 
