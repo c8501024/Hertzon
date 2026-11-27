@@ -8,8 +8,7 @@ the GitHub release notes.
 ### Changed
 - **Matrix solver "Auto" takes the fastest direct solver for every matrix size.** PARDISO on Windows and Linux;
   on a Mac SPARTA on the CPU when it is installed, otherwise Apple Accelerate. Before, small matrices (below
-  10,000 unknowns) always went to SuperLU, and the Fast sweep and tuning used SuperLU on a Mac; they now use
-  Apple Accelerate there. Measured on Apple silicon, SPARTA solves two to three times faster than Accelerate,
+  10,000 unknowns) always went to SuperLU. Measured on Apple silicon, SPARTA solves two to three times faster than Accelerate,
   so the Mac installer recommends it ("Install SPARTA? [Y/n]"). Windows and Linux run as fast as before.
 
 ### Fixed

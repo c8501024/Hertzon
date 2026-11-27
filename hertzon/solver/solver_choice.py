@@ -96,8 +96,7 @@ def auto_solver() -> str | None:
     installed (on the CPU, in double precision: measured two to three times faster than Apple Accelerate
     there), otherwise Apple Accelerate.
     EMerge's own automatic choice takes SuperLU below 10,000 unknowns, which is never faster (Windows: the same
-    time as PARDISO; Mac: up to 25 % slower than Accelerate), and on a Mac without SPARTA it prefers nothing
-    over SuperLU in the Fast sweep. The caller checks that EMerge can load the solver."""
+    time as PARDISO; Mac: up to 25 % slower than Accelerate). The caller checks that EMerge can load the solver."""
     if sys.platform == "darwin":
         if _sparta() is None:
             return "SPARTA (CPU)"            # double precision; the GPU mode is single precision (|dS| up to 0.4)
@@ -108,7 +107,3 @@ def auto_solver() -> str | None:
         return "PARDISO"
     return None
 
-
-def factor_accelerate() -> bool:
-    """Fast sweep and tuning factorize with Apple Accelerate when PARDISO is missing (a Mac), instead of SuperLU."""
-    return sys.platform == "darwin" and available(ACCELERATE)

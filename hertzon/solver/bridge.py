@@ -223,7 +223,6 @@ class Bridge:
     cell: object = None                             # EMerge periodic cell of the Primary / Secondary pairs
     scan: tuple = (0.0, 0.0)                        # scan angles theta, phi of the periodic cell (degrees)
     sparta: bool = False                            # the matrix solver is SPARTA (set_sparta)
-    accelerate: bool = False                        # the matrix solver is Apple Accelerate (set_solver)
     sweep_solver: str = ""                          # SPARTA choice for the sweeps only (set_solver)
 
     def __post_init__(self):
@@ -1614,7 +1613,6 @@ class Bridge:
             self.m.set_solver({"PARDISO": em.solvers.Pardiso, "MUMPS": em.solvers.MUMPS,
                                "UMFPACK": em.solvers.UMFPACK, "SuperLU": em.solvers.SuperLU,
                                "Apple Accelerate": em.solvers.AASDS}[name])
-            self.accelerate = name == "Apple Accelerate"
         except Exception as ex:  # noqa: BLE001
             warn(f"Solver {name} not available ({ex}); using automatic choice")
 
@@ -2572,11 +2570,6 @@ class Bridge:
                 # EMerge's sweep worker threads only take solvers that release the GIL, so they would not
                 # use SPARTA; SPARTA itself uses all cores (CPU) or the GPU on one frequency at a time
                 info(f"Sweep '{sw.name}': SPARTA solves the frequencies one after another")
-                par = False
-            if par and self.accelerate:
-                # the same for Apple Accelerate: in EMerge's sweep worker threads it would be replaced by
-                # SuperLU, while Accelerate itself factorizes one frequency with all cores
-                info(f"Sweep '{sw.name}': Apple Accelerate solves the frequencies one after another")
                 par = False
             nw = max(1, int(os.environ.get("HERTZON_SWEEP_WORKERS", "2") or 2))
             prog = SweepProgress(sw.name, 65 + 30 * i / max(1, len(sweeps)), 30 / max(1, len(sweeps)))
