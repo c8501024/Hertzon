@@ -21,11 +21,16 @@ once with all cores:
 | RF | Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
 | RCS | Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere (2 GHz) |
 | RCS | Dielectric sphere RCS | Incident plane wave, lossless dielectric sphere (εr = 4, 1 GHz): fields inside and outside |
+| RCS | Drone RCS (medium) | Imported surface of a delta-wing drone, PEC, 0.5 GHz: a realistic model, about 8.5 GB |
+
+Every test of the parts runs on a computer with 16 GB of memory, and every computer, also one with much more
+memory, runs the same tests, so their scores compare directly. Workstation tests are the optional extra for
+high-memory machines (below).
 
 The parts can be run on their own (check boxes in the window, `--parts rf` or `--parts rcs` on the command line).
 
 Every result is checked: the S-parameters against the reference run (largest |ΔS| at most 0.05), the RCS of the
-spheres against the exact Mie solution (at most 0.5 dB). A test with a wrong result gets no score. The score of a
+spheres against the exact Mie solution (at most 0.5 dB), the RCS of the drones against the reference run (at most 1 dB). A test with a wrong result gets no score. The score of a
 test is the reference time divided by your time, times 1000; a part score (RF, RCS) is the geometric mean of its
 tests, and the overall score is the geometric mean of the two part scores.
 A test counts only when it converged with the matrix solver that was asked for and its result is correct. When
@@ -35,8 +40,8 @@ marked with the reason. A part has a score only when every one of its tests coun
 when both parts have one; a failed RCS test leaves the RF score valid, and that result can still be submitted. SuperLU is not offered: it is far too
 slow for these models.
 
-**Large test.** *Drone RCS* (the imported surface of a delta-wing drone, PEC, monostatic RCS) needs much more
-memory. It runs only when the computer has enough usable memory for it, else it is listed as not run with the
+**Workstation test.** *Drone RCS* (the imported surface of a delta-wing drone, PEC, monostatic RCS) needs much more
+memory than 16 GB. It runs only when the computer has enough usable memory for it, else it is listed as not run with the
 reason, and it has its own score outside the overall score, so that the overall score stays comparable for
 computers with 16 GB. It needs about 36 GB (183k tetrahedra, 5 passes); its score 1000 is a 32-core
 AMD Ryzen Threadripper 3970X (256 GB, Windows, all 64 threads) with Hertzon 0.4.6, which needs 282 s.

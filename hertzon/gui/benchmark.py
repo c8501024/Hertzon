@@ -234,8 +234,10 @@ class BenchmarkDialog(QDialog):
         parts = "; ".join(f"<b>{t}</b>: " + ", ".join(dict((x[0], x[1]) for x in suite.TESTS)[i] for i in ids)
                           for _k, t, ids in suite.PARTS)
         hint = QLabel(f"<b>{suite.SUITE}</b> in two parts with their own score ({parts}), each model solved once "
-                      "with all cores and checked against a reference, plus a large test (Drone RCS) when there is "
-                      "enough memory for it; it has its own score. A test counts only when it converged with the "
+                      "with all cores and checked against a reference. Every test of the parts runs on a computer with "
+                      "16 GB of memory, also on computers with more. Workstation tests are meant for machines with much "
+                      "more memory (Drone RCS needs about 37 GB): they are optional, run only when there is enough "
+                      "memory and have their own score. A test counts only when it converged with the "
                       "asked solver and a correct result: a stop by the memory guard or a fallback to another solver "
                       "is marked with its reason, and its part gets no score, while the other part stays valid. "
                       "Score per test = reference time / your time x 1000 "
@@ -275,10 +277,10 @@ class BenchmarkDialog(QDialog):
             cb.toggled.connect(self._suite_choice)
             self.suite_parts[k] = cb
             row.addWidget(cb)
-        self.suite_large = QCheckBox("Drone RCS (large, only with enough memory)")
+        self.suite_large = QCheckBox("Workstation tests (high-memory machines: Drone RCS needs about 37 GB)")
         self.suite_large.setChecked(True)
-        self.suite_large.setToolTip("Part of the full benchmark; runs only when the computer has the memory for it; "
-                                    "its own score")
+        self.suite_large.setToolTip("Optional extra of the full benchmark for workstations with much more than 16 GB of "
+                                    "memory; a test runs only when the computer has the memory for it; its own score")
         row.addWidget(self.suite_large)
         row.addStretch(1)
         f.addRow("Parts:", row)

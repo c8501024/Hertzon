@@ -58,21 +58,26 @@ TESTS = [
     ("dielectric_rcs", "Dielectric sphere RCS", "dielectric_sphere_rcs.hzn", "DielectricSphere", "Setup1",
      "Incident plane wave, monostatic RCS of a lossless dielectric sphere (er = 4), fields inside and outside "
      "(checked against the exact Mie solution)"),
+    ("drone_medium_rcs", "Drone RCS (medium)", "drone_medium_rcs.hzn", "Design1", "Setup1",
+     "Imported 3D surface of a delta-wing drone, PEC, incident plane wave at 0.5 GHz, monostatic RCS: "
+     "a realistic model that fits a computer with 16 GB"),
 ]
-# optional large tests: run only when the computer has the memory for them, with their own score, not in the
-# overall score (so that it stays comparable for computers with 16 GB)
+# workstation tests (more than 16 GB of memory): run only when the computer has the memory for them, with their
+# own score, not in the part or overall score, so that these stay reachable for a computer with 16 GB. Every
+# scored test fits 16 GB (the medium drone, the largest, needs about 8.5 GB).
 LARGE_TESTS = [
-    ("drone_rcs", "Drone RCS (large)", "drone_rcs.hzn", "Design1", "Setup1",
+    ("drone_rcs", "Drone RCS (workstation)", "drone_rcs.hzn", "Design1", "Setup1",
      "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"),
 ]
 MIE_TESTS = ("sphere_rcs", "dielectric_rcs")          # checked against the exact Mie solution
+REF_RCS_TESTS = ("drone_medium_rcs", "drone_rcs")     # checked against the RCS of the reference run
 # the suite in parts, each with its own score and run on its own if wanted: RF (ports and S-parameters:
 # circuits, filters, antennas, waveguides) and RCS (incident plane wave, scattering). A part has a score only
 # when every one of its tests counts; the overall score needs every part, so a failed RCS test leaves the RF
 # score valid. Large tests belong to a part but stay outside its score.
 PARTS = [
     ("rf", "RF", ["microstrip", "hairpin", "patch", "patch_thin", "waveguide"]),
-    ("rcs", "RCS", ["sphere_rcs", "dielectric_rcs"]),
+    ("rcs", "RCS", ["sphere_rcs", "dielectric_rcs", "drone_medium_rcs"]),
 ]
 PART_IDS = [k for k, _t, _ids in PARTS]
 PART_OF = {**{tid: k for k, _t, ids in PARTS for tid in ids}, "drone_rcs": "rcs"}
@@ -95,7 +100,7 @@ REFERENCE_SYSTEM_LARGE = "AMD Ryzen Threadripper 3970X (32 cores, 64 threads use
 REFERENCE_FILE = SUITE_DIR / "reference.json"
 DS_LIMIT = 0.05          # largest |S - S_ref| over the reference frequencies
 RCS_LIMIT_DB = 0.5       # largest RCS error against the Mie solution
-RCS_REF_LIMIT_DB = 1.0   # largest RCS difference of the drone to the reference run
+RCS_REF_LIMIT_DB = 1.0   # largest RCS difference of a drone to the reference run
 
 
 def file_hash(path: Path) -> str:
@@ -304,7 +309,7 @@ class Suite:
                     row["check"] = check_rcs(folder, path, design)
                 except Exception as ex:  # noqa: BLE001
                     row["check"] = {"kind": "rcs_db", "value": None, "ok": False, "note": str(ex)[:200]}
-            elif tid == "drone_rcs":
+            elif tid in REF_RCS_TESTS:
                 try:
                     rcs = rcs_dbsm(folder, path, design)
                     ref_rcs = (self.ref.get("rcs_dbsm") or {}).get(tid)
@@ -329,7 +334,7 @@ class Suite:
                 new_ref.setdefault("memory_mb", {})[tid] = round(s["memory_mb"])
                 if "rcs_dbsm" in row["check"]:
                     new_ref.setdefault("rcs_dbsm", {})[tid] = row["check"]["rcs_dbsm"]
-                if tid not in MIE_TESTS + ("drone_rcs",) and sweep:
+                if tid not in MIE_TESTS + REF_RCS_TESTS and sweep:
                     new_ref["sparams"][tid] = sparams_points(folder, sweep)
             ref_t = (self.ref.get("times") or {}).get(tid)
             row["score"] = score(ref_t, s["total"]) if row["counted"] else None
@@ -523,8 +528,9 @@ def site_spec() -> dict:
     tests = []
     for tid, _title, file, *_ in ALL_TESTS:
         tets = (ref.get("tets") or {}).get(tid) or 0
+        mem = (ref.get("memory_mb") or {}).get(tid)
         tests.append({"id": tid, "large": tid in LARGE_IDS, "hashes": [file_hash(SUITE_DIR / file)],
-                      "time": (ref.get("times") or {}).get(tid),
+                      "time": (ref.get("times") or {}).get(tid), "memory_gb": round(mem / 1024, 1) if mem else None,
                       "tets": [int(tets / 3), int(tets * 3)] if tets else [100, 10_000_000]})
     return {SUITE: {"tests": tests, "scaling_test": SCALING_TEST, "scaling_tests": SCALING_TESTS, "single_core": ref.get("single_core") or {},
                     "titles": {t[0]: t[1] for t in ALL_TESTS},

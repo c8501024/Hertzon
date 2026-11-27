@@ -25,7 +25,10 @@ def test_reference_covers_every_test():
     for tid in suite.TEST_IDS:
         assert ref["times"][tid] > 0, tid
         assert ref["tets"][tid] > 0, tid
-        if tid not in suite.MIE_TESTS:
+        assert ref["memory_mb"].get(tid, 0) < 16 * 1024 * 0.6, tid   # every scored test fits a computer with 16 GB
+        if tid in suite.REF_RCS_TESTS:
+            assert ref["rcs_dbsm"][tid] is not None, tid
+        elif tid not in suite.MIE_TESTS:
             assert ref["sparams"][tid]["freq"], tid
     assert ref["single_core"][suite.SCALING_TEST] > ref["times"][suite.SCALING_TEST]
 

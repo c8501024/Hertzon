@@ -270,7 +270,7 @@ function testsTable(d, sp) {
     <th class="num opt">Peak memory</th><th>Result check</th><th class="num">Score</th></tr></thead><tbody>
     ${d.tests.map((t) => {
       const large = (sp.tests.find((x) => x.id === t.id) || {}).large;
-      const name = `${esc(sp.titles[t.id] || t.id)}${large ? '<span class="tag">large, own score</span>' : ""}`;
+      const name = `${esc(sp.titles[t.id] || t.id)}${large ? '<span class="tag">workstation, own score</span>' : ""}`;
       if (t.skipped || t.total === undefined)
         return `<tr><td>${name}</td><td class="opt">${esc(partOf[t.id] || "")}</td><td colspan="7"></td>
           <td class="wrap ${t.skipped ? "muted" : "bad"}">${t.skipped ? `Not run: ${esc(t.skipped)}` : `Not counted: ${esc(t.reason)}`}</td><td></td></tr>`;
@@ -404,9 +404,9 @@ function viewAbout() {
     <div class="card feature"><span class="ic">${icon("check")}</span><h3>Checked results</h3><p>Every result is checked against a reference: the S-parameters,
       and for the spheres the exact Mie solution. A wrong or unconverged result gets no score.</p></div>
   </div>
-  <h2>The tests (${esc(state.suite)})</h2><div class="tbl-wrap"><table><thead><tr><th>Part</th><th>Test</th><th class="opt">What it measures</th><th class="num">Reference time</th></tr></thead><tbody>
-  ${s.tests.map((t) => `<tr><td>${esc(t.large ? "Large" : partTitle((parts().find((p) => p.tests.includes(t.id)) || {}).id))}</td><td>${esc(s.titles[t.id])}</td>
-    <td class="wrap opt">${esc(s.about[t.id])}</td><td class="num">${fmt(t.time, 1)} s</td></tr>`).join("")}</tbody></table></div>
+  <h2>The tests (${esc(state.suite)})</h2><div class="tbl-wrap"><table><thead><tr><th>Part</th><th>Test</th><th class="opt">What it measures</th><th class="num">Memory</th><th class="num">Reference time</th></tr></thead><tbody>
+  ${s.tests.map((t) => `<tr><td>${esc(t.large ? "Workstation" : partTitle((parts().find((p) => p.tests.includes(t.id)) || {}).id))}</td><td>${esc(s.titles[t.id])}</td>
+    <td class="wrap opt">${esc(s.about[t.id])}</td><td class="num">${t.memory_gb ? `${fmt(t.memory_gb, 1)} GB` : ""}</td><td class="num">${fmt(t.time, 1)} s</td></tr>`).join("")}</tbody></table></div>
   <h2>How it is measured</h2>
   <p>Every test solves its whole setup once (initial mesh, adaptive passes to convergence, frequency sweep or far field) in a fresh
   solver process with the chosen matrix solver. Score of a test = reference time / measured time × 1000, with the reference computer
@@ -416,8 +416,9 @@ function viewAbout() {
   the suite stays the same, so the versions page shows whether Hertzon got faster.</p>
   <p>A test counts only when it converged with the chosen matrix solver and a correct result. A test stopped by the memory guard,
   ended for lack of memory, solved by another solver than chosen (e.g. no usable GPU) or not converged keeps its times and is marked
-  with the reason; its part then has no score and the run no overall score, while the other part keeps its score. Large tests run
-  only on computers with enough memory and have their own score (1000 = ${esc(s.reference_large || "")}).</p>
+  with the reason; its part then has no score and the run no overall score, while the other part keeps its score. Every test of the parts runs on a computer with 16 GB of memory, so
+  every computer can take part. Workstation tests are for machines with much more memory (the memory column shows what each needs):
+  they are optional, run only on computers that have the memory and have their own score (1000 = ${esc(s.reference_large || "")}).</p>
   <p>Several submissions of the same computer are welcome; the ranking shows their median. The memory bandwidth is measured by
   Hertzon (copying a 256 MB array on one core), because a sparse direct solver depends on it.</p>
   <h2>Privacy</h2>
