@@ -1,0 +1,1757 @@
+{
+ "name": "RotmanArrayWorkstation",
+ "designs": [
+  {
+   "name": "RotmanArray",
+   "units": "mm",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Auto Open",
+    "AutoOpenBoundary": "Auto",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True",
+    "RadiatingStructure": "True",
+    "Sources": "{\"Beam1\": {\"mag\": 0.0, \"phase\": 0.0}, \"Beam2\": {\"mag\": 1.0, \"phase\": 0.0}, \"Beam3\": {\"mag\": 0.0, \"phase\": 0.0}, \"Beam4\": {\"mag\": 0.0, \"phase\": 0.0}, \"Beam5\": {\"mag\": 0.0, \"phase\": 0.0}, \"Dummy1\": {\"mag\": 0.0, \"phase\": 0.0}, \"Dummy2\": {\"mag\": 0.0, \"phase\": 0.0}, \"Dummy3\": {\"mag\": 0.0, \"phase\": 0.0}, \"Dummy4\": {\"mag\": 0.0, \"phase\": 0.0}, \"Dummy5\": {\"mag\": 0.0, \"phase\": 0.0}, \"Dummy6\": {\"mag\": 0.0, \"phase\": -2.0}}",
+    "FieldType": "Total"
+   },
+   "variables": {
+    "h": "0.508mm",
+    "w50": "1.1mm"
+   },
+   "objects": [
+    {
+     "name": "Lens",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-17.6461,13.2604,h;-19.1225,7.9679,h;-20.1003,2.6608,h;-20.1003,-2.6608,h;-19.1225,-7.9679,h;-17.6461,-13.2604,h;-12.8535,-12.6811,h;-8.0610,-12.1018,h;-3.2685,-11.5225,h;-1.8835,-8.2047,h;-0.7465,-4.9156,h;-0.1510,-1.6427,h;-0.1510,1.6427,h;-0.7465,4.9156,h;-1.8835,8.2047,h;-3.2685,11.5225,h;-8.0610,12.1018,h;-12.8535,12.6811,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Beam1,Beam2,Beam3,Beam4,Beam5,Arr1,Arr2,Arr3,Arr4,Arr5,Arr6,Arr7,Dummy1,Dummy2,Dummy3,Dummy4,Dummy5,Dummy6",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Unite",
+       "props": {
+        "Tools": "Line1,Patch1,Line2,Patch2,Line3,Patch3,Line4,Patch4,Line5,Patch5,Line6,Patch6,Line7,Patch7",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#ffaa00",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Beam1",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-19.1225,-7.9679,h;-17.6461,-13.2604,h;-24.0158,-12.7561,h;-25.9423,-13.2935,h;-26.2379,-12.2340,h;-24.3114,-11.6966,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Beam1",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-26.2379,-12.2340,0;-25.9423,-13.2935,0;-25.9423,-13.2935,h;-26.2379,-12.2340,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Beam2",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-20.1003,-2.6608,h;-19.1225,-7.9679,h;-25.4124,-6.9425,h;-27.3793,-7.3049,h;-27.5786,-6.2231,h;-25.6117,-5.8607,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Beam2",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-27.5786,-6.2231,0;-27.3793,-7.3049,0;-27.3793,-7.3049,h;-27.5786,-6.2231,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Beam3",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-20.1003,2.6608,h;-20.1003,-2.6608,h;-26.1003,-0.5500,h;-28.1003,-0.5500,h;-28.1003,0.5500,h;-26.1003,0.5500,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Beam3",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-28.1003,0.5500,0;-28.1003,-0.5500,0;-28.1003,-0.5500,h;-28.1003,0.5500,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Beam4",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-19.1225,7.9679,h;-20.1003,2.6608,h;-25.6117,5.8607,h;-27.5786,6.2231,h;-27.3793,7.3049,h;-25.4124,6.9425,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Beam4",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-27.3793,7.3049,0;-27.5786,6.2231,0;-27.5786,6.2231,h;-27.3793,7.3049,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Beam5",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-17.6461,13.2604,h;-19.1225,7.9679,h;-24.3114,11.6966,h;-26.2379,12.2340,h;-25.9423,13.2935,h;-24.0158,12.7561,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Beam5",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-25.9423,13.2935,0;-26.2379,12.2340,0;-26.2379,12.2340,h;-25.9423,13.2935,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Arr1",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-3.2685,-11.5225,h;-1.8835,-8.2047,h;3.1728,-11.6674,h;5.0185,-12.4378,h;4.5947,-13.4529,h;2.7491,-12.6825,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Arr2",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-1.8835,-8.2047,h;-0.7465,-4.9156,h;4.5354,-8.0006,h;6.4257,-8.6540,h;6.0663,-9.6937,h;4.1760,-9.0403,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Arr3",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-0.7465,-4.9156,h;-0.1510,-1.6427,h;5.5528,-3.8121,h;7.5205,-4.1702,h;7.3235,-5.2524,h;5.3559,-4.8944,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Arr4",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-0.1510,-1.6427,h;-0.1510,1.6427,h;5.8490,0.5500,h;7.8490,0.5500,h;7.8490,-0.5500,h;5.8490,-0.5500,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Arr5",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-0.1510,1.6427,h;-0.7465,4.9156,h;5.3559,4.8944,h;7.3235,5.2524,h;7.5205,4.1702,h;5.5528,3.8121,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Arr6",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-0.7465,4.9156,h;-1.8835,8.2047,h;4.1760,9.0403,h;6.0663,9.6937,h;6.4257,8.6540,h;4.5354,8.0006,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Arr7",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-1.8835,8.2047,h;-3.2685,11.5225,h;2.7491,12.6825,h;4.5947,13.4529,h;5.0185,12.4378,h;3.1728,11.6674,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Dummy1",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-17.6461,-13.2604,h;-12.8535,-12.6811,h;-13.9838,-18.8614,h;-13.7438,-20.8470,h;-14.8358,-20.9790,h;-15.0758,-18.9934,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Dummy1",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-14.8358,-20.9790,0;-13.7438,-20.8470,0;-13.7438,-20.8470,h;-14.8358,-20.9790,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Dummy2",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-12.8535,-12.6811,h;-8.0610,-12.1018,h;-9.1912,-18.2821,h;-8.9512,-20.2677,h;-10.0433,-20.3997,h;-10.2833,-18.4141,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Dummy2",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-10.0433,-20.3997,0;-8.9512,-20.2677,0;-8.9512,-20.2677,h;-10.0433,-20.3997,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Dummy3",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-8.0610,-12.1018,h;-3.2685,-11.5225,h;-4.3987,-17.7028,h;-4.1587,-19.6884,h;-5.2507,-19.8204,h;-5.4908,-17.8348,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Dummy3",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-5.2507,-19.8204,0;-4.1587,-19.6884,0;-4.1587,-19.6884,h;-5.2507,-19.8204,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Dummy4",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-3.2685,11.5225,h;-8.0610,12.1018,h;-5.4908,17.8348,h;-5.2507,19.8204,h;-4.1587,19.6884,h;-4.3987,17.7028,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Dummy4",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-4.1587,19.6884,0;-5.2507,19.8204,0;-5.2507,19.8204,h;-4.1587,19.6884,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Dummy5",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-8.0610,12.1018,h;-12.8535,12.6811,h;-10.2833,18.4141,h;-10.0433,20.3997,h;-8.9512,20.2677,h;-9.1912,18.2821,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Dummy5",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-8.9512,20.2677,0;-10.0433,20.3997,0;-10.0433,20.3997,h;-8.9512,20.2677,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Dummy6",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-12.8535,12.6811,h;-17.6461,13.2604,h;-15.0758,18.9934,h;-14.8358,20.9790,h;-13.7438,20.8470,h;-13.9838,18.8614,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "P_Dummy6",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "-13.7438,20.8470,0;-14.8358,20.9790,0;-14.8358,20.9790,h;-13.7438,20.8470,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Substrate",
+     "history": [
+      {
+       "kind": "CreateBox",
+       "props": {
+        "Position": "-29.1mm,-22mm,0mm",
+        "XSize": "65.3mm",
+        "YSize": "44mm",
+        "ZSize": "h"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "Rogers RO4350B (tm)",
+     "solve_inside": true,
+     "model": true,
+     "color": "#6a7f3a",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Ground",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "-29.1mm,-22mm,0mm",
+        "Axis": "Z",
+        "XSize": "65.3mm",
+        "YSize": "44mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#ffaa00",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Line1",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "4.9723,-12.4186,h;5.9224,-12.8151,h;22.0890,-18.1870,h;23.4500,-18.1870,h;23.4500,-17.5870,h;26.9500,-17.5870,h;26.9500,-18.1870,h;31.0000,-18.1870,h;31.0000,-19.2870,h;25.8500,-19.2870,h;25.8500,-18.6870,h;24.5500,-18.6870,h;24.5500,-19.2870,h;21.9110,-19.2870,h;5.5365,-13.8461,h;4.5486,-13.4337,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Patch1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,-20.6870mm,h",
+        "Axis": "Z",
+        "XSize": "3.1400mm",
+        "YSize": "3.9000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Notch1",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Notch1",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,-19.5370mm,h",
+        "Axis": "Z",
+        "XSize": "1.0000mm",
+        "YSize": "1.6000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Patch1",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Line2",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "6.3784,-8.6377,h;7.3360,-8.9687,h;22.0550,-11.9414,h;23.4500,-11.9414,h;23.4500,-10.3227,h;26.9500,-10.3227,h;26.9500,-11.9414,h;31.0000,-11.9414,h;31.0000,-13.0414,h;25.8500,-13.0414,h;25.8500,-11.4227,h;24.5500,-11.4227,h;24.5500,-13.0414,h;21.9450,-13.0414,h;7.0462,-10.0324,h;6.0190,-9.6773,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Patch2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,-14.4414mm,h",
+        "Axis": "Z",
+        "XSize": "3.1400mm",
+        "YSize": "3.9000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Notch2",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Notch2",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,-13.2914mm,h",
+        "Axis": "Z",
+        "XSize": "1.0000mm",
+        "YSize": "1.6000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Patch2",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Line3",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "7.4713,-4.1612,h;8.4825,-4.3452,h;22.0274,-5.6957,h;23.4500,-5.6957,h;23.4500,-3.3538,h;26.9500,-3.3538,h;26.9500,-5.6957,h;31.0000,-5.6957,h;31.0000,-6.7957,h;25.8500,-6.7957,h;25.8500,-4.4538,h;24.5500,-4.4538,h;24.5500,-6.7957,h;21.9726,-6.7957,h;8.3292,-5.4354,h;7.2744,-5.2434,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Patch3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,-8.1957mm,h",
+        "Axis": "Z",
+        "XSize": "3.1400mm",
+        "YSize": "3.9000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Notch3",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Notch3",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,-7.0457mm,h",
+        "Axis": "Z",
+        "XSize": "1.0000mm",
+        "YSize": "1.6000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Patch3",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Line4",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "7.7990,0.5500,h;8.8490,0.5500,h;22.0000,0.5500,h;23.4500,0.5500,h;23.4500,3.1471,h;26.9500,3.1471,h;26.9500,0.5500,h;31.0000,0.5500,h;31.0000,-0.5500,h;25.8500,-0.5500,h;25.8500,2.0471,h;24.5500,2.0471,h;24.5500,-0.5500,h;22.0000,-0.5500,h;8.8490,-0.5500,h;7.7990,-0.5500,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Patch4",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,-1.9500mm,h",
+        "Axis": "Z",
+        "XSize": "3.1400mm",
+        "YSize": "3.9000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Notch4",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Notch4",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,-0.8000mm,h",
+        "Axis": "Z",
+        "XSize": "1.0000mm",
+        "YSize": "1.6000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Patch4",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Line5",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "7.2744,5.2434,h;8.3292,5.4354,h;21.9726,6.7957,h;23.4500,6.7957,h;23.4500,9.1375,h;26.9500,9.1375,h;26.9500,6.7957,h;31.0000,6.7957,h;31.0000,5.6957,h;25.8500,5.6957,h;25.8500,8.0375,h;24.5500,8.0375,h;24.5500,5.6957,h;22.0274,5.6957,h;8.4825,4.3452,h;7.4713,4.1612,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Patch5",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,4.2957mm,h",
+        "Axis": "Z",
+        "XSize": "3.1400mm",
+        "YSize": "3.9000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Notch5",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Notch5",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,5.4457mm,h",
+        "Axis": "Z",
+        "XSize": "1.0000mm",
+        "YSize": "1.6000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Patch5",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Line6",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "6.0190,9.6773,h;7.0462,10.0324,h;21.9450,13.0414,h;23.4500,13.0414,h;23.4500,14.6601,h;26.9500,14.6601,h;26.9500,13.0414,h;31.0000,13.0414,h;31.0000,11.9414,h;25.8500,11.9414,h;25.8500,13.5601,h;24.5500,13.5601,h;24.5500,11.9414,h;22.0550,11.9414,h;7.3360,8.9687,h;6.3784,8.6377,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Patch6",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,10.5414mm,h",
+        "Axis": "Z",
+        "XSize": "3.1400mm",
+        "YSize": "3.9000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Notch6",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Notch6",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,11.6914mm,h",
+        "Axis": "Z",
+        "XSize": "1.0000mm",
+        "YSize": "1.6000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Patch6",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Line7",
+     "history": [
+      {
+       "kind": "CreatePolyline",
+       "props": {
+        "Points": "4.5486,13.4337,h;5.5365,13.8461,h;21.9110,19.2870,h;23.4500,19.2870,h;23.4500,19.8870,h;26.9500,19.8870,h;26.9500,19.2870,h;31.0000,19.2870,h;31.0000,18.1870,h;25.8500,18.1870,h;25.8500,18.7870,h;24.5500,18.7870,h;24.5500,18.1870,h;22.0890,18.1870,h;5.9224,12.8151,h;4.9723,12.4186,h",
+        "SegmentTypes": "",
+        "Closed": "True",
+        "Covered": "True"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Patch7",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,16.7870mm,h",
+        "Axis": "Z",
+        "XSize": "3.1400mm",
+        "YSize": "3.9000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      },
+      {
+       "kind": "Subtract",
+       "props": {
+        "Tools": "Notch7",
+        "KeepOriginals": "False"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Lens",
+     "group": "",
+     "orientation": "Global"
+    },
+    {
+     "name": "Notch7",
+     "history": [
+      {
+       "kind": "CreateRectangle",
+       "props": {
+        "Position": "30.0000mm,17.9370mm,h",
+        "Axis": "Z",
+        "XSize": "1.0000mm",
+        "YSize": "1.6000mm",
+        "ZSize": "1"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "vacuum",
+     "solve_inside": true,
+     "model": true,
+     "color": "#8080ff",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": "Patch7",
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [
+    {
+     "name": "PEC_Metal",
+     "kind": "Perfect E",
+     "props": {
+      "InfGroundPlane": "False"
+     },
+     "faces": [],
+     "objects": [
+      "Lens",
+      "Ground"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "excitations": [
+    {
+     "name": "Beam1",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "1",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-26.0901,-12.7638,0;-26.0901,-12.7638,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Beam1"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Beam2",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "2",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-27.4790,-6.7640,0;-27.4790,-6.7640,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Beam2"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Beam3",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "3",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-28.1003,0.0000,0;-28.1003,0.0000,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Beam3"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Beam4",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "4",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-27.4790,6.7640,0;-27.4790,6.7640,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Beam4"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Beam5",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "5",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-26.0901,12.7638,0;-26.0901,12.7638,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Beam5"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Dummy1",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "6",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-14.2898,-20.9130,0;-14.2898,-20.9130,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Dummy1"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Dummy2",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "7",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-9.4973,-20.3337,0;-9.4973,-20.3337,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Dummy2"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Dummy3",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "8",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-4.7047,-19.7544,0;-4.7047,-19.7544,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Dummy3"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Dummy4",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "9",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-4.7047,19.7544,0;-4.7047,19.7544,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Dummy4"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Dummy5",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "10",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-9.4973,20.3337,0;-9.4973,20.3337,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Dummy5"
+     ],
+     "edges": [],
+     "enabled": true
+    },
+    {
+     "name": "Dummy6",
+     "kind": "Lumped Port",
+     "props": {
+      "PortNumber": "11",
+      "Impedance": "50ohm",
+      "IntegrationLine": "-14.2898,20.9130,0;-14.2898,20.9130,h"
+     },
+     "faces": [],
+     "objects": [
+      "P_Dummy6"
+     ],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "24GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "MaximumPasses": "14",
+      "MaximumDeltaS": "0.02",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "2",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "Second Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "False",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [
+      {
+       "name": "Sweep22_26",
+       "props": {
+        "Enabled": "True",
+        "SweepType": "Fast",
+        "Distribution": "Linear Step",
+        "Start": "22GHz",
+        "Stop": "26GHz",
+        "Step": "0.25GHz",
+        "Count": "101",
+        "SamplesPerDecade": "20",
+        "Points": "1GHz,2GHz",
+        "SaveFields": "False",
+        "ErrorTolerance": "0.5",
+        "MaxSolutions": "250",
+        "Parallel": "False"
+       }
+      }
+     ],
+     "eigen": false
+    }
+   ],
+   "spheres": [
+    {
+     "name": "FF",
+     "props": {
+      "CoordinateSystem": "Global",
+      "PhiStart": "0deg",
+      "PhiStop": "360deg",
+      "PhiStep": "5deg",
+      "ThetaStart": "0deg",
+      "ThetaStop": "180deg",
+      "ThetaStep": "2deg"
+     }
+    }
+   ],
+   "reports": [
+    {
+     "name": "XY Plot 1",
+     "kind": "Rectangular",
+     "solution": "Setup1 : AdaptivePasses",
+     "traces": [
+      "dB(S(1,1))",
+      "dB(S(2,1))",
+      "dB(S(3,1))",
+      "dB(S(4,1))"
+     ],
+     "props": {}
+    },
+    {
+     "name": "Radiation Pattern 1",
+     "kind": "Radiation Pattern",
+     "solution": "Setup1 : LastAdaptive",
+     "traces": [
+      "dB(GainTotal)"
+     ],
+     "props": {
+      "cut": "Phi",
+      "cut_value": "90"
+     }
+    }
+   ],
+   "field_plots": [
+    {
+     "name": "Mesh1",
+     "quantity": "Mesh",
+     "solution": "Setup1",
+     "faces": [],
+     "objects": [
+      "Lens"
+     ],
+     "plane": "",
+     "props": {
+      "Quality": "None"
+     }
+    },
+    {
+     "name": "Mesh2",
+     "quantity": "Mesh",
+     "solution": "Setup1",
+     "faces": [],
+     "objects": [
+      "Lens"
+     ],
+     "plane": "",
+     "props": {
+      "Quality": "None"
+     }
+    }
+   ],
+   "coord_systems": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": ""
+  }
+ ],
+ "variables": {},
+ "materials": [],
+ "format": "hertzon-project",
+ "version": 2
+}

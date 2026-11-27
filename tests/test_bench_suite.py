@@ -212,11 +212,11 @@ def test_parts_can_run_alone(tmp_path):
     only_rcs = suite.Suite(tmp_path, parts=["rcs"], large=False)
     assert [t[0] for t in only_rcs.tests] == suite.PARTS[1][2] and not only_rcs.scaling
     assert only_rcs.result["parts_run"] == ["rcs"]
-    rf = suite.Suite(tmp_path, parts=["rf"])
-    assert [t[0] for t in rf.tests] == suite.PARTS[0][2] and not rf.scaling
+    rf = suite.Suite(tmp_path, parts=["rf"])                        # with its workstation test
+    assert [t[0] for t in rf.tests] == suite.PARTS[0][2] + ["rotman_array"] and not rf.scaling
     sc = suite.Suite(tmp_path, scaling=True, full=False)             # the scaling benchmark alone
     assert sc.tests == [] and sc.scaling_parts == ["rf", "rcs"] and sc.result["parts_run"] == []
-    assert "drone_rcs" in [t[0] for t in suite.Suite(tmp_path).tests]
+    assert {"drone_rcs", "rotman_array"} <= {t[0] for t in suite.Suite(tmp_path).tests}
     assert sorted(i for _k, _t, ids in suite.PARTS for i in ids) == sorted(suite.TEST_IDS)
 
 

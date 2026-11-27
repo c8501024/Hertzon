@@ -465,7 +465,7 @@ class BenchmarkDialog(QDialog):
         if not any(cb.isChecked() for cb in self.suite_parts.values()):
             next(cb for cb in self.suite_parts.values() if cb is not sender).setChecked(True)
             return
-        self.suite_large.setEnabled(self.suite_full.isChecked() and self.suite_parts["rcs"].isChecked())
+        self.suite_large.setEnabled(self.suite_full.isChecked())
 
     def _suite_tab(self) -> bool:
         return self.tabs.currentWidget() is self.suite_page
@@ -816,7 +816,7 @@ class BenchmarkDialog(QDialog):
         parts = [k for k, cb in self.suite_parts.items() if cb.isChecked()]
         if len(parts) < len(self.suite_parts):
             args += ["--parts", ",".join(parts)]
-        if not self.suite_large.isChecked() or "rcs" not in parts:
+        if not self.suite_large.isChecked():
             args.append("--no-large")
         if not self.suite_full.isChecked():
             args.append("--no-full")

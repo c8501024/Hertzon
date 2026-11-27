@@ -68,6 +68,9 @@ TESTS = [
 LARGE_TESTS = [
     ("drone_rcs", "Drone RCS (workstation)", "drone_rcs.hzn", "Design1", "Setup1",
      "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"),
+    ("rotman_array", "Rotman lens array (workstation)", "rotman_array.hzn", "RotmanArray", "Setup1",
+     "24 GHz Rotman lens beamformer with its patch array on RO4350B, 11 lumped ports, second order, far field "
+     "and 22-26 GHz sweep: a large antenna system"),
 ]
 MIE_TESTS = ("sphere_rcs", "dielectric_rcs")          # checked against the exact Mie solution
 REF_RCS_TESTS = ("drone_medium_rcs", "drone_rcs")     # checked against the RCS of the reference run
@@ -80,7 +83,7 @@ PARTS = [
     ("rcs", "RCS", ["sphere_rcs", "dielectric_rcs", "drone_medium_rcs"]),
 ]
 PART_IDS = [k for k, _t, _ids in PARTS]
-PART_OF = {**{tid: k for k, _t, ids in PARTS for tid in ids}, "drone_rcs": "rcs"}
+PART_OF = {**{tid: k for k, _t, ids in PARTS for tid in ids}, "drone_rcs": "rcs", "rotman_array": "rf"}
 TEST_IDS = [t[0] for t in TESTS]                       # the tests of the overall score
 LARGE_IDS = [t[0] for t in LARGE_TESTS]
 ALL_TESTS = TESTS + LARGE_TESTS

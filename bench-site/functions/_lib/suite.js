@@ -118,6 +118,19 @@ export const SUITES = {
      61157,
      550413
     ]
+   },
+   {
+    "id": "rotman_array",
+    "large": true,
+    "hashes": [
+     "124a1ce04729310f"
+    ],
+    "time": null,
+    "memory_gb": null,
+    "tets": [
+     100,
+     10000000
+    ]
    }
   ],
   "scaling_test": "hairpin",
@@ -138,7 +151,8 @@ export const SUITES = {
    "sphere_rcs": "Sphere RCS",
    "dielectric_rcs": "Dielectric sphere RCS",
    "drone_medium_rcs": "Drone RCS (medium)",
-   "drone_rcs": "Drone RCS (workstation)"
+   "drone_rcs": "Drone RCS (workstation)",
+   "rotman_array": "Rotman lens array (workstation)"
   },
   "about": {
    "microstrip": "Two lumped ports, first order, 1-6 GHz sweep: start-up and small matrices",
@@ -149,7 +163,8 @@ export const SUITES = {
    "sphere_rcs": "Incident plane wave, monostatic RCS of a PEC sphere (checked against the exact Mie solution)",
    "dielectric_rcs": "Incident plane wave, monostatic RCS of a lossless dielectric sphere (er = 4), fields inside and outside (checked against the exact Mie solution)",
    "drone_medium_rcs": "Imported 3D surface of a delta-wing drone, PEC, incident plane wave at 0.5 GHz, monostatic RCS: a realistic model that fits a computer with 16 GB",
-   "drone_rcs": "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"
+   "drone_rcs": "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes",
+   "rotman_array": "24 GHz Rotman lens beamformer with its patch array on RO4350B, 11 lumped ports, second order, far field and 22-26 GHz sweep: a large antenna system"
   },
   "reference": "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hertzon 0.4.6",
   "reference_large": "AMD Ryzen Threadripper 3970X (32 cores, 64 threads used, 256 GB), Windows, Hertzon 0.4.6",
