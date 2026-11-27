@@ -94,7 +94,8 @@ function options(values, cur, all) {
 function systemCell(r) {
   const sub = [r.device, r.gpu].filter(Boolean).join(" · ");
   return `<td class="wrap sys"><b>${esc(r.cpu)}</b>${r.name ? `<span class="tag">${esc(r.name)}</span>` : ""}
-    ${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</td>`;
+    ${sub ? `<div class="sub">${esc(sub)}</div>` : ""}
+    <div class="sub mob">${esc([r.solver, r.hertzon && `Hertzon ${r.hertzon}`].filter(Boolean).join(" · "))}</div></td>`;
 }
 
 const rankBadge = (i) => `<span class="rank${i < 3 ? ` r${i + 1}` : ""}">${i + 1}</span>`;

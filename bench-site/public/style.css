@@ -171,10 +171,11 @@ td.sys b{font-weight:600}
 .up{color:var(--good)} .down{color:var(--bad)}
 .empty{padding:48px 24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:12px;background:var(--card)}
 .empty b{color:var(--fg);font-size:1.05rem}
+.mob{display:none}
 @media (max-width:760px){
   .top-in{gap:10px;padding:0 16px} .get{display:none} nav.main a{padding:6px 8px} .brand{font-size:.92rem;letter-spacing:.03em}
   .wrap,.page{padding-left:16px;padding-right:16px} .hero-in{padding:32px 16px 30px}
-  .opt{display:none} .bar{min-width:110px} td.wrap{min-width:0} th,td{padding:9px 8px}
+  .opt{display:none} .mob{display:block} .bar{min-width:110px} td.wrap{min-width:0} th,td{padding:9px 8px}
   .mode-tabs{width:100%} .mode-tabs button{flex:1;padding:8px 10px} .mode-tabs button span{display:none}
   .stat{min-width:0;flex:1 1 40%} .tile b{font-size:1.6rem} .tile.main b{font-size:1.9rem}
   .filters label{flex:1 1 140px} .filters select,.filters input{min-width:0;width:100%}
