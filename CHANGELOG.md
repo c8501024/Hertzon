@@ -10,6 +10,12 @@ the GitHub release notes.
   on a Mac SPARTA on the CPU when it is installed, otherwise Apple Accelerate. Before, small matrices (below
   10,000 unknowns) always went to SuperLU. Measured on Apple silicon, SPARTA solves two to three times faster than Accelerate,
   so the Mac installer recommends it ("Install SPARTA? [Y/n]"). Windows and Linux run as fast as before.
+- **Fast sweep and tuning on a Mac many times faster.** Without PARDISO (Apple Silicon) the centre factorization of
+  a Fast sweep and of tuning now uses SPARTA on the CPU where it is installed, else Apple Accelerate, instead of
+  SuperLU, and solves all right-hand sides in one call. Measured on GitHub's Mac runners with the same S-parameters:
+  the half-wave dipole with its Fast sweep 1475–2018 s → 14–26 s (SPARTA) or 32–48 s (Accelerate); the patch on
+  0.25 mm with a 100-point Fast sweep did not finish in 40 min and now takes 2.5–3 min (SPARTA) or 3.5–5.5 min
+  (Accelerate); the fast sweep and tuning tests 54–97 min → under 2.5 min.
 
 ### Faster
 - **Fast sweep with many ports two to three times faster.** The product of the system matrix with the reduced
