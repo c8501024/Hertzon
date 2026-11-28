@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QProcess, QProcessEnvironment, QStandardPaths
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QComboBox, QLineEdit, QCheckBox,
                                QPushButton, QLabel, QProgressBar, QTableWidget, QTableWidgetItem, QSplitter,
                                QAbstractItemView, QMessageBox, QFileDialog, QTabWidget, QWidget, QGridLayout)
@@ -30,8 +31,8 @@ SOLVER_COLUMNS = ["Solver", "Cores", "Parallel frequencies", "Total (s)", "Solve
 # run are left out), and the ones it starts with (on a Mac Apple Accelerate instead of PARDISO)
 COMPARE = [s for s in solver_choice.offered() if s != "Auto"]
 COMPARE_DEFAULT = ("PARDISO", solver_choice.ACCELERATE, "SPARTA (CPU)", "SPARTA (GPU)")
-SUITE_COLUMNS = ["Test", "Total (s)", "Initial mesh (s)", "Adaptive passes (s)", "Sweep (s)", "Passes",
-                 "Tetrahedra", "Peak memory (GB)", "Result check", "Score"]
+HOW_URL = "https://github.com/c8501024/hertzon/blob/main/docs/BENCHMARKS.md#hertzon-bench"
+SUITE_COLUMNS = ["Test", "Time (s)", "Passes", "Tetrahedra", "Memory (GB)", "Result check", "Score"]
 
 
 def benchmark_root() -> Path:
@@ -172,15 +173,25 @@ def solver_recommendation(result: dict) -> tuple[str, str | None]:
 
 
 def scaling_text(sc: dict | None) -> str:
-    """The core scaling of a suite result as one line below the score."""
-    if not sc or not sc.get("runs"):
+    """The scaling benchmark of a suite result below the scores: per part the times per core count and the
+    single-core score."""
+    if not sc or not sc.get("parts"):
         return ""
-    runs = sorted(sc["runs"], key=lambda r: r["cores"])
-    parts = [f"{r['cores']}: {r['total']:.0f} s" + (f" ({r['speedup']:.1f}x)" if r.get("speedup") and r["cores"] > 1 else "")
-             for r in runs]
-    title = dict((t[0], t[1]) for t in suite.TESTS).get(sc.get("test"), sc.get("test"))
-    return (f"<br>Core scaling ({title}): " + ", ".join(parts)
-            + (f"; <b>single-core score {sc['single_core_score']}</b>" if sc.get("single_core_score") else ""))
+    titles = dict((t[0], t[1]) for t in suite.TESTS)
+    lines = []
+    for k, title, _ids in suite.PARTS:
+        part = sc["parts"].get(k)
+        if not part:
+            continue
+        runs = sorted(part.get("runs", []), key=lambda r: r["cores"])
+        times = ", ".join(f"{r['cores']}: {r['total']:.0f} s" + (f" ({r['speedup']:.1f}x)" if r.get("speedup")
+                                                                 and r["cores"] > 1 else "") for r in runs)
+        lines.append(f"{title} single-core <b>{part['single_core_score']}</b>" if part.get("single_core_score")
+                     else f"<span style='color:#c0392b'>{title}: no single-core score, {part.get('reason', '')}</span>")
+        lines[-1] += f" ({titles.get(part.get('test'), part.get('test'))}, cores {times})"
+    head = (f"<span style='font-size:14pt'><b>{sc['single_core_score']}</b></span> single-core score &nbsp; "
+            if sc.get("single_core_score") else "")
+    return "<br>" + head + "<br>".join(lines)
 
 
 class BenchmarkDialog(QDialog):
@@ -210,63 +221,20 @@ class BenchmarkDialog(QDialog):
                                        _safe(f"{Path(doc.project.path).stem}_{doc.design_name}_{s.name}")))
         f.addRow("Benchmark:", self.case)
         m = machine()
-        f.addRow("Computer:", QLabel(f"{m['cpu']}, {m['logical_cores']} logical cores"
-                                     + (f" ({m['physical_cores']} physical)" if m.get("physical_cores") else "")
-                                     + (f", {m['memory_gb']} GB memory" if m.get("memory_gb") else "")))
-        lay.addLayout(f)
+        self.machine_text = (f"{m['cpu']}, {m['logical_cores']} logical cores"
+                             + (f" ({m['physical_cores']} physical)" if m.get("physical_cores") else "")
+                             + (f", {m['memory_gb']} GB memory" if m.get("memory_gb") else ""))
+        f.addRow("Computer:", QLabel(self.machine_text))
+        f.setContentsMargins(0, 0, 0, 0)
+        self.top_box = QWidget()          # hidden on the Hertzon Bench tab, which has its own models
+        self.top_box.setLayout(f)
+        lay.addWidget(self.top_box)
         ncpu = os.cpu_count() or 1
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs, 1)
 
         # ---- Hertzon Bench
-        page = QWidget()
-        pl = QVBoxLayout(page)
-        hint = QLabel(f"<b>{suite.SUITE}</b>: {len(suite.TESTS)} fixed models ("
-                      + ", ".join(t[1] for t in suite.TESTS) + "), each solved once with all cores and "
-                      "checked against a reference, plus a large test (Drone RCS) when there is enough memory for "
-                      "it; it has its own score. A test counts only when it converged with the asked solver and "
-                      "a correct result: a stop by the memory guard or a fallback to another solver is marked "
-                      "with its reason and left out of the score. Score per test = reference time / your time x 1000 "
-                      f"(reference: {suite.REFERENCE_SYSTEM}); the overall score is their geometric mean. "
-                      "Takes about 5 to 15 minutes and up to 9 GB of memory (16 GB recommended). Close other programs meanwhile. "
-                      "Submit the result to compare it with other computers and Hertzon versions.")
-        hint.setWordWrap(True)
-        pl.addWidget(hint)
-        f = QFormLayout()
-        self.suite_solver = QComboBox()
-        self.suite_solver.addItems(["Auto"] + [n for n in COMPARE if n not in suite.EXCLUDED_SOLVERS])
-        for i in range(self.suite_solver.count()):          # greyed out with the reason when it cannot run here
-            why = solver_choice.unavailable(self.suite_solver.itemText(i))
-            if why:
-                item = self.suite_solver.model().item(i)
-                item.setEnabled(False)
-                item.setToolTip(why)
-        self.suite_solver.setToolTip("Matrix solver of every test; Auto chooses per problem")
-        f.addRow("Matrix solver:", self.suite_solver)
-        self.suite_scaling = QCheckBox(f"Also measure the core scaling (the {dict((t[0], t[1]) for t in suite.TESTS)[suite.SCALING_TEST].lower()} "
-                                       "with 1, 2, 4, ... cores; gives the single-core score; a few minutes more)")
-        self.suite_scaling.setChecked(True)
-        f.addRow("", self.suite_scaling)
-        pl.addLayout(f)
-        self.suite_score = QLabel("")
-        self.suite_score.setTextFormat(Qt.RichText)
-        pl.addWidget(self.suite_score)
-        self.suite_table = QTableWidget(0, len(SUITE_COLUMNS))
-        self.suite_table.setHorizontalHeaderLabels(SUITE_COLUMNS)
-        self.suite_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.suite_table.verticalHeader().setVisible(False)
-        pl.addWidget(self.suite_table, 1)
-        bl = QHBoxLayout()
-        self.b_submit = QPushButton("Submit Results...")
-        self.b_submit.setToolTip("Shows what would be sent and asks before sending it")
-        self.b_submit.setEnabled(False)
-        self.b_site = QPushButton("Compare Online")
-        bl.addWidget(self.b_submit)
-        bl.addWidget(self.b_site)
-        bl.addStretch(1)
-        pl.addLayout(bl)
-        self.suite_page = page
-        self.tabs.addTab(page, "Hertzon Bench")
+        self.tabs.addTab(self._build_suite_page(), "Hertzon Bench")
 
         # ---- core scaling
         page = QWidget()
@@ -375,12 +343,192 @@ class BenchmarkDialog(QDialog):
         self.b_export.clicked.connect(self.export)
         self.b_submit.clicked.connect(self.submit)
         self.b_site.clicked.connect(lambda: self._open_url(bench_submit.BENCH_URL))
+        self.b_run.clicked.connect(self.start)
+        self.b_how.clicked.connect(lambda: self._open_url(HOW_URL))
         self.tabs.currentChanged.connect(lambda *_: self._tab_changed())
         close.clicked.connect(self.close)
         self.case.currentIndexChanged.connect(lambda *_: self.load())
         self.resize(1040, 820)
         self.load()
         self._tab_changed()
+
+    # ---- Hertzon Bench page --------------------------------------------------------------------
+    def _build_suite_page(self) -> QWidget:
+        """Run and compare: a banner with one button, the choices as compact switches, the scores as tiles,
+        the tests below. The details are in the tooltips and on the site."""
+        from PySide6.QtWidgets import QFrame, QGridLayout, QSizePolicy
+        from . import theme as T
+        page = QWidget()
+        page.setObjectName("BenchPage")
+        page.setStyleSheet(f"""
+            QFrame#Hero {{ background: {T.NAVY}; border-radius: 4px; }}
+            QLabel#HeroTitle {{ color: #ffffff; font-size: 14pt; font-weight: 600; }}
+            QLabel#HeroSub {{ color: #c9d2e3; }}
+            QPushButton#Run {{ background: {T.GOLD}; color: {T.NAVY}; border: none; border-radius: 4px;
+                padding: 7px 18px; font-weight: 600; }}
+            QPushButton#Run:hover {{ background: #d4a23d; }}
+            QPushButton#Run:disabled {{ background: #6b7385; color: #c9d2e3; }}
+            QPushButton#Ghost {{ background: transparent; color: #dfe5ef; border: 1px solid #3a4a6b;
+                border-radius: 4px; padding: 6px 14px; }}
+            QPushButton#Ghost:hover {{ background: #24345a; color: #ffffff; }}
+            QLabel#OptLabel {{ color: {T.MUTED}; }}
+            QFrame#Tile {{ background: #ffffff; border: 1px solid {T.LINE}; border-radius: 4px; }}
+            QFrame#Tile[main="true"] {{ border-left: 3px solid {T.GOLD}; }}
+            QLabel#TileValue {{ color: {T.INK}; font-size: 16pt; font-weight: 600; }}
+            QLabel#TileValue[none="true"] {{ color: #b0b5bf; }}
+            QLabel#TileLabel {{ color: {T.MUTED}; }}
+            QLabel#TileNote {{ color: {T.MUTED}; }}
+            QLabel#TileNote[bad="true"] {{ color: #c0392b; }}
+            QLabel#Meta {{ color: {T.MUTED}; }}
+            QPushButton#Link {{ background: transparent; border: none; color: #2f6db5; padding: 4px 6px; }}
+            QPushButton#Link:hover {{ text-decoration: underline; }}
+        """)
+        pl = QVBoxLayout(page)
+        pl.setContentsMargins(14, 14, 14, 10)
+        pl.setSpacing(12)
+
+        # banner: what it is in one line, one button
+        hero = QFrame()
+        hero.setObjectName("Hero")
+        hl = QHBoxLayout(hero)
+        hl.setContentsMargins(16, 10, 16, 10)
+        txt = QVBoxLayout()
+        txt.setSpacing(2)
+        title = QLabel(f"{suite.SUITE}: run it, compare it")
+        title.setObjectName("HeroTitle")
+        n = len(suite.TESTS)
+        sub = QLabel(f"{n} real EM models, about 10 minutes, one score. Then see how your computer ranks online.")
+        sub.setObjectName("HeroSub")
+        sub.setWordWrap(True)
+        for w in (title, sub):
+            txt.addWidget(w)
+        hl.addLayout(txt, 1)
+        self.b_run = QPushButton("Run benchmark")
+        self.b_run.setObjectName("Run")
+        self.b_run.setCursor(Qt.PointingHandCursor)
+        self.b_site = QPushButton("Compare online")
+        self.b_site.setObjectName("Ghost")
+        self.b_site.setCursor(Qt.PointingHandCursor)
+        hl.addWidget(self.b_site)
+        hl.addSpacing(8)
+        hl.addWidget(self.b_run)
+        pl.addWidget(hero)
+
+        # choices as switches, the explanations in the tooltips
+        titles = dict((t[0], t[1]) for t in suite.TESTS)
+        opts = QGridLayout()
+        opts.setHorizontalSpacing(8)
+        opts.setVerticalSpacing(6)
+
+        def label(text):
+            lb = QLabel(text + ":")
+            lb.setObjectName("OptLabel")
+            return lb
+
+        def chip(text, tip, checked=True):
+            cb = QCheckBox(text)
+            cb.setChecked(checked)
+            cb.setToolTip(tip)
+            cb.setCursor(Qt.PointingHandCursor)
+            return cb
+
+        self.suite_full = chip("Multi-core", "Full benchmark: every test once with all cores (about 10 minutes "
+                               "on 4 cores). Gives the RF, RCS and overall score.")
+        self.suite_scaling = chip("Single- to multi-core", "Scaling benchmark: "
+                                  + " and ".join(titles[t] for t in suite.SCALING_TESTS.values())
+                                  + " with 1, 2, 4, ... cores. Gives single-core scores and the speedup "
+                                  "(about 10 minutes more on 4 cores).", checked=False)
+        self.suite_parts = {}
+        part_tips = {k: f"{title}: " + ", ".join(titles[i] for i in ids) + ". Runs on a computer with 16 GB."
+                     for k, title, ids in suite.PARTS}
+        for k, title, ids in suite.PARTS:
+            self.suite_parts[k] = chip(title, part_tips[k])
+        mem = suite.reference().get("memory_mb") or {}
+        ws = ", ".join(f"{t[1].replace(' (workstation)', '')} about {round((mem.get(t[0]) or 0) / 1024)} GB"
+                       for t in suite.LARGE_TESTS)
+        self.suite_large = chip("Workstation (32 GB+)", "Extra tests for machines with much more memory than 16 GB ("
+                                + ws + "). They run only when there is enough memory and have their own score.")
+        self.suite_solver = QComboBox()
+        self.suite_solver.addItems(["Auto"] + [n for n in COMPARE if n not in suite.EXCLUDED_SOLVERS])
+        for i in range(self.suite_solver.count()):          # greyed out with the reason when it cannot run here
+            why = solver_choice.unavailable(self.suite_solver.itemText(i))
+            if why:
+                item = self.suite_solver.model().item(i)
+                item.setEnabled(False)
+                item.setToolTip(why)
+        self.suite_solver.setToolTip("Matrix solver of every test; Auto chooses per problem")
+        for cb in (self.suite_full, self.suite_scaling, *self.suite_parts.values()):
+            cb.toggled.connect(self._suite_choice)
+        opts.addWidget(label("Benchmark"), 0, 0)
+        opts.addWidget(self.suite_full, 0, 1)
+        opts.addWidget(self.suite_scaling, 0, 2)
+        opts.addWidget(label("Tests"), 1, 0)
+        c = 1
+        for cb in (*self.suite_parts.values(), self.suite_large):
+            opts.addWidget(cb, 1, c)
+            c += 1
+        opts.addWidget(label("Solver"), 0, 5, Qt.AlignRight)
+        opts.addWidget(self.suite_solver, 0, 6)
+        opts.setColumnStretch(4, 1)
+        pl.addLayout(opts)
+
+        # scores as tiles
+        self.suite_tiles = QHBoxLayout()
+        self.suite_tiles.setSpacing(10)
+        tiles = QWidget()
+        tiles.setLayout(self.suite_tiles)
+        pl.addWidget(tiles)
+        self.suite_score = QLabel("")
+        self.suite_score.setObjectName("Meta")
+        self.suite_score.setTextFormat(Qt.RichText)
+        self.suite_score.setWordWrap(True)
+        pl.addWidget(self.suite_score)
+
+        self.suite_table = QTableWidget(0, len(SUITE_COLUMNS))
+        self.suite_table.setHorizontalHeaderLabels(SUITE_COLUMNS)
+        self.suite_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.suite_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.suite_table.setAlternatingRowColors(True)
+        self.suite_table.setShowGrid(False)
+        self.suite_table.verticalHeader().setVisible(False)
+        self.suite_table.horizontalHeader().setStretchLastSection(True)
+        pl.addWidget(self.suite_table, 1)
+
+        bl = QHBoxLayout()
+        self.b_submit = QPushButton("Submit and compare...")
+        self.b_submit.setToolTip("Shows exactly what would be sent and asks before sending it")
+        self.b_submit.setEnabled(False)
+        self.b_how = QPushButton("How the score works")
+        self.b_how.setObjectName("Link")
+        self.b_how.setCursor(Qt.PointingHandCursor)
+        bl.addWidget(self.b_submit)
+        bl.addWidget(self.b_how)
+        bl.addStretch(1)
+        pl.addLayout(bl)
+        self.suite_page = page
+        return page
+
+    def _tile(self, value, label: str, note: str = "", main: bool = False, bad: bool = False) -> QWidget:
+        from PySide6.QtWidgets import QFrame
+        f = QFrame()
+        f.setObjectName("Tile")
+        f.setProperty("main", main)
+        f.setMinimumWidth(110)
+        v = QVBoxLayout(f)
+        v.setContentsMargins(12, 6, 12, 6)
+        v.setSpacing(0)
+        lb = QLabel(label)
+        lb.setObjectName("TileLabel")
+        val = QLabel(str(value) if value else "–")
+        val.setObjectName("TileValue")
+        nt = QLabel(note)
+        nt.setObjectName("TileNote")
+        for w, extra in ((lb, {}), (val, {"none": not value}), (nt, {"bad": bad})):
+            w.setProperty("main", main)
+            for k, x in extra.items():
+                w.setProperty(k, x)
+            v.addWidget(w)
+        return f
 
     @staticmethod
     def _plot_and_table(columns: list[str]):
@@ -419,13 +567,29 @@ class BenchmarkDialog(QDialog):
     def _comparing(self) -> bool:
         return self.tabs.currentWidget() is self.solvers_page
 
+    def _suite_choice(self) -> None:
+        """At least one benchmark and one part; the drone belongs to the full benchmark and RCS."""
+        sender = self.sender()
+        if not self.suite_full.isChecked() and not self.suite_scaling.isChecked():
+            (self.suite_scaling if sender is self.suite_full else self.suite_full).setChecked(True)
+            return
+        if not any(cb.isChecked() for cb in self.suite_parts.values()):
+            next(cb for cb in self.suite_parts.values() if cb is not sender).setChecked(True)
+            return
+        self.suite_large.setEnabled(self.suite_full.isChecked())
+
     def _suite_tab(self) -> bool:
         return self.tabs.currentWidget() is self.suite_page
 
     def _tab_changed(self) -> None:
         """The case and the CSV export belong to the other tabs; the suite has its own models."""
-        self.case.setEnabled(not self._suite_tab() and self.proc is None)
-        self.b_export.setEnabled(not self._suite_tab())
+        suite_tab = self._suite_tab()
+        self.case.setEnabled(not suite_tab and self.proc is None)
+        self.b_export.setEnabled(not suite_tab)
+        self.top_box.setVisible(not suite_tab)
+        self.b_start.setVisible(not suite_tab)        # the banner has its own Run button
+        for w in (self.b_abort, self.bar, self.status):   # on the suite tab only while it runs
+            w.setVisible(not suite_tab or self.proc is not None)
 
     @staticmethod
     def _open_url(url: str) -> None:
@@ -467,56 +631,88 @@ class BenchmarkDialog(QDialog):
     def show_suite(self) -> None:
         res = self.suite_result
         titles = {t[0]: t[1] for t in suite.ALL_TESTS}
+        green, red, grey = QColor("#2e7d4f"), QColor("#c0392b"), QColor("#8a909c")
         rows = []
         for t in res.get("tests", []):
             chk = t.get("check") or {}
             name = titles.get(t["id"], t["id"])
             if t.get("skipped"):
-                rows.append(([name] + [""] * 7 + [f"not run: {t['skipped']}", ""], True))
+                rows.append(([name] + [""] * 4 + [f"not run: {t['skipped']}", ""], grey, ""))
                 continue
             if "total" not in t:                       # ended without a result
-                rows.append(([name] + [""] * 7 + [f"NOT COUNTED: {t.get('reason', 'failed')}", ""], True))
+                rows.append(([name] + [""] * 4 + [f"\u2717 not counted: {t.get('reason', 'failed')}", ""], red, ""))
                 continue
+            ok = bool(chk.get("ok"))
+            mark = "\u2713" if ok else "\u2717 wrong"
             if chk.get("value") is None:
-                ctext = "ok" if chk.get("ok") else chk.get("note", "failed")
+                ctext = "\u2713" if ok else "\u2717 " + chk.get("note", "failed")
             elif chk.get("kind") == "rcs_db":
-                ctext = f"{'ok' if chk['ok'] else 'WRONG'}: {chk['value']:+.2f} dB vs. Mie"
+                ctext = f"{mark}  {chk['value']:+.2f} dB vs. Mie"
             elif chk.get("kind") == "rcs_ref_db":
-                ctext = f"{'ok' if chk['ok'] else 'WRONG'}: {chk['value']:+.2f} dB vs. reference"
+                ctext = f"{mark}  {chk['value']:+.2f} dB vs. reference"
             else:
-                ctext = f"{'ok' if chk['ok'] else 'WRONG'}: |dS| {chk['value']:.1e}"
+                ctext = f"{mark}  |dS| {chk['value']:.1e}"
             bad = t.get("counted") is False
             if bad:
-                ctext = f"NOT COUNTED: {t.get('reason', '')}"
-            score = str(t.get("score") or "") + (" (not in overall)" if t["id"] in suite.LARGE_IDS and t.get("score") else "")
-            rows.append(([name, f"{t['total']:.1f}", f"{t['mesh']:.1f}", f"{t['adaptive']:.1f}", f"{t['sweep']:.1f}",
-                          str(t["passes"]), str(t["tets"]), f"{t['memory_mb'] / 1024:.1f}", ctext, score], bad))
+                ctext = f"\u2717 not counted: {t.get('reason', '')}"
+            score = str(t.get("score") or "") + (" (own)" if t["id"] in suite.LARGE_IDS and t.get("score") else "")
+            rows.append(([name, f"{t['total']:.1f}", str(t["passes"]), str(t["tets"]),
+                          f"{t['memory_mb'] / 1024:.1f}", ctext, score], red if bad or not ok else green,
+                         f"Initial mesh {t['mesh']:.1f} s, adaptive passes {t['adaptive']:.1f} s, "
+                         f"sweep {t['sweep']:.1f} s"))
         self.suite_table.setRowCount(len(rows))
-        for i, (row, bad) in enumerate(rows):
+        for i, (row, colour, split) in enumerate(rows):
             for c, v in enumerate(row):
                 it = QTableWidgetItem(v)
-                if c == 8 and (bad or "WRONG" in v):
-                    it.setForeground(Qt.red if bad or "WRONG" in v else Qt.gray)
+                if c == 1 and split:
+                    it.setToolTip(split)
+                if c == 5:
+                    it.setForeground(colour)
                     it.setToolTip(v)
+                elif c == 6 and v:
+                    f = it.font()
+                    f.setBold(True)
+                    it.setFont(f)
                 self.suite_table.setItem(i, c, it)
         self.suite_table.resizeColumnsToContents()
-        if res.get("score"):
+
+        # the scores as tiles: overall, each part, single-core, the workstation tests
+        while self.suite_tiles.count():
+            w = self.suite_tiles.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        parts = res.get("parts") or {}
+        sc = res.get("scaling") or {}
+        single = any(p.get("single_core_score") for p in (sc.get("parts") or {}).values())
+        have = any(p.get("score") for p in parts.values()) or single
+        if have or res.get("tests"):
+            if parts:
+                self.suite_tiles.addWidget(self._tile(res.get("score"), "Overall", "your computer" if res.get("score")
+                                                      else "needs every part", main=True))
+            for k, title, _ids in suite.PARTS:
+                if (p := parts.get(k)):
+                    self.suite_tiles.addWidget(self._tile(
+                        p.get("score"), title, f"{p['tests']} tests" if p.get("score")
+                        else f"{p['counted']} of {p['tests']} tests count", bad=not p.get("score")))
+            if sc.get("single_core_score"):
+                self.suite_tiles.addWidget(self._tile(sc["single_core_score"], "Single-core", "scaling benchmark"))
+            for t in res.get("tests", []):
+                if t["id"] in suite.LARGE_IDS and t.get("score"):
+                    self.suite_tiles.addWidget(self._tile(t["score"], titles[t["id"]].replace(" (workstation)", ""),
+                                                          "workstation"))
+            self.suite_tiles.addStretch(1)
+        if have:
             import time
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(res.get("finished", 0)))
-            self.suite_score.setText(f"<span style='font-size:20pt'><b>{res['score']}</b></span>&nbsp;&nbsp;"
-                                     f"{res.get('suite', '')} score, {res.get('cores')} cores, solver "
-                                     f"{res.get('solver')}, measured {when}"
-                                     + ("" if res.get("complete") else
-                                        f" &nbsp;<span style='color:#c0392b'>incomplete: {res.get('counted', 0)} of "
-                                        f"{len(suite.TEST_IDS)} tests count (see Result check)</span>")
-                                     + scaling_text(res.get("scaling"))
-                                     + (" &nbsp;<i>(submitted)</i>" if (self.suite_folder() / "submitted.json").exists()
-                                        and json.loads((self.suite_folder() / "submitted.json").read_text(
-                                            encoding="utf-8")).get("run_id") == res.get("run_id") else ""))
+            meta = (f"{suite.SUITE}: <b>{res['score']}</b> &nbsp;·&nbsp; " if res.get("score") else "")
+            meta += f"{res.get('cores')} cores, solver {res.get('solver')}, measured {when}"
+            if self._submitted():
+                meta += " &nbsp;·&nbsp; <b style='color:#2e7d4f'>submitted</b>"
+            self.suite_score.setText(meta + scaling_text(sc))
         elif res.get("tests"):
-            self.suite_score.setText("No overall score: " + (bench_submit.can_submit(res) or "not finished."))
+            self.suite_score.setText(bench_submit.can_submit(res) or "No score: not finished.")
         else:
-            self.suite_score.setText("No result yet.")
+            self.suite_score.setText(self.machine_text + " &nbsp;·&nbsp; no result yet. Press <b>Run benchmark</b>.")
         self.b_submit.setEnabled(self.proc is None and not bench_submit.can_submit(res))
 
     def show_result(self) -> None:
@@ -743,6 +939,10 @@ class BenchmarkDialog(QDialog):
 
     def _running_ui(self) -> None:
         self.b_start.setEnabled(False)
+        self.b_run.setEnabled(False)
+        self.b_run.setText("Running...")
+        for w in (self.b_abort, self.bar, self.status):
+            w.setVisible(True)
         self.b_abort.setEnabled(True)
         self.b_submit.setEnabled(False)
         self.case.setEnabled(False)
@@ -759,8 +959,15 @@ class BenchmarkDialog(QDialog):
         sv = self.suite_solver.currentText()
         if sv != "Auto":
             args += ["--solver", sv]
-        if not self.suite_scaling.isChecked():
-            args.append("--no-scaling")
+        parts = [k for k, cb in self.suite_parts.items() if cb.isChecked()]
+        if len(parts) < len(self.suite_parts):
+            args += ["--parts", ",".join(parts)]
+        if not self.suite_large.isChecked():
+            args.append("--no-large")
+        if not self.suite_full.isChecked():
+            args.append("--no-full")
+        if self.suite_scaling.isChecked():
+            args.append("--scaling")
         p = self._process()
         self.suite_result = {}
         self.show_suite()
@@ -807,6 +1014,8 @@ class BenchmarkDialog(QDialog):
         self._read()
         self.proc = None
         self.b_start.setEnabled(True)
+        self.b_run.setEnabled(True)
+        self.b_run.setText("Run benchmark")
         self.b_abort.setEnabled(False)
         self.tabs.tabBar().setEnabled(True)
         self.load()
@@ -817,6 +1026,8 @@ class BenchmarkDialog(QDialog):
             self.win.msgs.add("info", "Solver benchmark finished"
                               + (f": {suite.SUITE} score {self.suite_result['score']}"
                                  if self.mode == "suite" and self.suite_result.get("score") else ""))
+            if self.mode == "suite":
+                self.offer_submit()
         elif not self.status.text().startswith("<span"):
             self.status.setText("Aborted" if (self.out / "ABORT").exists() else f"Ended with code {code}")
 
@@ -857,6 +1068,33 @@ class BenchmarkDialog(QDialog):
         self.win.settings.setValue("hpc/default_solver", self.best_solver)
         self.win.msgs.add("info", f"Default matrix solver for new setups: {self.best_solver} "
                                   "(existing setups keep theirs)")
+
+    def _submitted(self) -> bool:
+        try:
+            done = json.loads((self.suite_folder() / "submitted.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return False
+        return bool(self.suite_result.get("run_id")) and done.get("run_id") == self.suite_result.get("run_id")
+
+    def offer_submit(self) -> None:
+        """Right after a finished run: ask once whether to compare the result online. Yes opens the submit
+        dialog, which still shows exactly what is sent and sends nothing without its own confirmation."""
+        res = self.suite_result
+        if bench_submit.can_submit(res) or self._submitted():
+            return
+        score = res.get("score") or next((p.get("score") for p in (res.get("parts") or {}).values()
+                                          if p.get("score")), None)
+        box = QMessageBox(self)
+        box.setWindowTitle(suite.SUITE)
+        box.setIcon(QMessageBox.Question)
+        box.setText(f"<b>Your score: {score}</b>" if score else "<b>Your benchmark is done.</b>")
+        box.setInformativeText("See how your computer ranks against others online?")
+        yes = box.addButton("Submit and compare", QMessageBox.AcceptRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.setDefaultButton(yes)
+        box.exec()
+        if box.clickedButton() is yes:
+            self.submit()
 
     def submit(self) -> None:
         why = bench_submit.can_submit(self.suite_result)

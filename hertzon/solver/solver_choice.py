@@ -87,3 +87,23 @@ def offered(solvers=None) -> list[str]:
 
 def available(name: str) -> bool:
     return unavailable(name) is None
+
+
+def auto_solver() -> str | None:
+    """The solver "Auto" stands for on this computer, for every matrix size; None leaves the choice to EMerge.
+
+    The fastest direct solver the platform has: PARDISO on an x86-64 processor; on a Mac SPARTA when it is
+    installed (on the CPU, in double precision: measured two to three times faster than Apple Accelerate
+    there), otherwise Apple Accelerate.
+    EMerge's own automatic choice takes SuperLU below 10,000 unknowns, which is never faster (Windows: the same
+    time as PARDISO; Mac: up to 25 % slower than Accelerate). The caller checks that EMerge can load the solver."""
+    if sys.platform == "darwin":
+        if _sparta() is None:
+            return "SPARTA (CPU)"            # double precision; the GPU mode is single precision (|dS| up to 0.4)
+        if available(ACCELERATE):
+            return ACCELERATE
+        return None
+    if _pardiso() is None:
+        return "PARDISO"
+    return None
+

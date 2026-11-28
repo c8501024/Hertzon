@@ -1,0 +1,168 @@
+{
+ "name": "DielectricSphereRCS",
+ "designs": [
+  {
+   "name": "DielectricSphere",
+   "units": "mm",
+   "kind": "3d",
+   "settings": {
+    "SolutionType": "Modal",
+    "AutoOpen": "Auto Open",
+    "AutoOpenBoundary": "Radiation",
+    "AutoOpenPadding": "",
+    "FilterAirMargin": "12mm",
+    "MaterialOverride": "True"
+   },
+   "variables": {
+    "R": "100mm"
+   },
+   "objects": [
+    {
+     "name": "Sphere",
+     "history": [
+      {
+       "kind": "CreateSphere",
+       "props": {
+        "CenterPosition": "0,0,0",
+        "Radius": "R",
+        "NumberOfVertices": "0"
+       },
+       "suppressed": false
+      }
+     ],
+     "material": "Dielectric4",
+     "solve_inside": true,
+     "model": true,
+     "color": "#d6a45c",
+     "transparency": 0.0,
+     "wireframe": false,
+     "visible": true,
+     "consumed_by": null,
+     "group": "",
+     "orientation": "Global"
+    }
+   ],
+   "boundaries": [],
+   "excitations": [
+    {
+     "name": "IncPWave1",
+     "kind": "Incident Plane Wave",
+     "props": {
+      "VectorInput": "Cartesian",
+      "E0Vector": "1,0,0",
+      "KVector": "0,0,1",
+      "Theta": "0deg",
+      "Phi": "0deg",
+      "Polarization": "0deg",
+      "ZeroPhasePosition": "0,0,0",
+      "EMagnitude": "1"
+     },
+     "faces": [],
+     "objects": [],
+     "edges": [],
+     "enabled": true
+    }
+   ],
+   "mesh_ops": [],
+   "setups": [
+    {
+     "name": "Setup1",
+     "props": {
+      "Enabled": "True",
+      "SolutionFrequencyMode": "Single",
+      "Frequency": "1GHz",
+      "MultiFrequencies": "1GHz,2GHz",
+      "LowFrequency": "1GHz",
+      "HighFrequency": "10GHz",
+      "BroadbandFrequencies": "3",
+      "PortsOnly": "False",
+      "MaximumPasses": "5",
+      "MaximumDeltaS": "0.02",
+      "DeltaSQuantity": "Complex S",
+      "MaximumDeltaEnergy": "0.001",
+      "UseMatrixConvergence": "False",
+      "MaxDeltaMag": "0.02",
+      "MaxDeltaPhase": "2",
+      "UsePowerBalance": "False",
+      "MaxPowerBalance": "0.01",
+      "MaxDeltaEfficiency": "0.01",
+      "LambdaRefinement": "True",
+      "LambdaTarget": "0.3333",
+      "UseFreeSpaceLambda": "False",
+      "PercentRefinement": "30",
+      "MaximumRefinement": "1000000",
+      "MinimumPasses": "5",
+      "MinimumConvergedPasses": "1",
+      "BasisOrder": "Second Order",
+      "CurvedElements": "True",
+      "Solver": "Auto",
+      "ErrorInclusion": "50",
+      "RefinementRatio": "0.6",
+      "GrowthRate": "1.6",
+      "EnforceRefinementPercent": "True",
+      "RefinementMethod": "hzAURA (EMerge)",
+      "SaveFields": "False",
+      "Threads": "0",
+      "_BasisNames": "v2"
+     },
+     "sweeps": [],
+     "eigen": false
+    }
+   ],
+   "spheres": [
+    {
+     "name": "Infinite Sphere1",
+     "props": {
+      "CoordinateSystem": "Global",
+      "PhiStart": "0deg",
+      "PhiStop": "360deg",
+      "PhiStep": "2deg",
+      "ThetaStart": "0deg",
+      "ThetaStop": "180deg",
+      "ThetaStep": "2deg"
+     }
+    }
+   ],
+   "reports": [],
+   "field_plots": [],
+   "coord_systems": [],
+   "field_exprs": [],
+   "field_funcs": [],
+   "optimetrics": [],
+   "parametrics": [],
+   "working_cs": "Global",
+   "notes": "",
+   "stackup": null,
+   "components": [],
+   "wires": [],
+   "connectors": []
+  }
+ ],
+ "variables": {},
+ "materials": [
+  {
+   "name": "Dielectric4",
+   "permittivity": "4",
+   "permeability": "1",
+   "conductivity": "0",
+   "loss_tangent": "0",
+   "magnetic_loss_tangent": "0",
+   "color": "#bebebe",
+   "pec": false,
+   "library": "Project",
+   "description": "Lossless dielectric, er = 4 (Mie test)",
+   "dispersion": "None",
+   "measured_frequency": "1GHz",
+   "eps_static": "4.6",
+   "eps_infinity": "4.2",
+   "relaxation_frequency": "1GHz",
+   "anisotropic": false,
+   "permittivity_tensor": "",
+   "permeability_tensor": "",
+   "loss_tangent_tensor": "",
+   "emsutil_key": ""
+  }
+ ],
+ "format": "hertzon-project",
+ "version": 2
+}

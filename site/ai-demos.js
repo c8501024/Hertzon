@@ -157,11 +157,14 @@
       '<span class="aid-score"></span></div></div></div>' +
       '<div class="aid-card" hidden></div>' +
       '<button class="aid-replay" type="button" aria-label="Replay">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg> Replay</button>';
+      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg> Replay</button>' +
+      '<button class="aid-play" type="button" aria-label="Play the replay">' +
+      '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Play</button>';
     host.appendChild(win);
     this.win = win;
     this.q = function (s) { return win.querySelector(s); };
     this.q(".aid-replay").addEventListener("click", function () { self.select(self.cur, true); });
+    this.q(".aid-play").addEventListener("click", function () { self.select(self.cur, true); });
     this.cur = 0;
   }
   Player.prototype.stop = function () {
@@ -192,8 +195,8 @@
     q(".aid-clock").textContent = "0 min 00 s";
     if (d.video) { this.selectVideo(d, play); return; }
     this.view = new View(q(".aid-canvas"), d);
+    this.win.classList.toggle("idle", !play);
     if (!play) return;
-    if (reduce) { this.finish(d, true); return; }
 
     // timeline: each step gets its own share of the animation, the clock follows the real minutes
     var t = 0.4, prevMin = 0, prevT = t;
@@ -240,12 +243,8 @@
     });
     q(".aid-canvas").appendChild(v);
     this.video = v;
+    this.win.classList.toggle("idle", !play);
     if (!play) return;
-    if (reduce) {
-      d.steps.forEach(function (s) { self.step(s, d, true); });
-      this.finish(d, false);
-      return;
-    }
     var i = 0, steps = d.steps;
     // segments [real start, real end, speed] of the recording, played one after the other
     function real() {
@@ -319,7 +318,7 @@
   };
   Player.prototype.finish = function (d, instant) {
     var self = this, q = this.q;
-    if (instant) {                      // reduced motion: the end state with the whole log at once
+    if (instant) {                      // the end state with the whole log at once
       d.steps.forEach(function (s) { self.step(s, d, true); });
     }
     q(".aid-clock").textContent = d.total;
@@ -341,13 +340,23 @@
     if (!host || !window.HZ_AI_DEMOS) return;
     var p = new Player(host, window.HZ_AI_DEMOS);
     p.select(0, false);
-    var started = false;
+    // With "reduce motion" set in the operating system (e.g. Windows: animation effects off) the replays do
+    // not start by themselves; the Play button and the tabs start them, so they can always be watched.
+    if (reduce) return;
+    function go() { if (p.win.classList.contains("idle")) p.select(p.cur, true); }   // not if a tab was clicked already
     if ("IntersectionObserver" in window) {
+      // start when a good part of the player is on screen; the player can be taller than a short window,
+      // so half the window height counts as well
       new IntersectionObserver(function (es, o) {
-        if (es[0].isIntersecting && !started) { started = true; o.disconnect(); p.select(p.cur, true); }
-      }, { threshold: 0.35 }).observe(host);
+        var e = es[0];
+        if (!e.isIntersecting) return;
+        if (e.intersectionRatio >= 0.35 || e.intersectionRect.height >= 0.5 * window.innerHeight) {
+          o.disconnect();
+          go();
+        }
+      }, { threshold: [0, 0.1, 0.2, 0.35, 0.5, 0.75, 1] }).observe(host);
     } else {
-      p.select(0, true);
+      go();
     }
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
