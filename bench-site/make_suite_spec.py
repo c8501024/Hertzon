@@ -3,7 +3,7 @@
 
     python bench-site/make_suite_spec.py
 
-Keep the spec of older suite versions: results of every version stay on the site.
+Only the current suite version is kept: results of older versions are not shown or accepted.
 """
 import json
 import sys
@@ -14,11 +14,7 @@ sys.path.insert(0, str(HERE.parent))
 from hertzon.solver.suite import site_spec  # noqa: E402
 
 path = HERE / "public" / "suite.json"
-try:
-    spec = json.loads(path.read_text(encoding="utf-8"))
-except (OSError, ValueError):
-    spec = {}
-spec.update(site_spec())
+spec = site_spec()
 text = json.dumps(spec, indent=1)
 path.write_text(text + "\n", encoding="utf-8")
 (HERE / "functions" / "_lib" / "suite.js").write_text(

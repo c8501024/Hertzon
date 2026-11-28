@@ -38,7 +38,8 @@ from .results import ResultStore, running_status
 
 ROOT = Path(__file__).resolve().parents[2]
 SUITE_DIR = ROOT / "examples" / "benchmark" / "suite"
-SUITE = "Hertzon Bench 2"
+SUITE = "Hertzon Bench 2"     # version id of models + references (results carry it); not shown
+SUITE_NAME = "Hertzon Bench"  # what the window, the messages and the site show
 SCHEMA = 1
 
 # id, title, file, design, setup, what it tests
@@ -553,7 +554,7 @@ def site_spec() -> dict:
         tests.append({"id": tid, "large": tid in LARGE_IDS, "hashes": [file_hash(SUITE_DIR / file)],
                       "time": (ref.get("times") or {}).get(tid), "memory_gb": round(mem / 1024, 1) if mem else None,
                       "tets": [int(tets / 3), int(tets * 3)] if tets else [100, 10_000_000]})
-    return {SUITE: {"tests": tests, "scaling_test": SCALING_TEST, "scaling_tests": SCALING_TESTS, "single_core": ref.get("single_core") or {},
+    return {SUITE: {"name": SUITE_NAME, "tests": tests, "scaling_test": SCALING_TEST, "scaling_tests": SCALING_TESTS, "single_core": ref.get("single_core") or {},
                     "titles": {t[0]: t[1] for t in ALL_TESTS},
                     "about": {t[0]: t[5] for t in ALL_TESTS}, "reference": REFERENCE_SYSTEM,
                     "reference_large": REFERENCE_SYSTEM_LARGE,
