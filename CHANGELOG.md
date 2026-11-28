@@ -3,7 +3,21 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.4.9 (2026-11-28)
+
+### Added
+- **Hertzon Bench in two parts, RF and RCS, with workstation tests and a scaling benchmark.** The suite of
+  Tools > Solver Benchmark now has an **RF** part (microstrip, hairpin filter, patch antenna, patch on 0.1 mm,
+  waveguide post) and an **RCS** part (PEC sphere, a new dielectric sphere, both checked against the exact Mie
+  solution, and a medium drone model at 0.5 GHz, about 8.5 GB), each with its own score; the overall score is the
+  geometric mean of the parts. The parts can be run on their own, and a failed test takes the score of its part
+  only. Every scored test runs on a computer with 16 GB. Optional workstation tests for high-memory machines (RF:
+  Rotman lens array with its patch array, 11 ports, second order, about 26 GB; RCS: drone at 1 GHz, about 37 GB)
+  run only with enough memory and have their own score. A separate scaling benchmark solves the hairpin filter and
+  the PEC sphere with 1, 2, 4, ... cores and gives single-core scores, speedup and parallel efficiency; the site
+  ranks multi-core and single-core results separately.
+- **New Hertzon Bench tab.** One Run button, the options as switches, the scores at a glance and a shorter test
+  table; after a finished run Hertzon asks whether to submit the result and compare it on the site.
 
 ### Changed
 - **Matrix solver "Auto" takes the fastest direct solver for every matrix size.** PARDISO on Windows and Linux;
@@ -70,11 +84,10 @@ the GitHub release notes.
 
 ### Added
 - **Hertzon Bench: one score for your computer, and a public site to compare it** (Diupth, #564). Tools > Solver
-  Benchmark has a new first tab that solves a fixed suite of seven models in two parts, **RF** (microstrip, hairpin
-  filter, patch antenna, patch on 0.1 mm, waveguide post) and **RCS** (PEC sphere, dielectric sphere), with all
-  cores, checks every result against a reference (the S-parameters, the exact Mie solution for the spheres) and
-  gives a score per test, an RF and an RCS score and an overall score (geometric means; 1000 = the reference
-  computer). The parts can be run on their own. **Submit Results** shows exactly what would be sent, asks for consent and
+  Benchmark has a new first tab that solves a fixed suite of six models (microstrip, hairpin filter, patch antenna,
+  patch on 0.1 mm, waveguide post, sphere RCS) with all cores, checks every result against a reference (the
+  S-parameters, the exact Mie solution for the sphere) and gives a score per test and an overall score (geometric
+  mean; 1000 = the reference computer). **Submit Results** shows exactly what would be sent, asks for consent and
   sends it with one click to the comparison site, which ranks results by system, operating system, architecture,
   solver and Hertzon version and shows per version how the same hardware changed. Sent are the times, checks and
   scores and a description of the computer on Windows, macOS and Linux (device model, CPU, cores, clock, memory
@@ -82,11 +95,9 @@ the GitHub release notes.
   user or computer name, paths or projects. The site's code is in `bench-site/` (Cloudflare Pages with a D1
   database). `python -m hertzon.solver.suite OUTDIR` runs the suite without the window.
   A test stopped by the memory guard, ended for lack of memory, solved by another solver than chosen (e.g. no
-  usable GPU) or not converged does not count: it is marked with the reason, its part gets no score and the run no
-  overall score, while the other part keeps its score.
-  Every scored test runs on a computer with 16 GB; the RCS part includes a medium drone model (0.5 GHz, about 8.5 GB). Optional workstation tests for high-memory machines (RF: Rotman lens array with patch array, 11 ports, second order, about 26 GB; RCS: drone at 1 GHz, about 37 GB) run only with enough memory and have their own score. A separate scaling
-  benchmark (single- to multi-core) solves the hairpin filter and the PEC sphere with 1, 2, 4, ... cores and gives
-  single-core scores, speedup and parallel efficiency; the site ranks multi-core and single-core separately. SuperLU is not offered in the suite.
+  usable GPU) or not converged does not count: it is marked with the reason and the run is marked incomplete.
+  An optional large test (Drone RCS) runs only with enough memory and has its own score. The core scaling of the
+  hairpin filter (1, 2, 4, ... cores) gives a separate single-core score. SuperLU is not offered in the suite.
 
 ### Changed
 - **Parametric results: plot a calculation over another calculation.** The "over" list of the Optimization
