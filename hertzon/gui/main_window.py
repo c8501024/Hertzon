@@ -4377,8 +4377,12 @@ class MainWindow(QMainWindow):
                  and o.name in self.doc.tess and self.doc.tess[o.name].dim == 3]
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            return classify_overlaps(self.doc.project, self.des,
-                                     K.solid_overlaps(self.des, self.doc.evaluator(), names))
+            ev = self.doc.evaluator()
+            mat = {n: self.des.obj(n).material for n in names}
+            return classify_overlaps(self.doc.project, self.des, K.solid_overlaps(
+                self.des, ev, names, skip=lambda a, b: mat[a] == mat[b],         # the same material: nothing to say
+                keys={n: K.overlap_key(self.des, self.des.obj(n), ev) for n in names},
+                boxes={n: self.doc.tess[n].bbox for n in names}))
         except Exception as e:  # noqa: BLE001
             self.msgs.add("warning", f"Overlap check failed: {e}")
             return None
