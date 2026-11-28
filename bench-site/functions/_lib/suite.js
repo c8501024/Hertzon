@@ -249,13 +249,13 @@ export const SUITES = {
     "id": "waveguide",
     "large": false,
     "hashes": [
-     "65a749e1ad790367"
+     "72844bf1922ae3c6"
     ],
-    "time": 56.71,
-    "memory_gb": 3.0,
+    "time": 61.05,
+    "memory_gb": 3.5,
     "tets": [
-     4343,
-     39087
+     5512,
+     49611
     ]
    },
    {

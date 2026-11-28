@@ -18,7 +18,7 @@ once with all cores:
 | RF | Hairpin filter | Three resonators on 0.508 mm, second order, interpolating sweep |
 | RF | Patch antenna | Radiation boundary, far field, broadband 1.2–3.7 GHz sweep |
 | RF | Patch on 0.1 mm | Very thin substrate: the mesh of thin layers |
-| RF | Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
+| RF | Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep (hzAURA refinement) |
 | RCS | Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere (2 GHz) |
 | RCS | Dielectric sphere RCS | Incident plane wave, lossless dielectric sphere (εr = 4, 1 GHz): fields inside and outside |
 | RCS | Drone RCS (medium) | Imported surface of a delta-wing drone, PEC, 0.5 GHz: a realistic model, about 6 GB |
