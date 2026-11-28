@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.4.11 (2026-11-28)
 
 ### Changed
 - The benchmark window and the site show the suite only as *Hertzon Bench*, without a version number. The site
