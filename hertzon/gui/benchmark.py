@@ -394,7 +394,7 @@ class BenchmarkDialog(QDialog):
         hl.setContentsMargins(16, 10, 16, 10)
         txt = QVBoxLayout()
         txt.setSpacing(2)
-        title = QLabel(f"{suite.SUITE}: run it, compare it")
+        title = QLabel(f"{suite.SUITE_NAME}: run it, compare it")
         title.setObjectName("HeroTitle")
         n = len(suite.TESTS)
         sub = QLabel(f"{n} real EM models, about 10 minutes, one score. Then see how your computer ranks online.")
@@ -704,7 +704,7 @@ class BenchmarkDialog(QDialog):
         if have:
             import time
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(res.get("finished", 0)))
-            meta = (f"{suite.SUITE}: <b>{res['score']}</b> &nbsp;·&nbsp; " if res.get("score") else "")
+            meta = (f"{suite.SUITE_NAME}: <b>{res['score']}</b> &nbsp;·&nbsp; " if res.get("score") else "")
             meta += f"{res.get('cores')} cores, solver {res.get('solver')}, measured {when}"
             if self._submitted():
                 meta += " &nbsp;·&nbsp; <b style='color:#2e7d4f'>submitted</b>"
@@ -972,7 +972,7 @@ class BenchmarkDialog(QDialog):
         self.suite_result = {}
         self.show_suite()
         self._running_ui()
-        self.win.msgs.add("info", f"{suite.SUITE} started")
+        self.win.msgs.add("info", f"{suite.SUITE_NAME} started")
         p.start(solver_python(), args)
 
     def _read(self) -> None:
@@ -1024,7 +1024,7 @@ class BenchmarkDialog(QDialog):
             self.bar.setValue(100)
             self.status.setText("Done")
             self.win.msgs.add("info", "Solver benchmark finished"
-                              + (f": {suite.SUITE} score {self.suite_result['score']}"
+                              + (f": {suite.SUITE_NAME} score {self.suite_result['score']}"
                                  if self.mode == "suite" and self.suite_result.get("score") else ""))
             if self.mode == "suite":
                 self.offer_submit()
@@ -1085,7 +1085,7 @@ class BenchmarkDialog(QDialog):
         score = res.get("score") or next((p.get("score") for p in (res.get("parts") or {}).values()
                                           if p.get("score")), None)
         box = QMessageBox(self)
-        box.setWindowTitle(suite.SUITE)
+        box.setWindowTitle(suite.SUITE_NAME)
         box.setIcon(QMessageBox.Question)
         box.setText(f"<b>Your score: {score}</b>" if score else "<b>Your benchmark is done.</b>")
         box.setInformativeText("See how your computer ranks against others online?")
@@ -1105,7 +1105,7 @@ class BenchmarkDialog(QDialog):
         if dlg.exec() and dlg.answer:
             (self.suite_folder() / "submitted.json").write_text(json.dumps(
                 {"run_id": self.suite_result.get("run_id"), **dlg.answer}, indent=1), encoding="utf-8")
-            self.win.msgs.add("info", f"{suite.SUITE} result submitted: {dlg.answer.get('url', '')}")
+            self.win.msgs.add("info", f"{suite.SUITE_NAME} result submitted: {dlg.answer.get('url', '')}")
             self.show_suite()
 
     def export(self) -> None:
