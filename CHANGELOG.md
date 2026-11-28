@@ -25,6 +25,7 @@ the GitHub release notes.
   S-parameters and memory.
 
 ### Fixed
+- **The Validation Check finds every overlapping pair, and is faster.** A solid completely inside another made the check forget the solid (72 of 273 pairs found in a 24-body model); pairs of one material are skipped and the result of a pair is remembered, so a second check (also the one before a solve) does no boolean.
 - **Fast and Discrete sweeps no longer hold every frequency in memory.** EMerge kept the solutions, right hand
   sides and material tensors of all frequencies of a sweep until its end; it now evaluates each frequency
   right after its solve, and the fields are kept only when the sweep saves fields or far fields. The memory
