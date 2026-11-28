@@ -14,6 +14,9 @@ the GitHub release notes.
   on a computer with 16 GB next to Windows and Hertzon. Because the models changed, the suite is now
   *Hertzon Bench 2*; results of Hertzon Bench 1 stay on the site, separately.
 - "No score: No score: ..." under the scores of a run without a score.
+- Hertzon Bench 2: the RCS of the spheres may be up to 1 dB from the exact Mie solution (was 0.5 dB). At the
+  fixed number of passes their RCS still moves by about ±0.5 dB from pass to pass, and Windows refines a slightly
+  different mesh than Linux: on Windows both spheres ended at −0.5 dB, right at the old limit.
 
 ## 0.4.9 (2026-11-28)
 

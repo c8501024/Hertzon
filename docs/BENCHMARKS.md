@@ -30,7 +30,7 @@ high-memory machines (below).
 The parts can be run on their own (check boxes in the window, `--parts rf` or `--parts rcs` on the command line).
 
 Every result is checked: the S-parameters against the reference run (largest |ΔS| at most 0.05), the RCS of the
-spheres against the exact Mie solution (at most 0.5 dB), the RCS of the drones against the reference run (at most 1 dB). A test with a wrong result gets no score. The score of a
+spheres against the exact Mie solution (at most 1 dB: at the fixed number of passes the RCS of a sphere still moves by about ±0.5 dB from pass to pass, and Windows and Linux refine slightly different meshes), the RCS of the drones against the reference run (at most 1 dB). A test with a wrong result gets no score. The score of a
 test is the reference time divided by your time, times 1000; a part score (RF, RCS) is the geometric mean of its
 tests, and the overall score is the geometric mean of the two part scores.
 Every test solves a fixed number of adaptive passes, the number of its reference run (Minimum = Maximum
