@@ -8,7 +8,7 @@ own computer to find the best number of cores and sweep processes for it.
 
 ## Hertzon Bench
 
-The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench*, a fixed suite of seven models in
+The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench* (currently Hertzon Bench 2), a fixed suite of eight models in
 [`examples/benchmark/suite`](../examples/benchmark/suite) in two parts with their own score, each model solved
 once with all cores:
 
@@ -21,7 +21,7 @@ once with all cores:
 | RF | Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
 | RCS | Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere (2 GHz) |
 | RCS | Dielectric sphere RCS | Incident plane wave, lossless dielectric sphere (εr = 4, 1 GHz): fields inside and outside |
-| RCS | Drone RCS (medium) | Imported surface of a delta-wing drone, PEC, 0.5 GHz: a realistic model, about 8.5 GB |
+| RCS | Drone RCS (medium) | Imported surface of a delta-wing drone, PEC, 0.5 GHz: a realistic model, about 6 GB |
 
 Every test of the parts runs on a computer with 16 GB of memory, and every computer, also one with much more
 memory, runs the same tests, so their scores compare directly. Workstation tests are the optional extra for
@@ -33,10 +33,13 @@ Every result is checked: the S-parameters against the reference run (largest |Δ
 spheres against the exact Mie solution (at most 0.5 dB), the RCS of the drones against the reference run (at most 1 dB). A test with a wrong result gets no score. The score of a
 test is the reference time divided by your time, times 1000; a part score (RF, RCS) is the geometric mean of its
 tests, and the overall score is the geometric mean of the two part scores.
-A test counts only when it converged with the matrix solver that was asked for and its result is correct. When
-the memory guard stopped its refinement, the operating system ended the solver for lack of memory, the solver fell
-back to another one (e.g. no usable GPU for SPARTA) or it did not converge, the test has no score and is
-marked with the reason. A part has a score only when every one of its tests counts, and the overall score only
+Every test solves a fixed number of adaptive passes, the number of its reference run (Minimum = Maximum
+Passes in its setup), so every computer does the same work: the initial mesh differs slightly between operating
+systems, and with a convergence criterion a computer could otherwise stop a pass earlier, solve a much smaller
+mesh and get an unfairly high score. A test counts only when it solved all its passes with the matrix solver that
+was asked for and its result is correct. When the memory guard stopped its refinement, the operating system ended
+the solver for lack of memory, the solver fell back to another one (e.g. no usable GPU for SPARTA) or it stopped
+before its last pass, the test has no score and is marked with the reason. A part has a score only when every one of its tests counts, and the overall score only
 when both parts have one; a failed RCS test leaves the RF score valid, and that result can still be submitted. SuperLU is not offered: it is far too
 slow for these models.
 
