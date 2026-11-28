@@ -102,7 +102,8 @@ REFERENCE_SYSTEM = "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hert
 REFERENCE_SYSTEM_LARGE = "AMD Ryzen Threadripper 3970X (32 cores, 64 threads used, 256 GB), Windows, Hertzon 0.4.6"
 REFERENCE_FILE = SUITE_DIR / "reference.json"
 DS_LIMIT = 0.05          # largest |S - S_ref| over the reference frequencies
-RCS_LIMIT_DB = 0.5       # largest RCS error against the Mie solution
+RCS_LIMIT_DB = 1.0       # largest RCS error against the Mie solution (the RCS of these meshes still moves by
+                         # +-0.5 dB from pass to pass, and differently on Windows and Linux)
 RCS_REF_LIMIT_DB = 1.0   # largest RCS difference of a drone to the reference run
 
 

@@ -18,7 +18,7 @@ once with all cores:
 | RF | Hairpin filter | Three resonators on 0.508 mm, second order, interpolating sweep |
 | RF | Patch antenna | Radiation boundary, far field, broadband 1.2–3.7 GHz sweep |
 | RF | Patch on 0.1 mm | Very thin substrate: the mesh of thin layers |
-| RF | Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
+| RF | Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep (hzAURA refinement) |
 | RCS | Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere (2 GHz) |
 | RCS | Dielectric sphere RCS | Incident plane wave, lossless dielectric sphere (εr = 4, 1 GHz): fields inside and outside |
 | RCS | Drone RCS (medium) | Imported surface of a delta-wing drone, PEC, 0.5 GHz: a realistic model, about 6 GB |
@@ -30,7 +30,7 @@ high-memory machines (below).
 The parts can be run on their own (check boxes in the window, `--parts rf` or `--parts rcs` on the command line).
 
 Every result is checked: the S-parameters against the reference run (largest |ΔS| at most 0.05), the RCS of the
-spheres against the exact Mie solution (at most 0.5 dB), the RCS of the drones against the reference run (at most 1 dB). A test with a wrong result gets no score. The score of a
+spheres against the exact Mie solution (at most 1 dB: at the fixed number of passes the RCS of a sphere still moves by about ±0.5 dB from pass to pass, and Windows and Linux refine slightly different meshes), the RCS of the drones against the reference run (at most 1 dB). A test with a wrong result gets no score. The score of a
 test is the reference time divided by your time, times 1000; a part score (RF, RCS) is the geometric mean of its
 tests, and the overall score is the geometric mean of the two part scores.
 Every test solves a fixed number of adaptive passes, the number of its reference run (Minimum = Maximum
