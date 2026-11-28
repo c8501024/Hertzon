@@ -361,43 +361,26 @@ class BenchmarkDialog(QDialog):
         page = QWidget()
         page.setObjectName("BenchPage")
         page.setStyleSheet(f"""
-            QWidget#BenchPage {{ background: #ffffff; }}
-            QFrame#Hero {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {T.NAVY}, stop:1 #22355c);
-                border-radius: 10px; }}
-            QLabel#HeroKicker {{ color: {T.GOLD}; font-size: 8pt; font-weight: 700; letter-spacing: 2px; }}
-            QLabel#HeroTitle {{ color: #ffffff; font-size: 20pt; font-weight: 700; }}
-            QLabel#HeroSub {{ color: #c9d2e3; font-size: 10pt; }}
-            QPushButton#Run {{ background: {T.GOLD}; color: {T.NAVY}; border: none; border-radius: 8px;
-                padding: 10px 22px; font-size: 11pt; font-weight: 700; }}
-            QPushButton#Run:hover {{ background: #d9a63c; }}
+            QFrame#Hero {{ background: {T.NAVY}; border-radius: 4px; }}
+            QLabel#HeroTitle {{ color: #ffffff; font-size: 14pt; font-weight: 600; }}
+            QLabel#HeroSub {{ color: #c9d2e3; }}
+            QPushButton#Run {{ background: {T.GOLD}; color: {T.NAVY}; border: none; border-radius: 4px;
+                padding: 7px 18px; font-weight: 600; }}
+            QPushButton#Run:hover {{ background: #d4a23d; }}
             QPushButton#Run:disabled {{ background: #6b7385; color: #c9d2e3; }}
-            QPushButton#Ghost {{ background: transparent; color: #ffffff; border: 1px solid #4a5b80;
-                border-radius: 8px; padding: 9px 16px; font-size: 10pt; }}
-            QPushButton#Ghost:hover {{ border-color: {T.GOLD}; color: {T.GOLD}; }}
-            QLabel#OptLabel {{ color: {T.MUTED}; font-size: 8pt; font-weight: 700; letter-spacing: 1px; }}
-            QCheckBox#Chip {{ background: {T.WINDOW}; border: 1px solid {T.LINE}; border-radius: 13px;
-                padding: 4px 12px 4px 8px; color: {T.INK}; }}
-            QCheckBox#Chip:checked {{ background: {T.GOLD_BG}; border-color: {T.GOLD}; }}
-            QCheckBox#Chip:disabled {{ color: #a0a6b2; }}
-            QFrame#Tile {{ background: #ffffff; border: 1px solid {T.LINE}; border-radius: 10px; }}
-            QFrame#Tile[main="true"] {{ background: {T.NAVY}; border: none; }}
-            QLabel#TileValue {{ color: {T.INK}; font-size: 22pt; font-weight: 700; }}
-            QLabel#TileValue[main="true"] {{ color: {T.GOLD}; }}
-            QLabel#TileValue[none="true"] {{ color: #b0b5bf; font-size: 16pt; }}
-            QLabel#TileLabel {{ color: {T.MUTED}; font-size: 8pt; font-weight: 700; letter-spacing: 1px; }}
-            QLabel#TileLabel[main="true"] {{ color: #c9d2e3; }}
-            QLabel#TileNote {{ color: {T.MUTED}; font-size: 8pt; }}
-            QLabel#TileNote[main="true"] {{ color: #9aa6bd; }}
+            QPushButton#Ghost {{ background: transparent; color: #dfe5ef; border: 1px solid #3a4a6b;
+                border-radius: 4px; padding: 6px 14px; }}
+            QPushButton#Ghost:hover {{ background: #24345a; color: #ffffff; }}
+            QLabel#OptLabel {{ color: {T.MUTED}; }}
+            QFrame#Tile {{ background: #ffffff; border: 1px solid {T.LINE}; border-radius: 4px; }}
+            QFrame#Tile[main="true"] {{ border-left: 3px solid {T.GOLD}; }}
+            QLabel#TileValue {{ color: {T.INK}; font-size: 16pt; font-weight: 600; }}
+            QLabel#TileValue[none="true"] {{ color: #b0b5bf; }}
+            QLabel#TileLabel {{ color: {T.MUTED}; }}
+            QLabel#TileNote {{ color: {T.MUTED}; }}
             QLabel#TileNote[bad="true"] {{ color: #c0392b; }}
             QLabel#Meta {{ color: {T.MUTED}; }}
-            QTableWidget#Tests {{ border: 1px solid {T.LINE}; border-radius: 8px; gridline-color: transparent;
-                alternate-background-color: #f9fafb; selection-background-color: {T.GOLD_BG}; }}
-            QTableWidget#Tests::item {{ padding: 4px 8px; border: none; }}
-            QPushButton#Submit {{ background: {T.NAVY}; color: #ffffff; border: none; border-radius: 7px;
-                padding: 8px 18px; font-weight: 600; }}
-            QPushButton#Submit:hover {{ background: #24345a; }}
-            QPushButton#Submit:disabled {{ background: {T.LINE}; color: #a0a6b2; }}
-            QPushButton#Link {{ background: transparent; border: none; color: #9a6c14; padding: 8px 6px; }}
+            QPushButton#Link {{ background: transparent; border: none; color: #2f6db5; padding: 4px 6px; }}
             QPushButton#Link:hover {{ text-decoration: underline; }}
         """)
         pl = QVBoxLayout(page)
@@ -408,18 +391,16 @@ class BenchmarkDialog(QDialog):
         hero = QFrame()
         hero.setObjectName("Hero")
         hl = QHBoxLayout(hero)
-        hl.setContentsMargins(24, 18, 24, 18)
+        hl.setContentsMargins(16, 10, 16, 10)
         txt = QVBoxLayout()
         txt.setSpacing(2)
-        kicker = QLabel(suite.SUITE.upper())
-        kicker.setObjectName("HeroKicker")
-        title = QLabel("Run it. Compare it.")
+        title = QLabel(f"{suite.SUITE}: run it, compare it")
         title.setObjectName("HeroTitle")
         n = len(suite.TESTS)
         sub = QLabel(f"{n} real EM models, about 10 minutes, one score. Then see how your computer ranks online.")
         sub.setObjectName("HeroSub")
         sub.setWordWrap(True)
-        for w in (kicker, title, sub):
+        for w in (title, sub):
             txt.addWidget(w)
         hl.addLayout(txt, 1)
         self.b_run = QPushButton("Run benchmark")
@@ -440,13 +421,12 @@ class BenchmarkDialog(QDialog):
         opts.setVerticalSpacing(6)
 
         def label(text):
-            lb = QLabel(text.upper())
+            lb = QLabel(text + ":")
             lb.setObjectName("OptLabel")
             return lb
 
         def chip(text, tip, checked=True):
             cb = QCheckBox(text)
-            cb.setObjectName("Chip")
             cb.setChecked(checked)
             cb.setToolTip(tip)
             cb.setCursor(Qt.PointingHandCursor)
@@ -505,7 +485,6 @@ class BenchmarkDialog(QDialog):
         pl.addWidget(self.suite_score)
 
         self.suite_table = QTableWidget(0, len(SUITE_COLUMNS))
-        self.suite_table.setObjectName("Tests")
         self.suite_table.setHorizontalHeaderLabels(SUITE_COLUMNS)
         self.suite_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.suite_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -517,7 +496,6 @@ class BenchmarkDialog(QDialog):
 
         bl = QHBoxLayout()
         self.b_submit = QPushButton("Submit and compare...")
-        self.b_submit.setObjectName("Submit")
         self.b_submit.setToolTip("Shows exactly what would be sent and asks before sending it")
         self.b_submit.setEnabled(False)
         self.b_how = QPushButton("How the score works")
@@ -535,11 +513,11 @@ class BenchmarkDialog(QDialog):
         f = QFrame()
         f.setObjectName("Tile")
         f.setProperty("main", main)
-        f.setMinimumWidth(130)
+        f.setMinimumWidth(110)
         v = QVBoxLayout(f)
-        v.setContentsMargins(16, 10, 16, 10)
+        v.setContentsMargins(12, 6, 12, 6)
         v.setSpacing(0)
-        lb = QLabel(label.upper())
+        lb = QLabel(label)
         lb.setObjectName("TileLabel")
         val = QLabel(str(value) if value else "–")
         val.setObjectName("TileValue")
