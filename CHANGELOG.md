@@ -25,6 +25,13 @@ the GitHub release notes.
   S-parameters and memory.
 
 ### Fixed
+- **Fast and Discrete sweeps no longer hold every frequency in memory.** EMerge kept the solutions, right hand
+  sides and material tensors of all frequencies of a sweep until its end; it now evaluates each frequency
+  right after its solve, and the fields are kept only when the sweep saves fields or far fields. The memory
+  guard plans for that, and for the direct solves a Fast sweep falls back to. The edge-coupled filter with a
+  201-point Fast sweep now refines four passes instead of stopping after the first on a 14 GB machine; the
+  Rotman lens array needs 10.9 instead of 12.0 GB and a patch antenna with a 101-point Fast sweep 5.9 instead
+  of 7.2 GB, with the same S-parameters and run times.
 - **Add/Edit Sweep with Single value shows one Value field** (#577). The parametric sweep dialog kept showing
   Start, Stop and "Points per octave" (greyed out) for a single value; it now shows only Value. The swept value
   was already right.
