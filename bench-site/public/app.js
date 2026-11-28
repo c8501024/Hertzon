@@ -23,7 +23,7 @@ async function load() {
   if (!SPEC) SPEC = await (await fetch("suite.json")).json();
   if (!state.suite) state.suite = Object.keys(SPEC).sort().pop();
   if (!RESULTS) {
-    try { RESULTS = (await (await fetch("api/results")).json()).results || []; }
+    try { RESULTS = ((await (await fetch("api/results")).json()).results || []).filter((r) => SPEC[r.suite]); }
     catch { RESULTS = []; }
   }
 }
@@ -149,7 +149,7 @@ function filterBar(all) {
     <span class="seg"><button data-group="1" class="${state.group ? "on" : ""}">Per system</button><button data-group="0" class="${state.group ? "" : "on"}">All runs</button></span>
   </div>
   <div class="filters${state.filters ? "" : " hidden"}">
-    <label>Suite<select data-f="suite">${Object.keys(SPEC).sort().map((s) => `<option ${s === state.suite ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></label>
+    ${Object.keys(SPEC).length > 1 ? `<label>Suite<select data-f="suite">${Object.keys(SPEC).sort().map((s) => `<option ${s === state.suite ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></label>` : ""}
     <label>Hertzon<select data-f="version">${options(all.map((r) => r.hertzon).sort(vcmp).reverse(), state.version, "All versions")}</select></label>
     <label>OS<select data-f="platform">${options(all.map((r) => r.platform), state.platform, "All")}</select></label>
     <label>Architecture<select data-f="arch">${options(all.map((r) => r.arch), state.arch, "All")}</select></label>
@@ -227,7 +227,7 @@ async function viewResult(id) {
   const sc = d.scaling || null;
   const multi = parts(sp).some((p) => (d.parts || {})[p.id]);
   app.innerHTML = hero(esc(s.cpu || "Result"), `${esc([s.device, s.os || s.platform, s.memory_gb && `${s.memory_gb} GB`, `${d.cores} cores`, d.solver].filter(Boolean).join(" · "))}
-      <br><span class="dim">${esc(d.suite)} · Hertzon ${esc(sw.hertzon || "")} · submitted ${date(d.created)}${d.name ? ` by ${esc(d.name)}` : ""}</span>`)
+      <br><span class="dim">${esc((SPEC[d.suite] || {}).name || d.suite)} · Hertzon ${esc(sw.hertzon || "")} · submitted ${date(d.created)}${d.name ? ` by ${esc(d.name)}` : ""}</span>`)
     + `<div class="page"><p class="crumbs"><a href="#/">Ranking</a> › Result ${esc(d.id)}${me ? ` · <a href="#/system/${me.system_key}">all runs of this system</a>` : ""}</p>
     ${multi ? `<h2>Multi-core</h2><div class="tiles">${scoreTile("Overall", d.score, d.score ? `rank ${better + 1} of ${same.length + 1}` : "needs every part", true)}
       ${parts(sp).map((p) => { const x = (d.parts || {})[p.id]; return scoreTile(p.title, x && x.score, x ? (x.score ? `${x.tests} tests` : `${x.counted} of ${x.tests} tests count`) : "not run"); }).join("")}</div>
@@ -404,7 +404,7 @@ function viewAbout() {
     <div class="card feature"><span class="ic">${icon("check")}</span><h3>Checked results</h3><p>Every result is checked against a reference: the S-parameters,
       and for the spheres the exact Mie solution. A wrong or unconverged result gets no score.</p></div>
   </div>
-  <h2>The tests (${esc(state.suite)})</h2><div class="tbl-wrap"><table><thead><tr><th>Part</th><th>Test</th><th class="opt">What it measures</th><th class="num">Memory</th><th class="num">Reference time</th></tr></thead><tbody>
+  <h2>The tests</h2><div class="tbl-wrap"><table><thead><tr><th>Part</th><th>Test</th><th class="opt">What it measures</th><th class="num">Memory</th><th class="num">Reference time</th></tr></thead><tbody>
   ${s.tests.map((t) => `<tr><td>${esc(t.large ? "Workstation" : partTitle((parts().find((p) => p.tests.includes(t.id)) || {}).id))}</td><td>${esc(s.titles[t.id])}</td>
     <td class="wrap opt">${esc(s.about[t.id])}</td><td class="num">${t.memory_gb ? `${fmt(t.memory_gb, 1)} GB` : ""}</td><td class="num">${fmt(t.time, 1)} s</td></tr>`).join("")}</tbody></table></div>
   <h2>How it is measured</h2>

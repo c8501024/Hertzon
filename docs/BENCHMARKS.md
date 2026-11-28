@@ -8,7 +8,7 @@ own computer to find the best number of cores and sweep processes for it.
 
 ## Hertzon Bench
 
-The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench* (currently Hertzon Bench 2), a fixed suite of eight models in
+The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench*, a fixed suite of eight models in
 [`examples/benchmark/suite`](../examples/benchmark/suite) in two parts with their own score, each model solved
 once with all cores:
 
