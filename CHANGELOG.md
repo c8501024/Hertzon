@@ -3,7 +3,7 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
-## Unreleased
+## 0.4.10 (2026-11-28)
 
 ### Fixed
 - **Hertzon Bench 2: the same work on every computer.** Every test now solves a fixed number of adaptive passes
