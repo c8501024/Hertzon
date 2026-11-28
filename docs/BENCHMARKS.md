@@ -8,37 +8,57 @@ own computer to find the best number of cores and sweep processes for it.
 
 ## Hertzon Bench
 
-The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench*, a fixed suite of six models in
-[`examples/benchmark/suite`](../examples/benchmark/suite), each solved once with all cores:
+The first tab of **Tools > Solver Benchmark** runs *Hertzon Bench*, a fixed suite of seven models in
+[`examples/benchmark/suite`](../examples/benchmark/suite) in two parts with their own score, each model solved
+once with all cores:
 
-| Test | What it measures |
-|---|---|
-| Microstrip line | Two lumped ports, first order, 1–6 GHz sweep: start-up and small matrices |
-| Hairpin filter | Three resonators on 0.508 mm, second order, interpolating sweep |
-| Patch antenna | Radiation boundary, far field, broadband 1.2–3.7 GHz sweep |
-| Patch on 0.1 mm | Very thin substrate: the mesh of thin layers |
-| Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
-| Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere |
+| Part | Test | What it measures |
+|---|---|---|
+| RF | Microstrip line | Two lumped ports, first order, 1–6 GHz sweep: start-up and small matrices |
+| RF | Hairpin filter | Three resonators on 0.508 mm, second order, interpolating sweep |
+| RF | Patch antenna | Radiation boundary, far field, broadband 1.2–3.7 GHz sweep |
+| RF | Patch on 0.1 mm | Very thin substrate: the mesh of thin layers |
+| RF | Waveguide post | WR90 wave ports, 8.2–12.4 GHz sweep |
+| RCS | Sphere RCS | Incident plane wave, monostatic RCS of a PEC sphere (2 GHz) |
+| RCS | Dielectric sphere RCS | Incident plane wave, lossless dielectric sphere (εr = 4, 1 GHz): fields inside and outside |
+| RCS | Drone RCS (medium) | Imported surface of a delta-wing drone, PEC, 0.5 GHz: a realistic model, about 8.5 GB |
+
+Every test of the parts runs on a computer with 16 GB of memory, and every computer, also one with much more
+memory, runs the same tests, so their scores compare directly. Workstation tests are the optional extra for
+high-memory machines (below).
+
+The parts can be run on their own (check boxes in the window, `--parts rf` or `--parts rcs` on the command line).
 
 Every result is checked: the S-parameters against the reference run (largest |ΔS| at most 0.05), the RCS of the
-sphere against the exact Mie solution (at most 0.5 dB). A test with a wrong result gets no score. The score of a
-test is the reference time divided by your time, times 1000; the overall score is the geometric mean of the six.
+spheres against the exact Mie solution (at most 0.5 dB), the RCS of the drones against the reference run (at most 1 dB). A test with a wrong result gets no score. The score of a
+test is the reference time divided by your time, times 1000; a part score (RF, RCS) is the geometric mean of its
+tests, and the overall score is the geometric mean of the two part scores.
 A test counts only when it converged with the matrix solver that was asked for and its result is correct. When
 the memory guard stopped its refinement, the operating system ended the solver for lack of memory, the solver fell
-back to another one (e.g. no usable GPU for SPARTA) or it did not converge, the test is left out of the score and
-marked with the reason; the overall score is then the geometric mean of the tests that count, and the run is
-marked incomplete (the site lists complete runs unless asked otherwise). SuperLU is not offered: it is far too
+back to another one (e.g. no usable GPU for SPARTA) or it did not converge, the test has no score and is
+marked with the reason. A part has a score only when every one of its tests counts, and the overall score only
+when both parts have one; a failed RCS test leaves the RF score valid, and that result can still be submitted. SuperLU is not offered: it is far too
 slow for these models.
 
-**Large test.** *Drone RCS* (the imported surface of a delta-wing drone, PEC, monostatic RCS) needs much more
-memory. It runs only when the computer has enough usable memory for it, else it is listed as not run with the
-reason, and it has its own score outside the overall score, so that the overall score stays comparable for
-computers with 16 GB. It needs about 36 GB (183k tetrahedra, 5 passes); its score 1000 is a 32-core
-AMD Ryzen Threadripper 3970X (256 GB, Windows, all 64 threads) with Hertzon 0.4.6, which needs 282 s.
+**Workstation tests.** Two tests are meant for workstations with much more memory than 16 GB (the check box
+*Workstation tests* in the window, `--no-large` leaves them out). Each runs only when the computer has enough
+usable memory for it, else it is listed as not run with the reason, and each has its own score outside the part
+and overall scores, so that these stay comparable for computers with 16 GB.
 
-**Core scaling.** Optionally (on by default) the hairpin filter is solved again with 1, 2, 4, ... cores: speedup
-and parallel efficiency, and the *single-core score* from the 1-core time (reference 207 s), which the site ranks
-separately, like single- and multi-core scores of other benchmarks.
+| Part | Test | Mesh | Memory | Reference time |
+|---|---|---|---|---|
+| RF | Rotman lens array: 24 GHz Rotman lens with its patch array on RO4350B, 11 lumped ports, second order, far field, discrete sweep at 22, 24, 26 GHz | 144k tetrahedra, 8 passes | about 26 GB | 446 s |
+| RCS | Drone RCS: imported surface of a delta-wing drone, PEC, 1 GHz, monostatic RCS | 183k tetrahedra, 5 passes | about 36 GB | 282 s |
+
+Their score 1000 is a 32-core AMD Ryzen Threadripper 3970X (256 GB, Windows, all 64 threads) with Hertzon 0.4.6.
+
+**Two benchmarks.** The *full benchmark* (multi-core, on by default) solves every test of the chosen parts with
+all cores and gives the scores above. The *scaling benchmark* (single- to multi-core, off by default because it
+takes longer) solves one test per part with 1, 2, 4, ... up to all cores: the hairpin filter for RF (1-core
+reference 207 s) and the PEC sphere for RCS (84 s). Its 1-core times give the *single-core scores* (per part and,
+with both parts, overall), the other runs speedup and parallel efficiency. The site ranks multi-core and
+single-core separately, like other benchmarks, and plots the speedup of every result. Both can be run alone or
+together (`--no-full`, `--scaling` on the command line).
 
 The reference computer (score 1000) is a 4-core cloud server (Intel Xeon 2.1 GHz, 16 GB, Linux) with Hertzon
 0.4.6. The suite takes about 5 to 15 minutes and up to 9 GB of memory (16 GB recommended).

@@ -48,3 +48,94 @@ def test_reduced_matches_direct():
         worst = max(worst, np.abs(x - xd).max() / np.abs(xd).max())
     assert worst < 1e-6
     assert red.n_direct < 10 and red.n_reduced > 50      # far fewer factorizations than the 61 frequencies
+
+
+def test_basis_stays_within_memory_and_still_matches_direct(monkeypatch):
+    """A basis that would outgrow the memory starts again from the current solution instead of growing with
+    ports x enrichments x frequencies (Rotman lens, 11 ports: ended by the operating system); the solutions
+    still meet the tolerance. (EMerge that keeps every frequency of the sweep until its end.)"""
+    from hertzon.solver import bridge
+    monkeypatch.setattr(bridge, "emerge_releases_sweeps", lambda: False)
+    K, M, C, b = _system()
+    n = K.shape[0]
+    ids = np.arange(n)
+    pad = lambda A: sp.block_diag([A, sp.identity(2)]).tocsc()  # noqa: E731
+
+    def direct(A, bb, solve_ids, **kw):
+        from scipy.sparse.linalg import spsolve
+        x = np.zeros_like(bb)
+        x[solve_ids] = spsolve(A[:, solve_ids][solve_ids, :].tocsc(), bb[solve_ids]).reshape(-1, bb.shape[1])
+        from emerge._emerge.solvers import SolveReport
+        return x, SolveReport()
+
+    freqs = np.linspace(0.6, 0.9, 61)
+    # room for 12 basis vectors next to the kept solutions of all frequencies
+    keep = 16.0 * 2 * (2 * (n + 2) * (len(freqs) + 1) + 6 * n)
+    red = ReducedSolver(direct, tol=1e-8, n_freqs=len(freqs), room=lambda: (keep + 12 * 2.5 * 16.0 * n) / 0.85)
+    worst, largest = 0.0, 0
+    for f in sorted(freqs, key=lambda f: abs(f - 0.75)):
+        A = pad(K - f ** 2 * M + 1j * f * C)
+        x, _ = red.solve(A, b, ids)
+        largest = max(largest, red.V.shape[1])
+        xd, _ = direct(A, b, ids)
+        worst = max(worst, np.abs(x - xd).max() / np.abs(xd).max())
+    assert red.max_basis == 12
+    assert red.n_restart > 0 and largest <= 12
+    assert worst < 1e-6
+
+
+def test_basis_gets_the_memory_emerge_no_longer_keeps(monkeypatch):
+    """EMerge that releases each sweep frequency after its post-processing: without the fields (no Save
+    fields) only the frequency being solved is kept, with them its solutions; the basis gets the rest."""
+    from hertzon.solver import bridge, fast_assembly
+    monkeypatch.setattr(bridge, "emerge_releases_sweeps", lambda: True)
+    monkeypatch.setitem(fast_assembly.FACTOR, "bytes", 0)        # earlier tests leave a factorization behind
+    n, nb, nf, tets = 1000, 2, 1002, 100
+    room = 16.0 * n * 400
+    sizes = {}
+    for fields in (True, False):
+        red = ReducedSolver(lambda *a, **k: None, n_freqs=61, room=lambda: room, n_tets=tets, keep_fields=fields)
+        red._set_max_basis(n, nb, nf)
+        keep = 16.0 * 2 * nb * nf + 900.0 * tets + (61 * (16.0 * nf * nb + 48.0 * tets) if fields else 0.0)
+        assert red.max_basis == int((0.85 * room - keep - 16.0 * 6 * nb * n) / (2.5 * 16.0 * n))
+        sizes[fields] = red.max_basis
+    # a direct solve inside the sweep needs its own factorization next to the centre one (Rotman lens array
+    # and edge-coupled filter were ended in one when the basis had taken that memory)
+    monkeypatch.setitem(fast_assembly.FACTOR, "bytes", 16.0 * n * 50)
+    red = ReducedSolver(lambda *a, **k: None, n_freqs=61, room=lambda: room, n_tets=tets, keep_fields=False)
+    red._set_max_basis(n, nb, nf)
+    assert red.max_basis == int((0.85 * room - 16.0 * 2 * nb * nf - 900.0 * tets - 1.2 * 16.0 * n * 50
+                                 - 16.0 * 6 * nb * n) / (2.5 * 16.0 * n))
+    monkeypatch.setitem(fast_assembly.FACTOR, "bytes", 0)
+    monkeypatch.setattr(bridge, "emerge_releases_sweeps", lambda: False)
+    red = ReducedSolver(lambda *a, **k: None, n_freqs=61, room=lambda: room, n_tets=tets, keep_fields=False)
+    red._set_max_basis(n, nb, nf)
+    assert red.max_basis < sizes[True] < sizes[False]
+
+
+def test_no_memory_limit_without_a_room_estimate():
+    red = ReducedSolver(lambda *a, **k: None, room=lambda: float("inf"))
+    red._set_max_basis(1000, 2, 1002)
+    assert red.max_basis is None
+
+
+def test_parallel_sparse_product_matches_scipy():
+    from hertzon.solver.fast_sweep import spmm
+    rng = np.random.default_rng(3)
+    A = (sp.random(500, 500, density=0.02, random_state=4) + 1j * sp.random(500, 500, density=0.02,
+                                                                             random_state=5)).tocsr()
+    X = np.asfortranarray(rng.standard_normal((500, 70)) + 1j * rng.standard_normal((500, 70)))
+    out = np.empty((500, 90), dtype=np.complex128, order="F")
+    Y = spmm(A, X[:, 5:], out=out[:, 10:75])
+    assert np.allclose(Y, A @ X[:, 5:]) and np.allclose(out[:, 10:75], A @ X[:, 5:])
+
+
+def test_block_orthonormalization_drops_known_directions():
+    red = ReducedSolver(lambda *a, **k: None)
+    rng = np.random.default_rng(7)
+    X = rng.standard_normal((300, 6)) + 1j * rng.standard_normal((300, 6))
+    assert red._add(X) == 6
+    Y = np.hstack([X[:, :2] @ np.array([[1.0], [2.0]]), rng.standard_normal((300, 3)) + 0j])
+    assert red._add(Y) == 3                  # the combination of known vectors adds nothing
+    V = red.V
+    assert np.allclose(V.conj().T @ V, np.eye(9), atol=1e-12)

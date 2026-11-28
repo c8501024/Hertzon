@@ -11,7 +11,7 @@ import os
 import urllib.error
 import urllib.request
 
-from .suite import LARGE_IDS, SCHEMA, SUITE, TEST_IDS
+from .suite import PARTS, SCHEMA, SUITE
 
 BENCH_URL = os.environ.get("HERTZON_BENCH_URL", "https://hertzon-bench.pages.dev")
 MAX_NAME = 40
@@ -31,20 +31,26 @@ def payload(result: dict, system: dict, name: str = "", comment: str = "") -> di
     return {"schema": SCHEMA, "suite": result.get("suite", SUITE), "run_id": result.get("run_id", ""),
             "measured": int(result.get("finished") or 0), "cores": result.get("cores"),
             "solver": result.get("solver", "Auto"), "score": result.get("score"),
-            "complete": bool(result.get("complete")), "tests": tests,
+            "complete": bool(result.get("complete")), "parts_run": result.get("parts_run") or [],
+            "parts": result.get("parts") or {}, "tests": tests,
             **({"scaling": result["scaling"]} if result.get("scaling") else {}),
             "system": system, "name": (name or "").strip()[:MAX_NAME], "comment": (comment or "").strip()[:200]}
 
 
 def can_submit(result: dict) -> str:
-    """'' when the result can be submitted, else why not."""
+    """'' when the result can be submitted, else why not: every test of the parts the full benchmark ran is
+    there, and at least one part has a score (full benchmark) or a single-core score (scaling benchmark)."""
     if result.get("suite") != SUITE:
         return "This result is from another suite version."
-    ids = [t.get("id") for t in result.get("tests", []) if t.get("id") not in LARGE_IDS]
-    if sorted(ids) != sorted(TEST_IDS):
-        return "Only a run of the whole suite can be submitted."
-    if not result.get("score"):
-        return "No test counts, so there is no score to submit."
+    ids = {t.get("id") for t in result.get("tests", [])}
+    run = result.get("parts_run") or []
+    if any(not set(tests) <= ids for k, _t, tests in PARTS if k in run):
+        return "Only a whole part (RF, RCS or both) can be submitted."
+    multi = any((p or {}).get("score") for p in (result.get("parts") or {}).values())
+    single = any((p or {}).get("single_core_score")
+                 for p in ((result.get("scaling") or {}).get("parts") or {}).values())
+    if not (multi or single):
+        return "No score: in every part that ran a test did not count."
     return ""
 
 

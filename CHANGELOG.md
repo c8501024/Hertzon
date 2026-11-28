@@ -3,6 +3,68 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## 0.4.9 (2026-11-28)
+
+### Added
+- **Hertzon Bench in two parts, RF and RCS, with workstation tests and a scaling benchmark.** The suite of
+  Tools > Solver Benchmark now has an **RF** part (microstrip, hairpin filter, patch antenna, patch on 0.1 mm,
+  waveguide post) and an **RCS** part (PEC sphere, a new dielectric sphere, both checked against the exact Mie
+  solution, and a medium drone model at 0.5 GHz, about 8.5 GB), each with its own score; the overall score is the
+  geometric mean of the parts. The parts can be run on their own, and a failed test takes the score of its part
+  only. Every scored test runs on a computer with 16 GB. Optional workstation tests for high-memory machines (RF:
+  Rotman lens array with its patch array, 11 ports, second order, about 26 GB; RCS: drone at 1 GHz, about 37 GB)
+  run only with enough memory and have their own score. A separate scaling benchmark solves the hairpin filter and
+  the PEC sphere with 1, 2, 4, ... cores and gives single-core scores, speedup and parallel efficiency; the site
+  ranks multi-core and single-core results separately.
+- **New Hertzon Bench tab.** One Run button, the options as switches, the scores at a glance and a shorter test
+  table; after a finished run Hertzon asks whether to submit the result and compare it on the site.
+
+### Changed
+- **Matrix solver "Auto" takes the fastest direct solver for every matrix size.** PARDISO on Windows and Linux;
+  on a Mac SPARTA on the CPU when it is installed, otherwise Apple Accelerate. Before, small matrices (below
+  10,000 unknowns) always went to SuperLU. Measured on Apple silicon, SPARTA solves two to three times faster than Accelerate,
+  so the Mac installer recommends it ("Install SPARTA? [Y/n]"). Windows and Linux run as fast as before.
+- **Fast sweep and tuning on a Mac many times faster.** Without PARDISO (Apple Silicon) the centre factorization of
+  a Fast sweep and of tuning now uses SPARTA on the CPU where it is installed, else Apple Accelerate, instead of
+  SuperLU, and solves all right-hand sides in one call. Measured on GitHub's Mac runners with the same S-parameters:
+  the half-wave dipole with its Fast sweep 1475–2018 s → 14–26 s (SPARTA) or 32–48 s (Accelerate); the patch on
+  0.25 mm with a 100-point Fast sweep did not finish in 40 min and now takes 2.5–3 min (SPARTA) or 3.5–5.5 min
+  (Accelerate); the fast sweep and tuning tests 54–97 min → under 2.5 min.
+
+### Faster
+- **Fast sweep with many ports two to three times faster.** The product of the system matrix with the reduced
+  basis now runs on all cores and only for the new basis vectors of a frequency, only ports that do not yet meet
+  the tolerance are enriched, and the basis is orthonormalized block by block. Rotman lens array (11 ports, 17
+  frequencies): sweep 1606 s to 561 s; patch antenna (one port, 101 frequencies): 515 s to 270 s, with the same
+  S-parameters and memory.
+
+### Fixed
+- **Fast and Discrete sweeps no longer hold every frequency in memory.** EMerge kept the solutions, right hand
+  sides and material tensors of all frequencies of a sweep until its end; it now evaluates each frequency
+  right after its solve, and the fields are kept only when the sweep saves fields or far fields. The memory
+  guard plans for that, and for the direct solves a Fast sweep falls back to. The edge-coupled filter with a
+  201-point Fast sweep now refines four passes instead of stopping after the first on a 14 GB machine; the
+  Rotman lens array needs 10.9 instead of 12.0 GB and a patch antenna with a 101-point Fast sweep 5.9 instead
+  of 7.2 GB, with the same S-parameters and run times.
+- **Add/Edit Sweep with Single value shows one Value field** (#577). The parametric sweep dialog kept showing
+  Start, Stop and "Points per octave" (greyed out) for a single value; it now shows only Value. The swept value
+  was already right.
+- **Memory guard for sweeps with many ports and in Linux containers.** A Fast or Discrete sweep keeps the
+  solution of every port at every frequency, and the guard of the adaptive passes now plans for that instead
+  of a flat 25 % (a lens beamformer with 11 ports ran out of memory in its sweep). The basis of a Fast sweep
+  stays within the free memory: it no longer copies itself while it grows, starts again from the current
+  solution when it is full, and a direct solve inside the sweep frees its factorization afterwards. On Linux
+  the memory limit of the solver's own cgroup is read (before only the top level), so containers and cloud
+  sessions with a limit are planned with the memory they really have. The forecast of the next pass learns how
+  fast the memory grows from the last two passes (it assumed a steeper growth than measured) and plans 15 %
+  instead of 25 % for an interpolating sweep, so models that still fit are no longer stopped a pass early.
+- **Remote and cloud solves of designs with imported CAD files** (#584). The job sent to the remote computer
+  now carries every file the project reads from elsewhere: imported STEP/IGES/STL files, Touchstone files of
+  lumped components and the model files of circuit parts (Touchstone, Verilog-A, SPICE). A file the solved
+  design needs but that is missing is reported before the upload. Absolute Windows paths stay absolute when a
+  project is opened on Linux or macOS, and Touchstone files of lumped components given relative to the project
+  are found from copies saved elsewhere, as imported files already were.
+
 ## 0.4.8 (2026-11-26)
 
 ### Changed

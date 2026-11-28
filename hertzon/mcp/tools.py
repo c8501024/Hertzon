@@ -2578,7 +2578,10 @@ def keep_picture(png: bytes, label: str) -> str:
     try:
         d = shown_dir()
         d.mkdir(parents=True, exist_ok=True)
-        stem = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}-" + \
+        # one clock reading for the seconds and the milliseconds: two readings across a full second named a
+        # newer picture as older (…35-000 for 35.999 → 36.000), and it was pruned first
+        now = time.time()
+        stem = time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + f"-{int(now * 1000) % 1000:03d}-" + \
             (re.sub(r"[^A-Za-z0-9_.-]+", "_", label)[:60] or "picture")
         path = d / f"{stem}.png"
         path.write_bytes(png)
