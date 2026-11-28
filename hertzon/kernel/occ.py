@@ -1620,43 +1620,120 @@ def build_design(design: Design, ev: Evaluator, names: list[str] | None = None,
     return ctx
 
 
-def solid_overlaps(design: Design, ev: Evaluator, names: list[str]) -> list[tuple[str, str, float, float, float]]:
+_OVERLAP_VOLUMES: dict = {}        # (key of a, key of b) -> overlap volume in m^3 (see solid_overlaps)
+_SOLID_VOLUMES: dict = {}          # key of a solid -> its volume
+
+
+def overlap_key(design: Design, obj: GeoObject, ev: Evaluator) -> str:
+    """object_key plus the size and date of the imported files the object (and its boolean tools) read: a changed STEP file is a
+    different solid."""
+    stamp, todo, seen = [], [obj], {obj.name}
+    while todo:
+        o = todo.pop()
+        for c in o.history:
+            if c.kind == "Import":
+                try:
+                    st = Path(c.props.get("File", "")).stat()
+                    stamp.append((c.props.get("File", ""), st.st_size, st.st_mtime_ns))
+                except OSError:
+                    stamp.append((c.props.get("File", ""), None))
+            if c.kind in ("Unite", "Subtract", "Intersect"):
+                for t in c.props.get("Tools", "").split(","):
+                    t = t.strip()
+                    if t and design.has_obj(t) and t not in seen:
+                        seen.add(t)
+                        todo.append(design.obj(t))
+    return object_key(design, obj, ev) + str(sorted(stamp, key=str))
+
+
+def solid_overlaps(design: Design, ev: Evaluator, names: list[str], skip=None, keys: dict | None = None,
+                   boxes: dict | None = None) -> list[tuple[str, str, float, float, float]]:
     """Pairs of the named solids that share volume: (a, b, overlap volume, volume of a, volume of b), in m^3.
     Built in a scratch model (the current model is restored); pairs whose bounding boxes do not overlap are
-    skipped without a boolean operation."""
-    if not gmsh.isInitialized():
-        ensure_gmsh()
-    cur = gmsh.model.getCurrent()
-    gmsh.model.add("hertzon_overlap")
-    try:
-        ctx = build_design(design, ev, names=names)
-        occ = _occ()
-        solids = {n: [d for d in ctx.built.get(n, []) if d[0] == 3] for n in names}
-        solids = {n: dt for n, dt in solids.items() if dt}
-        vol = {n: sum(occ.getMass(3, t) for _, t in dt) for n, dt in solids.items()}
-        box = {n: _bbox(dt) for n, dt in solids.items()}
-        out = []
-        ns = list(solids)
-        for i, a in enumerate(ns):
-            for b in ns[i + 1:]:
-                if not all(box[a][k] < box[b][k + 3] and box[b][k] < box[a][k + 3] for k in range(3)):
+    skipped without a boolean operation.
+
+    The exact boolean of two solids is what takes the time (curved CAD bodies: tens of milliseconds, and every pair whose
+    boxes touch gets one), so:
+    * ``skip(a, b)`` True: the pair cannot matter (the same material: the check says nothing about it) - no boolean;
+    * ``boxes`` (name -> display bounding box): pairs that are clearly apart are found without building anything;
+    * ``keys`` (name -> overlap_key): the overlap volume of a pair is remembered by the keys of its two solids, so a second
+      check of a model that did not change (the check before a solve, the Validation Check again) does no boolean at all, and
+      after a change only the pairs of the changed solids are computed; only the solids of pairs still open are built."""
+    ns = list(names)
+    pairs = []
+    for i, a in enumerate(ns):
+        for b in ns[i + 1:]:
+            if skip is not None and skip(a, b):
+                continue
+            if boxes and a in boxes and b in boxes:
+                ba, bb = boxes[a], boxes[b]
+                tol = 1e-3 * max(max(ba[k + 3] - ba[k], bb[k + 3] - bb[k]) for k in range(3))     # a display box is a little small
+                if not all(ba[k] - tol < bb[k + 3] and bb[k] - tol < ba[k + 3] for k in range(3)):
                     continue
-                try:
-                    r, _ = occ.intersect(solids[a], solids[b], removeObject=False, removeTool=False)
-                except Exception:  # noqa: BLE001
-                    continue
-                v = sum(occ.getMass(3, t) for d, t in r if d == 3)
-                if r:
-                    occ.remove(r, recursive=True)
-                if v > 1e-6 * min(vol[a], vol[b]):
-                    out.append((a, b, v, vol[a], vol[b]))
-        return out
-    finally:
-        gmsh.model.remove()
+            pairs.append((a, b))
+    if not pairs:
+        return []
+    key = (lambda n: keys.get(n)) if keys else (lambda n: None)
+    vols: dict = {}
+    over: dict = {}
+    todo = []
+    for a, b in pairs:
+        ka, kb = key(a), key(b)
+        if ka is not None and kb is not None and (ka, kb) in _OVERLAP_VOLUMES and ka in _SOLID_VOLUMES and kb in _SOLID_VOLUMES:
+            over[(a, b)] = _OVERLAP_VOLUMES[(ka, kb)]
+            vols[a], vols[b] = _SOLID_VOLUMES[ka], _SOLID_VOLUMES[kb]
+        else:
+            todo.append((a, b))
+    if todo:
+        need = sorted({n for p in todo for n in p}, key=ns.index)
+        if not gmsh.isInitialized():
+            ensure_gmsh()
+        cur = gmsh.model.getCurrent()
+        gmsh.model.add("hertzon_overlap")
         try:
-            gmsh.model.setCurrent(cur)
-        except Exception:  # noqa: BLE001
-            pass
+            ctx = build_design(design, ev, names=need)
+            occ = _occ()
+            solids = {n: [d for d in ctx.built.get(n, []) if d[0] == 3] for n in need}
+            solids = {n: dt for n, dt in solids.items() if dt}
+            vol = {n: sum(occ.getMass(3, t) for _, t in dt) for n, dt in solids.items()}
+            box = {n: _bbox(dt) for n, dt in solids.items()}
+            for a, b in todo:
+                if a not in solids or b not in solids:
+                    continue
+                v = 0.0
+                if all(box[a][k] < box[b][k + 3] and box[b][k] < box[a][k + 3] for k in range(3)):
+                    # The kernel hands back the solid itself when it lies completely inside the other. Removing that result
+                    # (recursively) removed the solid from the scratch model: every later pair with it silently found nothing,
+                    # so which overlaps were reported depended on the order of the pairs. Only the new volumes are removed.
+                    try:
+                        r, _ = occ.intersect(solids[a], solids[b], removeObject=False, removeTool=False)
+                    except Exception:  # noqa: BLE001
+                        continue
+                    v = sum(occ.getMass(3, t) for d, t in r if d == 3)
+                    own = set(solids[a]) | set(solids[b])
+                    mine = [x for x in r if x not in own]
+                    if mine:
+                        occ.remove(mine, recursive=False)
+                over[(a, b)] = v
+                vols[a], vols[b] = vol[a], vol[b]
+                ka, kb = key(a), key(b)
+                if ka is not None and kb is not None:
+                    if len(_OVERLAP_VOLUMES) > 100000:
+                        _OVERLAP_VOLUMES.clear()
+                        _SOLID_VOLUMES.clear()
+                    _OVERLAP_VOLUMES[(ka, kb)] = v
+                    _SOLID_VOLUMES[ka], _SOLID_VOLUMES[kb] = vol[a], vol[b]
+        finally:
+            gmsh.model.remove()
+            try:
+                gmsh.model.setCurrent(cur)
+            except Exception:  # noqa: BLE001
+                pass
+    out = []
+    for a, b in pairs:
+        if (a, b) in over and over[(a, b)] > 1e-6 * min(vols[a], vols[b]):
+            out.append((a, b, over[(a, b)], vols[a], vols[b]))
+    return out
 
 
 def sheet_placement(design: Design, ev: Evaluator, conductor=None) -> list[tuple[str, str, str]]:
