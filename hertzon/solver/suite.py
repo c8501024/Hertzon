@@ -38,7 +38,7 @@ from .results import ResultStore, running_status
 
 ROOT = Path(__file__).resolve().parents[2]
 SUITE_DIR = ROOT / "examples" / "benchmark" / "suite"
-SUITE = "Hertzon Bench 1"
+SUITE = "Hertzon Bench 2"
 SCHEMA = 1
 
 # id, title, file, design, setup, what it tests
@@ -64,7 +64,7 @@ TESTS = [
 ]
 # workstation tests (more than 16 GB of memory): run only when the computer has the memory for them, with their
 # own score, not in the part or overall score, so that these stay reachable for a computer with 16 GB. Every
-# scored test fits 16 GB (the medium drone, the largest, needs about 8.5 GB).
+# scored test fits 16 GB (the medium drone, the largest, needs about 6.5 GB).
 LARGE_TESTS = [
     ("drone_rcs", "Drone RCS (workstation)", "drone_rcs.hzn", "Design1", "Setup1",
      "Imported 3D surface of a delta-wing drone, PEC, incident plane wave, monostatic RCS: large meshes"),
@@ -102,7 +102,8 @@ REFERENCE_SYSTEM = "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hert
 REFERENCE_SYSTEM_LARGE = "AMD Ryzen Threadripper 3970X (32 cores, 64 threads used, 256 GB), Windows, Hertzon 0.4.6"
 REFERENCE_FILE = SUITE_DIR / "reference.json"
 DS_LIMIT = 0.05          # largest |S - S_ref| over the reference frequencies
-RCS_LIMIT_DB = 0.5       # largest RCS error against the Mie solution
+RCS_LIMIT_DB = 1.0       # largest RCS error against the Mie solution (the RCS of these meshes still moves by
+                         # +-0.5 dB from pass to pass, and differently on Windows and Linux)
 RCS_REF_LIMIT_DB = 1.0   # largest RCS difference of a drone to the reference run
 
 
@@ -324,7 +325,7 @@ class Suite:
                     row["check"] = {"kind": "rcs_ref_db", "value": None, "ok": False, "note": str(ex)[:200]}
             else:
                 row["check"] = check_sparams(folder, sweep, (self.ref.get("sparams") or {}).get(tid))
-            reason = not_counted_reason(folder, s, row["check"])
+            reason = not_counted_reason(folder, s, row["check"], fixed_passes(src, design, setup))
             row["counted"] = not reason
             if reason:
                 row["reason"] = reason
@@ -412,7 +413,7 @@ class Suite:
                 s = run_summary(folder, b.sweeps)
                 check = (check_rcs(folder, path, design) if tid in MIE_TESTS else
                          check_sparams(folder, b.sweeps[0] if b.sweeps else "", (self.ref.get("sparams") or {}).get(tid)))
-                reason = not_counted_reason(folder, s, check)
+                reason = not_counted_reason(folder, s, check, fixed_passes(src, design, setup))
                 if c == 1 and reason:
                     one_reason = reason
                 runs.append({"cores": c, **{key: round(s[key], 2) for key in ("total", "adaptive", "sweep")},
@@ -489,16 +490,33 @@ GUARD_TEXT = "Stopping refinement: the next pass"
 OOM_TEXT = "may end the solver for lack of memory"
 
 
-def not_counted_reason(folder: Path, s: dict, check: dict) -> str:
+def fixed_passes(project: Path, design: str, setup: str) -> int:
+    """The number of adaptive passes a test always solves (Minimum = Maximum Passes), else 0. A fixed number
+    gives every computer the same work: its own initial mesh (which differs slightly between operating systems)
+    must not let it stop a pass earlier or later than the reference run."""
+    try:
+        d = json.loads(Path(project).read_text(encoding="utf-8"))
+        des = next(x for x in d["designs"] if x.get("name", design) == design)
+        pr = next(x for x in des["setups"] if x["name"] == setup)["props"]
+        lo, hi = int(pr.get("MinimumPasses", 0)), int(pr.get("MaximumPasses", 0))
+    except (OSError, ValueError, KeyError, StopIteration, TypeError):
+        return 0
+    return hi if lo == hi else 0
+
+
+def not_counted_reason(folder: Path, s: dict, check: dict, fixed: int = 0) -> str:
     """Why a finished test does not count ('' when it does): the memory guard stopped the refinement, it did
-    not converge, the matrix solver fell back to another one (e.g. no usable GPU), or the result is wrong."""
+    not converge (with a fixed number of passes: did not solve them all), the matrix solver fell back to another
+    one (e.g. no usable GPU), or the result is wrong."""
     warnings = [str(m.get("msg", "")) for m in _log_messages(folder)
                 if m.get("type") == "log" and m.get("level") == "warning"]
     guard = next((w for w in warnings if w.startswith(GUARD_TEXT)), "")
     if guard:
         need = guard.split("would need about ", 1)[-1].split(". Reduce")[0]
         return f"too little memory: the memory guard stopped the refinement (needs about {need})"
-    if not s.get("converged"):
+    if fixed and (s.get("passes") or 0) < fixed:
+        return f"stopped after {s.get('passes')} of {fixed} passes"
+    if not fixed and not s.get("converged"):
         maxt = next((w for w in warnings if w.startswith("Maximum number of tetrahedra")), "")
         return "did not converge: " + (maxt or f"stopped after {s.get('passes')} passes")
     if s.get("notes"):
