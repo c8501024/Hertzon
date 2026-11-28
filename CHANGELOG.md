@@ -3,6 +3,18 @@
 All notable changes of each release. The release workflow copies the section of the released version into
 the GitHub release notes.
 
+## Unreleased
+
+### Fixed
+- **Hertzon Bench 2: the same work on every computer.** Every test now solves a fixed number of adaptive passes
+  (that of its reference run). On Windows the initial mesh differs slightly from Linux, so with a convergence
+  criterion tests stopped a pass earlier or later than the reference: the hairpin filter after 3 instead of 5
+  passes (a third of the mesh, so an unfairly high score and an S-parameter check that failed), the patch and the
+  waveguide post one pass earlier. The medium drone solves 3 passes (about 6.5 GB instead of 8.5 GB), so it runs
+  on a computer with 16 GB next to Windows and Hertzon. Because the models changed, the suite is now
+  *Hertzon Bench 2*; results of Hertzon Bench 1 stay on the site, separately.
+- "No score: No score: ..." under the scores of a run without a score.
+
 ## 0.4.9 (2026-11-28)
 
 ### Added

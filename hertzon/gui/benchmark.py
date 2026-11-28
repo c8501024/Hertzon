@@ -710,7 +710,7 @@ class BenchmarkDialog(QDialog):
                 meta += " &nbsp;·&nbsp; <b style='color:#2e7d4f'>submitted</b>"
             self.suite_score.setText(meta + scaling_text(sc))
         elif res.get("tests"):
-            self.suite_score.setText("No score: " + (bench_submit.can_submit(res) or "not finished."))
+            self.suite_score.setText(bench_submit.can_submit(res) or "No score: not finished.")
         else:
             self.suite_score.setText(self.machine_text + " &nbsp;·&nbsp; no result yet. Press <b>Run benchmark</b>.")
         self.b_submit.setEnabled(self.proc is None and not bench_submit.can_submit(res))

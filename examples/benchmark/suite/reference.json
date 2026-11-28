@@ -1,5 +1,5 @@
 {
- "suite": "Hertzon Bench 1",
+ "suite": "Hertzon Bench 2",
  "system": "4-core cloud server (Intel Xeon 2.1 GHz, 16 GB), Linux, Hertzon 0.4.6",
  "times": {
   "microstrip": 26.9,
@@ -10,7 +10,7 @@
   "sphere_rcs": 26.38,
   "drone_rcs": 281.78,
   "dielectric_rcs": 25.64,
-  "drone_medium_rcs": 71.27,
+  "drone_medium_rcs": 59.42,
   "rotman_array": 445.88
  },
  "tets": {
@@ -22,7 +22,7 @@
   "sphere_rcs": 16013,
   "drone_rcs": 183471,
   "dielectric_rcs": 13665,
-  "drone_medium_rcs": 46626,
+  "drone_medium_rcs": 35473,
   "rotman_array": 144244
  },
  "sparams": {
@@ -1890,7 +1890,7 @@
  "memory_mb": {
   "drone_rcs": 37077,
   "dielectric_rcs": 3038,
-  "drone_medium_rcs": 8542,
+  "drone_medium_rcs": 6316,
   "microstrip": 2031,
   "hairpin": 5377,
   "patch": 8526,
@@ -1901,7 +1901,7 @@
  },
  "rcs_dbsm": {
   "drone_rcs": -7.513,
-  "drone_medium_rcs": -6.853
+  "drone_medium_rcs": -7.048
  },
  "large_system": "AMD Ryzen Threadripper 3970X, 32 cores / 64 threads, 256 GB DDR4, Windows 10, 64 cores used, Hertzon 0.4.6"
 }
